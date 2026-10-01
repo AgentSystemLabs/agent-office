@@ -13,6 +13,7 @@ import { findLine } from '../../shared/search';
 import { DROP_MAX_BYTES, droppedPaths } from '../../shared/drops';
 import { providerLabel, providerUsageNote, providerUsageState, providerWaitingLabel, resolvedProvider } from './provider';
 import { naturalKey } from './termkeys';
+import { L } from '../i18n';
 import { termTabs } from './termtabs';
 
 /** A line to scroll to once the terminal has loaded: a search hit (see search.ts). */
@@ -28,9 +29,9 @@ const TYPING_SHOWS_MS = 2500;
 
 /** "Sam is typing…", "Sam and Ada are typing…", "Sam and 2 others are typing…". */
 function typingLine(names: string[]): string {
-  if (names.length === 1) return `${names[0]} is typing…`;
-  if (names.length === 2) return `${names[0]} and ${names[1]} are typing…`;
-  return `${names[0]} and ${names.length - 1} others are typing…`;
+  if (names.length === 1) return L.terminal.typing1(names[0]);
+  if (names.length === 2) return L.terminal.typing2(names[0], names[1]);
+  return L.terminal.typingN(names[0], names.length - 1);
 }
 
 /**
@@ -54,12 +55,12 @@ function initials(name: string): string {
 
 /** Sends a file dropped or pasted into a worker's terminal to the office; where the office keeps it. */
 async function uploadDrop(workerId: string, f: File): Promise<string> {
-  const name = f.name || 'That file';
+  const name = f.name || L.term2.thatFile;
   if (f.size > DROP_MAX_BYTES) throw new Error(`${name} is too big to drop into a terminal (${DROP_MAX_BYTES / 1024 / 1024} MB at most)`);
   const q = new URLSearchParams({ floor: store.floor ?? '', worker: workerId, name: f.name });
   const res = await fetch(`/api/term/drop?${q}`, { method: 'POST', headers: { 'content-type': f.type || 'application/octet-stream' }, body: f });
   const r = (await res.json().catch(() => ({}))) as { path?: string; error?: string };
-  if (!res.ok || !r.path) throw new Error(r.error ?? `${name} could not be dropped into the terminal`);
+  if (!res.ok || !r.path) throw new Error(r.error ?? L.term2.cantDrop(name));
   return r.path;
 }
 
@@ -74,14 +75,14 @@ export interface TerminalOptions {
 
 /** The keypad's keys: what each types, or a function of the terminal for the ones that depend on its mode. */
 const KEYPAD: { label: string; title: string; keys: string | ((term: Terminal) => string) }[] = [
-  { label: '1', title: 'Pick 1 (yes, in a permission prompt)', keys: '1' },
-  { label: '2', title: 'Pick 2', keys: '2' },
-  { label: '3', title: 'Pick 3', keys: '3' },
+  { label: '1', title: L.term2.pick1, keys: '1' },
+  { label: '2', title: L.term2.pick(2), keys: '2' },
+  { label: '3', title: L.term2.pick(3), keys: '3' },
   { label: '↑', title: 'Up', keys: (t) => (t.modes.applicationCursorKeysMode ? '\x1bOA' : '\x1b[A') },
-  { label: '↓', title: 'Down', keys: (t) => (t.modes.applicationCursorKeysMode ? '\x1bOB' : '\x1b[B') },
+  { label: '↓', title: L.hints.down, keys: (t) => (t.modes.applicationCursorKeysMode ? '\x1bOB' : '\x1b[B') },
   { label: '⏎', title: 'Enter', keys: '\r' },
   { label: '⇥', title: 'Tab', keys: '\t' },
-  { label: 'Esc', title: 'Esc: close a menu, or interrupt the agent', keys: '\x1b' },
+  { label: 'Esc', title: L.term2.escKey, keys: '\x1b' },
   { label: '^C', title: 'Ctrl+C', keys: '\x03' },
 ];
 
@@ -113,28 +114,28 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void,
   const viewers = h('div.viewers', {});
   const modelsBtn = h('button.btn', {
     type: 'button',
-    title: 'OpenCode models: Ctrl+X then M (use /models if custom bindings override it)',
-    'aria-label': 'OpenCode models',
-  }, '🧠 Models');
+    title: L.terminal.modelsTip,
+    'aria-label': L.provider.openCodeModel,
+  }, L.terminal.models);
   const typed = h('span.typed', {});
   // The Esc key leaves the terminal, so this is how Esc reaches the program: to close a menu like
   // Claude's /skills, or to interrupt it. Ctrl+[ does the same from the keyboard.
   const escBtn = h('button.btn', {
     type: 'button',
-    title: 'Send Esc to the terminal (Ctrl+[): closes a menu like /skills, or interrupts the agent. The Esc key on its own leaves the terminal',
-    'aria-label': 'Send Esc to the terminal',
+    title: L.term2.escTip,
+    'aria-label': L.term2.escLabel,
   }, '⎋ Esc');
-  const changesBtn = h('button.btn', { type: 'button', title: 'What this worker changed: files, diff, commit, open a PR (C at the desk)' }, '🌿 Changes');
-  const closeBtn = h('button.btn.close', { title: 'Leave terminal (Esc or Ctrl+]) · ⎋ Esc or Ctrl+[ sends Esc to the terminal', 'aria-label': 'Close' }, '✕');
+  const changesBtn = h('button.btn', { type: 'button', title: L.terminal.changesTip }, L.terminal.changes);
+  const closeBtn = h('button.btn.close', { title: L.term2.leaveTip, 'aria-label': L.common.close }, '✕');
   const host = h('div.term-host', { 'data-drop': '📎 Drop screenshots or files here to put them in the terminal' });
   const keys = h('div.term-keys', { role: 'group', 'aria-label': 'Keys' });
-  const say = h('input', { type: 'text', placeholder: 'Reply, or tell it what to do next…', 'aria-label': 'Prompt', enterkeyhint: 'send', autocomplete: 'off' }) as HTMLInputElement;
+  const say = h('input', { type: 'text', placeholder: L.term2.reply, 'aria-label': L.hints.prompt, enterkeyhint: 'send', autocomplete: 'off' }) as HTMLInputElement;
   const sayBtn = h('button.btn.primary', { type: 'submit' }, 'Send');
   const sayForm = h('form.term-say', {}, say, sayBtn);
   const keypad = opts.keypad ? h('div.term-keypad', {}, keys, sayForm) : null;
   const tabs = termTabs(workerId, { host, keypad, focusTerm: () => term.focus() });
   // The keypad has an Esc of its own.
-  const el = h('div.modal.term', { role: 'dialog', 'aria-label': `${info.name} terminal` }, h('header', {}, dot, title, pill, cost, viewers, typed, modelsBtn, keypad ? null : escBtn, onChanges ? changesBtn : null, closeBtn), tabs.bar, host, tabs.pages, keypad);
+  const el = h('div.modal.term', { role: 'dialog', 'aria-label': L.terminal.label(info.name) }, h('header', {}, dot, title, pill, cost, viewers, typed, modelsBtn, keypad ? null : escBtn, onChanges ? changesBtn : null, closeBtn), tabs.bar, host, tabs.pages, keypad);
 
   const term = new Terminal({
     fontFamily: 'ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
@@ -189,12 +190,12 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void,
       ...people.map((v) =>
         h(
           'span.avatar',
-          { class: v.typing ? 'typing' : '', style: `background:${v.color}`, title: `${v.name}${v.you ? ' (you)' : ''}${v.typing ? ' · typing' : ''}` },
+          { class: v.typing ? 'typing' : '', style: `background:${v.color}`, title: `${v.name}${v.you ? ` ${L.hud.you}` : ''}${v.typing ? ` · ${L.terminal.typingWord}` : ''}` },
           initials(v.name),
         ),
       ),
     );
-    viewers.title = people.length ? `In this terminal: ${people.map((v) => (v.you ? `${v.name} (you)` : v.name)).join(', ')}` : '';
+    viewers.title = people.length ? L.terminal.inHere(people.map((v) => (v.you ? `${v.name} ${L.hud.you}` : v.name)).join(', ')) : '';
     const typists = people.filter((v) => v.typing && !v.you).map((v) => v.name);
     typed.classList.toggle('now', typists.length > 0);
     if (typists.length) {
@@ -202,7 +203,7 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void,
       typed.title = '';
     } else {
       typed.textContent = w.lastInput ? `⌨️ ${w.lastInput.by}` : '';
-      typed.title = w.lastInput ? `${w.lastInput.by} typed here last, ${timeAgo(w.lastInput.at)}` : '';
+      typed.title = w.lastInput ? L.terminal.typedLast(w.lastInput.by, timeAgo(w.lastInput.at)) : '';
     }
   };
   /** Everyone in the terminal, one face per person however many windows they have it open in, you first. */
@@ -244,7 +245,7 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void,
     const workerProvider = w.kind === 'agent' ? resolvedProvider(w.provider, store.project) : undefined;
     const usageState = w.kind === 'agent' ? providerUsageState(w.provider, store.project, w.usage) : undefined;
     const waiting = usageState === 'waiting' ? providerWaitingLabel(workerProvider, store.project) : '';
-    cost.textContent = w.kind !== 'agent' ? '' : usageState === 'tracked' && w.usage ? usageLabel(w.usage, workerProvider) : waiting ? waiting : usageState === 'untracked' ? 'usage untracked' : '';
+    cost.textContent = w.kind !== 'agent' ? '' : usageState === 'tracked' && w.usage ? usageLabel(w.usage, workerProvider) : waiting ? waiting : usageState === 'untracked' ? L.hud.untracked : '';
     cost.title = w.kind === 'agent' && w.usage ? usageTitle(w.usage, workerProvider) : w.kind === 'agent' ? providerUsageNote(workerProvider!) : '';
     renderPresence(w);
     const openCode = w.kind === 'agent' && resolvedProvider(w.provider, store.project) === 'opencode';
@@ -266,7 +267,7 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void,
   const jumpTo = (f: TerminalFind) => {
     const buf = term.buffer.active;
     const row = findLine(buf, f.needle, f.fromEnd);
-    if (row === undefined) return toast('That line has scrolled out of the terminal since', 'warn');
+    if (row === undefined) return toast(L.terminal.scrolledOut, 'warn');
     let end = row;
     while (buf.getLine(end + 1)?.isWrapped) end++;
     // A marker follows the line when the terminal reflows, which it does as the window settles.
@@ -320,10 +321,10 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void,
 
   const modal = openModal(el, {
     backdropCloses: true,
-    doing: `💻 in ${info.name}'s terminal`,
+    doing: L.terminal.doing(info.name),
     onClose: (byEsc) => {
       // Leaving with Esc while the program wanted one (you were in /skills, say): say how to send it one.
-      if (byEsc && ready && screenMentionsEsc(term)) toast(`Esc left the terminal. To send ${store.workers.get(workerId)?.name ?? info.name} an Esc (to close a menu), use ⎋ Esc at the top or Ctrl+[`);
+      if (byEsc && ready && screenMentionsEsc(term)) toast(L.term2.escLeft(store.workers.get(workerId)?.name ?? info.name));
       listeners.delete(onMsg);
       unsub();
       unsubPeers();

@@ -3,6 +3,7 @@ import { FLOOR, SLAB, STREET_Y, WALL_HEIGHT, WALL_T, WING, wingMinZ } from '../.
 import type { SkyState, Theme, Weather } from '../../shared/protocol';
 import { guessPlace, skyTime, sunPosition } from '../../shared/sun';
 import type { NightParts } from './outside';
+import { L } from '../i18n';
 
 /*
  * Day, night and the weather outside the windows. The server says where the office is and what the
@@ -205,7 +206,7 @@ THREE.Material.prototype.onBeforeCompile = function (shader) {
 
 // ---- The sky ------------------------------------------------------------------------------------
 
-const LABEL: Record<Weather, string> = { clear: 'Clear', cloudy: 'Cloudy', rain: 'Rain', storm: 'Thunderstorm', snow: 'Snow', fog: 'Fog' };
+const LABEL: Record<Weather, string> = L.sky.weather;
 const ICON: Record<Weather, string> = { clear: '☀️', cloudy: '☁️', rain: '🌧️', storm: '⛈️', snow: '🌨️', fog: '🌫️' };
 
 /** "🌙 Clear · 9:41 PM outside · Berlin, Germany, 11 °C", for Settings: the time of day in the sky (see skyTime). */
@@ -215,7 +216,7 @@ export function describeSky(s: SkyState, now = Date.now()): string {
   const icon = s.weather === 'clear' && night ? '🌙' : ICON[s.weather];
   const time = new Date(sky + s.utcOffset * 60_000).toLocaleTimeString([], { timeZone: 'UTC', hour: 'numeric', minute: '2-digit' });
   const where = s.city ? ` · ${s.city}${s.temp !== undefined ? `, ${s.temp} °C` : ''}` : '';
-  return `${icon} ${LABEL[s.weather]} · ${time} outside${where}`;
+  return `${icon} ${LABEL[s.weather]} · ${L.sky.timeOutside(time)}${where}`;
 }
 
 const lerp = THREE.MathUtils.lerp;

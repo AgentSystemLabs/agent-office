@@ -9,6 +9,7 @@ import { PALETTE, box, type Looks } from './materials';
 import { pendant } from './props';
 import { buildDesk } from './seats';
 import { wallRun, wetPane, windowIn } from './shell';
+import { L } from '../../i18n';
 
 // The back office through the north wall, built out a row of desks at a time as the floor fills up.
 
@@ -53,9 +54,9 @@ function paintGrowSign(c: HTMLCanvasElement, level: number) {
   g.textAlign = 'center';
   g.textBaseline = 'middle';
   g.font = '800 88px Nunito, ui-rounded, system-ui, sans-serif';
-  g.fillText(full ? '🏢 As big as it gets' : '🚧 Room to grow', w / 2, h * 0.4);
+  g.fillText(full ? L.world.asBig : L.game.roomToGrow, w / 2, h * 0.4);
   g.font = '700 46px Nunito, ui-rounded, system-ui, sans-serif';
-  g.fillText(full ? 'The back office is built all the way out' : level ? 'Press E to go back another row: 2 more desks' : 'Press E to knock through: 2 more desks', w / 2, h * 0.68);
+  g.fillText(full ? L.world.builtOut : level ? L.world.pressRow : L.world.pressKnock, w / 2, h * 0.68);
 }
 
 /**

@@ -6,6 +6,7 @@ import path from 'node:path';
 import { normalizeMuseHook, withoutMuseLaunchArgs, writeMuseHome, type MuseHome } from '../muse.js';
 import { reduceLifecycle } from '../workers/lifecycle.js';
 import type { ProviderAdapter } from './types.js';
+import { L } from '../i18n.js';
 
 export const muse: ProviderAdapter<undefined, MuseHome> = {
   id: 'muse',
@@ -29,7 +30,7 @@ export const muse: ProviderAdapter<undefined, MuseHome> = {
     }
     return { args, rotateToken: true, env: { XDG_CONFIG_HOME: setup.configHome, XDG_DATA_HOME: setup.dataHome, XDG_STATE_HOME: setup.stateHome } };
   },
-  bootHint: 'Open the terminal: complete login if Muse asks',
+  bootHint: L.workers.completeLogin('Muse'),
   titleNoise: /^muse( code)?$/i,
   hook: {
     strictJson: true,

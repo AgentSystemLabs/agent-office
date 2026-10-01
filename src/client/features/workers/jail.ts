@@ -4,6 +4,7 @@ import type { JailState, Prisoner } from '../../../shared/protocol';
 import { Worker } from '../../world/character';
 import type { DungeonView } from '../../world/dungeon';
 import { mesh, toon } from '../../world/toon';
+import { L } from '../../i18n';
 
 /*
  * Whoever's locked up in the dungeon (see shared/maps/dungeon.ts and the floor's JailState): each one
@@ -16,7 +17,7 @@ import { mesh, toon } from '../../world/toon';
 /** How often (s) how far gone they are is worked out again: it changes over hours. */
 const REFRESH = 2;
 /** What they mutter, now and then, while you're down there with them. */
-const MUTTERS = ['🍞 …bread?', '💧 water…', '🙏 let me out', '😩 I can fix it, I swear', '🐀 hello, rat', '🥶 so cold…', '📜 I’ll write the tests!', '😵 …', '🎵 99 bugs in the code…', '🕯️ is it day?', '😢 I miss my desk', '🔑 psst… the key?'];
+const MUTTERS = L.world.mutters;
 /** How close (m) you have to be to hear one. */
 const EARSHOT = 9;
 

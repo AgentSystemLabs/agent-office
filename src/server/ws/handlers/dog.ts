@@ -3,6 +3,7 @@ import type { DogClientMsg } from '../../../shared/protocol.js';
 import { str } from '../../office/input.js';
 import { here } from './common.js';
 import type { HandlerMap, ViewPieces } from './types.js';
+import { L } from '../../i18n.js';
 
 export const dogView: ViewPieces['dog'] = (_ctx, floor) => floor?.dog.view() ?? null;
 

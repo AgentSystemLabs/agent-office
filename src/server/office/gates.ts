@@ -4,6 +4,7 @@ import type { Floor } from '../floor.js';
 import type { SignInKind } from '../../shared/protocol.js';
 import type { Ctx, Gates } from './context.js';
 import type { Client } from './client.js';
+import { L } from '../i18n.js';
 
 /** What has to be true before something happens for someone: a sign-in of their own, a fresh base, GitHub. */
 export function gates(ctx: Ctx): Gates {
@@ -14,8 +15,8 @@ export function gates(ctx: Ctx): Gates {
   const takeIssue = (c: Client, floor: Floor, n: number) => {
     floor.queue.dropIssue(n);
     const as = c.accountId ? ctx.signins.ghAs(c.accountId) : undefined;
-    if (typeof as === 'string') return ctx.warn(c, `Couldn't assign issue #${n} on GitHub: ${as}`);
-    void floor.github.claim(n, as).then((err) => ctx.warn(c, err && `Couldn't assign issue #${n} on GitHub: ${err}`));
+    if (typeof as === 'string') return ctx.warn(c, L.srv.couldntAssign(n, as));
+    void floor.github.claim(n, as).then((err) => ctx.warn(c, err && L.srv.couldntAssign(n, err)));
   };
 
   /**

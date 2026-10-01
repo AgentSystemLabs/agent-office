@@ -4,6 +4,7 @@ import { RELAY_LOGIN, relayRequest, signInPage, stoppedPage, tunneledPort } from
 import type { Ctx } from '../office/context.js';
 import { login, loginOptions } from './routes/auth.js';
 import { send } from './util.js';
+import { L } from '../i18n.js';
 
 /** A request a route answers: `path` is the URL's path, decoded. */
 export interface RouteRequest {
@@ -67,7 +68,7 @@ export function requestHandler(ctx: Ctx, routes: readonly Route[]) {
 
       const session = auth.fromRequest(req);
       if (!session) {
-        if (p.startsWith('/api/')) return send(res, 401, { error: 'Not logged in' });
+        if (p.startsWith('/api/')) return send(res, 401, { error: L.srv.notLoggedIn });
         // Back to the 2D view after signing in, if that's where they were going.
         res.writeHead(302, { location: p === '/lite' ? '/login?next=/lite' : '/login' }).end();
         return;

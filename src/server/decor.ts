@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { MAX_DECOR, checkImageUrl, sanitizePlacement, type Decoration } from '../shared/decor.js';
+import { L } from './i18n.js';
 
 /** The pictures on the office walls, saved in .agent-office/decor.json. */
 export class Decor {
@@ -18,8 +19,8 @@ export class Decor {
   }
 
   add(input: unknown, by: string): Decoration | string {
-    if (this.items.length >= MAX_DECOR) return `The walls are full (${MAX_DECOR} pictures). Take one down first.`;
-    const p = sanitizePlacement(input);
+    if (this.items.length >= MAX_DECOR) return L.srvDecor.full(MAX_DECOR);
+    const p = sanitizePlacement(input, L);
     if (typeof p === 'string') return p;
     const d: Decoration = { ...p, id: randomBytes(5).toString('hex'), by, at: Date.now() };
     this.items.push(d);
@@ -30,7 +31,7 @@ export class Decor {
   /** Changes any part of a picture's placement; what the patch leaves out stays as it was. */
   update(id: string, patch: unknown): Decoration | string {
     const i = this.items.findIndex((d) => d.id === id);
-    if (i < 0) return 'Someone already took that picture down';
+    if (i < 0) return L.srvDecor.alreadyDown;
     const { id: _, by, at, ...placement } = this.items[i];
     const p = sanitizePlacement({ ...placement, ...(patch && typeof patch === 'object' ? patch : {}) });
     if (typeof p === 'string') return p;
@@ -136,7 +137,7 @@ export class ImageProxy {
       });
     } catch (err) {
       const e = err as Error & { cause?: { code?: string } };
-      if (e.name === 'TimeoutError') return { status: 504, error: `${host} took too long to answer` };
+      if (e.name === 'TimeoutError') return { status: 504, error: L.srvDecor.slow(host) };
       return { status: 502, error: `Couldn't reach ${host}${e.cause?.code ? ` (${e.cause.code})` : ''}` };
     }
     if (!res.ok) {
@@ -146,11 +147,11 @@ export class ImageProxy {
     let type = (res.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase();
     if (type === 'text/html' || type === 'application/xhtml+xml') {
       void res.body?.cancel().catch(() => {});
-      return { status: 415, error: 'That link is a web page, not an image. Right-click the picture and choose “Copy image address”.' };
+      return { status: 415, error: L.srvDecor.webPage };
     }
     if (Number(res.headers.get('content-length')) > MAX_IMAGE_BYTES) {
       void res.body?.cancel().catch(() => {});
-      return { status: 413, error: 'That image is over 15 MB. Try a smaller one.' };
+      return { status: 413, error: L.srvDecor.tooBig };
     }
     const chunks: Buffer[] = [];
     let size = 0;
@@ -162,17 +163,17 @@ export class ImageProxy {
         size += value.length;
         if (size > MAX_IMAGE_BYTES) {
           await reader.cancel().catch(() => {});
-          return { status: 413, error: 'That image is over 15 MB. Try a smaller one.' };
+          return { status: 413, error: L.srvDecor.tooBig };
         }
         chunks.push(Buffer.from(value));
       }
     } catch {
-      return { status: 502, error: `${host} stopped sending the image halfway` };
+      return { status: 502, error: L.srvDecor.halfway(host) };
     }
     const body = Buffer.concat(chunks);
     if (!type.startsWith('image/')) {
       const sniffed = sniff(body);
-      if (!sniffed) return { status: 415, error: `That link isn't an image${type ? ` (it's ${type})` : ''}` };
+      if (!sniffed) return { status: 415, error: L.srvDecor.notImage(type) };
       type = sniffed;
     }
     const entry = { type, body, at: Date.now() };

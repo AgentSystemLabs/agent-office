@@ -10,6 +10,7 @@ import { shq } from '../workers/process.js';
 import type { WorkerHandle } from '../workers/types.js';
 import { truncate } from '../workers/util.js';
 import type { ProviderAdapter } from './types.js';
+import { L } from '../i18n.js';
 
 /**
  * A hook finding the office restarting (its workers keep running through that) retries, once a
@@ -179,8 +180,8 @@ function claudeHook(h: WorkerHandle, event: string, payload: any): boolean {
  * on this machine. That needs a human, until the screen moves on.
  */
 export function claudeBlocked(text: string, early: boolean): string | undefined {
-  if (NOT_LOGGED_IN.test(text)) return "Claude isn't signed in on this machine — open the terminal and type /login";
-  if (SETUP_PROMPT.test(text) && early) return 'Waiting on a setup prompt (trust / login) — open the terminal';
+  if (NOT_LOGGED_IN.test(text)) return L.workers.notSignedIn;
+  if (SETUP_PROMPT.test(text) && early) return L.workers.setupPrompt;
   return undefined;
 }
 
@@ -209,7 +210,7 @@ export const claude: ProviderAdapter<undefined, ClaudeSetup> = {
   },
   signIn: 'claude',
   // SessionStart fires as soon as Claude can take input: still silent, it's blocked on a human.
-  bootHint: 'Waiting on a setup prompt (trust / login) — open the terminal',
+  bootHint: L.workers.setupPrompt,
   titleNoise: /^claude( code)?$/i,
   // Resuming a conversation Claude no longer has ("No conversation found") exits before Claude ever starts.
   freshIfResumeFails: true,

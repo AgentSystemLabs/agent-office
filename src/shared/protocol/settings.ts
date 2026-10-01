@@ -3,6 +3,7 @@
 import type { CustomMap } from '../maps/index.js';
 import type { PromptId } from '../prompts.js';
 import type { AgentChoice } from './agents.js';
+import type { Locale } from '../i18n.js';
 
 /**
  * The prompts the office writes for workers by itself (shared/prompts.ts) and the worker everyone
@@ -168,6 +169,13 @@ export interface LeaveOnMergeState {
   at?: number;
 }
 
+/** The language the office speaks (⚙️ Settings, admins): its toasts, errors and console. Who set it, and when. */
+export interface LanguageState {
+  lang: Locale;
+  by?: string;
+  at?: number;
+}
+
 export type SettingsClientMsg =
   /** Set the office's Slack / Discord webhook; '' removes it. */
   | { t: 'notify.webhook'; url: string }
@@ -183,6 +191,8 @@ export type SettingsClientMsg =
   | { t: 'map.set'; map?: string }
   /** Workers whose pull request merged go home by themselves (true), or wait to be sent home. */
   | { t: 'leaveOnMerge.set'; on: boolean }
+  /** Admins: the language the office speaks (one of LOCALES). */
+  | { t: 'language.set'; lang: string }
   /** Rewrite one of the office's prompts (admins only); null puts the default back. */
   | { t: 'prompts.set'; id: PromptId; text: string | null }
   /** Pick the worker everyone starts on (admins only); null goes back to the office's --agent. */
@@ -197,4 +207,5 @@ export type SettingsServerMsg =
   | { t: 'theme'; state: ThemeState }
   | { t: 'map'; state: MapState }
   | { t: 'prompts'; state: PromptsState }
-  | { t: 'leaveOnMerge'; state: LeaveOnMergeState };
+  | { t: 'leaveOnMerge'; state: LeaveOnMergeState }
+  | { t: 'language'; state: LanguageState };

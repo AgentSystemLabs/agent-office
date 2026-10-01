@@ -53,3 +53,5 @@ agent-office accounts [list | invite [name] [--admin] | revoke <name> | role <na
   Invite, list and revoke people's own accounts, and switch the shared password
   off or on. Works while the office runs.
 ```
+
+**Language.** The office speaks the language in `AGENT_OFFICE_LANG` (`en` or `pt-BR`), else the terminal's `LC_ALL`, `LC_MESSAGES` or `LANG`, in its notices and errors, its console and what it posts to Slack or Discord. An admin can change it in ⚙️ Settings → Building. Each page is in the language its person picked in ⚙️ Settings → You, or else their browser's.

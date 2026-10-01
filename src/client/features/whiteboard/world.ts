@@ -3,6 +3,7 @@ import { WHITEBOARD } from '../../../shared/layout';
 import { mesh, roundedBox, textPlane, toon } from '../../world/toon';
 import type { Collider, Interactable } from '../../world/types';
 import type { Fixture } from '../../world/office/fixture';
+import { L } from '../../i18n';
 
 // The whiteboard: a rolling whiteboard on casters out on the open floor, with a marker tray. Its
 // face shows whatever everyone has drawn on it (see ui.ts), live.
@@ -79,7 +80,7 @@ export function buildWhiteboard(): WhiteboardStand {
   const eraserFelt = mesh(new THREE.BoxGeometry(0.19, 0.015, 0.075), toon('#6c757d'), 0.62, trayY + 0.015, 0.09, false);
   group.add(eraserFelt);
 
-  const plaque = textPlane('📝 Whiteboard', { bg: '#fffaf3', size: 48 });
+  const plaque = textPlane(L.hints.whiteboard, { bg: '#fffaf3', size: 48 });
   plaque.scale.multiplyScalar(0.55);
   plaque.position.set(0, bottom + height + 0.2, 0.05);
   group.add(plaque);
@@ -109,9 +110,9 @@ export function buildWhiteboard(): WhiteboardStand {
       g.textAlign = 'center';
       g.textBaseline = 'middle';
       g.font = `900 120px ${FONT}`;
-      g.fillText('Draw together ✏️', W / 2, H / 2 - 70);
+      g.fillText(L.whiteboard.drawTogether, W / 2, H / 2 - 70);
       g.font = `700 64px ${FONT}`;
-      g.fillText('Walk up and press E — everyone on this floor sees it live', W / 2, H / 2 + 70);
+      g.fillText(L.whiteboard.walkUp, W / 2, H / 2 + 70);
     }
     texture.needsUpdate = true;
   };

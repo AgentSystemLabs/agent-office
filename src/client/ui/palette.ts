@@ -1,6 +1,7 @@
 import './palette.css';
 import { rankItems, type PaletteItem, type PaletteMatch } from '../../shared/palette';
 import { h, openModal, type Modal } from './dom';
+import { L } from '../i18n';
 
 // The command palette (Ctrl+K, ⌘K on a Mac): a few letters find a worker, an issue, a pull request,
 // a board, a teammate or an action, and Enter opens it the way clicking it in the office does.
@@ -28,22 +29,22 @@ export function togglePalette(entries: () => PaletteEntry[]) {
   const all = entries();
   const input = h('input', {
     type: 'text',
-    placeholder: 'Find a worker, issue, PR, board, teammate or action…',
+    placeholder: L.palette.placeholder,
     autocomplete: 'off',
     spellcheck: 'false',
-    'aria-label': 'Find anything in the office',
+    'aria-label': L.palette.findAnything,
     role: 'combobox',
     'aria-controls': 'palette-list',
     'aria-expanded': 'true',
   });
   const list = h('ul.palette-list', { id: 'palette-list', role: 'listbox' });
-  const empty = h('p.note.palette-empty', {}, 'Nothing here matches that.');
+  const empty = h('p.note.palette-empty', {}, L.palette.nothing);
   const hint = h(
     'footer',
     {},
-    h('span.grow', {}, h('span.key', {}, '↵'), 'open ', h('span.key', {}, '⇧↵'), 'walk there first ', h('span.key', {}, '↑↓'), 'choose ', h('span.key', {}, 'Esc'), 'close'),
+    h('span.grow', {}, h('span.key', {}, '↵'), L.palette.open, h('span.key', {}, '⇧↵'), L.palette.walkFirst, h('span.key', {}, '↑↓'), L.palette.choose, h('span.key', {}, 'Esc'), L.palette.close),
   );
-  const el = h('div.modal.palette', { role: 'dialog', 'aria-label': 'Command palette' }, h('div.palette-find', {}, input), list, empty, hint);
+  const el = h('div.modal.palette', { role: 'dialog', 'aria-label': L.palette.title }, h('div.palette-find', {}, input), list, empty, hint);
 
   let found: PaletteMatch<PaletteEntry>[] = [];
   let at = 0;
@@ -76,7 +77,7 @@ export function togglePalette(entries: () => PaletteEntry[]) {
         const e = m.item;
         const row = h(
           'li.palette-row',
-          { id: `palette-${i}`, role: 'option', 'aria-selected': 'false', title: e.walk ? 'Enter opens it · Shift+Enter walks you there first' : 'Enter opens it' },
+          { id: `palette-${i}`, role: 'option', 'aria-selected': 'false', title: e.walk ? L.palette.enterWalk : L.palette.enter },
           h('span.palette-icon', {}, e.icon),
           h('span.palette-text', {}, h('span.palette-title', {}, ...marked(e.title, m.field === 'title' ? m.hits : [])), e.detail ? h('span.palette-detail', {}, ...marked(e.detail, m.field === 'detail' ? m.hits : [])) : null),
           h('span.palette-kind', {}, e.kind),

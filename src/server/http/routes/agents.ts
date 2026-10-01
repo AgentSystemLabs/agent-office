@@ -1,6 +1,7 @@
 // The models the hire dialog offers for OpenCode and Grok workers.
 import { send } from '../util.js';
 import type { Route } from '../router.js';
+import { L } from '../../i18n.js';
 
 export const agentRoutes = {
   openCodeModels: {
@@ -11,7 +12,7 @@ export const agentRoutes = {
       try {
         return send(res, 200, { models: await ctx.openCodeModels.get() });
       } catch {
-        return send(res, 502, { error: 'Could not load OpenCode models' });
+        return send(res, 502, { error: L.srv.noModels });
       }
     },
   },
@@ -23,7 +24,7 @@ export const agentRoutes = {
       try {
         return send(res, 200, { models: await ctx.grokModels.get() });
       } catch {
-        return send(res, 502, { error: 'Could not load Grok models' });
+        return send(res, 502, { error: L.srv.noGrokModels });
       }
     },
   },

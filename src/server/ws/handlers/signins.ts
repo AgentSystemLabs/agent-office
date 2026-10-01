@@ -4,11 +4,12 @@ import type { Ctx } from '../../office/context.js';
 import type { Client } from '../../office/client.js';
 import { str } from '../../office/input.js';
 import type { HandlerMap } from './types.js';
+import { L } from '../../i18n.js';
 
 /** The account `c` is signed in with; on the shared password there's none, and they're told why. */
 const accountOf = (ctx: Ctx, c: Client): string | undefined => {
   const id = c.accountId;
-  if (!id) ctx.warn(c, "On the shared office password, workers run on the office's own sign-ins");
+  if (!id) ctx.warn(c, L.srv.sharedSignIns);
   return id;
 };
 const whichOf = (msg: SignInsClientMsg): SignInKind => ('which' in msg && msg.which === 'github' ? 'github' : 'claude');

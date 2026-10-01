@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import * as pty from '@lydell/node-pty';
 import type { SignInKind, SignInState, SignInsState } from '../shared/protocol.js';
+import { L } from './i18n.js';
 
 /*
  * Everyone's own Claude and GitHub
@@ -39,7 +40,7 @@ const API_KEY = /^sk-ant-api/;
 /** ghp_…, github_pat_…, gho_… and the like. */
 const GITHUB_TOKEN = /^[A-Za-z0-9_]{20,255}$/;
 const ACCOUNT_ID = /^[A-Za-z0-9]{6,64}$/;
-const HELP_WHERE = '☰ → 🔐 Your sign-ins';
+const HELP_WHERE = L.srvSignin.where;
 
 interface Saved {
   /** Unset: its own login, in its folder. A token pasted from `claude setup-token` (or an API key). The office machine's own (admins). */
@@ -112,8 +113,8 @@ export class SignIns {
   /** What to tell someone who needs `which` signed in first. */
   why(which: SignInKind): string {
     return which === 'claude'
-      ? `Sign in to Claude first (${HELP_WHERE}): your workers run on your own Claude plan`
-      : `Sign in to GitHub first (${HELP_WHERE}): the office acts on GitHub as you`;
+      ? L.srvSignin.claudeFirst(HELP_WHERE)
+      : L.srvSignin.githubFirst(HELP_WHERE);
   }
 
   /**
@@ -184,9 +185,9 @@ export class SignIns {
   code(id: string, code: string): string | undefined {
     const l = this.get(id);
     const flow = l.flows.claude;
-    if (!flow?.write) return 'Start signing in to Claude first';
+    if (!flow?.write) return L.srvSignin.startFirst;
     const clean = code.trim();
-    if (!/^[A-Za-z0-9#_.~-]{8,2048}$/.test(clean)) return "That doesn't look like the code from Claude's sign-in page";
+    if (!/^[A-Za-z0-9#_.~-]{8,2048}$/.test(clean)) return L.srvSignin.badCode;
     flow.write(`${clean}\r`);
     l.claude = { ...l.claude, pending: { ...l.claude.pending, sent: true }, error: undefined };
     this.onChange(id);
@@ -203,7 +204,7 @@ export class SignIns {
     const token = raw.trim();
     this.stop(id, which);
     if (which === 'claude') {
-      if (!CLAUDE_TOKEN.test(token)) return "That isn't a token from `claude setup-token` (sk-ant-oat01-…) or an Anthropic API key (sk-ant-api03-…)";
+      if (!CLAUDE_TOKEN.test(token)) return L.srvSignin.badClaudeToken;
       const s = this.load(id);
       s.claude = { use: 'token', token };
       this.save(id, s);
@@ -218,19 +219,19 @@ export class SignIns {
       await this.look(id, true);
       return undefined;
     }
-    if (!this.gh) return "The GitHub CLI (gh) isn't installed on the office's machine";
-    if (!GITHUB_TOKEN.test(token)) return "That doesn't look like a GitHub token (ghp_…, github_pat_…)";
+    if (!this.gh) return L.srvSignin.noGh;
+    if (!GITHUB_TOKEN.test(token)) return L.srvSignin.badGhToken;
     const s = this.load(id);
     delete s.github;
     this.save(id, s);
     const r = await run(this.gh, ['auth', 'login', '--hostname', 'github.com', '--with-token', '--insecure-storage'], this.githubEnv(id), `${token}\n`);
     await this.look(id, true);
-    return r.code === 0 ? undefined : `GitHub didn't take that token: ${r.last || 'gh auth login failed'}`;
+    return r.code === 0 ? undefined : L.srvSignin.ghRejected(r.last || L.srvSignin.ghLoginFailed);
   }
 
   /** Uses the office machine's own sign-in (admins only). */
   useOffice(id: string, which: SignInKind): string | undefined {
-    if (!this.mayUseOffice(id)) return "Only admins can use the office's own sign-ins";
+    if (!this.mayUseOffice(id)) return L.srvSignin.adminsOffice;
     this.stop(id, which);
     const s = this.load(id);
     s[which] = { use: 'office' };
@@ -372,7 +373,7 @@ export class SignIns {
   }
 
   private startClaude(id: string): string | undefined {
-    if (!this.claude) return "Claude Code isn't installed where the office can run it — paste a token from `claude setup-token` instead";
+    if (!this.claude) return L.srvSignin.noClaudePaste;
     this.stop(id, 'claude');
     const l = this.get(id);
     // BROWSER=true: Claude "opens" the page with the `true` command and just prints it, for the browser to show.
@@ -382,7 +383,7 @@ export class SignIns {
       // Wide, so the link comes out on one line.
       p = pty.spawn(this.claude, ['auth', 'login', '--claudeai'], { name: 'xterm-256color', cols: 4000, rows: 40, cwd: this.home(id), env });
     } catch (err) {
-      return `Couldn't start Claude Code's sign-in: ${(err as Error).message}`;
+      return L.srvSignin.claudeStartFailed((err as Error).message);
     }
     let out = '';
     /** Where the output after the code was sent starts, to tell a wrong code apart from the first ask. */
@@ -415,7 +416,7 @@ export class SignIns {
         // Still running after complaining: the code didn't take, and it waits for another.
         const said = lastWords(out.slice(sentAt));
         sentAt = -1;
-        l.claude = { status: 'busy', pending: { url: l.claude.pending.url }, error: said || "That code didn't work — copy it again, or start over" };
+        l.claude = { status: 'busy', pending: { url: l.claude.pending.url }, error: said || L.srvSignin.codeFailed };
         this.onChange(id);
       }
     });
@@ -429,7 +430,7 @@ export class SignIns {
         delete s.claude;
         this.save(id, s);
         l.claude = { status: 'busy' };
-      } else l.claude = { status: 'none', error: lastWords(out) || 'Signing in stopped before it finished' };
+      } else l.claude = { status: 'none', error: lastWords(out) || L.srvSignin.stopped };
       this.onChange(id);
       void this.look(id, true);
     });
@@ -440,7 +441,7 @@ export class SignIns {
   }
 
   private startGithub(id: string): string | undefined {
-    if (!this.gh) return "The GitHub CLI (gh) isn't installed on the office's machine";
+    if (!this.gh) return L.srvSignin.noGh;
     this.stop(id, 'github');
     const l = this.get(id);
     const env = { ...this.githubEnv(id), BROWSER: 'true', GH_BROWSER: 'true' };
@@ -464,7 +465,7 @@ export class SignIns {
       if (l.flows.github !== flow) return;
       delete l.flows.github;
       clearTimeout(timer);
-      l.github = { status: 'none', error: `Couldn't start gh: ${err.message}` };
+      l.github = { status: 'none', error: L.srvSignin.ghStartFailed(err.message) };
       this.onChange(id);
     });
     p.on('exit', (exitCode) => {
@@ -476,7 +477,7 @@ export class SignIns {
         delete s.github;
         this.save(id, s);
         l.github = { status: 'busy' };
-      } else l.github = { status: 'none', error: lastWords(out) || 'Signing in stopped before it finished' };
+      } else l.github = { status: 'none', error: lastWords(out) || L.srvSignin.stopped };
       this.onChange(id);
       void this.look(id, true);
     });
@@ -492,7 +493,7 @@ export class SignIns {
     const s = this.load(id);
     const how = this.how(id, s, 'claude');
     if (!this.claude) {
-      l.claude = how === 'token' ? { status: 'ok', who: 'a pasted token' } : { status: 'none', error: "Claude Code isn't installed on the office's machine" };
+      l.claude = how === 'token' ? { status: 'ok', who: L.srvSignin.pastedToken } : { status: 'none', error: L.srvSignin.noClaude };
       return;
     }
     const env = how === 'office' ? this.base() : this.apply(id, this.base(), [], 'claude');
@@ -505,7 +506,7 @@ export class SignIns {
     }
     if (l.flows.claude) return;
     const plan = status.subscriptionType ? ` · ${status.subscriptionType[0].toUpperCase()}${status.subscriptionType.slice(1)}` : '';
-    const pasted = s.claude?.use === 'token' ? (API_KEY.test(s.claude.token) ? 'an API key' : 'a token from claude setup-token') : 'a token';
+    const pasted = s.claude?.use === 'token' ? (API_KEY.test(s.claude.token) ? L.srvSignin.anApiKey : L.srvSignin.setupToken) : L.srvSignin.aToken;
     // A token in the environment is taken on trust: whether it works shows when a worker starts.
     const who = status.loggedIn || how === 'token' ? `${status.email ?? pasted}${plan}` : undefined;
     // Signed out, `claude auth status` still answers (and exits 1); anything else went wrong.
@@ -519,7 +520,7 @@ export class SignIns {
     const s = this.load(id);
     const how = this.how(id, s, 'github');
     if (!this.gh) {
-      l.github = { status: 'none', error: "The GitHub CLI (gh) isn't installed on the office's machine" };
+      l.github = { status: 'none', error: L.srvSignin.noGh };
       return;
     }
     const r = await run(this.gh, ['api', 'user', '--jq', '{login, id, name}'], how === 'office' ? this.base() : this.githubEnv(id));

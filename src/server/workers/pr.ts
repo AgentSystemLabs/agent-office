@@ -12,6 +12,7 @@ import { run } from './process.js';
 import type { OpenedPr, Worker, WorkerContext } from './types.js';
 import { truncate } from './util.js';
 import { originRepo } from './worktree.js';
+import { L } from '../i18n.js';
 
 const PR_TITLE_MAX = 72;
 const PR_TASK_MAX = 2500;
@@ -90,17 +91,17 @@ export class WorkerPrs {
    */
   async openPr(id: string, by: string, as?: GhAs): Promise<{ prs: OpenedPr[]; failed: string[] } | string> {
     const w = this.ctx.workers.get(id);
-    if (!w) return 'No such worker';
+    if (!w) return L.srv.noSuchWorker;
     const { info } = w;
     const wt = info.worktree;
-    if (!wt) return `${info.name} works in the main checkout — only workers with their own worktree can open a PR`;
-    if (info.prOpening) return `${info.name}'s pull request is already being opened`;
+    if (!wt) return L.main.mainCheckout(info.name);
+    if (info.prOpening) return L.workers.prOpening(info.name);
     if (isBusy(info.status)) {
-      return `${info.name} is still ${info.status === 'needs_input' ? 'waiting on input' : info.status} — wait until it's done`;
+      return L.main.stillBusy(info.name, info.status === 'needs_input' ? L.workers.waitingInput : (L.common.status[info.status] ?? info.status));
     }
     if (info.repos?.length) return this.openPrs(w, by, as);
     const cwd = path.join(this.ctx.dir, wt.path);
-    if (!existsSync(cwd)) return `${info.name}'s worktree is gone (${wt.path})`;
+    if (!existsSync(cwd)) return L.workers.worktreeGone(info.name, wt.path);
     info.prOpening = true;
     this.ctx.emit(w);
     try {
@@ -109,7 +110,7 @@ export class WorkerPrs {
       const branch = info.worktree?.branch ?? wt.branch;
       const commits = (await run('git', ['log', '--reverse', '--format=%h %s', `${wt.base}..${branch}`], cwd)).split('\n').filter(Boolean);
       const dirty = (await run('git', ['status', '--porcelain'], cwd)) !== '';
-      if (!commits.length) return dirty ? `${info.name} hasn't committed anything yet — ask it to commit first` : `${info.name} has no commits on ${branch} yet`;
+      if (!commits.length) return dirty ? L.workers.noCommitsDirty(info.name) : L.workers.noCommits(info.name, branch);
       const open = await findOpenPr(branch, cwd);
       if (open) {
         info.pr = open;
@@ -124,7 +125,7 @@ export class WorkerPrs {
       this.ctx.persist();
       return { prs: [{ number, url, existed: false, dirty }], failed: [] };
     } catch (err) {
-      return `Couldn't open a PR for ${info.name}: ${(err as Error).message}`;
+      return L.workers.prFailed(info.name, (err as Error).message);
     } finally {
       info.prOpening = false;
       // The worker may have been sent home meanwhile; an update would bring it back as a ghost.
@@ -177,12 +178,12 @@ export class WorkerPrs {
           this.ctx.persist();
           prs.push({ repo: p.name, ...pr, existed: false, dirty, cwd });
         } catch (err) {
-          failed.push(`Couldn't open a PR in ${p.name}: ${(err as Error).message}`);
+          failed.push(L.workers.prFailedIn(p.name, (err as Error).message));
         }
       }
       if (!prs.length) {
         if (failed.length) return failed.join('; ');
-        return uncommitted.length ? `${info.name} hasn't committed anything yet in ${uncommitted.join(', ')} — ask it to commit first` : `${info.name} has no commits on ${wt.branch} yet in any of its repositories`;
+        return uncommitted.length ? L.workers.noCommitsDirtyIn(info.name, uncommitted.join(', ')) : L.workers.noCommitsAny(info.name, wt.branch);
       }
       if (prs.length > 1 && prs.some((p) => !p.existed)) {
         for (const p of prs) {
@@ -191,7 +192,7 @@ export class WorkerPrs {
             const next = withRelated(body, relatedBlock(prs, p.url, wt.branch));
             if (next !== body) await gh(['pr', 'edit', p.url, '--body', next], p.cwd, 60_000, as?.env);
           } catch (err) {
-            failed.push(`Couldn't list the other pull requests on ${p.repo} #${p.number}: ${(err as Error).message}`);
+            failed.push(L.workers.couldntList(`${p.repo} #${p.number}`, (err as Error).message));
           }
         }
       }

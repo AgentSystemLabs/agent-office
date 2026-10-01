@@ -3,6 +3,7 @@ import { GREEN, ROUND, landing, meterAt, targetFrame, throwSpot, type BarGame, t
 import { isTyping, type PlayerController } from '../../player';
 import { $, h, modalOpen } from '../../ui/dom';
 import type { Person } from '../../world/character';
+import { L } from '../../i18n';
 
 // Stepping up to the dart board's oche or the axe lane's line, up on the roof (E there): you stand
 // at the line with a dart (or an axe) in hand, and the camera looks over your shoulder at the target.
@@ -322,11 +323,11 @@ export class Thrower {
     this.sweet.style.left = `${(g.at - g.width / 2) * 100}%`;
     this.sweet.style.width = `${g.width * 100}%`;
     const next = this.stage === 'aim' || this.stage === 'wind' ? this.next : this.n;
-    const title = game === 'darts' ? `🎯 Darts · dart ${next} of ${ROUND.darts}` : `🪓 Axe throwing · axe ${next} of ${ROUND.axe}`;
+    const title = game === 'darts' ? L.game.dartOf(next, ROUND.darts) : L.game.axeOf(next, ROUND.axe);
     const text = `${title}|${this.info}`;
     if (text === this.shown) return;
     this.shown = text;
     this.titleEl.textContent = title;
-    this.infoEl.textContent = this.info || (game === 'darts' ? 'Aim with the mouse · hold Space and let go in the green' : 'Let go in the green to stick it');
+    this.infoEl.textContent = this.info || (game === 'darts' ? L.game.aimDarts : L.game.aimAxe);
   }
 }

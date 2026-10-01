@@ -25,6 +25,7 @@ import type { Ctx } from './context';
 import type { CoreState } from './ctx';
 import { builtFloors, pastTheWing } from './floors';
 import type { Parts } from './parts';
+import { L } from '../i18n';
 
 export type ArrivalParts = Pick<Parts, 'worlds' | 'place' | 'travel' | 'maps' | 'views' | 'cards' | 'hoops' | 'bar' | 'golf' | 'bargames' | 'cars' | 'focus'>;
 
@@ -135,11 +136,11 @@ export function installArrival(ctx: Ctx, core: CoreState, parts: ArrivalParts) {
     // The card belongs to the board downstairs (or up): the office already put it back there.
     const carrying = core.carrying;
     if (carrying) {
-      toast(`📌 #${carrying.issue} stayed behind on the other floor's board`);
+      toast(L.main.issueStayed(carrying.issue));
       parts.cards.setCarrying(null);
     }
     // So does the ball: it's back under that floor's hoop.
-    if (parts.hoops.holding()) toast('🏀 The ball stayed behind, back under the other floor’s hoop');
+    if (parts.hoops.holding()) toast(L.main.ballStayed);
     parts.hoops.ballNews(false);
     travel.arrive();
     // Down off a roof that isn't there any more, or the map changed on the way: where you come in on this map.
@@ -156,7 +157,7 @@ export function installArrival(ctx: Ctx, core: CoreState, parts: ArrivalParts) {
     // Someone who just joined starts here: their workers need their own Claude sign-in first.
     if (!signInsGreeted) {
       signInsGreeted = true;
-      if (needsSigningIn()) openSignIns(net, 'Welcome! Sign in to Claude so the workers you hire run on your own plan, and to GitHub so what you do on the boards is yours.');
+      if (needsSigningIn()) openSignIns(net, L.game.signInWelcome);
     }
   });
   ctx.messages.on('signins.needed', (msg) => openSignIns(net, msg.why));
@@ -166,12 +167,12 @@ export function installArrival(ctx: Ctx, core: CoreState, parts: ArrivalParts) {
     const u = store.upgrade;
     const banner = $('upgrade-banner');
     banner.classList.toggle('hidden', u.phase !== 'building');
-    banner.textContent = `🛠️ ${u.by ?? 'Someone'} is upgrading the office. It restarts on the new version in a minute or two.`;
+    banner.textContent = L.main.upgrading(u.by);
   }
   store.on('upgrade', renderUpgrade);
   ctx.messages.on('upgrade', (msg) => {
     if (msg.state.phase === 'restarting') showRestarting(msg.state, net);
-    if (msg.state.phase === 'failed' && upgradePhase === 'building') toast(`The upgrade failed, so the office stays on ${msg.state.current?.sha ?? 'this version'}`, 'error');
+    if (msg.state.phase === 'failed' && upgradePhase === 'building') toast(L.main.upgradeFailed(msg.state.current?.sha), 'error');
     upgradePhase = msg.state.phase;
   });
 
@@ -182,21 +183,21 @@ export function installArrival(ctx: Ctx, core: CoreState, parts: ArrivalParts) {
       const n = builtFloors().length;
       $('project-meta').classList.remove('lobby');
       $('project-name').textContent = `🍸 ${ROOF_NAME}`;
-      $('project-meta').textContent = `🛗 on top of ${n} floor${n === 1 ? '' : 's'} · 🎧 drum & bass`;
+      $('project-meta').textContent = `${L.main.onTopOf(n)} · 🎧 drum & bass`;
       return;
     }
     if (!p) {
       $('project-name').textContent = '🏢 Agent Office';
-      $('project-meta').textContent = store.floors.length ? '🛗 Take the elevator to a floor' : '🛗 No floors yet — add a project in the elevator';
+      $('project-meta').textContent = store.floors.length ? L.main.takeElevator : L.main.noFloorsYet;
       // Where to go next, so it shows even with the floor details turned off.
       $('project-meta').classList.add('lobby');
-      ctx.world().setProjectName(store.floors.length ? 'Pick a floor' : 'Lobby');
+      ctx.world().setProjectName(store.floors.length ? L.main.pickFloor : L.main.lobby);
       return;
     }
     const n = store.floors.findIndex((f) => f.id === store.floor);
     $('project-meta').classList.remove('lobby');
     $('project-name').textContent = `🏢 ${p.name}`;
-    $('project-meta').textContent = [n >= 0 && `🛗 floor ${n + 1} of ${store.floors.length}`, p.branch && `⎇ ${p.branch}`, p.dir, `default: ${providerLabel(p.defaultProvider, p)}`].filter(Boolean).join(' · ');
+    $('project-meta').textContent = [n >= 0 && `🛗 ${L.main.floorOf(n + 1, store.floors.length)}`, p.branch && `⎇ ${p.branch}`, p.dir, L.main.defaultProvider(providerLabel(p.defaultProvider, p))].filter(Boolean).join(' · ');
     ctx.world().setProjectName(p.name);
   }
   store.on('floors', renderProject);
@@ -211,8 +212,8 @@ export function installArrival(ctx: Ctx, core: CoreState, parts: ArrivalParts) {
   function floorWentWhileAway(was: string | null) {
     if (!was || was === ROOF || store.floor !== ROOF || store.floors.some((f) => f.id === was)) return;
     const saved = lastSpot();
-    const name = saved?.floor === was && saved.name ? saved.name : 'Your floor';
-    toast(`🛗 ${name} isn't in the building any more, so the elevator brought you up to the roof`, 'warn');
+    const name = saved?.floor === was && saved.name ? saved.name : L.game.yourFloor;
+    toast(L.game.floorGone(name), 'warn');
   }
 
   return { renderProject, whereNow };

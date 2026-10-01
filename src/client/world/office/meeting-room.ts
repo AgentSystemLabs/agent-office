@@ -8,6 +8,7 @@ import { PALETTE, box, glassPane } from './materials';
 import { wallBoard } from './props';
 import { chair } from './seats';
 import type { Door } from './shell';
+import { L } from '../../i18n';
 
 /** A chair at the meeting table, with its laptop on the table in front of it. */
 function buildMeetingSeat(def: DeskDef, index: number): DeskView {
@@ -109,7 +110,7 @@ export function buildMeetingRoom(group: THREE.Group, colliders: Collider[], inte
       for (const [leaf, x0] of leaves) leaf.position.x = x0 + Math.sign(x0 - dx) * e * (half - 0.06);
     },
   });
-  const label = textPlane('🤝 Meeting room', { bg: '#2b2d42', color: '#fffaf3', size: 56, border: '#fffaf3' });
+  const label = textPlane(L.hints.meetingRoom, { bg: '#2b2d42', color: '#fffaf3', size: 56, border: '#fffaf3' });
   label.scale.multiplyScalar(0.62);
   // In front of the glass wall's frame (out to R.minZ - 0.08) and the sliding leaves (to R.minZ - 0.11),
   // which it runs across once its text is wider than the door.

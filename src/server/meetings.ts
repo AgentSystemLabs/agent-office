@@ -10,6 +10,7 @@ import { validateWorkerEffort, validateWorkerModel } from './agents.js';
 import { providerMeta, takesEffort, takesModel } from '../shared/providers.js';
 import { gitError, type WorktreeRef, type WorktreeState } from './worktrees.js';
 import { PROMPTS, fillPrompt, type PromptId, type PromptVars } from '../shared/prompts.js';
+import { L } from './i18n.js';
 
 const execFileP = promisify(execFile);
 
@@ -118,17 +119,17 @@ export class MeetingRoom {
   /** Calls a meeting. Returns why it couldn't, or undefined once everyone is sitting down. */
   /** `owner` is the account calling it: the workers run on its sign-ins, and a review panel's review is posted as it. */
   start(req: MeetingRequest, by: string, owner?: string): string | undefined {
-    if (this.current?.status === 'running') return `The meeting room is busy with “${this.current.title}”: stop that meeting first`;
-    if (!isMeetingPattern(req.pattern)) return 'Unknown meeting pattern';
+    if (this.current?.status === 'running') return L.srvMeeting.busy(this.current.title);
+    if (!isMeetingPattern(req.pattern)) return L.srvMeeting.unknownPattern;
     const pattern = MEETING_PATTERNS[req.pattern];
     const paused = this.events.hiringPaused();
     if (paused) return paused;
     const prompt = String(req.prompt ?? '').replace(/\r\n?/g, '\n').trim().slice(0, PROMPT_MAX);
-    if (!prompt) return 'Say what the meeting is about';
+    if (!prompt) return L.srvMeeting.sayAbout;
     // Nobody picked: the office's default worker, model and effort included.
     const picked = req.provider !== undefined ? { provider: req.provider, model: req.model, effort: req.effort } : (this.workers.officeDefault ?? { provider: this.workers.defaultProvider });
     const provider = picked.provider;
-    if (!isAgentProvider(provider) || (provider === 'custom' && this.workers.defaultProvider !== 'custom')) return 'Unknown agent provider';
+    if (!isAgentProvider(provider) || (provider === 'custom' && this.workers.defaultProvider !== 'custom')) return L.srv.unknownProvider;
     const model = takesModel(provider) ? picked.model || undefined : undefined;
     const effort = takesEffort(provider) && isAgentEffort(picked.effort) ? picked.effort : undefined;
     const bad = validateWorkerModel('agent', provider, model) ?? validateWorkerEffort('agent', provider, effort);
@@ -137,18 +138,18 @@ export class MeetingRoom {
     const given = Array.isArray(req.roles) ? req.roles.map((r) => String(r ?? '').replace(/\s+/g, ' ').trim().slice(0, ROLE_MAX)) : [];
     const count = given.length || pattern.seats.default;
     if (count < pattern.seats.min || count > Math.min(pattern.seats.max, MEETING_SEATS.length)) {
-      return pattern.seats.min === pattern.seats.max ? `A ${pattern.label} meeting seats ${pattern.seats.min} workers` : `A ${pattern.label} meeting seats ${pattern.seats.min} to ${pattern.seats.max} workers`;
+      return pattern.seats.min === pattern.seats.max ? L.srvMeeting.seatsExact((L.meetings.patterns[req.pattern]?.label ?? pattern.label), pattern.seats.min) : L.srvMeeting.seatsRange((L.meetings.patterns[req.pattern]?.label ?? pattern.label), pattern.seats.min, pattern.seats.max);
     }
     const roles = numbered(Array.from({ length: count }, (_, i) => given[i] || pattern.roles[i] || `Worker ${i + 1}`));
 
     const pr = Number.isInteger(req.pr) && (req.pr as number) > 0 ? (req.pr as number) : undefined;
-    if (pattern.needs === 'pr' && pr === undefined) return 'A review panel needs a pull request to review';
+    if (pattern.needs === 'pr' && pr === undefined) return L.srvMeeting.needsPr;
     const parts = (Array.isArray(req.parts) ? req.parts : []).map((p) => String(p ?? '').trim()).filter(Boolean).slice(0, PARTS_MAX);
-    if (pattern.needs === 'parts' && parts.length < count - 1) return `List at least ${count - 1} part${count === 2 ? '' : 's'} for the mappers, one per line (or seat fewer workers)`;
+    if (pattern.needs === 'parts' && parts.length < count - 1) return L.srvMeeting.listParts(count - 1);
     const issue = Number.isInteger(req.issue) && (req.issue as number) > 0 ? (req.issue as number) : undefined;
     const rounds = clamp(Math.floor(Number(req.rounds) || pattern.rounds.default), pattern.rounds.min, pattern.rounds.max);
     const budget = clamp(Math.floor(Number(req.budget) || count * TOKENS_PER_SEAT), 50_000, MAX_MEETING_BUDGET);
-    const title = (String(req.title ?? '').replace(/\s+/g, ' ').trim() || (pr !== undefined && req.pattern === 'review' ? `Review of PR #${pr}` : firstLine(prompt))).slice(0, 100);
+    const title = (String(req.title ?? '').replace(/\s+/g, ' ').trim() || (pr !== undefined && req.pattern === 'review' ? L.pull.reviewOf(pr) : firstLine(prompt))).slice(0, 100);
     const id = randomBytes(4).toString('hex');
     const slug = slugify(title, 32);
     const output = String(req.output ?? '').trim() || pattern.output(slug, pr);
@@ -159,7 +160,7 @@ export class MeetingRoom {
     const last = this.current;
     if (last) void this.dismiss(last);
     const busy = MEETING_SEATS.slice(0, count).find((d) => this.workers.list().some((w) => w.deskId === d.id));
-    if (busy) return 'Someone is still sitting at the meeting table';
+    if (busy) return L.srvMeeting.stillSitting;
 
     let worktree: Meeting['worktree'];
     if (this.trees) {
@@ -167,7 +168,7 @@ export class MeetingRoom {
       if (typeof made === 'string') return made;
       const { note, ...ref } = made;
       worktree = ref;
-      if (note) this.events.toast(`🌿 The meeting's worktree ${note}`, 'info');
+      if (note) this.events.toast(`🌿 ${L.srvMeeting.worktreeNote(note)}`, 'info');
     }
     const m: Meeting = {
       id,
@@ -217,24 +218,24 @@ export class MeetingRoom {
     if (last) this.archive(last);
     this.current = m;
     this.changed();
-    this.events.toast(`🤝 ${by} called a ${pattern.label} meeting: “${title}” (${count} workers, ${rounds} round${rounds === 1 ? '' : 's'} at most, ${fmtTokens(budget)} tokens)`, 'info');
+    this.events.toast(L.srvMeeting.called(by, L.meetings.patterns[req.pattern]?.label ?? pattern.label, title, count, rounds, fmtTokens(budget)), 'info');
     return undefined;
   }
 
   /** Stops the meeting that's running. Its workers stay at the table. */
   stop(by: string): string | undefined {
     const m = this.current;
-    if (!m || m.status !== 'running') return 'No meeting is on';
-    this.halt(m, `stopped by ${by}`);
+    if (!m || m.status !== 'running') return L.srvMeeting.noMeeting;
+    this.halt(m, L.srvMeeting.stoppedBy(by));
     return undefined;
   }
 
   /** Sends the last meeting's workers home and clears the table. */
   clear(by: string): string | undefined {
     const m = this.current;
-    if (!m) return 'Nobody is in the meeting room';
-    if (m.status === 'running') return 'The meeting is still on: stop it first';
-    this.events.toast(`🤝 ${by} cleared the meeting room`, 'info');
+    if (!m) return L.srvMeeting.nobody;
+    if (m.status === 'running') return L.srvMeeting.stillOn;
+    this.events.toast(L.srvMeeting.cleared(by), 'info');
     void this.dismiss(m);
     this.archive(m);
     this.current = null;
@@ -295,10 +296,10 @@ export class MeetingRoom {
     }
     for (const s of m.seats) {
       const w = s.workerId ? byId.get(s.workerId) : undefined;
-      if (!w) return this.halt(m, `the ${s.role} (${s.workerName ?? 'its worker'}) was sent home`);
-      if (w.status === 'exited') return this.halt(m, `the ${s.role}'s agent (${w.name}) exited`);
+      if (!w) return this.halt(m, L.srvMeeting.sentHome(s.role, s.workerName));
+      if (w.status === 'exited') return this.halt(m, L.srvMeeting.agentExited(s.role, w.name));
     }
-    if (m.tokens > m.budget) return this.halt(m, `over budget: ${fmtTokens(m.tokens)} of ${fmtTokens(m.budget)} tokens`);
+    if (m.tokens > m.budget) return this.halt(m, L.srvMeeting.overBudget(fmtTokens(m.tokens), fmtTokens(m.budget)));
     let changed = false;
     for (const t of m.turns) {
       changed = this.advance(m, t, byId.get(m.seats[t.seat].workerId!)!) || changed;
@@ -349,7 +350,7 @@ export class MeetingRoom {
         this.readySince.set(t, since);
         if (now - since < START_GRACE_MS) return false;
         if (t.retried) {
-          this.halt(m, `the ${seat.role} (${seat.workerName}) never started on its part of round ${m.round}`);
+          this.halt(m, L.srvMeeting.neverStarted(seat.role, seat.workerName ?? '', m.round));
           return true;
         }
         const part = this.plan(m, m.round, m.step)?.find((p) => p.seat === t.seat);
@@ -366,7 +367,7 @@ export class MeetingRoom {
         }
         if (t.retried) {
           const last = this.isLast(m, m.round);
-          this.halt(m, last && t.file === m.output ? `reached its round limit without writing ${m.output}: the ${seat.role} ended the last round without it` : `the ${seat.role} (${seat.workerName}) ended round ${m.round} without writing ${t.file}`);
+          this.halt(m, last && t.file === m.output ? L.srvMeeting.limitNoOutput(m.output, seat.role) : L.srvMeeting.noFile(seat.role, seat.workerName ?? '', m.round, t.file));
           return true;
         }
         retry();
@@ -406,19 +407,19 @@ export class MeetingRoom {
     this.readPreview(m);
     this.keepNotes(m);
     const p = MEETING_PATTERNS[m.pattern];
-    this.events.toast(`🤝 The ${p.label} meeting on “${m.title}” is done: it wrote ${m.output}`, 'info');
+    this.events.toast(L.srvMeeting.done(L.meetings.patterns[m.pattern]?.label ?? p.label, m.title, m.output), 'info');
     const cwd = this.cwd(m);
     if (m.pattern === 'review' && m.pr !== undefined) {
       const pr = m.pr;
       void this.events.postReview(pr, path.join(cwd, m.output), m.owner).then(
         (url) => {
           m.review = { url };
-          this.events.toast(`🔍 Posted the panel's review on PR #${pr}`, 'info');
+          this.events.toast(L.srvMeeting.posted(pr), 'info');
           this.changed();
         },
         (err) => {
           m.review = { error: (err as Error).message };
-          this.events.toast(`Couldn't post the panel's review on PR #${pr}: ${m.review.error}`, 'warn');
+          this.events.toast(L.srvMeeting.postFailed(pr, m.review.error ?? ''), 'warn');
           this.changed();
         },
       );
@@ -429,7 +430,7 @@ export class MeetingRoom {
           this.changed();
         },
         (err) => {
-          this.events.toast(`Couldn't commit ${m.output} on ${m.worktree!.branch}: ${gitError(err)}`, 'warn');
+          this.events.toast(L.srvMeeting.commitFailed(m.output, m.worktree!.branch, gitError(err)), 'warn');
           this.changed();
         },
       );
@@ -446,7 +447,7 @@ export class MeetingRoom {
     for (const s of m.seats) if (s.workerId && busy.has(s.workerId)) this.workers.write(s.workerId, '\x1b', BY);
     this.readPreview(m);
     this.keepNotes(m);
-    this.events.toast(`⛔ The meeting on “${m.title}” stopped in round ${m.round}: ${reason}`, 'warn');
+    this.events.toast(L.srvMeeting.stopped(m.title, m.round, reason), 'warn');
     this.changed();
   }
 
@@ -471,10 +472,10 @@ export class MeetingRoom {
     }
     const state = await this.trees.inspect(wt);
     if (state.error || state.dirty) {
-      this.events.toast(`Kept the “${m.title}” meeting's worktree and branch ${wt.branch}: ${state.error ?? `${state.dirty} uncommitted change${state.dirty === 1 ? '' : 's'}`}`, 'info');
+      this.events.toast(L.srvMeeting.kept(m.title, wt.branch, state.error ?? L.workers.uncommitted(state.dirty)), 'info');
     } else {
       const err = await this.trees.remove(wt, state.ahead ? 'worktree' : 'all');
-      if (err) this.events.toast(`Couldn't tidy away the meeting's worktree: ${err}`, 'warn');
+      if (err) this.events.toast(L.srvMeeting.tidyFailed(err), 'warn');
     }
     this.persist();
   }
@@ -572,12 +573,12 @@ export class MeetingRoom {
       case 'debate': {
         if (step > 1) return null;
         if (last) {
-          return [{ seat: 0, doing: 'writing the decision', file: m.output, ask: this.say('meeting.debate.decide', { notes: A(m.notes), lastNotes: notes(round - 1, all), output: A(m.output) }) }];
+          return [{ seat: 0, doing: L.srvMeeting.doing.decide, file: m.output, ask: this.say('meeting.debate.decide', { notes: A(m.notes), lastNotes: notes(round - 1, all), output: A(m.output) }) }];
         }
-        if (round === 1) return all.map((i) => ({ seat: i, doing: 'proposing', file: note(1, i), ask: this.say('meeting.debate.propose', { role: m.seats[i].role, file: A(note(1, i)) }) }));
+        if (round === 1) return all.map((i) => ({ seat: i, doing: L.srvMeeting.doing.propose, file: note(1, i), ask: this.say('meeting.debate.propose', { role: m.seats[i].role, file: A(note(1, i)) }) }));
         return all.map((i) => ({
           seat: i,
-          doing: 'critiquing',
+          doing: L.srvMeeting.doing.critique,
           file: note(round, i),
           ask: this.say('meeting.debate.critique', { previousRound: round - 1, theirNotes: notes(round - 1, all.filter((j) => j !== i)), file: A(note(round, i)) }),
         }));
@@ -588,12 +589,12 @@ export class MeetingRoom {
         const plan = `${m.notes}/plan.md`;
         if (round === 1) {
           const parts = `${team.length} part${team.length === 1 ? '' : 's'}`;
-          return [{ seat: 0, doing: 'planning', file: plan, ask: this.say('meeting.lead.plan', { parts, team: list(team.map((i) => `the ${m.seats[i].role}`)), exampleRole: m.seats[team[0]].role, file: A(plan) }) }];
+          return [{ seat: 0, doing: L.srvMeeting.doing.plan, file: plan, ask: this.say('meeting.lead.plan', { parts, team: list(team.map((i) => `the ${m.seats[i].role}`)), exampleRole: m.seats[team[0]].role, file: A(plan) }) }];
         }
         if (round === 2) {
-          return team.map((i) => ({ seat: i, doing: 'doing their part', file: note(2, i), ask: this.say('meeting.lead.part', { plan: A(plan), role: m.seats[i].role, lead: m.seats[0].role, file: A(note(2, i)) }) }));
+          return team.map((i) => ({ seat: i, doing: L.srvMeeting.doing.part, file: note(2, i), ask: this.say('meeting.lead.part', { plan: A(plan), role: m.seats[i].role, lead: m.seats[0].role, file: A(note(2, i)) }) }));
         }
-        return [{ seat: 0, doing: 'merging the work', file: m.output, ask: this.say('meeting.lead.merge', { reports: notes(2, team), output: A(m.output) }) }];
+        return [{ seat: 0, doing: L.srvMeeting.doing.merge, file: m.output, ask: this.say('meeting.lead.merge', { reports: notes(2, team), output: A(m.output) }) }];
       }
       case 'mapreduce': {
         if (step > 1) return null;
@@ -601,10 +602,10 @@ export class MeetingRoom {
         if (round === 1) {
           return mappers.map((i, k) => {
             const mine = (m.parts ?? []).filter((_, j) => j % mappers.length === k);
-            return { seat: i, doing: 'mapping', file: note(1, i), ask: this.say('meeting.mapreduce.map', { parts: mine.map((x) => `- ${x}`).join('\n'), file: A(note(1, i)) }) };
+            return { seat: i, doing: L.srvMeeting.doing.map, file: note(1, i), ask: this.say('meeting.mapreduce.map', { parts: mine.map((x) => `- ${x}`).join('\n'), file: A(note(1, i)) }) };
           });
         }
-        return [{ seat: 0, doing: 'reducing', file: m.output, ask: this.say('meeting.mapreduce.reduce', { results: notes(1, mappers), output: A(m.output) }) }];
+        return [{ seat: 0, doing: L.srvMeeting.doing.reduce, file: m.output, ask: this.say('meeting.mapreduce.reduce', { results: notes(1, mappers), output: A(m.output) }) }];
       }
       case 'redblue': {
         const [blue, red] = [0, 1];
@@ -612,26 +613,26 @@ export class MeetingRoom {
         const blueNote = `${m.notes}/r${round}-blue.md`;
         if (step === 1) {
           const before = round > 1 ? ` The Blue team's fixes from round ${round - 1} are in ${A(`${m.notes}/r${round - 1}-blue.md`)}: check them first, then keep looking.` : '';
-          return [{ seat: red, doing: 'attacking', file: redNote, ask: this.say('meeting.redblue.attack', { previousFixes: before, file: A(redNote) }) }];
+          return [{ seat: red, doing: L.srvMeeting.doing.attack, file: redNote, ask: this.say('meeting.redblue.attack', { previousFixes: before, file: A(redNote) }) }];
         }
         if (step > 2) return null;
         if (m.lastRound === round) {
-          return [{ seat: blue, doing: 'writing it up', file: m.output, ask: this.say('meeting.redblue.writeup', { findings: A(redNote), notes: A(m.notes), output: A(m.output) }) }];
+          return [{ seat: blue, doing: L.srvMeeting.doing.writeup, file: m.output, ask: this.say('meeting.redblue.writeup', { findings: A(redNote), notes: A(m.notes), output: A(m.output) }) }];
         }
         const wrap = last ? ` This is the last round: once you've fixed things, also write ${A(m.output)}: every finding from every round (${A(m.notes)}/), what was fixed and how, and what's still open. That file is the meeting's output.` : '';
-        return [{ seat: blue, doing: last ? 'fixing and writing it up' : 'fixing', file: last ? m.output : blueNote, ask: this.say('meeting.redblue.fix', { findings: A(redNote), file: A(blueNote), lastRound: wrap, output: A(m.output) }) }];
+        return [{ seat: blue, doing: last ? L.srvMeeting.doing.fixWriteup : L.srvMeeting.doing.fix, file: last ? m.output : blueNote, ask: this.say('meeting.redblue.fix', { findings: A(redNote), file: A(blueNote), lastRound: wrap, output: A(m.output) }) }];
       }
       case 'review': {
         if (step > 1) return null;
         if (round === 1) {
           return all.map((i) => ({
             seat: i,
-            doing: 'reviewing',
+            doing: L.srvMeeting.doing.review,
             file: note(1, i),
             ask: this.say('meeting.review.review', { pr: m.pr, role: m.seats[i].role, file: A(note(1, i)) }),
           }));
         }
-        return [{ seat: 0, doing: 'writing the review', file: m.output, ask: this.say('meeting.review.combine', { findings: notes(1, all), exampleRole: m.seats[1]?.role ?? 'Security', output: A(m.output) }) }];
+        return [{ seat: 0, doing: L.srvMeeting.doing.combine, file: m.output, ask: this.say('meeting.review.combine', { findings: notes(1, all), exampleRole: m.seats[1]?.role ?? 'Security', output: A(m.output) }) }];
       }
     }
   }

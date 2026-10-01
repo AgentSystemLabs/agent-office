@@ -6,6 +6,7 @@
 import { spawn } from 'node:child_process';
 import os from 'node:os';
 import type { WorkerTask } from '../shared/protocol.js';
+import { L } from './i18n.js';
 
 /** What a worker has been asked and has been doing lately. */
 export interface TaskContext {
@@ -99,7 +100,7 @@ export class TaskNamer {
 
   private async generate(ctx: TaskContext): Promise<WorkerTask | null> {
     if (!this.enabled) return null;
-    const out = await run(this.claude!, this.env, this.system(), describe(ctx));
+    const out = await run(this.claude!, this.env, L.tasks.namerSystem(this.system()), describe(ctx));
     const task = out === null ? null : parse(out);
     if (task) this.fails = 0;
     else if (++this.fails >= FAILS_BEFORE_BACKOFF) {

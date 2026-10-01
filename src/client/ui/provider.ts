@@ -18,8 +18,9 @@ import {
 } from '../../shared/providers';
 import { store } from '../state';
 import { h } from './dom';
+import { L } from '../i18n';
 
-export const PROVIDER_LABEL = Object.fromEntries(AGENT_PROVIDERS.map((p) => [p, PROVIDER_META[p].label])) as Record<AgentProvider, string>;
+export const PROVIDER_LABEL = Object.fromEntries(AGENT_PROVIDERS.map((p) => [p, p === 'custom' ? L.provider.custom : PROVIDER_META[p].label])) as Record<AgentProvider, string>;
 
 export const CLAUDE_MODEL_LABEL: Record<ClaudeModel, string> = {
   fable: 'Fable',
@@ -28,13 +29,7 @@ export const CLAUDE_MODEL_LABEL: Record<ClaudeModel, string> = {
   haiku: 'Haiku',
 };
 
-export const EFFORT_LABEL: Record<AgentEffort, string> = {
-  low: 'Low',
-  medium: 'Medium',
-  high: 'High',
-  xhigh: 'Extra high',
-  max: 'Max',
-};
+export const EFFORT_LABEL: Record<AgentEffort, string> = L.provider.efforts;
 
 /** A short badge for the task card / sidebar: "Opus", "Opus · High", or the raw OpenCode/Grok/Muse/DeepSeek Harness/Pi model id. */
 export function modelBadge(provider: AgentProvider | undefined, model: string | undefined, effort: AgentEffort | undefined): string | undefined {
@@ -175,53 +170,53 @@ function fetchOpenCodeModels(): Promise<string[]> {
  * The provider, model and effort fields: a provider selector that never offers a provider outside
  * the server's metadata, with a model (and, for Claude, Grok or Muse, reasoning effort) picker underneath.
  */
-export function agentFields(project: ProjectInfo | null, id: string, initial: AgentChoice, label = 'Provider'): AgentFields {
+export function agentFields(project: ProjectInfo | null, id: string, initial: AgentChoice, label: string = L.provider.provider): AgentFields {
   const options = supportedProviders(project);
   const fallback = resolvedProvider(project?.defaultProvider, project);
-  const select = h('select.provider-select', { id, 'aria-label': 'Worker provider' }) as HTMLSelectElement;
+  const select = h('select.provider-select', { id, 'aria-label': L.provider.workerProvider }) as HTMLSelectElement;
   for (const provider of options) select.append(h('option', { value: provider }, PROVIDER_LABEL[provider]));
   const note = h('small.provider-note');
   const modelInput = h('input', {
     type: 'text',
     id: `${id}-model`,
     list: `${id}-models`,
-    placeholder: 'Default (OpenCode settings)',
-    'aria-label': 'OpenCode model',
+    placeholder: L.provider.openCodeDefault,
+    'aria-label': L.provider.openCodeModel,
     autocomplete: 'off',
     maxlength: MODEL_MAX,
   }) as HTMLInputElement;
-  const modelHint = h('small.provider-model-hint', {}, 'Optional provider/model override; suggestions load when OpenCode is selected.');
+  const modelHint = h('small.provider-model-hint', {}, L.provider.hintLoad);
   const modelListEl = h('datalist', { id: `${id}-models` });
-  const modelChoice = h('div.provider-model', {}, h('label', { for: `${id}-model` }, 'OpenCode model'), modelInput, modelListEl, modelHint);
+  const modelChoice = h('div.provider-model', {}, h('label', { for: `${id}-model` }, L.provider.openCodeModel), modelInput, modelListEl, modelHint);
 
-  const claudeModelSelect = h('select', { id: `${id}-claude-model`, 'aria-label': 'Claude model' }) as HTMLSelectElement;
-  claudeModelSelect.append(h('option', { value: '' }, 'Default (--agent-args)'));
+  const claudeModelSelect = h('select', { id: `${id}-claude-model`, 'aria-label': L.provider.claudeModel }) as HTMLSelectElement;
+  claudeModelSelect.append(h('option', { value: '' }, L.provider.defaultArgs));
   for (const m of CLAUDE_MODELS) claudeModelSelect.append(h('option', { value: m }, CLAUDE_MODEL_LABEL[m]));
-  const effortSelect = h('select', { id: `${id}-effort`, 'aria-label': 'Reasoning effort' }) as HTMLSelectElement;
-  effortSelect.append(h('option', { value: '' }, 'Default'));
+  const effortSelect = h('select', { id: `${id}-effort`, 'aria-label': L.provider.effortLong }) as HTMLSelectElement;
+  effortSelect.append(h('option', { value: '' }, L.provider.default));
   for (const e of AGENT_EFFORTS) effortSelect.append(h('option', { value: e }, EFFORT_LABEL[e]));
   const claudeChoice = h(
     'div.provider-model.claude-model',
     {},
-    h('label', { for: `${id}-claude-model` }, 'Model'),
+    h('label', { for: `${id}-claude-model` }, L.provider.model),
     claudeModelSelect,
-    h('label', { for: `${id}-effort` }, 'Effort'),
+    h('label', { for: `${id}-effort` }, L.provider.effort),
     effortSelect,
-    h('small.provider-model-hint', {}, 'The cost panel tracks each model separately.'),
+    h('small.provider-model-hint', {}, L.provider.costPerModel),
   );
 
-  const grokModelSelect = h('select', { id: `${id}-grok-model`, 'aria-label': 'Grok model' }) as HTMLSelectElement;
-  grokModelSelect.append(h('option', { value: '' }, 'Default (Grok settings)'));
-  const grokEffortSelect = h('select', { id: `${id}-grok-effort`, 'aria-label': 'Grok reasoning effort' }) as HTMLSelectElement;
-  grokEffortSelect.append(h('option', { value: '' }, 'Default'));
+  const grokModelSelect = h('select', { id: `${id}-grok-model`, 'aria-label': L.provider.modelOf('Grok') }) as HTMLSelectElement;
+  grokModelSelect.append(h('option', { value: '' }, L.provider.defaultGrok));
+  const grokEffortSelect = h('select', { id: `${id}-grok-effort`, 'aria-label': L.provider.effortOf('Grok') }) as HTMLSelectElement;
+  grokEffortSelect.append(h('option', { value: '' }, L.provider.default));
   for (const e of AGENT_EFFORTS) grokEffortSelect.append(h('option', { value: e }, EFFORT_LABEL[e]));
-  const grokHint = h('small.provider-model-hint', {}, 'Suggestions load from `grok models` when Grok is selected.');
+  const grokHint = h('small.provider-model-hint', {}, L.provider.grokHint);
   const grokChoice = h(
     'div.provider-model.grok-model',
     {},
-    h('label', { for: `${id}-grok-model` }, 'Model'),
+    h('label', { for: `${id}-grok-model` }, L.provider.model),
     grokModelSelect,
-    h('label', { for: `${id}-grok-effort` }, 'Effort'),
+    h('label', { for: `${id}-grok-effort` }, L.provider.effort),
     grokEffortSelect,
     grokHint,
   );
@@ -229,62 +224,62 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
   const museModelInput = h('input', {
     type: 'text',
     id: `${id}-muse-model`,
-    placeholder: 'Default (Muse settings)',
-    'aria-label': 'Muse model',
+    placeholder: L.provider.defaultMuse,
+    'aria-label': L.provider.modelOf('Muse'),
     autocomplete: 'off',
     maxlength: MUSE_MODEL_MAX,
   }) as HTMLInputElement;
-  const museEffortSelect = h('select', { id: `${id}-muse-effort`, 'aria-label': 'Muse reasoning effort' }) as HTMLSelectElement;
-  museEffortSelect.append(h('option', { value: '' }, 'Default'));
+  const museEffortSelect = h('select', { id: `${id}-muse-effort`, 'aria-label': L.provider.effortOf('Muse') }) as HTMLSelectElement;
+  museEffortSelect.append(h('option', { value: '' }, L.provider.default));
   for (const e of AGENT_EFFORTS) museEffortSelect.append(h('option', { value: e }, EFFORT_LABEL[e]));
   const museChoice = h(
     'div.provider-model.muse-model',
     {},
-    h('label', { for: `${id}-muse-model` }, 'Model'),
+    h('label', { for: `${id}-muse-model` }, L.provider.model),
     museModelInput,
-    h('label', { for: `${id}-muse-effort` }, 'Effort'),
+    h('label', { for: `${id}-muse-effort` }, L.provider.effort),
     museEffortSelect,
-    h('small.provider-model-hint', {}, 'Optional model id (for example muse-spark-1.3-contributor) and effort for this worker.'),
+    h('small.provider-model-hint', {}, L.provider.museHint),
   );
 
   const dshModelInput = h('input', {
     type: 'text',
     id: `${id}-dsh-model`,
-    placeholder: 'Default (DSH profile)',
-    'aria-label': 'DeepSeek Harness model',
+    placeholder: L.provider.defaultDsh,
+    'aria-label': L.provider.modelOf('DeepSeek Harness'),
     autocomplete: 'off',
     maxlength: DSH_MODEL_MAX,
   }) as HTMLInputElement;
-  const dshEffortSelect = h('select', { id: `${id}-dsh-effort`, 'aria-label': 'DeepSeek Harness reasoning effort' }) as HTMLSelectElement;
-  dshEffortSelect.append(h('option', { value: '' }, 'Default'));
+  const dshEffortSelect = h('select', { id: `${id}-dsh-effort`, 'aria-label': L.provider.effortOf('DeepSeek Harness') }) as HTMLSelectElement;
+  dshEffortSelect.append(h('option', { value: '' }, L.provider.default));
   for (const e of AGENT_EFFORTS) dshEffortSelect.append(h('option', { value: e }, EFFORT_LABEL[e]));
   const dshChoice = h(
     'div.provider-model.dsh-model',
     {},
-    h('label', { for: `${id}-dsh-model` }, 'Model'),
+    h('label', { for: `${id}-dsh-model` }, L.provider.model),
     dshModelInput,
-    h('label', { for: `${id}-dsh-effort` }, 'Effort'),
+    h('label', { for: `${id}-dsh-effort` }, L.provider.effort),
     dshEffortSelect,
-    h('small.provider-model-hint', {}, 'Optional model id from DeepSeek Harness\u2019s catalog, and effort; leave empty to use the profile default.'),
+    h('small.provider-model-hint', {}, L.provider.dshHint),
   );
 
   const piModelInput = h('input', {
     type: 'text',
     id: `${id}-pi-model`,
-    placeholder: 'Default (Pi settings)',
-    'aria-label': 'Pi model',
+    placeholder: L.provider.defaultPi,
+    'aria-label': L.provider.modelOf('Pi'),
     autocomplete: 'off',
     maxlength: PI_MODEL_MAX,
   }) as HTMLInputElement;
-  const piEffortSelect = h('select', { id: `${id}-pi-effort`, 'aria-label': 'Pi thinking level' }) as HTMLSelectElement;
-  piEffortSelect.append(h('option', { value: '' }, 'Default'));
+  const piEffortSelect = h('select', { id: `${id}-pi-effort`, 'aria-label': L.provider.piThinking }) as HTMLSelectElement;
+  piEffortSelect.append(h('option', { value: '' }, L.provider.default));
   for (const e of AGENT_EFFORTS) piEffortSelect.append(h('option', { value: e }, EFFORT_LABEL[e]));
   const piChoice = h(
     'div.provider-model.pi-model',
     {},
-    h('label', { for: `${id}-pi-model` }, 'Model'),
+    h('label', { for: `${id}-pi-model` }, L.provider.model),
     piModelInput,
-    h('label', { for: `${id}-pi-effort` }, 'Thinking'),
+    h('label', { for: `${id}-pi-effort` }, L.provider.thinking),
     piEffortSelect,
     h('small.provider-model-hint', {}, 'Optional model name or provider/model; leave Default to use Pi settings.'),
   );
@@ -292,7 +287,7 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
   const element = h('div.provider-choice', {}, h('label', { for: id }, label), select, note, modelChoice, claudeChoice, grokChoice, museChoice, dshChoice, piChoice);
   const fillGrokModels = (models: string[], selected?: string) => {
     const keep = selected && validGrokModel(selected) ? selected : '';
-    grokModelSelect.replaceChildren(h('option', { value: '' }, 'Default (Grok settings)'));
+    grokModelSelect.replaceChildren(h('option', { value: '' }, L.provider.defaultGrok));
     const seen = new Set<string>();
     for (const model of models) {
       if (!validGrokModel(model) || seen.has(model)) continue;
@@ -306,26 +301,26 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
   const loadModels = () => {
     if (select.value === 'grok') {
       if (!element.isConnected || element.closest('.hidden')) return;
-      grokHint.textContent = grokModelList ? 'Optional model and effort for this worker.' : 'Loading Grok models…';
+      grokHint.textContent = grokModelList ? L.provider.optionalModel : L.provider.loadingGrok;
       void fetchGrokModels()
         .then((models) => {
           fillGrokModels(models, grokModelSelect.value);
-          grokHint.textContent = 'Optional model and effort for this worker.';
+          grokHint.textContent = L.provider.optionalModel;
         })
         .catch(() => {
-          grokHint.textContent = 'Model list unavailable; leave Default or pick a known Grok model id.';
+          grokHint.textContent = L.provider.grokUnavailable;
         });
       return;
     }
     if (select.value !== 'opencode' || !element.isConnected || element.closest('.hidden')) return;
-    modelHint.textContent = modelList ? 'Optional provider/model override; choose a suggestion or enter one manually.' : 'Loading OpenCode models… You can enter a provider/model manually.';
+    modelHint.textContent = modelList ? L.provider.hintChoose : L.provider.hintLoading;
     void fetchOpenCodeModels()
       .then((models) => {
         modelListEl.replaceChildren(...models.map((model) => h('option', { value: model })));
-        modelHint.textContent = 'Optional provider/model override; choose a suggestion or enter one manually.';
+        modelHint.textContent = L.provider.hintChoose;
       })
       .catch(() => {
-        modelHint.textContent = 'Model suggestions unavailable; enter a provider/model manually if needed.';
+        modelHint.textContent = L.provider.hintUnavailable;
       });
   };
   const setModelVisibility = (provider: AgentProvider) => {
@@ -413,7 +408,7 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
           return true;
         }
         const okay = validMuseModel(museModelInput.value);
-        museModelInput.setCustomValidity(okay ? '' : 'Use a Muse model id without whitespace or control characters (up to 128 characters).');
+        museModelInput.setCustomValidity(okay ? '' : L.provider.museInvalid);
         if (!okay) museModelInput.reportValidity();
         return okay;
       }
@@ -423,13 +418,13 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
           return true;
         }
         const okay = validDshModel(dshModelInput.value);
-        dshModelInput.setCustomValidity(okay ? '' : 'Use a DeepSeek Harness catalog model id of up to 256 characters without control characters.');
+        dshModelInput.setCustomValidity(okay ? '' : L.provider.dshInvalid);
         if (!okay) dshModelInput.reportValidity();
         return okay;
       }
       if (select.value === 'pi') {
         const okay = !piModelInput.value || validPiModel(piModelInput.value);
-        piModelInput.setCustomValidity(okay ? '' : 'Use a Pi model name or provider/model: letters, digits and . _ : / @ + - (up to 256 characters).');
+        piModelInput.setCustomValidity(okay ? '' : L.provider.piInvalid);
         if (!okay) piModelInput.reportValidity();
         return okay;
       }
@@ -438,7 +433,7 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
         return true;
       }
       const okay = validModel(modelInput.value);
-      modelInput.setCustomValidity(okay ? '' : 'Use provider/model format without whitespace or control characters (up to 256 characters).');
+      modelInput.setCustomValidity(okay ? '' : L.provider.badModel);
       if (!okay) modelInput.reportValidity();
       return okay;
     },
@@ -449,7 +444,7 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
  * Which worker to start: the office's default (⚙️ Settings), shown as a line, with an ✏️ Edit button
  * that opens the provider, model and effort fields to pick another for this one.
  */
-export function providerPicker(project: ProjectInfo | null, id: string, label = 'Worker'): ProviderPicker {
+export function providerPicker(project: ProjectInfo | null, id: string, label: string = L.provider.worker): ProviderPicker {
   let editing = false;
   const fields = agentFields(project, id, officeChoice(project));
   fields.element.classList.add('hidden');
@@ -459,10 +454,10 @@ export function providerPicker(project: ProjectInfo | null, id: string, label = 
   const paint = () => {
     const def = officeChoice(project);
     current.textContent = choiceLabel(def);
-    current.title = store.prompts.agent ? 'The office’s default worker, set in ⚙️ Settings' : 'The office’s default worker (its --agent); an admin can pick another in ⚙️ Settings';
+    current.title = store.prompts.agent ? L.provider.defaultSet : L.provider.defaultAgent;
     current.classList.toggle('hidden', editing);
-    edit.textContent = editing ? '↺ Use the default' : '✏️ Edit';
-    edit.title = editing ? `Back to ${choiceLabel(def)}` : 'Pick another provider, model or effort for this one';
+    edit.textContent = editing ? L.provider.useDefault : L.provider.edit;
+    edit.title = editing ? L.settings.backTo(choiceLabel(def)) : L.provider.editTip;
     edit.setAttribute('aria-expanded', String(editing));
     fields.element.classList.toggle('hidden', !editing);
   };

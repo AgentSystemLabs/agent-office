@@ -8,6 +8,7 @@ import { normalizeRepo, sameRepo } from '../shared/floors.js';
 import type { RepoChoice } from '../shared/protocol.js';
 import { Building, tildify } from './building.js';
 import { officeHome, type Config } from './config.js';
+import { L } from './i18n.js';
 
 // Setting up an office from its terminal: where projects are cloned, signing the GitHub CLI in, and
 // picking the first repositories to clone as floors. A new office walks you through it the first time
@@ -21,25 +22,8 @@ const SHOWN = 12;
 /** Folders people keep their code in, in the home folder: the first one that's there is the suggestion. */
 const CODE_FOLDERS = ['Workspace', 'workspace', 'Developer', 'code', 'Code', 'projects', 'Projects', 'repos', 'src', 'dev', 'git', 'GitHub', 'github'];
 
-const SETUP_HELP = `agent-office setup — pick where projects are cloned and which ones are floors
-
-Usage:
-  agent-office setup [--projects <dir>] [--project <owner/repo>]... [--home <dir>]
-
-In a terminal it walks you through it: the workspace folder new projects are cloned
-into, signing the GitHub CLI in, and picking repositories to clone as floors. Given
---projects or --project it does just that and asks nothing, for scripts.
-
-A new office runs this by itself the first time it starts in a terminal. Run it
-while the office is stopped; while it runs, use its elevator and ⚙️ Settings.
-
-Options:
-      --home <dir>        The office to set up (default ~/agent-office, env AGENT_OFFICE_HOME)
-      --projects <dir>    Clone new projects into <dir>/<owner>/<repo> from now on
-      --project <repo>    Clone this repository (owner/name or a GitHub URL) as a floor.
-                          Repeat it for more than one
-  -h, --help              Show this help
-`;
+/** The setup's words, in the language the terminal asks for (see ./i18n.ts). */
+const m = L.setup;
 
 /** Someone's at a terminal to answer questions. */
 export function interactive(): boolean {
@@ -54,7 +38,7 @@ export async function welcome(cfg: Config): Promise<void> {
   const building = new Building(cfg.dataDir, cfg.projectsDir, { terminal: true });
   if (building.list().length) return;
   // --projects is the answer to the first question (the office applies it again as it starts).
-  const folderGiven = !!cfg.projects && !building.setProjectsDir(cfg.projects, 'the command line');
+  const folderGiven = !!cfg.projects && !building.setProjectsDir(cfg.projects, L.srv.commandLine);
   console.log(`
   👋 Welcome to Agent Office!
 
@@ -82,14 +66,14 @@ export async function setupCommand(argv: string[]): Promise<number> {
       return v;
     };
     if (a === '-h' || a === '--help') {
-      process.stdout.write(SETUP_HELP);
+      process.stdout.write(m.help);
       return 0;
     } else if (a === '--home') home = path.resolve(value());
     else if (a === '--projects') projects = value();
     else if (a === '--project') repos.push(value());
     else {
-      console.error(`agent-office setup: unknown option ${a}\n`);
-      process.stderr.write(SETUP_HELP);
+      console.error(`${m.unknownOption(a)}\n`);
+      process.stderr.write(m.help);
       return 2;
     }
   }
@@ -131,8 +115,8 @@ export async function setupCommand(argv: string[]): Promise<number> {
   const floors = building.list();
   console.log(
     floors.length
-      ? `\n  🏢 The office in ${tildify(dir)} has ${floors.length} floor${floors.length === 1 ? '' : 's'}: ${floors.map((f) => f.name).join(', ')}.`
-      : `\n  🏢 The office in ${tildify(dir)} has no floors yet: every project is a floor of the building.`,
+      ? `\n  🏢 ${L.setup.hasFloors(tildify(dir), floors.map((f) => f.name))}`
+      : `\n  🏢 ${L.setup.noFloorsIn(tildify(dir))}`,
   );
   await walkthrough(building, dataDir, true);
   return 0;
@@ -198,8 +182,8 @@ async function githubLogin(cwd: string): Promise<string | undefined> {
       console.log(`\n  🐙 Couldn't reach GitHub with gh: ${me.error}`);
       return undefined;
     }
-    console.log("\n  🐙 The office clones projects with the GitHub CLI (gh), and it isn't signed in.");
-    if (/^n/i.test(await ask('     Sign in to GitHub now? [Y/n] '))) return undefined;
+    console.log(m.ghSignedOut);
+    if (m.no.test(await ask(m.signInNow))) return undefined;
     spawnSync('gh', ['auth', 'login'], { stdio: 'inherit' });
   }
 }

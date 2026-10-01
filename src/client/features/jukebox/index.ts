@@ -5,6 +5,7 @@ import { store } from '../../state';
 import { clip } from '../../ui/dom';
 import { openJukebox } from './ui';
 import type { SettingsPane } from '../../ui/settings';
+import { L } from '../../i18n';
 
 // The kinds of thing you can use that this defines (see InteractKinds in world/types.ts).
 declare module '../../world/types' {
@@ -33,7 +34,7 @@ export function installJukebox(ctx: Ctx, deps: JukeboxDeps) {
     hint: () => {
       const j = store.jukebox;
       const what = j.on ? trackTitle(j) : '';
-      return { k: `${j.on}|${what}`, parts: [hintTitle('🎵 Jukebox'), aside(j.on ? `♪ ${clip(what, 40)}` : 'off'), key('E', j.on ? 'Change the song' : 'Put on a song')] };
+      return { k: `${j.on}|${what}`, parts: [hintTitle(L.hints.jukebox), aside(j.on ? `♪ ${clip(what, 40)}` : L.hints.off), key('E', j.on ? L.hints.changeSong : L.hints.putSong)] };
     },
     use: onE(() => showJukebox()),
   });

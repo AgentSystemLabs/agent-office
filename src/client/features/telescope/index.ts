@@ -3,6 +3,7 @@ import type { Ctx } from '../../core/context';
 import { aside, hintTitle, key, onE } from '../../core/hint';
 import { TelescopeView } from './controller';
 import { $, modalOpen } from '../../ui/dom';
+import { L } from '../../i18n';
 
 // The kinds of thing you can use that this defines (see InteractKinds in world/types.ts).
 declare module '../../world/types' {
@@ -54,7 +55,7 @@ export function installTelescope(ctx: Ctx, deps: TelescopeDeps): TelescopeView {
   });
   ctx.interactions.define('telescope', {
     reach: 3.5,
-    hint: () => ({ k: '', parts: [hintTitle('🔭 Office telescope'), aside('overlooks the worker floor'), key('E', 'Look through')] }),
+    hint: () => ({ k: '', parts: [hintTitle(L.game.telescope), aside(L.game.telescopeAbout), key('E', L.game.lookThrough)] }),
     use: onE(() => telescope.enter()),
   });
   // Looking through it, the view is the telescope's (once you've moved and the camera's followed), and

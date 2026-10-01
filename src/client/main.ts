@@ -61,6 +61,10 @@ import { installWalking } from './features/walking';
 import { installWhiteboard } from './features/whiteboard';
 import { installWorkerActions } from './features/workers/actions';
 import { installWorkerViews } from './features/workers/views';
+import { L, translatePage } from './i18n';
+
+// The page's own text (index.html's data-t marks) in its language, before anything shows.
+translatePage();
 
 // The loading screen stays up until there's an office to see (see boot and whoami at the end).
 const loading = loadingScreen(onModelsProgress);
@@ -213,8 +217,8 @@ void whoami().then(() => {
       });
     });
     loading.until([
-      { say: 'Knocking on the door', done: welcomed },
-      { say: 'Fetching the dog', done: parts.dog.firstReady },
+      { say: L.game.knocking, done: welcomed },
+      { say: L.game.fetchingDog, done: parts.dog.firstReady },
     ]);
   } else {
     // Pick a character first (people from before there was a choice keep their name and color).

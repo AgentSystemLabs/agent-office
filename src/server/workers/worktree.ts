@@ -10,6 +10,7 @@ import { officePrompt } from '../prompts.js';
 import { WORKSPACE_FILES, WORKTREES_DIR, Worktrees, describeWork, workspaceOf, type WorktreeCleanup, type WorktreeRef, type WorktreeState } from '../worktrees.js';
 import { midTurn } from './lifecycle.js';
 import type { RepoSource, Worker, WorkerContext, Worktree } from './types.js';
+import { L } from '../i18n.js';
 
 /**
  * The folder each checkout gets in a workspace: its folder's name, made safe, with -2, -3… when two
@@ -61,7 +62,7 @@ export function originRepo(dir: string): string | undefined {
 
 /** What starting a worker whose worktree was deleted (see WorkerInfo.lost) says instead. */
 export function lostMessage(info: WorkerInfo): string {
-  return `${info.name}'s worktree ${workspaceOf(info)} was deleted outside agent-office — rebuild it or send ${info.name} home from its desk`;
+  return L.workers.lost(info.name, workspaceOf(info) ?? '');
 }
 
 /** The worktrees of one floor's workers (see WorkerContext). */
@@ -78,13 +79,13 @@ export class WorkerTrees {
     // A branch can only be checked out once per repository, and two floors can be checkouts of the same one.
     const seen = new Map<string, string>();
     const own = this.ctx.trees.commonDir();
-    if (!own) return "This floor's project isn't a git checkout";
+    if (!own) return L.workers.notGit;
     seen.set(own, "this floor's project");
     for (const r of repos) {
       const common = new Worktrees(r.dir).commonDir();
-      if (!common) return `${r.name} isn't a git checkout`;
+      if (!common) return L.workers.repoNotGit(r.name);
       const twin = seen.get(common);
-      if (twin) return `${r.name} is the same repository as ${twin}`;
+      if (twin) return L.workers.sameRepo(r.name, twin);
       seen.set(common, r.name);
     }
     const names = workspaceNames([this.ctx.dir, ...repos.map((r) => r.dir)]);
@@ -114,7 +115,7 @@ export class WorkerTrees {
     try {
       this.writeBrief(primary, repos.map((r, i) => ({ name: names[i + 1], project: r.repo ?? r.name, from: others[i].from })));
     } catch (err) {
-      return fail(`Could not write the workspace's brief: ${(err as Error).message}`);
+      return fail(L.workers.briefFailed((err as Error).message));
     }
     return { worktree: primary, repos: others, notes };
   }
@@ -143,18 +144,18 @@ export class WorkerTrees {
     const where = trees.map((t) => t.name).join(', ');
     if (!cleanup) {
       const held = (await Promise.all(trees.map(async (t) => ({ name: t.name, work: describeWork(await t.trees.inspect(t.ref, t.landed)) })))).filter((t) => t.work);
-      if (held.length) return { note: `Kept ${name}'s worktrees and branch ${branch} in ${where} — ${held.map((t) => `${t.name} has ${t.work}`).join('; ')}` };
+      if (held.length) return { note: L.workers.keptManyHas(name, branch, where, held.map((t) => L.workers.repoHas(t.name, t.work)).join('; ')) };
       cleanup = 'all';
     }
-    if (cleanup === 'keep') return { note: `Kept ${name}'s worktrees and branch ${branch} in ${where}` };
+    if (cleanup === 'keep') return { note: L.workers.keptMany(name, branch, where) };
     const how = cleanup;
     const errors = (await Promise.all(trees.map(async (t) => {
       const error = await t.trees.remove(t.ref, how);
       return error && `${t.name}: ${error}`;
     }))).filter(Boolean);
-    if (errors.length) return { error: `Couldn't delete all of ${name}'s worktrees: ${errors.join('; ')}` };
+    if (errors.length) return { error: L.workers.couldntDeleteMany(name, errors.join('; ')) };
     clearWorkspace(path.join(this.ctx.dir, workspaceOf(info)!));
-    return { note: how === 'all' ? `Deleted ${name}'s worktrees and branch ${branch} in ${where}` : `Deleted ${name}'s worktrees in ${where} and kept branch ${branch}` };
+    return { note: how === 'all' ? L.workers.deletedMany(name, branch, where) : L.workers.deletedManyKept(name, branch, where) };
   }
 
   /**
@@ -278,9 +279,9 @@ export class WorkerTrees {
    */
   async rebuild(id: string): Promise<{ rebuilt?: boolean; note?: string; error?: string }> {
     const w = this.ctx.workers.get(id);
-    if (!w) return { error: 'No such worker' };
+    if (!w) return { error: L.srv.noSuchWorker };
     const { info } = w;
-    if (!info.worktree) return { error: `${info.name} works in the main checkout` };
+    if (!info.worktree) return { error: L.workers.mainCheckout(info.name) };
     if (w.rebuilding) return {};
     const folder = this.ctx.cwd(info);
     // Whoever the folder was deleted from under: this worker, and the rest of its meeting's table.
@@ -293,10 +294,10 @@ export class WorkerTrees {
         for (const t of this.treesOf(info)) {
           if (t.ref.path && existsSync(path.resolve(t.dir, t.ref.path))) continue;
           const r = await t.trees.restore(t.ref);
-          const which = across ? `${t.name}'s ` : '';
-          if ('error' in r) return { error: `Couldn't rebuild ${info.name}'s worktree${across ? ` of ${t.name}` : ''}: ${r.error}` };
-          if (r.from === 'origin') froms.push(`${which}${t.ref.branch} came back from origin`);
-          if (r.from === 'gone') froms.push(`${which}${t.ref.branch} was deleted too, so it starts again from where it began`);
+          const which = across ? t.name : undefined;
+          if ('error' in r) return { error: L.workers.couldntRebuild(info.name, which, r.error) };
+          if (r.from === 'origin') froms.push(L.workers.fromOrigin(t.ref.branch, which));
+          if (r.from === 'gone') froms.push(L.workers.fromGone(t.ref.branch, which));
         }
         if (across) {
           try {
@@ -312,7 +313,7 @@ export class WorkerTrees {
     for (const o of stranded) if (!this.checkLost(o)) this.restartIn(o);
     if (!stranded.length) {
       if (!w.pty && !w.dsh) this.ctx.resume(id);
-      return { note: `${info.name}'s worktree is already there` };
+      return { note: L.workers.alreadyThere(info.name) };
     }
     return { rebuilt: true, note: froms.join('; ') || undefined };
   }
@@ -353,10 +354,10 @@ export class WorkerTrees {
     if (info.repos?.length) return this.clearRepos(info, cleanup, landed, landedRepos);
     if (!cleanup) {
       const work = describeWork(await this.ctx.trees.inspect(wt, landed));
-      if (work) return { note: `Kept ${name}'s worktree and branch ${wt.branch} — it has ${work}` };
+      if (work) return { note: L.workers.keptHas(name, wt.branch, work) };
       cleanup = 'all';
     }
-    if (cleanup === 'keep') return { note: `Kept ${name}'s worktree and branch ${wt.branch}` };
+    if (cleanup === 'keep') return { note: L.workers.kept(name, wt.branch) };
     let gone = wt;
     let kept = '';
     if (cleanup === 'all' && wt.made) {
@@ -368,7 +369,7 @@ export class WorkerTrees {
         // The office's own branch stays while it has commits that no remote, the project's checkout
         // or the branch it's on has.
         const work = await this.ctx.trees.wouldLose(wt.made, [wt.branch]);
-        if (work) kept = ` and kept branch ${wt.made} — it has ${work}`;
+        if (work) kept = L.workers.andKeptHas(wt.made, work);
         // A branch it made itself goes with it; one that was there before it (main, say) isn't the office's to delete.
         if (await this.ctx.trees.madeSince(wt.branch, wt.made)) gone = work ? { ...wt, made: undefined } : wt;
         else if (work) cleanup = 'worktree';
@@ -376,8 +377,8 @@ export class WorkerTrees {
       }
     }
     const error = await this.ctx.trees.remove(gone, cleanup);
-    if (error) return { error: `Couldn't delete ${name}'s worktree: ${error}` };
-    if (cleanup === 'worktree') return { note: `Deleted ${name}'s worktree${kept || ` and kept branch ${wt.branch}`}` };
-    return { note: `Deleted ${name}'s worktree and branch ${gone.branch}${kept && `,${kept}`}` };
+    if (error) return { error: L.workers.couldntDelete(name, error) };
+    if (cleanup === 'worktree') return { note: kept ? L.workers.deletedWt(name, kept) : L.workers.deletedWorktree(name, wt.branch) };
+    return { note: `${L.workers.deletedBoth(name, gone.branch)}${kept && `,${kept}`}` };
   }
 }

@@ -2,6 +2,7 @@ import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { closeSync, fstatSync, openSync, readSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import type { CloneProgress } from '../shared/protocol.js';
+import { L } from './i18n.js';
 
 // One `gh repo clone`, run so the office can see how it's getting on. git's progress goes to a log
 // file, which the office reads every second: that says how far along it is, and a log that stops
@@ -18,14 +19,14 @@ const TAIL_BYTES = 16 * 1024;
 
 /** What git says it's doing, in words for the elevator. */
 const STEPS: Record<string, string> = {
-  'Enumerating objects': 'GitHub is packing it up',
-  'Counting objects': 'GitHub is packing it up',
-  'Compressing objects': 'GitHub is packing it up',
-  'Receiving objects': 'Downloading',
-  'Resolving deltas': 'Unpacking',
-  'Checking connectivity': 'Checking it over',
-  'Updating files': 'Checking out files',
-  'Filtering content': 'Downloading LFS files',
+  'Enumerating objects': L.clone.packing,
+  'Counting objects': L.clone.packing,
+  'Compressing objects': L.clone.packing,
+  'Receiving objects': L.clone.downloading,
+  'Resolving deltas': L.clone.unpacking,
+  'Checking connectivity': L.clone.checking,
+  'Updating files': L.clone.checkingOut,
+  'Filtering content': L.clone.lfs,
 };
 
 const PROGRESS = /^(?:remote: )?([A-Z][a-z]+ [a-z]+):\s+(?:(\d{1,3})%(?: \(\d+\/\d+\))?|\d+)(?:, ([\d.]+ [KMGT]?i?B)(?: \| ([\d.]+ [KMGT]?i?B\/s))?)?/;
@@ -39,7 +40,7 @@ export function parseProgress(output: string): CloneProgress | undefined {
       const detail = [m[3], m[4]].filter(Boolean).join(' · ');
       return { step: STEPS[m[1]], ...(m[2] ? { percent: Math.min(100, Number(m[2])) } : {}), ...(detail ? { detail } : {}) };
     }
-    if (/^Cloning into /.test(lines[i].trim())) return { step: 'Connecting to GitHub' };
+    if (/^Cloning into /.test(lines[i].trim())) return { step: L.clone.connecting };
   }
   return undefined;
 }
@@ -51,11 +52,11 @@ export function whyCloneFailed(output: string): string {
     .map((l) => l.trim())
     .filter((l) => l && !PROGRESS.test(l) && !/^Cloning into /.test(l));
   const all = said.join('\n');
-  if (/Host key verification failed/i.test(all)) return "ssh on the office's machine hasn't accepted github.com's host key yet. Run `ssh -T git@github.com` there once, or clone over https with `gh config set git_protocol https`";
-  if (/passphrase/i.test(all)) return "the office's ssh key needs its passphrase. Add it to the ssh agent (`ssh-add`), or clone over https with `gh config set git_protocol https`";
-  if (/Permission denied \(publickey/i.test(all)) return "GitHub didn't take the office's ssh key. Add it with `gh ssh-key add`, or clone over https with `gh config set git_protocol https`";
-  if (/terminal prompts disabled|could not read (Username|Password)|Authentication failed/i.test(all)) return "git wanted a GitHub password. Run `gh auth setup-git` on the office's machine so git uses gh's login";
-  return said.slice(-2).join(' ') || 'gh failed';
+  if (/Host key verification failed/i.test(all)) return L.clone.hostKey;
+  if (/passphrase/i.test(all)) return L.clone.passphrase;
+  if (/Permission denied \(publickey/i.test(all)) return L.clone.publicKey;
+  if (/terminal prompts disabled|could not read (Username|Password)|Authentication failed/i.test(all)) return L.clone.password;
+  return said.slice(-2).join(' ') || L.srvWorktrees.ghFailed;
 }
 
 /** How a clone ended: stopped (and why), or the process's exit code (null when an office before this one started it). */
@@ -118,7 +119,7 @@ export class CloneRun {
       } finally {
         closeSync(fd);
       }
-      child.once('error', (err: NodeJS.ErrnoException) => resolve(err.code === 'ENOENT' ? "The GitHub CLI (gh) isn't installed on the office's machine" : `Couldn't run gh: ${err.message}`));
+      child.once('error', (err: NodeJS.ErrnoException) => resolve(err.code === 'ENOENT' ? L.srvSignin.noGh : L.srvSignin.ghStartFailed(err.message)));
       child.once('spawn', () => {
         const run = new CloneRun(child.pid!, log, child, opts);
         child.once('exit', (code) => run.end(code));

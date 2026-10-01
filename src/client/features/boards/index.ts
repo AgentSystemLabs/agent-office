@@ -17,6 +17,7 @@ import { BoardTexture, QueueBoardTexture, ServicesBoardTexture } from './world';
 import { MachineTexture } from './machine';
 import { MeetingBoardTexture, MeetingSignTexture } from './meeting';
 import type { World } from '../../world/world';
+import { L } from '../../i18n';
 
 // The kinds of thing you can use that this defines (see InteractKinds in world/types.ts).
 declare module '../../world/types' {
@@ -101,8 +102,8 @@ export function installBoards(ctx: Ctx, deps: BoardsDeps) {
     reach: 9,
     hint: () => {
       const aimedNote = deps.aimedNote();
-      if (aimedNote) return { k: String(aimedNote.number), parts: [hintTitle(clip(`📌 #${aimedNote.number} ${aimedNote.title}`, 60)), key('E', 'Take it'), key('O', 'Read it')] };
-      return issuesTex.hasNotes ? { k: 'notes', parts: [hintTitle('📌 Issues board'), key('E', 'Open'), aside('or point at a note to take it')] } : boardHint('📌 Issues board');
+      if (aimedNote) return { k: String(aimedNote.number), parts: [hintTitle(clip(`📌 #${aimedNote.number} ${aimedNote.title}`, 60)), key('E', L.hints.takeIt), key('O', L.hints.readIt)] };
+      return issuesTex.hasNotes ? { k: 'notes', parts: [hintTitle(L.hints.issuesBoard), key('E', L.hints.open), aside(L.hints.pointAtNote)] } : boardHint('📌 Issues board');
     },
     use: (_it, key, note) => {
       // A note on the issues board: E takes it straight off the cork, O opens it to read first.
@@ -113,19 +114,19 @@ export function installBoards(ctx: Ctx, deps: BoardsDeps) {
   });
   ctx.interactions.define('pulls', {
     reach: 9,
-    hint: () => boardHint('🔀 Pull request board'),
+    hint: () => boardHint(L.hints.pullsBoard),
     use: onE(() => openBoard('pulls', ctx.net, deps.boardActions())),
   });
   ctx.interactions.define('services', {
     reach: 9,
-    hint: () => boardHint('🌐 Services board'),
+    hint: () => boardHint(L.hints.servicesBoard),
     use: onE(() => openServices()),
   });
   ctx.interactions.define('queue', {
     reach: 9,
     hint: () => {
       const n = store.queue.tasks.filter((t) => t.status !== 'done').length;
-      return { k: String(n), parts: [hintTitle(`📋 Task queue${n ? ` · ${n}` : ''}`), key('E', 'Open')] };
+      return { k: String(n), parts: [hintTitle(`${L.hints.taskQueue}${n ? ` · ${n}` : ''}`), key('E', L.hints.open)] };
     },
     use: onE(() => deps.showQueue()),
   });

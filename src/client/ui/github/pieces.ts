@@ -2,6 +2,7 @@ import type { GhComment } from '../../../shared/protocol';
 import { AVATAR_COLORS } from '../../state';
 import { h, timeAgo } from '../dom';
 import { markdown } from '../markdown';
+import { L } from '../../i18n';
 
 // ---- Small pieces ---------------------------------------------------------------------------------
 
@@ -17,10 +18,10 @@ export function when(iso: string, url?: string) {
 }
 
 export const REVIEW_BADGE: Record<string, [string, string]> = {
-  APPROVED: ['✅ approved', 'ok'],
-  CHANGES_REQUESTED: ['🛠 requested changes', 'bad'],
-  COMMENTED: ['💬 reviewed', ''],
-  DISMISSED: ['review dismissed', 'muted'],
+  APPROVED: [L.pull.approved, 'ok'],
+  CHANGES_REQUESTED: [L.pull.requestedChanges, 'bad'],
+  COMMENTED: [L.pull.reviewed, ''],
+  DISMISSED: [L.pull.dismissed, 'muted'],
 };
 
 export function commentCard(c: GhComment, itemUrl: string, verb: string, badge?: [string, string]) {
@@ -42,11 +43,11 @@ export function spinnerRow(text: string) {
 }
 
 export function errorBox(text: string, retry?: () => void) {
-  return h('div.gh-error', {}, `Couldn't load from GitHub: ${text}`, retry ? h('button.btn', { type: 'button', onclick: retry }, 'Try again') : null);
+  return h('div.gh-error', {}, L.pull.loadFailed(text), retry ? h('button.btn', { type: 'button', onclick: retry }, L.pull.tryAgain) : null);
 }
 
 export function stateOf(it: { state: string; isDraft?: boolean }): [string, string] {
-  if (it.state === 'MERGED') return ['merged', 'merged'];
-  if (it.state === 'CLOSED') return ['closed', 'offline'];
-  return it.isDraft ? ['draft', 'idle'] : ['open', 'working'];
+  if (it.state === 'MERGED') return [L.pull.merged, 'merged'];
+  if (it.state === 'CLOSED') return [L.pull.closed, 'offline'];
+  return it.isDraft ? [L.pull.draft, 'idle'] : [L.pull.open, 'working'];
 }

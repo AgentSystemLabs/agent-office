@@ -3,6 +3,7 @@ import path from 'node:path';
 import { isAgentEffort, isAgentProvider, type AgentChoice, type AgentProvider, type PromptsState } from '../shared/protocol.js';
 import { PROMPTS, PROMPT_MAX, fillPrompt, isPromptId, promptText, type PromptId, type PromptVars } from '../shared/prompts.js';
 import { validateWorkerEffort, validateWorkerModel } from './agents.js';
+import { L } from './i18n.js';
 
 /** What the floors read: a prompt as the office has it now, and what workers start on. */
 export interface PromptSource {
@@ -50,11 +51,11 @@ export class OfficePrompts implements PromptSource {
 
   /** Rewrites a prompt; `text` null (or the default's own text) puts the default back. Returns why it can't, if it can't. */
   setPrompt(id: unknown, text: string | null, by: string): string | undefined {
-    if (!isPromptId(id)) return 'Unknown prompt';
+    if (!isPromptId(id)) return L.srvPrompts.unknown;
     const def = PROMPTS[id];
     const clean = text === null ? null : text.replace(/\r\n?/g, '\n').trim();
-    if (clean !== null && clean.length > PROMPT_MAX) return `A prompt can be ${PROMPT_MAX.toLocaleString('en-US')} characters at most`;
-    if (clean === '' && !def.optional) return 'That prompt can’t be empty: write something, or put the default back';
+    if (clean !== null && clean.length > PROMPT_MAX) return L.srvPrompts.tooLong(PROMPT_MAX.toLocaleString('en-US'));
+    if (clean === '' && !def.optional) return L.promptEditor.cantBeEmpty;
     if (clean === null || clean === def.text) delete this.saved.custom[id];
     else this.saved.custom[id] = { text: clean, by, at: Date.now() };
     this.changed();
@@ -76,8 +77,8 @@ export class OfficePrompts implements PromptSource {
   }
 
   private problem(c: AgentChoice): string | undefined {
-    if (!isAgentProvider(c.provider) || !this.providers.list.includes(c.provider)) return 'Unknown agent provider';
-    if (c.provider === 'custom' && this.providers.configured !== 'custom') return 'Custom is not the configured agent provider';
+    if (!isAgentProvider(c.provider) || !this.providers.list.includes(c.provider)) return L.srv.unknownProvider;
+    if (c.provider === 'custom' && this.providers.configured !== 'custom') return L.workers.customNotConfigured;
     return validateWorkerModel('agent', c.provider, c.model) ?? validateWorkerEffort('agent', c.provider, c.effort);
   }
 

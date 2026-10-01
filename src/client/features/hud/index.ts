@@ -24,6 +24,7 @@ import { openTeam } from '../../ui/team';
 import { openUpgrade } from '../../ui/upgrade';
 import { openWhiteboard } from '../whiteboard/ui';
 import { describeSky } from '../../world/sky';
+import { L } from '../../i18n';
 
 export type HudParts = Pick<Parts, 'worlds' | 'place' | 'travel' | 'you' | 'actions' | 'waiting' | 'meeting' | 'bookshelf' | 'hanging' | 'talk' | 'notifier'>;
 
@@ -46,72 +47,72 @@ export function installHud(ctx: Ctx, core: CoreState, parts: HudParts) {
 
   // ---- The HUD: a few buttons on the top bar, everything else in the ☰ menu ----------------------------
   const waitingNow = () => waitingInOrder(store.workers.values());
-  const noMedia = () => (window.isSecureContext ? undefined : 'Voice and screen sharing need HTTPS or localhost — use a TLS proxy, --self-signed, or an SSH tunnel');
+  const noMedia = () => (window.isSecureContext ? undefined : L.main.noMedia);
   const hud = mountHud(
     [
-      { id: 'issues', icon: '📌', label: 'Issues', section: 'Open', count: () => store.issues.items.filter((i) => i.state === 'OPEN').length, run: () => openBoard('issues', net, actions.boardActions()) },
-      { id: 'pulls', icon: '🔀', label: 'Pull requests', section: 'Open', count: () => store.pulls.items.filter((p) => p.state === 'OPEN').length, run: () => openBoard('pulls', net, actions.boardActions()) },
-      { id: 'queue', icon: '📋', label: 'Task queue', section: 'Open', count: () => store.queue.tasks.filter((t) => t.status !== 'done').length, title: () => 'Issues and tasks waiting for a worker', run: waiting.showQueue },
-      { id: 'services', icon: '🌐', label: 'Services', section: 'Open', count: () => store.services.items.length, title: () => 'Web servers the workers are running', run: () => openServices() },
-      { id: 'whiteboard', icon: '📝', label: 'Whiteboard', section: 'Open', title: () => 'Draw together, live', run: () => openWhiteboard(net) },
+      { id: 'issues', icon: '📌', label: L.menu.issues, section: 'Open', count: () => store.issues.items.filter((i) => i.state === 'OPEN').length, run: () => openBoard('issues', net, actions.boardActions()) },
+      { id: 'pulls', icon: '🔀', label: L.menu.pulls, section: 'Open', count: () => store.pulls.items.filter((p) => p.state === 'OPEN').length, run: () => openBoard('pulls', net, actions.boardActions()) },
+      { id: 'queue', icon: '📋', label: L.menu.queue, section: 'Open', count: () => store.queue.tasks.filter((t) => t.status !== 'done').length, title: () => L.menu.queueTip, run: waiting.showQueue },
+      { id: 'services', icon: '🌐', label: L.menu.services, section: 'Open', count: () => store.services.items.length, title: () => L.menu.servicesTip, run: () => openServices() },
+      { id: 'whiteboard', icon: '📝', label: L.menu.whiteboard, section: 'Open', title: () => L.menu.whiteboardTip, run: () => openWhiteboard(net) },
       // Up on the top bar while a meeting is on: what's being worked through in the meeting room.
       {
         id: 'meeting',
         icon: '🤝',
-        label: 'Meeting room',
+        label: L.menu.meeting,
         section: 'Open',
         status: () => store.meeting.current?.status === 'running',
-        chip: () => 'In a meeting',
-        title: () => 'Call a meeting: workers work through a question or a task together',
+        chip: () => L.menu.inMeeting,
+        title: () => L.menu.meetingTip,
         run: () => parts.meeting.showMeeting(),
       },
-      { id: 'search', icon: '🔎', label: 'Search', section: 'Open', key: '/', title: () => 'Search the chat and every terminal', run: waiting.showSearch },
+      { id: 'search', icon: '🔎', label: L.menu.search, section: 'Open', key: '/', title: () => L.menu.searchTip, run: waiting.showSearch },
       // The office has its bookshelf for them; a map of its own may not.
-      { id: 'docs', icon: '📚', label: 'Docs', section: 'Open', shown: () => !inOffice(), title: () => 'Read the project’s docs', run: parts.bookshelf.showBookshelf },
-      { id: 'elevator', icon: '🛗', label: () => (inOffice() ? 'Elevator' : 'Floors'), section: 'Open', count: () => store.floors.reduce((n, f) => n + (f.id === store.floor ? 0 : f.waiting), 0), title: () => (inOffice() ? 'Ride to another project' : 'Go to another project, or add one'), run: travel.showElevator },
-      { id: 'roof', icon: '🍸', label: 'Rooftop bar', section: 'Open', shown: () => !core.upTop && inOffice() && builtFloors().length > 0, title: () => 'Ride the elevator up to the roof: a DJ, drinks and the city', run: () => travel.ride(ROOF) },
+      { id: 'docs', icon: '📚', label: L.books.docs, section: 'Open', shown: () => !inOffice(), title: () => L.game.readDocs, run: parts.bookshelf.showBookshelf },
+      { id: 'elevator', icon: '🛗', label: () => (inOffice() ? L.menu.elevator : L.elevator.floors), section: 'Open', count: () => store.floors.reduce((n, f) => n + (f.id === store.floor ? 0 : f.waiting), 0), title: () => (inOffice() ? L.menu.elevatorTip : L.game.otherProject), run: travel.showElevator },
+      { id: 'roof', icon: '🍸', label: L.menu.roof, section: 'Open', shown: () => !core.upTop && inOffice() && builtFloors().length > 0, title: () => 'Ride the elevator up to the roof: a DJ, drinks and the city', run: () => travel.ride(ROOF) },
       // In voice, V is push to talk, so leaving is only from here.
-      { id: 'voice', icon: '🎙️', label: () => (voice.inVoice ? 'Leave voice' : 'Join voice'), section: 'Together', key: () => (voice.inVoice ? undefined : 'V'), on: () => voice.inVoice, blocked: noMedia, run: () => void talk.toggleVoice() },
+      { id: 'voice', icon: '🎙️', label: () => (voice.inVoice ? L.menu.leaveVoice : L.menu.joinVoice), section: 'Together', key: () => (voice.inVoice ? undefined : 'V'), on: () => voice.inVoice, blocked: noMedia, run: () => void talk.toggleVoice() },
       // While you're in voice, the top bar keeps the mute button handy. Muted is the usual with push to talk, so it doesn't stand out then.
       {
         id: 'mute',
         icon: () => (voice.muted ? '🔇' : '🎙️'),
-        label: () => (voice.muted ? 'Unmute' : 'Mute'),
+        label: () => (voice.muted ? L.menu.unmute : L.menu.mute),
         section: 'Together',
         key: 'M',
         shown: () => voice.inVoice,
         status: () => voice.inVoice,
         on: () => voice.inVoice,
         tone: () => (voice.muted && !settings.pushToTalk ? 'danger' : undefined),
-        title: () => (voice.muted ? 'Muted: hold V to talk, or M to unmute' : 'Mute (M) · hold V to talk'),
+        title: () => (voice.muted ? L.menu.mutedTip : L.menu.muteTip),
         run: () => voice.toggleMute(),
       },
-      { id: 'share', icon: '🖥️', label: () => (voice.sharing ? 'Stop sharing' : 'Share screen'), section: 'Together', on: () => voice.sharing, status: () => voice.sharing, chip: () => 'Sharing', blocked: noMedia, run: () => void talk.toggleShare() },
-      { id: 'decor', icon: '🖼️', label: () => (hanging.hanger.active ? 'Stop hanging the picture' : 'Hang a picture'), section: 'Together', key: 'F', shown: () => inOffice(), on: () => hanging.hanger.active, status: () => hanging.hanger.active, run: () => (hanging.hanger.active ? hanging.hanger.cancel() : hanging.startHanging()) },
-      { id: 'team', icon: '👥', label: 'Invite teammates', section: 'Together', shown: () => store.invites, run: () => openTeam(net) },
-      { id: 'accounts', icon: '🔑', label: 'Accounts', section: 'Together', shown: () => store.me.admin, title: () => 'Invite people, see who has an account, revoke them', run: () => openAccounts(net) },
-      { id: 'signins', icon: '🔐', label: 'Your sign-ins', section: 'Together', shown: () => !!store.me.account, tone: () => (needsSigningIn() ? 'danger' : undefined), status: needsSigningIn, chip: () => 'Sign in to Claude', title: () => 'The Claude plan and GitHub account your workers run on: your own', run: () => openSignIns(net) },
-      { id: 'settings', icon: '⚙️', label: 'Settings', section: 'Office', run: showSettings },
-      { id: 'help', icon: '❓', label: 'Controls', section: 'Office', key: 'H', run: openHelp },
-      { id: 'lite', icon: '📱', label: '2D view', section: 'Office', title: () => 'The workers, their terminals and the boards without the 3D: for a phone or a slow computer', run: () => location.assign('/lite') },
+      { id: 'share', icon: '🖥️', label: () => (voice.sharing ? L.menu.stopSharing : L.menu.shareScreen), section: 'Together', on: () => voice.sharing, status: () => voice.sharing, chip: () => 'Sharing', blocked: noMedia, run: () => void talk.toggleShare() },
+      { id: 'decor', icon: '🖼️', label: () => (hanging.hanger.active ? L.menu.stopHanging : L.menu.hang), section: 'Together', key: 'F', shown: () => inOffice(), on: () => hanging.hanger.active, status: () => hanging.hanger.active, run: () => (hanging.hanger.active ? hanging.hanger.cancel() : hanging.startHanging()) },
+      { id: 'team', icon: '👥', label: L.menu.invite, section: 'Together', shown: () => store.invites, run: () => openTeam(net) },
+      { id: 'accounts', icon: '🔑', label: L.menu.accounts, section: 'Together', shown: () => store.me.admin, title: () => L.menu.accountsTip, run: () => openAccounts(net) },
+      { id: 'signins', icon: '🔐', label: L.game.signIns, section: 'Together', shown: () => !!store.me.account, tone: () => (needsSigningIn() ? 'danger' : undefined), status: needsSigningIn, chip: () => L.game.signInClaude, title: () => L.game.signInsTip, run: () => openSignIns(net) },
+      { id: 'settings', icon: '⚙️', label: L.menu.settings, section: 'Office', run: showSettings },
+      { id: 'help', icon: '❓', label: L.menu.controls, section: 'Office', key: 'H', run: openHelp },
+      { id: 'lite', icon: '📱', label: L.game.view2d, section: 'Office', title: () => L.game.view2dTip, run: () => location.assign('/lite') },
       {
         id: 'upgrade',
         icon: '⬆️',
-        label: () => (store.upgrade.phase === 'building' ? 'Upgrading…' : store.upgrade.latest ? 'Update the office' : 'Upgrade the office'),
+        label: () => (store.upgrade.phase === 'building' ? L.menu.upgrading : store.upgrade.latest ? L.menu.update : L.menu.upgrade),
         section: 'Office',
         shown: () => store.upgrade.available,
         // A new version, or one being built, gets a place on the top bar until it's in.
         status: () => !!store.upgrade.latest || store.upgrade.phase === 'building',
-        chip: () => (store.upgrade.phase === 'building' ? 'Upgrading…' : 'Update'),
+        chip: () => (store.upgrade.phase === 'building' ? L.menu.upgrading : L.menu.updateChip),
         tone: () => (store.upgrade.latest && store.upgrade.phase !== 'building' ? 'primary' : undefined),
-        title: () => (store.upgrade.latest ? `New version: ${store.upgrade.latest.subject}` : 'Upgrade the office'),
+        title: () => (store.upgrade.latest ? L.menu.newVersion(store.upgrade.latest.subject) : L.menu.upgrade),
         run: () => openUpgrade(net),
       },
       // Up on the top bar while workers wait on someone (N does the same), next to the Workers button.
       {
         id: 'waiting',
         icon: () => (waitingNow().some((w) => w.status === 'needs_input') ? '🙋' : '✅'),
-        label: 'Next worker that needs you',
+        label: L.menu.nextWorker,
         section: 'Open',
         key: 'N',
         shown: () => waitingNow().length > 0,
@@ -119,7 +120,7 @@ export function installHud(ctx: Ctx, core: CoreState, parts: HudParts) {
         chip: () => waitingLabel(waitingNow()).replace(/^(🙋|✅) /, ''),
         on: () => waitingNow().every((w) => w.status === 'done'),
         tone: () => (waitingNow().some((w) => w.status === 'needs_input') ? 'danger' : undefined),
-        title: () => 'Go to the worker that has waited longest on someone (N)',
+        title: () => L.page.waitingTip,
         run: waiting.goToNextWaiting,
       },
     ],

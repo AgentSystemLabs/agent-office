@@ -14,6 +14,7 @@ import { EYE_HEIGHT } from '../player';
 import { store } from '../state';
 import { modalOpen, toast } from '../ui/dom';
 import type { Interactable } from '../world/types';
+import { L } from '../i18n';
 
 export type PointerParts = Pick<Parts, 'worlds' | 'rooftop' | 'place' | 'you' | 'boards' | 'cards' | 'seating' | 'hoops' | 'emotes' | 'hanging' | 'telescope' | 'hintbar'>;
 
@@ -177,7 +178,7 @@ export function installPointer(ctx: Ctx, core: CoreState, parts: PointerParts) {
     const aim = aimedAt(ndc, 2.5);
     if (!aim) return;
     if (!aim.near) {
-      toast('Walk closer to that first');
+      toast(L.main.walkCloser);
       return;
     }
     use(aim.it, 'E', noteUnder(aim));

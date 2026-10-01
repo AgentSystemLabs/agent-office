@@ -17,6 +17,7 @@ import { $, closeAllModals, h, modalOpen, toast } from '../../ui/dom';
 import { openQueue } from '../../ui/queue';
 import { openSearch } from '../../ui/search';
 import { openTerminal, type TerminalFind } from '../../ui/terminal';
+import { L } from '../../i18n';
 
 /** Registers N (and the Workers panel's count), the compass's tick ('render') and / (search). */
 export function installWaiting(ctx: Ctx, core: CoreState, parts: Pick<Parts, 'worlds' | 'views' | 'actions'>) {
@@ -35,14 +36,14 @@ export function installWaiting(ctx: Ctx, core: CoreState, parts: Pick<Parts, 'wo
     nextToast?.remove();
     if (!w || !desk) {
       const other = store.floors.find((f) => f.id !== store.floor && f.waiting > 0);
-      nextToast = toast(other ? `🛗 Nobody's waiting on this floor. ${other.waiting} on the ${other.name} floor: take the elevator` : '👍 Nobody is waiting on you');
+      nextToast = toast(other ? L.main.waitingElsewhere(other.waiting, other.name) : L.main.nobodyWaiting);
       return;
     }
     closeAllModals();
     parts.actions.standAt(desk);
     const waiting = waitingInOrder(store.workers.values());
-    const of = waiting.length > 1 ? ` (${waiting.findIndex((x) => x.id === w.id) + 1} of ${waiting.length})` : '';
-    nextToast = toast(`${w.status === 'needs_input' ? `🙋 ${w.name} needs input` : `✅ ${w.name} is done`}${of}. E opens its terminal`);
+    const of = waiting.length > 1 ? ` (${L.main.nOf(waiting.findIndex((x) => x.id === w.id) + 1, waiting.length)})` : '';
+    nextToast = toast(L.main.nextWaiting(w.status === 'needs_input' ? L.main.needsInput(w.name) : L.main.isDone(w.name), of));
   }
 
   /** The waiting worker you're standing at, if any: N skips it while anyone else is waiting. */

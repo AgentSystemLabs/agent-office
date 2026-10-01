@@ -3,6 +3,7 @@
 // anyone else, and they're kept per worker until the page reloads.
 import './termtabs.css';
 import { clip, h, toast } from './dom';
+import { L } from '../i18n';
 
 /** A web page pinned open beside a worker's terminal. */
 interface WebTab {
@@ -30,14 +31,14 @@ export interface TermTabsOptions {
 
 /** The tab bar (above the terminal) and where the pages show (beside it). */
 export function termTabs(workerId: string, opts: TermTabsOptions): { bar: HTMLElement; pages: HTMLElement } {
-  const tabsBar = h('div.term-tabs', { role: 'tablist', 'aria-label': 'Tabs' });
-  const tabName = h('input', { type: 'text', placeholder: 'Tab name (e.g. ChatGPT)', 'aria-label': 'Tab name', maxlength: '40', autocomplete: 'off' }) as HTMLInputElement;
-  const tabUrl = h('input', { type: 'url', placeholder: 'https://…', 'aria-label': 'Web page address', autocomplete: 'off' }) as HTMLInputElement;
-  const cancelBtn = h('button.btn', { type: 'button' }, 'Cancel');
-  const form = h('form.term-tab-form.hidden', {}, tabName, tabUrl, h('button.btn.primary', { type: 'submit' }, 'Add'), cancelBtn);
-  const addBtn = h('button.term-tab-add', { type: 'button', title: 'Pin a web page open beside this terminal (a linked chat, docs, anything with an address)' }, '+ Web page');
+  const tabsBar = h('div.term-tabs', { role: 'tablist', 'aria-label': L.termTabs.tabs });
+  const tabName = h('input', { type: 'text', placeholder: L.termTabs.namePlaceholder, 'aria-label': L.termTabs.name, maxlength: '40', autocomplete: 'off' }) as HTMLInputElement;
+  const tabUrl = h('input', { type: 'url', placeholder: 'https://…', 'aria-label': L.termTabs.address, autocomplete: 'off' }) as HTMLInputElement;
+  const cancelBtn = h('button.btn', { type: 'button' }, L.hints.cancel);
+  const form = h('form.term-tab-form.hidden', {}, tabName, tabUrl, h('button.btn.primary', { type: 'submit' }, L.termTabs.add), cancelBtn);
+  const addBtn = h('button.term-tab-add', { type: 'button', title: L.termTabs.addTip }, L.termTabs.addLabel);
   // Plenty of sites won't show inside another page (chatgpt.com doesn't): this opens the one showing in a tab of its own.
-  const openOut = h('a.term-tab-out.hidden', { target: '_blank', rel: 'noopener noreferrer', title: "Open this page in a browser tab of its own (for a site that won't show here)" }, '↗ New tab') as HTMLAnchorElement;
+  const openOut = h('a.term-tab-out.hidden', { target: '_blank', rel: 'noopener noreferrer', title: L.termTabs.outTip }, L.termTabs.out) as HTMLAnchorElement;
   const bar = h('div.term-tabbar', {}, tabsBar, openOut, addBtn, form);
   const pages = h('div.term-webhost.hidden');
 
@@ -47,7 +48,7 @@ export function termTabs(workerId: string, opts: TermTabsOptions): { bar: HTMLEl
   let active = 'main';
 
   const render = () => {
-    const mainTab = h('div.term-tab', { class: active === 'main' ? 'on' : '' }, h('button.term-tab-label', { type: 'button', role: 'tab', 'aria-selected': String(active === 'main'), onclick: () => show('main') }, '💻 Terminal'));
+    const mainTab = h('div.term-tab', { class: active === 'main' ? 'on' : '' }, h('button.term-tab-label', { type: 'button', role: 'tab', 'aria-selected': String(active === 'main'), onclick: () => show('main') }, L.termTabs.terminal));
     tabsBar.replaceChildren(
       mainTab,
       ...tabs.map((t) =>
@@ -59,7 +60,7 @@ export function termTabs(workerId: string, opts: TermTabsOptions): { bar: HTMLEl
             'button.term-tab-close',
             {
               type: 'button',
-              'aria-label': `Close ${t.title} tab`,
+              'aria-label': L.termTabs.close(t.title),
               onclick: (e: Event) => {
                 e.stopPropagation();
                 close(t.id);
@@ -117,12 +118,12 @@ export function termTabs(workerId: string, opts: TermTabsOptions): { bar: HTMLEl
     try {
       parsed = new URL(tabUrl.value.trim());
     } catch {
-      toast('That doesn’t look like a web address', 'warn');
+      toast(L.termTabs.badUrl, 'warn');
       return;
     }
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return toast('Only http:// and https:// addresses can open in a tab', 'warn');
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return toast(L.termTabs.onlyHttp, 'warn');
     // The office itself would run in the frame signed in as you, with nothing between it and this page.
-    if (parsed.origin === location.origin) return toast("The office's own pages can't open in a tab", 'warn');
+    if (parsed.origin === location.origin) return toast(L.termTabs.notOffice, 'warn');
     const tab: WebTab = { id: `web-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, title: tabName.value.trim() || parsed.hostname.replace(/^www\./, ''), url: parsed.toString() };
     tabs.push(tab);
     frameFor(tab);

@@ -6,6 +6,7 @@
 import { toolAction } from '../../shared/actions.js';
 import type { Worker, WorkerHandle } from './types.js';
 import { truncate } from './util.js';
+import { L } from '../i18n.js';
 
 /** A permission prompt this soon after the worker stopped needing input is the late one for what was just answered. */
 export const LATE_PROMPT_GRACE_MS = 5000;
@@ -119,7 +120,7 @@ export function reduceLifecycle(h: WorkerHandle, report: LifecycleReport, o: Lif
       h.setStatus('working');
       break;
     case 'PreToolUse':
-      info.activity = report.tool ? truncate(report.tool, 80) : 'Using a tool';
+      info.activity = report.tool ? truncate(report.tool, 80) : L.workers.usingTool;
       info.action = toolAction(report.tool);
       h.noteTool(info.activity);
       if (tools) {

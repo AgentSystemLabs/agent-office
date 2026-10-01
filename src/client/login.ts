@@ -1,4 +1,6 @@
-export {}; // a module, so its names don't clash with the other pages' scripts
+import { L, translatePage } from './i18n';
+
+translatePage();
 
 const form = document.getElementById('form') as HTMLFormElement;
 const nameRow = document.getElementById('name-row') as HTMLLabelElement;
@@ -21,9 +23,9 @@ if (linkKey) {
   void fetch('/api/link', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key: linkKey }) })
     .then(async (res) => {
       if (res.ok) return location.replace(NEXT);
-      error.textContent = ((await res.json().catch(() => ({}))) as { error?: string }).error ?? 'Could not sign in';
+      error.textContent = ((await res.json().catch(() => ({}))) as { error?: string }).error ?? L.auth.couldNotSignIn;
     })
-    .catch(() => void (error.textContent = 'Server unreachable'));
+    .catch(() => void (error.textContent = L.auth.unreachable));
 }
 
 // Ask for a name once people have accounts; it's optional while the shared password still works.
@@ -34,7 +36,7 @@ void fetch('/api/login', { cache: 'no-store' })
     nameRow.hidden = false;
     nameInput.required = !shared;
     nameNote.hidden = !shared;
-    sub.textContent = shared ? 'Knock knock. Who is it?' : 'Knock knock. Who is it? Sign in with your own account.';
+    sub.textContent = shared ? L.auth.whoIsIt : L.auth.whoIsItAccount;
     try {
       nameInput.value = localStorage.getItem(NAME_KEY) ?? '';
     } catch {
@@ -65,10 +67,10 @@ form.addEventListener('submit', async (e) => {
       return;
     }
     const body = await res.json().catch(() => ({}));
-    error.textContent = body.error ?? 'Could not sign in';
+    error.textContent = body.error ?? L.auth.couldNotSignIn;
     input.select();
   } catch {
-    error.textContent = 'Server unreachable';
+    error.textContent = L.auth.unreachable;
   } finally {
     submit.disabled = false;
   }

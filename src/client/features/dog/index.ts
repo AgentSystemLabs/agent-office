@@ -3,6 +3,7 @@ import { aside, hintTitle, key, onE } from '../../core/hint';
 import { noOutline } from '../../core/outline';
 import { store } from '../../state';
 import { Dog } from './world';
+import { L } from '../../i18n';
 
 // The kinds of thing you can use that this defines (see InteractKinds in world/types.ts).
 declare module '../../world/types' {
@@ -33,9 +34,9 @@ export function installDog(ctx: Ctx): Dog {
     hint: () => {
       const doing = dog.doing(
         (id) => store.workers.get(id)?.name,
-        (id) => (id === store.you ? 'you' : store.peers.get(id)?.name),
+        (id) => (id === store.you ? L.hints.youLower : store.peers.get(id)?.name),
       );
-      return { k: `${dog.name}|${doing}`, parts: [hintTitle(`🐶 ${dog.name}`), doing ? aside(doing) : '', key('E', 'Pet')] };
+      return { k: `${dog.name}|${doing}`, parts: [hintTitle(`🐶 ${dog.name}`), doing ? aside(doing) : '', key('E', L.hints.pet)] };
     },
     use: onE(() => ctx.net.send({ t: 'dog.pet' })),
   });

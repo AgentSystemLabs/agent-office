@@ -16,6 +16,7 @@ import { aside, hintTitle, key, onE } from './hint';
 import type { Parts } from './parts';
 import { FAR } from './scene';
 import { streetOf } from './worlds';
+import { L } from '../i18n';
 
 // The kinds of thing you can use that this defines (see InteractKinds in world/types.ts).
 declare module '../world/types' {
@@ -88,8 +89,8 @@ export function installTravel(ctx: Ctx, core: CoreState, parts: TravelParts) {
     hint: (it) => {
       const f = store.currentFloor();
       const n = store.floors.length;
-      if (it === office.garageLift.interactable) return { k: `garage|${f?.name}|${n}`, parts: [hintTitle('🛗 Elevator'), aside(f ? `Garage · up to ${clip(f.name, 24)}` : 'Garage'), key('E', 'Choose a floor')] };
-      return { k: `${f?.name}|${n}`, parts: [hintTitle('🛗 Elevator'), f ? aside(`${f.name} · ${n} floor${n === 1 ? '' : 's'}`) : '', key('E', n > 1 ? 'Choose a floor' : 'Floors & projects')] };
+      if (it === office.garageLift.interactable) return { k: `garage|${f?.name}|${n}`, parts: [hintTitle(L.hints.elevator), aside(f ? L.game.garageUp(clip(f.name, 24)) : L.game.garage), key('E', L.hints.chooseFloor)] };
+      return { k: `${f?.name}|${n}`, parts: [hintTitle(L.hints.elevator), f ? aside(`${f.name} · ${L.hints.floors(n)}`) : '', key('E', n > 1 ? L.hints.chooseFloor : L.hints.floorsProjects)] };
     },
     use: onE(() => showElevator()),
   });
@@ -120,7 +121,7 @@ export function installTravel(ctx: Ctx, core: CoreState, parts: TravelParts) {
     if (!inOffice()) {
       if (to === ROOF || to === GARAGE) {
         parts.walking.stopWalkingTo();
-        toast(`There's no ${to === ROOF ? 'rooftop bar' : 'garage'} on this map (${plan().icon} ${plan().name})`, 'warn');
+        toast(L.game.noPlaceOnMap(to === ROOF, `${plan().icon} ${plan().name}`), 'warn');
         return;
       }
       // Still up on a roof this map doesn't have: straight down to that floor.

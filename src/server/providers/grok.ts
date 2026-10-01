@@ -7,6 +7,7 @@ import path from 'node:path';
 import { normalizeGrokHook, withoutGrokLaunchArgs, writeGrokHome } from '../grok.js';
 import { reduceLifecycle } from '../workers/lifecycle.js';
 import type { ProviderAdapter } from './types.js';
+import { L } from '../i18n.js';
 
 interface GrokSetup {
   home: string;
@@ -41,7 +42,7 @@ export const grok: ProviderAdapter<undefined, GrokSetup> = {
     if (prompt) args.push('--', prompt);
     return { args, rotateToken: true, env: { GROK_HOME: setup.home, ...(setup.authPath ? { GROK_AUTH_PATH: setup.authPath } : {}) } };
   },
-  bootHint: 'Open the terminal: complete login if Grok asks',
+  bootHint: L.workers.completeLogin('Grok'),
   titleNoise: /^grok( build)?$/i,
   hook: {
     strictJson: true,

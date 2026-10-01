@@ -13,6 +13,7 @@ import { scoreText } from '../../shared/cabinet.js';
 import { cabinetChanged } from '../ws/handlers/cabinet.js';
 import type { Core, Ctx } from './context.js';
 import type { Client } from './client.js';
+import { L } from '../i18n.js';
 
 /** The first of the office: accounts and sign-in, the people in it, chat, the arcade, and the building's floors. */
 export function createCore(ctx: Ctx, cfg: Config, publicDir: string): Core {
@@ -26,10 +27,10 @@ export function createCore(ctx: Ctx, cfg: Config, publicDir: string): Core {
   const highScores = new HighScores(cfg.dataDir);
   const arcade = new Arcade(highScores, (first) => {
     for (const f of ctx.floors.values()) cabinetChanged(ctx, f);
-    if (first) ctx.toastFloor(ctx.floors.get(first.floor), `🏆 ${first.score.name} set a new arcade high score: ${scoreText(first.score.score)}`);
+    if (first) ctx.toastFloor(ctx.floors.get(first.floor), L.srv.highScore(first.score.name, scoreText(first.score.score)));
   });
   /** What the office is called where it has no project of its own to go by (webhooks, invites). */
-  const officeName = cfg.project ? path.basename(cfg.project) : 'the office';
+  const officeName = cfg.project ? path.basename(cfg.project) : L.srv.theOffice;
   // The model lists come from the provider's own CLI: the office's --agent when it's that one.
   const cli = (provider: AgentProvider) => {
     const command = providerCommand(provider, cfg.agentCmd);
@@ -41,7 +42,7 @@ export function createCore(ctx: Ctx, cfg: Config, publicDir: string): Core {
   // --- The building: a floor per project, each with its own workers, boards and queue -----------
   const building = new Building(cfg.dataDir, cfg.projectsDir);
   if (cfg.projects) {
-    const err = building.setProjectsDir(cfg.projects, 'the command line');
+    const err = building.setProjectsDir(cfg.projects, L.srv.commandLine);
     if (err) console.error(`agent-office: --projects: ${err}`);
   }
   const floors = new Map<string, Floor>();

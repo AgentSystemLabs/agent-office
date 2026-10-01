@@ -4,6 +4,7 @@ import { mesh, roundedBox, textPlane, toon, toonUnique } from '../../world/toon'
 import type { Collider, Interactable } from '../../world/types';
 import type { Fixture } from '../../world/office/fixture';
 import { boxFootprint } from '../../../shared/maps/props';
+import { L } from '../../i18n';
 
 // The gong: a brass disc hung in a red lacquered frame, next to the PR board. It rings when a pull
 // request merges, and anyone can walk up and hit it.
@@ -50,7 +51,7 @@ export function buildGong(at: { x: number; y?: number; z: number; rotY?: number 
     group.add(tip);
   }
   group.add(mesh(new THREE.BoxGeometry(width, 0.07, 0.08), ink, 0, height - 0.32, 0, false));
-  const plaque = textPlane('🎉 Merge gong', { bg: '#fffaf3', size: 48 });
+  const plaque = textPlane(L.hints.gong, { bg: '#fffaf3', size: 48 });
   plaque.scale.multiplyScalar(0.5);
   plaque.position.set(0, height - 0.08, 0.1);
   group.add(plaque);

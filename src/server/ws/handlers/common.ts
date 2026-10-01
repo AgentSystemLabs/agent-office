@@ -3,11 +3,12 @@ import type { Floor } from '../../floor.js';
 import type { Ctx } from '../../office/context.js';
 import type { Client } from '../../office/client.js';
 import { str } from '../../office/input.js';
+import { L } from '../../i18n.js';
 
 /** The floor `c` is on, or a note to them that they have to be on one. */
 export const here = (ctx: Ctx, c: Client): Floor | undefined => {
   const f = ctx.floorOf(c);
-  if (!f) ctx.warn(c, 'Take the elevator to a floor first');
+  if (!f) ctx.warn(c, L.srv.elevatorFirst);
   return f;
 };
 

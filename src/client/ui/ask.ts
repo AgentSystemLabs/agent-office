@@ -4,6 +4,7 @@ import { h, openModal, STATUS_LABEL } from './dom';
 import { store } from '../state';
 import { providerPicker, type ProviderPicker } from './provider';
 import { repoPicker } from './prompt';
+import { L } from '../i18n';
 
 // Send a prompt about an issue or PR to a worker: a new one at a free desk, or one already sitting
 // at a desk (it lands in their input box, queued if they're busy).
@@ -40,7 +41,7 @@ const WT_KEY = 'agent-office.worktree';
 
 export function openAsk(opts: AskOptions) {
   let to: string | null = opts.newDesk ? null : (opts.workers[0]?.id ?? null);
-  const ta = h('textarea', { rows: opts.initial ? 9 : 5, placeholder: opts.placeholder ?? 'What should the worker do?', 'aria-label': 'Prompt' }) as HTMLTextAreaElement;
+  const ta = h('textarea', { rows: opts.initial ? 9 : 5, placeholder: opts.placeholder ?? L.ask.placeholder, 'aria-label': L.hints.prompt }) as HTMLTextAreaElement;
   ta.value = opts.initial ?? '';
   const wtBox = h('input', { type: 'checkbox', id: 'ask-wt' }) as HTMLInputElement;
   try {
@@ -48,7 +49,7 @@ export function openAsk(opts: AskOptions) {
   } catch {
     // storage blocked
   }
-  const wtRow = h('label.ask-wt', { for: 'ask-wt', title: 'Isolate the new worker on its own branch so parallel workers never collide' }, wtBox, '🌿 Work in its own git worktree & branch');
+  const wtRow = h('label.ask-wt', { for: 'ask-wt', title: L.ask.worktreeTip }, wtBox, L.prompt.worktree);
   const repos = repoPicker(opts.worktreeOption ? opts.repoOptions : undefined, wtBox);
   const provider: ProviderPicker | null = opts.providerOption ? providerPicker(store.project, 'ask-provider') : null;
   const submit = h('button.btn.primary', { type: 'submit' });
@@ -60,14 +61,14 @@ export function openAsk(opts: AskOptions) {
     wtRow.classList.toggle('hidden', !!id || !opts.worktreeOption);
     repos.element?.classList.toggle('hidden', !!id);
     provider?.element.classList.toggle('hidden', !!id);
-    submit.textContent = id ? 'Send ✨' : 'Hire & start';
+    submit.textContent = id ? L.main.send : L.main.hireStart;
   };
-  if (opts.newDesk) choices.append(h('button.btn', { type: 'button', 'data-to': '', onclick: () => pick(null) }, `✨ New worker · ${opts.newDesk}`));
+  if (opts.newDesk) choices.append(h('button.btn', { type: 'button', 'data-to': '', onclick: () => pick(null) }, L.ask.newWorker(opts.newDesk)));
   for (const w of opts.workers) {
-    choices.append(h('button.btn', { type: 'button', 'data-to': w.id, title: `Type it into ${w.name}'s prompt`, onclick: () => pick(w.id) }, h('span.dot', { style: `background:${w.color}` }), w.name, h('small', {}, STATUS_LABEL[w.status] ?? w.status)));
+    choices.append(h('button.btn', { type: 'button', 'data-to': w.id, title: L.ask.typeInto(w.name), onclick: () => pick(w.id) }, h('span.dot', { style: `background:${w.color}` }), w.name, h('small', {}, STATUS_LABEL[w.status] ?? w.status)));
   }
 
-  const cancel = h('button.btn', { type: 'button' }, 'Cancel');
+  const cancel = h('button.btn', { type: 'button' }, L.hints.cancel);
   const form = h(
     'form.modal.ask',
     { role: 'dialog', 'aria-label': opts.title },
@@ -75,16 +76,16 @@ export function openAsk(opts: AskOptions) {
     h(
       'div.body',
       {},
-      h('label', {}, 'Send to'),
+      h('label', {}, L.ask.sendTo),
       choices,
-      opts.context ? h('details.ask-context', {}, h('summary', {}, 'The worker is told first…'), h('pre', {}, opts.context)) : null,
-      h('label', { style: 'margin-top:14px' }, 'Prompt'),
+      opts.context ? h('details.ask-context', {}, h('summary', {}, L.ask.toldFirst), h('pre', {}, opts.context)) : null,
+      h('label', { style: 'margin-top:14px' }, L.hints.prompt),
       ta,
       provider?.element ?? null,
       wtRow,
       repos.element,
     ),
-    h('footer', {}, h('span.grow', {}, 'Enter to send · Shift+Enter for a new line'), cancel, submit),
+    h('footer', {}, h('span.grow', {}, L.prompt.enterToSend), cancel, submit),
   ) as HTMLFormElement;
   form.noValidate = true;
   pick(to);

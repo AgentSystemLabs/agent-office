@@ -7,6 +7,7 @@ import { openHangDialog, openPicture, type HangChoice } from './ui';
 import { toast } from '../../ui/dom';
 import { Ghost, aimAtWall, brokenTexture, holdPicture, loadPicture, type Gallery } from './world';
 import type { Office } from '../../world/types';
+import { L } from '../../i18n';
 
 interface Hanging {
   url: string;
@@ -90,7 +91,7 @@ export class Hanger {
     store.on('decor', () => {
       const moving = this.cur?.moving;
       if (moving && !store.decor.some((d) => d.id === moving)) {
-        toast('Someone took that picture down', 'warn');
+        toast(L.decor.someoneTook, 'warn');
         this.cancel();
       }
       if (this.revealTimer) this.reveal();
@@ -172,8 +173,8 @@ export class Hanger {
     if (ndc && this.player.view === 'third') this.mouse.copy(ndc);
     this.update();
     const at = this.at;
-    if (!at) return toast('Aim at a wall to hang it there');
-    if (!at.ok) return toast("Something's already on the wall there", 'warn');
+    if (!at) return toast(L.decor.aimWall);
+    if (!at.ok) return toast(L.decor.occupied, 'warn');
     const spot = { wall: at.wall, u: at.u, y: at.y, w: at.w, h: at.h };
     if (cur.moving) {
       this.net.send({ t: 'decor.update', id: cur.moving, decor: spot });

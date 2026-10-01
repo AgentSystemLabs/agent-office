@@ -29,6 +29,8 @@ import type { HookEnv, OpenedPr, RepoSource, RunAs, Worker, WorkerContext, Worke
 import { clamp, safeEq, truncate } from './util.js';
 import { COLORS, NAMES, newWorker } from './worker.js';
 import { WorkerTrees, lostMessage } from './worktree.js';
+import { L } from '../i18n.js';
+import { placeName } from '../../shared/i18n.js';
 
 const SCREEN_INTERVAL_MS = 250;
 /** How often a steady typist's "last typed" time is refreshed for everyone. */
@@ -40,7 +42,7 @@ const USAGE_SCAN_MS = 10_000;
 /** How often a terminal with new output is saved to disk, so even a crash loses at most this much. */
 const SAVE_SCROLLBACK_MS = 15_000;
 /** Between a worker's saved scrollback and what it prints after the office restarted. */
-const RESTORED_NOTE = '\x1b[2m──── the office restarted · earlier output above ────\x1b[0m\r\n';
+const RESTORED_NOTE = `\x1b[2m──── ${L.workers.restarted} ────\x1b[0m\r\n`;
 
 export class WorkerManager {
   private workers = new Map<string, Worker>();
@@ -121,7 +123,7 @@ export class WorkerManager {
     this.tasks = new WorkerTasks(this.ctx, claude, childEnv());
     this.worktrees = new WorkerTrees(this.ctx);
     this.prs = new WorkerPrs(this.ctx);
-    this.host = new PtyHost(dataDir, () => this.events.toast("The workers' terminal host stopped — resuming them", 'warn'));
+    this.host = new PtyHost(dataDir, () => this.events.toast(L.workers.hostStopped, 'warn'));
     this.scrollback = new ScrollbackStore(dataDir);
     this.drops = new DropStore(dataDir);
     restoreWorkers(this.statePath, this.workers, this.defaultProvider, (deskId) => this.deskOccupied(deskId));
@@ -228,17 +230,17 @@ export class WorkerManager {
     const effortError = validateWorkerEffort(kind, selectedProvider, effort);
     if (effortError) return effortError;
     const seat = DESK_BY_ID.get(deskId);
-    if (!seat) return 'Unknown desk';
-    if (!deskBuilt(seat, this.wing())) return `${seat.label} isn't built yet: expand the back office first`;
-    if (this.deskOccupied(deskId)) return seat.station ? `The ${STATION_AGENT[seat.station].name} is already there` : `That ${seat.beanbag ? 'bean bag' : 'desk'} is taken`;
-    if (kind === 'shell' && seat.station) return 'A board agent is always an agent, not a shell';
-    if (seat.station && !prompt?.trim()) return 'Tell the board agent what to do';
-    if (!seat.room !== !meeting) return seat.room ? 'Only a meeting seats workers at the meeting table: call one in the meeting room' : 'A meeting seats its workers at the meeting table';
-    if (meeting && (kind !== 'agent' || worktree)) return 'A meeting seats agents, in its own worktree';
-    if (repos.length && (kind !== 'agent' || !worktree || seat.station || meeting)) return 'Only a worker in its own worktree can work in other repositories too';
-    if (repos.length > MAX_REPOS) return `A worker can take on at most ${MAX_REPOS} other repositories`;
-    if (kind === 'shell' && provider !== undefined) return 'Shell workers do not have an agent provider';
-    if (kind === 'agent' && selectedProvider === 'custom' && this.defaultProvider !== 'custom') return 'Custom is not the configured agent provider';
+    if (!seat) return L.workers.unknownDesk;
+    if (!deskBuilt(seat, this.wing())) return L.workers.notBuilt(placeName(L, seat));
+    if (this.deskOccupied(deskId)) return seat.station ? L.workers.agentThere(L.main.agentNames[seat.station]) : seat.beanbag ? L.workers.beanBagTaken : L.workers.deskTaken;
+    if (kind === 'shell' && seat.station) return L.workers.agentNotShell;
+    if (seat.station && !prompt?.trim()) return L.workers.tellAgent;
+    if (!seat.room !== !meeting) return seat.room ? L.workers.onlyMeeting : L.workers.meetingTable;
+    if (meeting && (kind !== 'agent' || worktree)) return L.workers.meetingAgents;
+    if (repos.length && (kind !== 'agent' || !worktree || seat.station || meeting)) return L.workers.onlyWorktreeRepos;
+    if (repos.length > MAX_REPOS) return L.workers.maxRepos(MAX_REPOS);
+    if (kind === 'shell' && provider !== undefined) return L.workers.shellNoProvider;
+    if (kind === 'agent' && selectedProvider === 'custom' && this.defaultProvider !== 'custom') return L.workers.customNotConfigured;
     if (kind === 'agent') {
       const paused = this.ledger.hiringPaused;
       if (paused) return paused;
@@ -259,11 +261,11 @@ export class WorkerManager {
       if (typeof made === 'string') return made;
       if ('repos' in made) {
         ({ worktree: wt, repos: others } = made);
-        for (const note of made.notes) this.events.toast(`🌿 ${name}'s worktree of ${note}`, 'info');
+        for (const note of made.notes) this.events.toast(`🌿 ${L.workers.worktreeOf(name, note)}`, 'info');
       } else {
         const { note, ...ref } = made;
         wt = ref;
-        if (note) this.events.toast(`🌿 ${name}'s worktree ${note}`, 'info');
+        if (note) this.events.toast(`🌿 ${L.workers.worktreeNote(name, note)}`, 'info');
       }
     }
     const info: WorkerInfo = {
@@ -308,8 +310,8 @@ export class WorkerManager {
   /** Starts a worker that isn't running again, carrying on its session, with `prompt` as its next message. */
   resume(id: string, prompt?: string): string | undefined {
     const w = this.workers.get(id);
-    if (!w) return 'No such worker';
-    if (w.pty || w.dsh) return 'Worker is already running';
+    if (!w) return L.srv.noSuchWorker;
+    if (w.pty || w.dsh) return L.workers.alreadyRunning;
     if (this.worktrees.checkLost(w, true)) return lostMessage(w.info);
     clockWork(w.info, 'starting');
     w.info.status = 'starting';
@@ -334,16 +336,16 @@ export class WorkerManager {
    * the agent and whether it was just hired.
    */
   station(deskId: string, by: string, text: string, owner?: string): { info: WorkerInfo; hired: boolean } | string {
-    if (!DESK_BY_ID.get(deskId)?.station) return 'There is no agent to ask there';
+    if (!DESK_BY_ID.get(deskId)?.station) return L.workers.noAgentThere;
     const clean = text.replace(/\r\n?/g, '\n').trim();
-    if (!clean) return 'Empty prompt';
+    if (!clean) return L.workers.emptyPrompt;
     const w = [...this.workers.values()].find((x) => x.info.deskId === deskId);
     if (!w) {
       const info = this.spawn(deskId, by, clean, false, 'agent', undefined, undefined, undefined, undefined, owner);
       return typeof info === 'string' ? info : { info, hired: true };
     }
     // Typed into the question it's asking, the prompt would answer it.
-    if (w.info.status === 'needs_input') return `The ${w.info.name} is waiting on an answer in its terminal`;
+    if (w.info.status === 'needs_input') return L.workers.agentWaiting(w.info.name);
     const running = !!(w.pty || w.dsh);
     if (!running) w.info.lastInput = { by, at: Date.now() };
     const err = running ? this.prompt(w.info.id, clean, by) : this.resume(w.info.id, clean);
@@ -499,10 +501,10 @@ export class WorkerManager {
   /** Types a prompt into the agent's input box and submits it; `by` is the person who sent it, if any. */
   prompt(id: string, text: string, by?: string): string | undefined {
     const w = this.workers.get(id);
-    if (!w) return 'No such worker';
+    if (!w) return L.srv.noSuchWorker;
     if (w.dsh) {
       const clean = text.replace(/\r\n?/g, '\n').trim();
-      if (!clean) return 'Empty prompt';
+      if (!clean) return L.workers.emptyPrompt;
       w.dsh.prompt(clean);
       w.info.activity = truncate(clean, 80);
       this.tasks.notePrompt(w, clean);
@@ -510,9 +512,9 @@ export class WorkerManager {
       this.emitUpdate(w);
       return undefined;
     }
-    if (!w.pty) return 'Worker is not running';
+    if (!w.pty) return L.workers.notRunning;
     const clean = text.replace(/\r\n?/g, '\n').trim();
-    if (!clean) return 'Empty prompt';
+    if (!clean) return L.workers.emptyPrompt;
     // Bracketed paste keeps multi-line prompts in one message, then Enter submits.
     w.pty.write(`\x1b[200~${clean}\x1b[201~`);
     setTimeout(() => w.pty?.write('\r'), 120);
@@ -811,15 +813,15 @@ export class WorkerManager {
       // Resuming a conversation Claude no longer has ("No conversation found") exits before Claude
       // ever starts. Start a fresh one rather than leave the worker asleep.
       if (adapter?.freshIfResumeFails && resumeSessionId && info.status === 'starting' && !this.closing) {
-        this.events.toast(`${info.name}'s last conversation couldn't be resumed — starting a fresh one`, 'warn');
+        this.events.toast(L.workers.couldntResume(info.name), 'warn');
         this.launch(w, undefined, undefined);
         return;
       }
       info.exitCode = exitCode;
       clockWork(info, 'exited');
       info.status = 'exited';
-      const hint = info.kind === 'shell' ? ' — press R to restart' : info.sessionId ? ' — press R to resume' : '';
-      const msg = `\r\n\x1b[2m[${info.name} exited with code ${exitCode}${hint}]\x1b[0m\r\n`;
+      const hint = info.kind === 'shell' ? ` — ${L.workers.pressRestart}` : info.sessionId ? ` — ${L.workers.pressResume}` : '';
+      const msg = `\r\n\x1b[2m[${L.workers.exited(info.name, exitCode)}${hint}]\x1b[0m\r\n`;
       term.write(msg);
       if (w.viewers.size) this.events.data(info.id, msg, [...w.viewers.keys()]);
       w.screenDirty = true;
@@ -842,7 +844,7 @@ export class WorkerManager {
 
   private startFailed(w: Worker, message: string) {
     const what = this.command(w.info);
-    const msg = `\r\n\x1b[31mFailed to start ${what}: ${message}\x1b[0m\r\n`;
+    const msg = `\r\n\x1b[31m${L.workers.failedStart(what, message)}\x1b[0m\r\n`;
     clockWork(w.info, 'exited');
     w.info.status = 'exited';
     w.info.exitCode = -1;
@@ -850,7 +852,7 @@ export class WorkerManager {
     if (w.viewers.size) this.events.data(w.info.id, msg, [...w.viewers.keys()]);
     w.screenDirty = true;
     w.unsaved = true;
-    this.events.toast(`Could not start ${what}: ${message}`, 'error');
+    this.events.toast(L.workers.couldntStart(what, message), 'error');
     this.emitUpdate(w);
   }
 

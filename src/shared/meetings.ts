@@ -2,6 +2,7 @@
 // The server runs them (server/meetings.ts); the client offers them when a meeting is called.
 
 import { fmtCost, fmtTokens, type Meeting, type MeetingPattern, type MeetingRecord } from './protocol.js';
+import { messages, type Messages } from './i18n.js';
 
 export interface PatternDef {
   icon: string;
@@ -113,14 +114,14 @@ export function slugify(s: string, max = 40): string {
  * Why an output path can't be used, or undefined when it's fine: a file inside the checkout, not in
  * the office's own folder or git's.
  */
-export function outputProblem(p: string): string | undefined {
-  if (!p.trim()) return 'Say which file the meeting writes';
-  if (p.length > 200) return 'That output path is too long';
-  if (/^[/\\]|^[a-zA-Z]:/.test(p)) return 'The output file goes inside the project: give a path relative to it';
+export function outputProblem(p: string, m: Messages = messages('en')): string | undefined {
+  if (!p.trim()) return m.shared.sayFile;
+  if (p.length > 200) return m.shared.pathTooLong;
+  if (/^[/\\]|^[a-zA-Z]:/.test(p)) return m.shared.relativePath;
   const parts = p.split(/[/\\]/);
-  if (parts.some((x) => x === '..' || x === '.' || x === '')) return 'The output path can’t have empty, . or .. parts';
-  if (parts[0] === '.git' || parts[0] === '.agent-office' || parts[0] === MEETING_NOTES_DIR) return `The output can’t go in ${parts[0]}/`;
-  if (/[\0-\x1f]/.test(p)) return 'The output path has control characters in it';
+  if (parts.some((x) => x === '..' || x === '.' || x === '')) return m.shared.badParts;
+  if (parts[0] === '.git' || parts[0] === '.agent-office' || parts[0] === MEETING_NOTES_DIR) return m.shared.cantGoIn(parts[0]);
+  if (/[\0-\x1f]/.test(p)) return m.shared.controlChars;
   return undefined;
 }
 
@@ -142,16 +143,16 @@ export function meetingStage(m: Meeting): string {
  * The line on the room's door once a meeting is over: pattern, rounds, tokens, cost, and the output
  * file it wrote (and where), or why it stopped.
  */
-export function meetingSummary(m: Meeting): string {
+export function meetingSummary(m: Meeting, t: Messages = messages('en')): string {
   const p = MEETING_PATTERNS[m.pattern];
-  const ran = m.status === 'done' ? rounds(m.round) : `${m.status === 'stopped' ? 'in ' : ''}round ${m.round} of ${m.rounds}`;
-  const head = `${p.icon} ${p.label} · ${ran} · ${meetingSpend(m)}`;
-  if (m.status === 'stopped') return `${head} · ⛔ ${m.reason ?? 'stopped'}`;
+  const ran = m.status === 'done' ? t.shared.rounds(m.round) : m.status === 'stopped' ? t.shared.inRoundOf(m.round, m.rounds) : t.shared.roundOf(m.round, m.rounds);
+  const head = `${p.icon} ${t.meetings.patterns[m.pattern]?.label ?? p.label} · ${ran} · ${meetingSpend(m)}`;
+  if (m.status === 'stopped') return `${head} · ⛔ ${m.reason ?? t.shared.stopped}`;
   if (m.status === 'running') return head;
-  const where = m.review?.url ? ' · posted on the PR' : m.review?.error ? ` · couldn't post it: ${m.review.error}` : m.commit ? ` on ${m.worktree?.branch}` : m.worktree ? ` in ${m.worktree.branch}'s worktree` : '';
+  const where = m.review?.url ? ` · ${t.shared.postedOnPr}` : m.review?.error ? ` · ${t.shared.couldntPost(m.review.error)}` : m.commit ? ` ${t.shared.onBranch(m.worktree?.branch ?? '')}` : m.worktree ? ` ${t.shared.inWorktree(m.worktree.branch)}` : '';
   return `${head} · ✅ ${m.output}${where}`;
 }
 
-export function meetingRecord(m: Meeting): MeetingRecord {
-  return { id: m.id, pattern: m.pattern, title: m.title, status: m.status, summary: meetingSummary(m), calledBy: m.calledBy, finishedAt: m.finishedAt ?? Date.now(), branch: m.worktree?.branch, output: m.output };
+export function meetingRecord(m: Meeting, t: Messages = messages('en')): MeetingRecord {
+  return { id: m.id, pattern: m.pattern, title: m.title, status: m.status, summary: meetingSummary(m, t), calledBy: m.calledBy, finishedAt: m.finishedAt ?? Date.now(), branch: m.worktree?.branch, output: m.output };
 }

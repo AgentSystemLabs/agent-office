@@ -7,6 +7,7 @@ import type { Fixture } from './fixture';
 import { PALETTE, box, floorTexture, glassPane } from './materials';
 import { floorPlant, plant } from './props';
 import { seatable } from './seats';
+import { L } from '../../i18n';
 
 // Outside the office's walls: the smoking balcony off the south wall, the posts under the bottom
 // floor's, and the steps from the exit door down to the street.
@@ -159,7 +160,7 @@ export function buildBalcony(group: THREE.Group, colliders: Collider[], interact
   interactables.push(it);
   tray.userData.interact = it;
 
-  const sign = textPlane('🚬 Smoke break', { bg: '#2b2d42', color: '#fffaf3', size: 56, border: '#fffaf3' });
+  const sign = textPlane(L.signs.smoke, { bg: '#2b2d42', color: '#fffaf3', size: 56, border: '#fffaf3' });
   sign.scale.multiplyScalar(0.8);
   sign.position.set(-6.5, 2.2, minZ + 0.02);
   group.add(sign);

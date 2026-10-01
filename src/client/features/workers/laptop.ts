@@ -3,6 +3,7 @@ import { FLAG_BOLD, FLAG_DIM, FLAG_INVERSE, RGB_FLAG, type Run } from '../../../
 import { mesh, roundedBox, toon } from '../../world/toon';
 import { TERM_THEME } from '../../ui/termtheme';
 import type { ScreenState } from '../../state/store';
+import { L } from '../../i18n';
 
 
 const BASE16 = [
@@ -71,7 +72,7 @@ export function paintScreen(ctx: CanvasRenderingContext2D, w: number, h: number,
     ctx.font = `700 ${Math.round(h / 12)}px ui-monospace, Menlo, monospace`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(placeholder ?? 'booting…', w / 2, h / 2);
+    ctx.fillText(placeholder ?? L.main.booting, w / 2, h / 2);
     ctx.textAlign = 'left';
     return;
   }

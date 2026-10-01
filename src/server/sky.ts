@@ -1,5 +1,6 @@
 import type { SkyState, Weather } from '../shared/protocol.js';
 import { guessPlace } from '../shared/sun.js';
+import { L } from './i18n.js';
 
 // The sky over the office: where it is (which sets when the sun rises and sets) and the weather.
 // With --city, both follow that city's live forecast from open-meteo.com (free, no key needed).
@@ -152,7 +153,7 @@ export class Sky {
     try {
       this.place ??= await locate(city);
       if (!this.place) {
-        console.warn(`agent-office: couldn't find the city "${city}"; the weather is made up instead`);
+        console.warn(`agent-office: ${L.logs.noCity(city)}`);
         this.opts.city = undefined;
         return this.drift();
       }
@@ -164,10 +165,13 @@ export class Sky {
       const temp = Number(f.current.temperature_2m);
       const utcOffset = Number.isFinite(f.utc_offset_seconds) ? Math.round(f.utc_offset_seconds / 60) : this.state.utcOffset;
       this.set({ lat, lon, utcOffset, ...weather, city: name, temp: Number.isFinite(temp) ? Math.round(temp) : undefined });
+      if (this.warned) console.log(`agent-office: ${L.logs.weatherBack(name)}`);
       this.warned = false;
       this.later(FORECAST_MS, () => void this.forecast());
     } catch (err) {
-      if (!this.warned) console.warn(`agent-office: no weather for ${city} yet (${(err as Error).message}); trying again in a couple of minutes`);
+      const e = err as Error & { cause?: { code?: string; message?: string } };
+      const why = [e.message, e.cause?.code ?? e.cause?.message].filter(Boolean).join(': ');
+      if (!this.warned) console.warn(`agent-office: ${L.logs.noWeather(city, why)}`);
       this.warned = true;
       this.later(RETRY_MS, () => void this.forecast());
     }

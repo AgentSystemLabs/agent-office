@@ -19,6 +19,7 @@ import { floorPlan } from './floor-plan';
 import { jail } from './jail';
 import { jukebox } from './jukebox';
 import { leaveOnMerge } from './leave-on-merge';
+import { language } from './language';
 import { machine } from './machine';
 import { map } from './map';
 import { meeting } from './meeting';
@@ -45,6 +46,7 @@ export const SLICES: readonly Slice[] = [
   theme,
   prompts,
   leaveOnMerge,
+  language,
   map,
   floor,
   meeting,

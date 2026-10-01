@@ -4,6 +4,7 @@ import { OPEN_CODE_MODEL_MAX } from '../../../shared/providers.js';
 import { str } from '../../office/input.js';
 import { here } from './common.js';
 import type { HandlerMap, ViewPieces } from './types.js';
+import { L } from '../../i18n.js';
 
 export const meetingView: ViewPieces['meeting'] = (_ctx, floor) => floor?.meetings.state() ?? { current: null, past: [] };
 
@@ -13,7 +14,7 @@ export const meetingHandlers = {
     const floor = here(ctx, c);
     if (!floor) return;
     if (msg.provider !== undefined && (!isAgentProvider(msg.provider) || !floor.project.agentProviders.includes(msg.provider))) {
-      ctx.warn(c, 'Unknown agent provider');
+      ctx.warn(c, L.srv.unknownProvider);
       return;
     }
     const count = (v: unknown) => (Number.isInteger(v) && (v as number) > 0 ? (v as number) : undefined);

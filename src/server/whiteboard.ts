@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { WB_MAX_BYTES, WB_MAX_ELEMENTS, WB_MAX_ELEMENT_BYTES, WB_MAX_FILES_BYTES, byIndex, checkElement, checkFile, newer, type WbElement, type WbFile } from '../shared/whiteboard.js';
+import { L } from './i18n.js';
 
 /** How long after the last stroke the drawing is written to disk. */
 const SAVE_DELAY_MS = 2000;
@@ -60,13 +61,13 @@ export class Whiteboard {
       if (!newer(el, had)) continue;
       const size = JSON.stringify(el).length;
       if (size > WB_MAX_ELEMENT_BYTES) {
-        error = 'That drawing is too big for the whiteboard. Try it in smaller pieces.';
+        error = L.srvWhiteboard.tooBig;
         continue;
       }
       if (!had && this.elements.size >= WB_MAX_ELEMENTS) this.forgetDeleted(1);
       if (this.bytes - (this.sizes.get(el.id) ?? 0) + size > WB_MAX_BYTES) this.forgetDeleted(Infinity);
       if ((!had && this.elements.size >= WB_MAX_ELEMENTS) || this.bytes - (this.sizes.get(el.id) ?? 0) + size > WB_MAX_BYTES) {
-        error = 'The whiteboard is full. Clear some of it to draw more.';
+        error = L.srvWhiteboard.full;
         continue;
       }
       this.put(el, size);
@@ -94,12 +95,12 @@ export class Whiteboard {
     if (this.files.has(f.id)) return undefined;
     const json = JSON.stringify(f);
     if (this.fileBytes + json.length > WB_MAX_FILES_BYTES) this.forgetUnusedFiles();
-    if (this.fileBytes + json.length > WB_MAX_FILES_BYTES) return 'The whiteboard has too many pictures on it. Delete some first.';
+    if (this.fileBytes + json.length > WB_MAX_FILES_BYTES) return L.srvWhiteboard.tooManyPictures;
     try {
       mkdirSync(this.filesDir, { recursive: true, mode: 0o700 });
       writeFileSync(path.join(this.filesDir, `${f.id}.json`), json, { mode: 0o600 });
     } catch {
-      return "Couldn't save the picture on the office's machine";
+      return L.srvWhiteboard.saveFailed;
     }
     this.files.set(f.id, json.length);
     this.fileBytes += json.length;

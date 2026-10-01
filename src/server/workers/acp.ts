@@ -4,6 +4,7 @@ import { DshSession, terminalSafe } from '../dsh.js';
 import type { HeadlessTerminal } from './terminal.js';
 import type { Worker, WorkerContext } from './types.js';
 import { truncate } from './util.js';
+import { L } from '../i18n.js';
 
 /**
  * Starts (or resumes) a DeepSeek Harness worker over ACP. The session renders its transcript into
@@ -78,11 +79,11 @@ function acpExited(ctx: WorkerContext, w: Worker, session: DshSession, term: Hea
     if (w.viewers.size) ctx.events.data(info.id, note, [...w.viewers.keys()]);
   }
   // It never got as far as a session: most often `dsh` is missing, or the profile will not boot.
-  if (error && !info.sessionId) ctx.events.toast(`Could not start ${ctx.command(info)}: ${truncate(error, 200)}`, 'error');
+  if (error && !info.sessionId) ctx.events.toast(L.workers.couldntStart(ctx.command(info), truncate(error, 200)), 'error');
   info.exitCode = code ?? -1;
   info.status = 'exited';
-  const hint = info.sessionId ? ' — press R to resume' : '';
-  const msg = `\r\n\x1b[2m[${info.name} exited with code ${code ?? -1}${hint}]\x1b[0m\r\n`;
+  const hint = info.sessionId ? ` — ${L.workers.pressResume}` : '';
+  const msg = `\r\n\x1b[2m[${L.workers.exited(info.name, code ?? -1)}${hint}]\x1b[0m\r\n`;
   term.write(msg);
   if (w.viewers.size) ctx.events.data(info.id, msg, [...w.viewers.keys()]);
   w.screenDirty = true;

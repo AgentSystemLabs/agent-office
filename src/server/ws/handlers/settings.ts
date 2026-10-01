@@ -10,6 +10,8 @@ import type { SettingsClientMsg } from '../../../shared/protocol.js';
 import type { Ctx } from '../../office/context.js';
 import { str } from '../../office/input.js';
 import type { HandlerMap, ViewPieces } from './types.js';
+import { L } from '../../i18n.js';
+import { matchLocale } from '../../../shared/i18n.js';
 
 /** The floor's Services board: its own workers' web servers. */
 export const servicesView: ViewPieces['services'] = (ctx, floor) => ctx.servicesState(floor);
@@ -27,8 +29,8 @@ export const mapNews = (ctx: Ctx, was: string, who?: string) => {
   if (now === was) return;
   const plan = maps.plan();
   // Without a pick, a map of your own broke (back to the office) or was fixed (back to it).
-  const why = now === OFFICE_MAP ? `: the map "${was}" won't load (see ⚙️ Settings)` : ': it loads again';
-  ctx.toastAll(who ? `${who} changed the building's map to ${plan.icon} ${plan.name}` : `The building's map is ${plan.icon} ${plan.name} now${why}`);
+  const why = now === OFFICE_MAP ? L.srv.mapWontLoad(was) : L.srv.mapLoadsAgain;
+  ctx.toastAll(who ? L.srv.mapChanged(who, `${plan.icon} ${plan.name}`) : L.srv.mapIsNow(`${plan.icon} ${plan.name}`, why));
 };
 
 export const settingsHandlers = {
@@ -37,21 +39,21 @@ export const settingsHandlers = {
     const url = str(msg.url, 4096).trim();
     const err = ctx.webhook.set(url, who);
     ctx.warn(c, err);
-    if (!err) ctx.toastAll(url ? `📣 ${who} set up team notifications` : `${who} turned off team notifications`);
+    if (!err) ctx.toastAll(url ? L.srv.notifyOn(who) : L.srv.notifyOff(who));
   },
   'notify.test'(ctx, c) {
     const who = c.peer.name;
-    void ctx.webhook.test(who).then((err) => ctx.sendTo(c, { t: 'toast', text: err ?? '📣 Sent a test message', level: err ? 'warn' : 'info' }));
+    void ctx.webhook.test(who).then((err) => ctx.sendTo(c, { t: 'toast', text: err ?? L.srv.testSent, level: err ? 'warn' : 'info' }));
   },
   'machine.limit'(ctx, c, msg) {
     const who = c.peer.name;
-    if (!ctx.meOf(c.accountId).admin) return ctx.warn(c, 'Only admins can change the worker limit');
+    if (!ctx.meOf(c.accountId).admin) return ctx.warn(c, L.srv.adminsLimit);
     const limit = msg.limit === null ? undefined : parseWorkerLimit(msg.limit);
-    if (msg.limit !== null && limit === undefined) return ctx.warn(c, `The worker limit is a whole number from 1 to ${MAX_WORKER_LIMIT}`);
+    if (msg.limit !== null && limit === undefined) return ctx.warn(c, L.srv.limitRange(MAX_WORKER_LIMIT));
     const err = ctx.machine.setLimit(limit, who);
     if (err) return ctx.warn(c, err);
     const now = ctx.machine.limit;
-    ctx.toastAll(limit !== undefined ? `⚙️ ${who} set the worker limit to ${now}` : now === undefined ? `⚙️ ${who} took the worker limit off` : `⚙️ ${who} put the worker limit back to ${now} (--max-workers)`);
+    ctx.toastAll(limit !== undefined ? L.srv.limitSet(who, now) : now === undefined ? L.srv.limitOff(who) : L.srv.limitBack(who, now));
     ctx.pumpQueues();
   },
   'upgrade.check'(ctx) {
@@ -61,7 +63,7 @@ export const settingsHandlers = {
     const who = c.peer.name;
     void ctx.upgrader.start(who).then((err) => {
       if (err) ctx.warn(c, err);
-      else ctx.toastAll(`${who} is upgrading the office — it restarts when the new version is built`);
+      else ctx.toastAll(L.srv.upgrading(who));
     });
   },
   'theme.set'(ctx, c, msg) {
@@ -72,12 +74,12 @@ export const settingsHandlers = {
     const now = ctx.themes.state().active;
     ctx.toastAll(
       msg.pick === 'halloween'
-        ? `🎃 ${who} dressed the office up for Halloween`
+        ? L.srv.halloween(who)
         : msg.pick === 'christmas'
-          ? `🎄 ${who} dressed the office up for Christmas`
+          ? L.srv.christmas(who)
           : msg.pick === 'off'
-            ? `${who} took the holiday decorations down`
-            : `📅 ${who} set the decorations to follow the calendar${now ? ` (it's ${now === 'halloween' ? 'Halloween 🎃' : 'Christmas 🎄'} season)` : ''}`,
+            ? L.srv.decorDown(who)
+            : L.srv.decorCalendar(who, now === 'halloween' ? L.srv.seasonHalloween : now ? L.srv.seasonChristmas : undefined),
     );
   },
   'map.set'(ctx, c, msg) {
@@ -87,35 +89,43 @@ export const settingsHandlers = {
     const reloaded = ctx.maps.reload();
     if (msg.map === undefined || !ctx.maps.set(str(msg.map, 64), who)) {
       if (reloaded) mapNews(ctx, was);
-      if (msg.map !== undefined) ctx.warn(c, 'There’s no map by that name, or it won’t load: see ⚙️ Settings');
+      if (msg.map !== undefined) ctx.warn(c, L.srv.noMap);
       return;
     }
     mapNews(ctx, was, who);
+  },
+  'language.set'(ctx, c, msg) {
+    const who = c.peer.name;
+    if (!ctx.meOf(c.accountId).admin) return ctx.warn(c, L.srv.adminsLanguage);
+    const lang = matchLocale(typeof msg.lang === 'string' ? msg.lang : undefined);
+    if (!lang || lang === ctx.language.state().lang) return;
+    ctx.language.set(lang, who);
+    ctx.toastAll(L.srv.languageSet(who));
   },
   'leaveOnMerge.set'(ctx, c, msg) {
     const who = c.peer.name;
     const on = msg.on === true;
     if (on === ctx.leaveOnMerge.on) return;
     ctx.leaveOnMerge.set(on, who);
-    ctx.toastAll(on ? `🏠 ${who} set workers to go home by themselves once their pull request merges` : `🪑 ${who} set workers whose pull request merged to stay until they're sent home`);
+    ctx.toastAll(on ? L.srv.leaveOn(who) : L.srv.leaveOff(who));
     // The ones already merged go now.
     if (on) for (const f of ctx.floors.values()) f.sendLandedHome();
   },
   'prompts.set'(ctx, c, msg) {
     const who = c.peer.name;
-    if (!ctx.meOf(c.accountId).admin) return ctx.warn(c, 'Only admins can change the office’s prompts');
+    if (!ctx.meOf(c.accountId).admin) return ctx.warn(c, L.srv.adminsPrompts);
     if (!isPromptId(msg.id) || (msg.text !== null && typeof msg.text !== 'string')) return;
     const custom = !!ctx.prompts.state().custom[msg.id];
     const err = ctx.prompts.setPrompt(msg.id, msg.text === null ? null : str(msg.text, PROMPT_MAX + 1), who);
     if (err) return ctx.warn(c, err);
     const now = !!ctx.prompts.state().custom[msg.id];
-    const { label } = PROMPTS[msg.id];
-    if (now) ctx.toastAll(`📝 ${who} rewrote the “${label}” prompt`);
-    else if (custom) ctx.toastAll(`📝 ${who} put the default “${label}” prompt back`);
+    const label = L.promptMeta.prompts[msg.id]?.label ?? PROMPTS[msg.id].label;
+    if (now) ctx.toastAll(L.srv.rewrote(who, label));
+    else if (custom) ctx.toastAll(L.srv.promptBack(who, label));
   },
   'prompts.agent'(ctx, c, msg) {
     const who = c.peer.name;
-    if (!ctx.meOf(c.accountId).admin) return ctx.warn(c, 'Only admins can pick the office’s default worker');
+    if (!ctx.meOf(c.accountId).admin) return ctx.warn(c, L.srv.adminsWorker);
     const ch = msg.choice;
     if (ch !== null && (!ch || typeof ch !== 'object')) return;
     const choice = ch && {
@@ -125,6 +135,6 @@ export const settingsHandlers = {
     };
     const err = ctx.prompts.setAgent(choice, who);
     if (err) return ctx.warn(c, err);
-    ctx.toastAll(choice ? `🤖 ${who} set the office’s default worker` : `🤖 ${who} put the office’s default worker back to ${path.basename(ctx.cfg.agentCmd)}`);
+    ctx.toastAll(choice ? L.srv.setDefaultWorker(who) : L.srv.defaultWorkerBack(who, path.basename(ctx.cfg.agentCmd)));
   },
 } satisfies HandlerMap<SettingsClientMsg>;

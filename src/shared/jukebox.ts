@@ -1,3 +1,4 @@
+import { type Messages, messages } from './i18n.js';
 // The lounge jukebox: the tunes it has and what it's playing, shared by the server (which keeps one
 // per floor) and the browser (which synthesizes the tunes, see client/sound/music.ts).
 
@@ -35,27 +36,27 @@ export interface JukeboxState {
 export const tuneById = (id: string): JukeboxTune | undefined => JUKEBOX_TUNES.find((t) => t.id === id);
 
 /** What's on, for the hint bar and the jukebox's own display: a tune's title, or where the stream comes from. */
-export function trackTitle(s: Pick<JukeboxState, 'track' | 'url'>): string {
-  if (s.track !== STREAM) return tuneById(s.track)?.title ?? 'A tune';
+export function trackTitle(s: Pick<JukeboxState, 'track' | 'url'>, m: Messages = messages('en')): string {
+  if (s.track !== STREAM) return tuneById(s.track)?.title ?? m.shared.aTune;
   try {
     const u = new URL(s.url ?? '');
     const file = decodeURIComponent(u.pathname.split('/').filter(Boolean).pop() ?? '');
     return file ? `${u.hostname} · ${file}` : u.hostname;
   } catch {
-    return 'A stream';
+    return m.shared.aStream;
   }
 }
 
-export function checkStreamUrl(raw: unknown): { url: string } | { error: string } {
+export function checkStreamUrl(raw: unknown, m: Messages = messages('en')): { url: string } | { error: string } {
   const s = typeof raw === 'string' ? raw.trim() : '';
-  if (!s) return { error: 'Paste a link to a stream or an audio file' };
-  if (s.length > 2048) return { error: 'That link is too long' };
+  if (!s) return { error: m.shared.pasteStream };
+  if (s.length > 2048) return { error: m.shared.linkTooLong };
   let u: URL;
   try {
     u = new URL(s);
   } catch {
-    return { error: "That isn't a web link. Paste an address that starts with https://" };
+    return { error: m.shared.notWebLink };
   }
-  if (u.protocol !== 'https:' && u.protocol !== 'http:') return { error: 'Only http and https links can play on the jukebox' };
+  if (u.protocol !== 'https:' && u.protocol !== 'http:') return { error: m.shared.httpJukebox };
   return { url: u.href };
 }

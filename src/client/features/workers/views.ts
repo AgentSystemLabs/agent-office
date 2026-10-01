@@ -31,6 +31,7 @@ import { Jail } from './jail';
 import { Laptop } from './laptop';
 import { Arrivals, Departures } from './leaving';
 import { Sendoffs } from './sendhome';
+import { L } from '../../i18n';
 
 // The kinds of thing you can use that this defines (see InteractKinds in world/types.ts).
 declare module '../../world/types' {
@@ -166,8 +167,7 @@ export function installWorkerViews(ctx: Ctx, core: CoreState, parts: WorkerViews
       const deskDef = plan().byId.get(w.deskId);
       // Keys clack while it types, not while it reads, watches its tests or browses.
       if (deskDef) sound.setTyping(w.id, deskDef.x, deskDef.z, w.status === 'working' && (!w.action || w.action === 'edit'));
-      const again = w.kind === 'shell' ? 'restart' : 'resume';
-      v.laptop.setPlaceholder(w.lost ? `🌿 ${w.name}'s worktree was deleted — press E to fix it` : w.status === 'offline' ? `💤 ${w.name} is asleep — press R to ${again}` : w.status === 'exited' ? `${w.name} exited` : 'booting…');
+      v.laptop.setPlaceholder(w.lost ? L.game.lostPressE(w.name) : w.status === 'offline' ? `💤 ${w.kind === 'shell' ? L.main.asleepRestart(w.name) : L.main.asleepResumeKey(w.name)}` : w.status === 'exited' ? L.main.exited(w.name) : L.main.booting);
     }
     for (const [id, v] of workerViews) {
       if (store.workers.has(id)) continue;
@@ -261,10 +261,10 @@ export function installWorkerViews(ctx: Ctx, core: CoreState, parts: WorkerViews
     if (i < 0) return undefined;
     const role = m.seats[i].role;
     const p = MEETING_PATTERNS[m.pattern];
-    if (m.status !== 'running') return { name: `${role} · ${p.icon} ${p.label}`, summary: m.status === 'done' ? `✅ The meeting wrote ${m.output}` : `⛔ Stopped: ${m.reason ?? 'stopped'}` };
+    if (m.status !== 'running') return { name: `${role} · ${p.icon} ${p.label}`, summary: m.status === 'done' ? L.main.meetingWrote(m.output) : L.main.meetingStopped(m.reason) };
     const t = m.turns.find((x) => x.seat === i);
-    if (!t || t.state === 'done') return { name: `👂 ${role} · round ${m.round} of ${m.rounds}`, summary: t ? 'Part written: listening' : 'Listening' };
-    return { name: `💬 ${role} · round ${m.round} of ${m.rounds}`, summary: t.state === 'working' ? t.doing : `${t.doing} (up next)` };
+    if (!t || t.state === 'done') return { name: `👂 ${role} · ${L.main.round(m.round, m.rounds)}`, summary: t ? L.main.partWritten : L.main.listening };
+    return { name: `💬 ${role} · ${L.main.round(m.round, m.rounds)}`, summary: t.state === 'working' ? t.doing : L.main.upNext(t.doing) };
   }
 
   /**
@@ -349,8 +349,8 @@ export function installWorkerViews(ctx: Ctx, core: CoreState, parts: WorkerViews
     reach: 8,
     hint: () => {
       const level = store.floorPlan.wing;
-      if (level >= WING.rows) return { k: 'full', parts: [hintTitle('🏢 Back office'), aside('built all the way out'), key('E', 'Wall a row up')] };
-      return { k: String(level), parts: [hintTitle(level ? '🚧 Room to grow' : '🚧 Room to grow through the wall'), aside(level ? `${level} of ${WING.rows} rows built` : 'the office can get bigger here'), key('E', level ? 'Another row: 2 more desks' : 'Knock through: 2 more desks')] };
+      if (level >= WING.rows) return { k: 'full', parts: [hintTitle(L.game.backOffice), aside(L.game.builtOut), key('E', L.game.wallUp)] };
+      return { k: String(level), parts: [hintTitle(level ? L.game.roomToGrow : L.game.roomThroughWall), aside(level ? L.game.rowsBuilt(level, WING.rows) : L.game.canGrow), key('E', level ? L.game.anotherRow : L.game.knockThrough)] };
     },
     use: onE(() => openExpand(net)),
   });

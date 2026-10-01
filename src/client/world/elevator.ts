@@ -3,6 +3,7 @@ import { ELEVATOR, ELEVATOR_CAR, ELEVATOR_FRONT, FLOOR, SLAB, STREET_Y, WALL_HEI
 import { mesh, roundedBox, textPlane, toon } from './toon';
 import type { Collider, Interactable } from './types';
 import type { Fixture } from './office/fixture';
+import { L } from '../i18n';
 
 // The elevator: a steel shaft against the north wall, doors facing into the room. Every floor has
 // it in the same place; riding it swaps the floor around you while the doors are shut. The shaft
@@ -238,7 +239,7 @@ export const elevator: Fixture<'elevator' | 'setProjectName'> = (site) => {
  */
 export const garageLift: Fixture<'garageLift'> = () => {
   const built = buildElevator(-SLAB - STREET_Y);
-  built.setSign('🛗 Garage');
+  built.setSign(`🛗 ${L.game.garage}`);
   return {
     group: built.group,
     colliders: built.colliders,
