@@ -8,6 +8,7 @@ import type { ViewMode } from '../state';
 
 const LOOK_SPEED = 0.0022; // radians per pixel of mouse movement while the pointer is locked
 const DRAG_LOOK_SPEED = 0.005;
+const KEY_LOOK_SPEED = 1.8; // radians per second while an I/J/K/L camera key is held
 /**
  * Taking the mouse back from a click (see lock's `settle`): how long it must rest once it's taken
  * before it looks around, in ms, and how long at most the view is held still for. Just the flick of
@@ -215,6 +216,18 @@ export abstract class PlayerInput {
   /** Whether any of these keys is held down (and you have the controls). */
   holding(...codes: string[]): boolean {
     return this.enabled && codes.some((c) => this.keys.has(c));
+  }
+
+  /** Turns the view with I/J/K/L, matching the mouse in first person and orbit drag in third. */
+  protected keyboardLook(dt: number) {
+    if (!this.enabled) return;
+    const yaw = Number(this.keys.has('KeyJ')) - Number(this.keys.has('KeyL'));
+    const pitch = Number(this.keys.has('KeyI')) - Number(this.keys.has('KeyK'));
+    if (!yaw && !pitch) return;
+    const step = KEY_LOOK_SPEED * dt;
+    this.camYaw += yaw * step;
+    if (this.view === 'first') this.lookPitch = THREE.MathUtils.clamp(this.lookPitch + pitch * step, -1.45, 1.45);
+    else this.camPitch = THREE.MathUtils.clamp(this.camPitch - pitch * step, 0.05, 1.3);
   }
 
   /**

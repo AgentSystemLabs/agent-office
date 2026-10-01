@@ -48,6 +48,37 @@ test('can walk away from a loft post overlapping the randomized spawn area', (t)
   assert.equal(player.pos.y, 0);
 });
 
+test('I J K L turn the camera while held in first and third person', (t) => {
+  const { player, keys, frames } = controller(t, []);
+  player.camYaw = 0;
+  player.lookPitch = 0;
+  keys('KeyJ', 'KeyI');
+  frames(30);
+  assert.ok(player.camYaw > 0.8, `J did not look left: yaw=${player.camYaw}`);
+  assert.ok(player.lookPitch > 0.8, `I did not look up: pitch=${player.lookPitch}`);
+
+  player.setView('third');
+  player.camYaw = 0;
+  player.camPitch = 0.7;
+  keys('KeyL', 'KeyK');
+  frames(20);
+  assert.ok(player.camYaw < -0.5, `L did not orbit right: yaw=${player.camYaw}`);
+  assert.ok(player.camPitch > 1.2, `K did not orbit down: pitch=${player.camPitch}`);
+});
+
+test('keyboard camera controls respect pitch limits and disabled input', (t) => {
+  const { player, keys, frames } = controller(t, []);
+  player.lookPitch = 1.4;
+  keys('KeyI');
+  frames(60);
+  assert.equal(player.lookPitch, 1.45);
+  player.enabled = false;
+  const yaw = player.camYaw;
+  keys('KeyJ');
+  frames(30);
+  assert.equal(player.camYaw, yaw);
+});
+
 test('can escape a furniture overlap without first clearing it in a single frame', (t) => {
   const { player, keys, frames } = controller(t, [desk]);
   player.pos.set(0, 0, 0.2);

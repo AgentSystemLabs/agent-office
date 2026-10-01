@@ -150,6 +150,7 @@ export class PlayerController extends PlayerInput {
 
   update(dt: number) {
     dt = Math.min(dt, 0.05);
+    this.keyboardLook(dt);
     const k = this.keys;
     if (this.rig) {
       this.rig(dt);
