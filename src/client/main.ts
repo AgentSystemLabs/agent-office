@@ -4579,24 +4579,26 @@ function refreshPresentations() {
 }
 function openTVRemote() {
   const close = h('button.btn.close', { 'aria-label': 'Close' }, '✕');
-  const content = h('div');
-  const el = h('div.modal.viewer', { role: 'dialog', 'aria-label': 'TV remote' },
+  const content = h('div.body.tv-remote-body');
+  const el = h('div.modal.tv-remote', { role: 'dialog', 'aria-label': 'TV remote' },
     h('header', {}, h('h2', {}, '📺 TV remote'), close), content);
   const modal = openModal(el, { doing: '📺 browsing presentations' });
   close.onclick = () => modal.close();
   const render = () => {
     const items = presentations(); const w = items[presentationIndex];
     const screen = h('button.btn', { onclick: () => { tvChannel = 'screen'; refreshPresentations(); modal.close(); watchScreenShare(); } }, '🖥 Screen sharing');
-    const channel = h('button.btn', { onclick: () => { tvChannel = 'artifacts'; refreshPresentations(); render(); } }, '🎨 Worker showcase');
+    const channel = h('button.btn', { 'aria-pressed': String(tvChannel === 'artifacts'), onclick: () => { tvChannel = 'artifacts'; refreshPresentations(); render(); } }, '🎨 Worker showcase');
     const previous = h('button.btn', { onclick: () => { presentationIndex = (presentationIndex - 1 + items.length) % items.length; refreshPresentations(); render(); } }, '◀ Previous');
     const next = h('button.btn', { onclick: () => { presentationIndex = (presentationIndex + 1) % items.length; refreshPresentations(); render(); } }, 'Next ▶');
     previous.disabled = next.disabled = items.length < 2;
-    content.replaceChildren(h('div', {}, screen, channel, previous, next));
+    content.replaceChildren(h('div.tv-remote-controls', {},
+      h('div.tv-remote-channels', {}, screen, channel),
+      h('div.tv-remote-navigation', {}, previous, h('span.tv-remote-count', {}, items.length ? `${presentationIndex + 1} / ${items.length}` : '0 / 0'), next)));
     if (!w) { content.append(h('p', {}, 'Completed worker presentations will appear here automatically.')); return; }
-    content.append(h('h2', {}, w.presentation!.title), h('p', {}, `${w.name}: ${w.presentation!.summary}`));
+    content.append(h('div.tv-remote-description', {}, h('h2', {}, w.presentation!.title), h('p', {}, `${w.name}: ${w.presentation!.summary}`)));
     const frame = document.createElement('iframe');
     frame.title = w.presentation!.title; frame.setAttribute('sandbox', 'allow-scripts allow-popups allow-popups-to-escape-sandbox');
-    frame.style.cssText = 'width:100%;height:55vh;border:0;background:white';
+    frame.className = 'tv-remote-artifact';
     frame.srcdoc = `<base target="_blank"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; connect-src 'none';">` + w.presentation!.html;
     content.append(frame);
   };
