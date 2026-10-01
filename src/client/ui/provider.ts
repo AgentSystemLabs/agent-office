@@ -3,12 +3,14 @@ import type { AgentChoice, AgentEffort, AgentProvider, ClaudeModel, ProjectInfo,
 import { AGENT_EFFORTS, CLAUDE_MODELS } from '../../shared/protocol';
 import {
   AGENT_PROVIDERS,
+  ANTIGRAVITY_MODELS,
   DSH_MODEL_MAX,
   MUSE_MODEL_MAX,
   OPEN_CODE_MODEL_MAX as MODEL_MAX,
   PI_MODEL_MAX,
   PROVIDER_META,
   isAgentProvider,
+  isValidAntigravityModel as validAntigravityModel,
   isValidDshModel as validDshModel,
   isValidGrokModel as validGrokModel,
   isValidMuseModel as validMuseModel,
@@ -289,7 +291,25 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
     h('small.provider-model-hint', {}, 'Optional model name or provider/model; leave Default to use Pi settings.'),
   );
 
-  const element = h('div.provider-choice', {}, h('label', { for: id }, label), select, note, modelChoice, claudeChoice, grokChoice, museChoice, dshChoice, piChoice);
+  const antigravityModelSelect = h('select', { id: `${id}-antigravity-model`, 'aria-label': 'Antigravity model' }) as HTMLSelectElement;
+  antigravityModelSelect.append(h('option', { value: '' }, 'Default (Antigravity settings)'));
+  for (const m of ANTIGRAVITY_MODELS) antigravityModelSelect.append(h('option', { value: m }, m));
+
+  const antigravityEffortSelect = h('select', { id: `${id}-antigravity-effort`, 'aria-label': 'Antigravity reasoning effort' }) as HTMLSelectElement;
+  antigravityEffortSelect.append(h('option', { value: '' }, 'Default'));
+  for (const e of ['low', 'medium', 'high'] as const) antigravityEffortSelect.append(h('option', { value: e }, EFFORT_LABEL[e]));
+
+  const antigravityChoice = h(
+    'div.provider-model.claude-model.antigravity-model',
+    {},
+    h('label', { for: `${id}-antigravity-model` }, 'Model'),
+    antigravityModelSelect,
+    h('label', { for: `${id}-antigravity-effort` }, 'Effort'),
+    antigravityEffortSelect,
+    h('small.provider-model-hint', {}, 'Optional Gemini model and reasoning effort for this Antigravity worker.'),
+  );
+
+  const element = h('div.provider-choice', {}, h('label', { for: id }, label), select, note, modelChoice, claudeChoice, grokChoice, museChoice, dshChoice, piChoice, antigravityChoice);
   const fillGrokModels = (models: string[], selected?: string) => {
     const keep = selected && validGrokModel(selected) ? selected : '';
     grokModelSelect.replaceChildren(h('option', { value: '' }, 'Default (Grok settings)'));
@@ -338,6 +358,7 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
     museChoice.classList.toggle('hidden', provider !== 'muse');
     dshChoice.classList.toggle('hidden', provider !== 'dsh');
     piChoice.classList.toggle('hidden', provider !== 'pi');
+    antigravityChoice.classList.toggle('hidden', provider !== 'antigravity');
     loadModels();
   };
   const set = (c: AgentChoice) => {
@@ -347,6 +368,7 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
     const muse = select.value === 'muse';
     const dsh = select.value === 'dsh';
     const pi = select.value === 'pi';
+    const antigravity = select.value === 'antigravity';
     claudeModelSelect.value = claude && c.model && (CLAUDE_MODELS as readonly string[]).includes(c.model) ? c.model : '';
     effortSelect.value = claude && c.effort ? c.effort : '';
     fillGrokModels(grokModelList ?? [], grok ? c.model : undefined);
@@ -357,6 +379,8 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
     dshEffortSelect.value = dsh && c.effort ? c.effort : '';
     piModelInput.value = pi && c.model ? c.model : '';
     piEffortSelect.value = pi && c.effort ? c.effort : '';
+    antigravityModelSelect.value = antigravity && c.model && (ANTIGRAVITY_MODELS as readonly string[]).includes(c.model) ? c.model : '';
+    antigravityEffortSelect.value = antigravity && c.effort ? c.effort : '';
     modelInput.value = select.value === 'opencode' && c.model ? c.model : '';
     modelInput.setCustomValidity('');
     museModelInput.setCustomValidity('');
@@ -378,6 +402,7 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
     if (select.value === 'muse' && museEffortSelect.value) return museEffortSelect.value as AgentEffort;
     if (select.value === 'dsh' && dshEffortSelect.value) return dshEffortSelect.value as AgentEffort;
     if (select.value === 'pi' && piEffortSelect.value) return piEffortSelect.value as AgentEffort;
+    if (select.value === 'antigravity' && antigravityEffortSelect.value) return antigravityEffortSelect.value as AgentEffort;
     return undefined;
   };
   const model = () => {
@@ -395,6 +420,7 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
       const v = piModelInput.value;
       return validPiModel(v) ? v : undefined;
     }
+    if (select.value === 'antigravity') return antigravityModelSelect.value || undefined;
     if (select.value !== 'opencode') return undefined;
     const v = modelInput.value;
     return validModel(v) ? v : undefined;
@@ -432,6 +458,9 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
         piModelInput.setCustomValidity(okay ? '' : 'Use a Pi model name or provider/model: letters, digits and . _ : / @ + - (up to 256 characters).');
         if (!okay) piModelInput.reportValidity();
         return okay;
+      }
+      if (select.value === 'antigravity') {
+        return true;
       }
       if (select.value !== 'opencode' || !modelInput.value) {
         modelInput.setCustomValidity('');

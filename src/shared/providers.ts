@@ -4,7 +4,7 @@
 //
 // Browser-safe: no node imports, the hire dialog reads this too.
 
-export const AGENT_PROVIDERS = ['claude', 'opencode', 'codex', 'grok', 'muse', 'dsh', 'pi', 'custom'] as const;
+export const AGENT_PROVIDERS = ['claude', 'opencode', 'codex', 'grok', 'muse', 'dsh', 'pi', 'antigravity', 'custom'] as const;
 
 export type AgentProvider = (typeof AGENT_PROVIDERS)[number];
 
@@ -74,6 +74,16 @@ export function isValidPiModel(value: unknown): value is string {
 export function isValidDshModel(value: unknown): value is string {
   if (typeof value !== 'string' || value.length === 0 || value.length > DSH_MODEL_MAX) return false;
   return !/[\p{Cc}\p{Cf}]/u.test(value);
+}
+
+export const ANTIGRAVITY_MODEL_MAX = 128;
+export const ANTIGRAVITY_MODELS = ['gemini-3.8-flash', 'gemini-3.1-pro', 'gemini-2.5-flash', 'gemini-2.5-pro'] as const;
+
+/** Antigravity model ids (e.g. `gemini-3.8-flash`, `gemini-3.1-pro`), checked against shell metacharacters. */
+export function isValidAntigravityModel(value: unknown): value is string {
+  if (typeof value !== 'string' || value.length === 0 || value.length > ANTIGRAVITY_MODEL_MAX) return false;
+  if (/[\s\p{Cc}\p{Cf}]/u.test(value)) return false;
+  return /^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(value);
 }
 
 export interface ProviderMeta {
@@ -168,6 +178,15 @@ export const PROVIDER_META: Record<AgentProvider, ProviderMeta> = {
     invalidModel: 'Invalid Pi model (expected a model name or provider/model without whitespace)',
     takesEffort: true,
     usage: { note: 'Pi uses your existing Pi login and settings. Usage and cost stay in its terminal; the office does not meter them.' },
+  },
+  antigravity: {
+    label: 'Antigravity',
+    name: 'Antigravity',
+    bin: 'agy',
+    validModel: isValidAntigravityModel,
+    invalidModel: 'Invalid Antigravity model (expected gemini-3.8-flash, gemini-3.1-pro, etc.)',
+    takesEffort: true,
+    usage: { note: 'Antigravity uses your existing agy login and settings. Spend stays in its terminal.' },
   },
   custom: {
     label: 'Custom',

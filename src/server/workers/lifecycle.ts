@@ -11,7 +11,7 @@ import { truncate } from './util.js';
 export const LATE_PROMPT_GRACE_MS = 5000;
 
 /** Tools that ask the person something: the worker needs input until they're answered. */
-const ASKS = /(?:^|[._])(?:AskUserQuestion|ask_user_question|request_user_input)$/;
+const ASKS = /(?:^|[._])(?:AskUserQuestion|ask_user_question|ask_question|request_user_input)$/;
 
 /** In the middle of a turn: working, or asking something (not stuck on a trust or login screen). */
 export function midTurn({ info, bootBlocked }: Pick<Worker, 'info' | 'bootBlocked'>): boolean {
