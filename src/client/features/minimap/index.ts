@@ -107,7 +107,7 @@ class TopView {
   }
 }
 
-export function installMinimap(ctx: Ctx, parts: Pick<Parts, 'worlds' | 'views' | 'peers' | 'walking' | 'dog' | 'actions' | 'coffee' | 'bar' | 'place'>) {
+export function installMinimap(ctx: Ctx, parts: Pick<Parts, 'worlds' | 'views' | 'peers' | 'walking' | 'actions' | 'coffee' | 'bar' | 'place'>) {
   const panel = $('minimap');
   /** The window the model's drawn into (on the game's own canvas, behind it), and the icons over it. */
   const view = h('div.minimap-view');
@@ -125,6 +125,7 @@ export function installMinimap(ctx: Ctx, parts: Pick<Parts, 'worlds' | 'views' |
   const last = new THREE.Vector3();
   let speed = 0;
   const v = new THREE.Vector3();
+  const at = new THREE.Vector3();
   const size = new THREE.Vector2();
   const forward = new THREE.Vector3();
   /** The floor you're on: where your feet last were on the ground, so a jump doesn't lift the map off it. */
@@ -203,14 +204,19 @@ export function installMinimap(ctx: Ctx, parts: Pick<Parts, 'worlds' | 'views' |
 
   /** Where `p` is on a `w` × `hgt` map, or on its edge (along the line from the middle) if it's off it; and whether it is. */
   function place(p: THREE.Vector3, w: number, hgt: number, pad: number): { x: number; y: number; off: boolean } {
-    v.copy(p).project(camera);
+    // Behind the camera, from where it is in the camera's own space: a point past the far plane
+    // projects with z over 1 too (north's N is far off), and isn't behind.
+    // (`p` may be the scratch vector itself: what's worked out goes in another.)
+    const q = at.copy(p);
+    const behind = v.copy(q).applyMatrix4(camera.matrixWorldInverse).z > 0;
+    v.copy(q).project(camera);
     let x = ((v.x + 1) / 2) * w;
     let y = ((1 - v.y) / 2) * hgt;
-    const off = v.z > 1 || x < pad || y < pad || x > w - pad || y > hgt - pad;
+    const off = behind || x < pad || y < pad || x > w - pad || y > hgt - pad;
     if (off) {
       let dx = x - w / 2;
       let dy = y - hgt / 2;
-      if (v.z > 1) [dx, dy] = [-dx, -dy];
+      if (behind) [dx, dy] = [-dx, -dy];
       const k = Math.min((w / 2 - pad) / Math.abs(dx || 1e-6), (hgt / 2 - pad) / Math.abs(dy || 1e-6));
       x = w / 2 + dx * k;
       y = hgt / 2 + dy * k;
@@ -339,7 +345,7 @@ export function installMinimap(ctx: Ctx, parts: Pick<Parts, 'worlds' | 'views' |
       { role: 'dialog', 'aria-label': 'Floor map' },
       h('header', {}, h('h2', {}, '🗺️ Floor map'), close),
       c,
-      h('p.minimap-tip', {}, 'Click someone to walk over to them, or the floor to walk there · J or Esc closes it'),
+      h('p.minimap-tip', {}, 'Click someone to walk over to them, or the floor to walk there · Esc closes it'),
     );
     const modal = openModal(el, {
       onClose: () => {
@@ -369,7 +375,8 @@ export function installMinimap(ctx: Ctx, parts: Pick<Parts, 'worlds' | 'views' |
   }
 
   panel.addEventListener('click', openBig);
-  ctx.keys.bind({ code: 'KeyJ', run: () => (big ? big.close() : openBig()) });
+  // J opens it (while a window's open the office's keys are off: ✕ or Esc closes it).
+  ctx.keys.bind({ code: 'KeyJ', run: () => openBig() });
 
   // After the frame's drawn (see drawScene in core/loop.ts): the model goes into the panel's window.
   ctx.ticks.add('render', ({ now, dt }) => {
@@ -388,6 +395,14 @@ export function installMinimap(ctx: Ctx, parts: Pick<Parts, 'worlds' | 'views' |
     coffee.style.width = `${Math.min(1, buzz) * 100}%`;
     booze.style.width = `${Math.min(1, drunk) * 100}%`;
     bars.classList.toggle('hidden', buzz <= 0 && drunk <= 0.01);
+    // The big map, ten times a second, whether the corner one's showing or not.
+    if (big && now - bigAt > 100) {
+      bigAt = now;
+      big.view.frame(big.bounds, floorY);
+      const bg = big.canvas.getContext('2d')!;
+      big.view.draw(renderModel, renderer, bg);
+      drawBigBlips(bg, big.bounds, big.view.w / (big.bounds.maxX - big.bounds.minX), (now / 900) % 1);
+    }
     if (!shown) return;
 
     // The camera: behind you and up, looking down at a slant just past you, turned the way you face.
@@ -432,13 +447,5 @@ export function installMinimap(ctx: Ctx, parts: Pick<Parts, 'worlds' | 'views' |
     g.clearRect(0, 0, w, hgt);
     drawBlips(g, w, hgt, (now / 900) % 1);
 
-    // The big map, ten times a second.
-    if (big && now - bigAt > 100) {
-      bigAt = now;
-      big.view.frame(big.bounds, floorY);
-      const bg = big.canvas.getContext('2d')!;
-      big.view.draw(renderModel, renderer, bg);
-      drawBigBlips(bg, big.bounds, big.view.w / (big.bounds.maxX - big.bounds.minX), (now / 900) % 1);
-    }
   });
 }
