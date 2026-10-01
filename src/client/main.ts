@@ -4595,9 +4595,9 @@ function openTVRemote() {
     if (!w) { content.append(h('p', {}, 'Completed worker presentations will appear here automatically.')); return; }
     content.append(h('h2', {}, w.presentation!.title), h('p', {}, `${w.name}: ${w.presentation!.summary}`));
     const frame = document.createElement('iframe');
-    frame.title = w.presentation!.title; frame.setAttribute('sandbox', 'allow-scripts');
+    frame.title = w.presentation!.title; frame.setAttribute('sandbox', 'allow-scripts allow-popups allow-popups-to-escape-sandbox');
     frame.style.cssText = 'width:100%;height:55vh;border:0;background:white';
-    frame.srcdoc = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; connect-src 'none';">` + w.presentation!.html;
+    frame.srcdoc = `<base target="_blank"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; connect-src 'none';">` + w.presentation!.html;
     content.append(frame);
   };
   render();
