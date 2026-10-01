@@ -35,7 +35,7 @@ export function interactionAvailable(it: Interactable | null, key: DeskKey, stat
 
   if (it.kind === 'station') {
     if (!it.deskId) return false;
-    return key === 'E' || key === 'P' || (!!state.worker && (key === 'O' || key === 'X'));
+    return key === 'E' || key === 'P' || (!!state.worker && key === 'X');
   }
 
   if (state.note && it.kind === 'issues') return key === 'E' || key === 'O';

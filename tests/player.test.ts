@@ -19,7 +19,9 @@ function controller(t: TestContext, colliders: Collider[]) {
       else Reflect.deleteProperty(globalThis, name);
     });
   }
-  const player = new PlayerController(new THREE.PerspectiveCamera(), new EventTarget() as unknown as HTMLElement, [officeFloor, ...colliders]);
+  const dom = new EventTarget() as unknown as HTMLElement;
+  dom.getBoundingClientRect = () => ({ left: 10, top: 20, width: 200, height: 100 }) as DOMRect;
+  const player = new PlayerController(new THREE.PerspectiveCamera(), dom, [officeFloor, ...colliders]);
   player.camYaw = 0;
   function keys(...codes: string[]) {
     player.clearKeys();
@@ -32,7 +34,7 @@ function controller(t: TestContext, colliders: Collider[]) {
   function frames(count: number, dt = 1 / 60) {
     for (let i = 0; i < count; i++) player.update(dt);
   }
-  return { player, keys, frames };
+  return { player, keys, frames, dom, win };
 }
 
 const desk: Collider = { minX: -1.05, maxX: 1.05, minZ: -0.53, maxZ: 0.53, top: 0.78 };
@@ -204,4 +206,35 @@ test('seat places are only the ones the office has', () => {
   assert.equal(seatAt('couch:2')?.seatId, 'couch');
   assert.equal(seatAt('loft-couch:1')?.y, LOFT.y);
   for (const bad of ['couch:3', 'couch:', 'couch', 'sofa:0', 'couch:-1', 'couch:1.5', '']) assert.equal(seatAt(bad), undefined, bad);
+});
+
+test('right-click uses crosshair or cursor without left-clicking or capturing the mouse', (t) => {
+  const { player, dom, win } = controller(t, []);
+  const hits: number[][] = [];
+  let clicks = 0;
+  player.onRightClick = (ndc) => hits.push(ndc.toArray());
+  player.onClick = () => clicks++;
+  const press = () => {
+    const e = new Event('pointerdown', { cancelable: true });
+    Object.assign(e, { button: 2, pointerType: 'mouse', clientX: 160, clientY: 45 });
+    dom.dispatchEvent(e);
+    assert.equal(e.defaultPrevented, true);
+    const up = new Event('pointerup');
+    Object.assign(up, { button: 2 });
+    win.dispatchEvent(up);
+  };
+  player.view = 'first';
+  press();
+  player.view = 'third';
+  press();
+  assert.deepEqual(hits, [[0, 0], [0.5, 0.5]]);
+  assert.equal(clicks, 0);
+  player.enabled = false;
+  const blocked = new Event('pointerdown');
+  Object.assign(blocked, { button: 2 });
+  dom.dispatchEvent(blocked);
+  assert.equal(hits.length, 2);
+  const menu = new Event('contextmenu', { cancelable: true });
+  dom.dispatchEvent(menu);
+  assert.equal(menu.defaultPrevented, true);
 });

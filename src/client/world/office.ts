@@ -1262,7 +1262,7 @@ function buildKiosk(def: DeskDef): DeskView {
   group.add(sign);
 
   // No laptop: its lid would hide the agent's face from whoever walks up, and its screen would face
-  // the wall. The agent's terminal is a key press away (O).
+  // the wall. The agent's terminal is a right-click away.
   const laptopAnchor = new THREE.Object3D();
   laptopAnchor.visible = false;
   group.add(laptopAnchor);

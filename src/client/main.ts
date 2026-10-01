@@ -2487,7 +2487,7 @@ function askStation(deskId: string) {
   // Nobody there yet: asking hires the agent (the Maintenance agent isn't one of the office's workers, so the limit isn't his).
   if (!w && officeIsFull()) return;
   const subtitle = !w
-    ? `${info.does}, in a terminal of my own: press O at the kiosk to watch.`
+    ? `${info.does}, in a terminal of my own: right-click at the kiosk to watch.`
     : isAsleep(w.status)
       ? `The ${name} is asleep: this wakes it up, and it carries on where it left off.`
       : isBusy(w.status)
@@ -3007,7 +3007,6 @@ function interact(target: Interactable | null, key: DeskKey, note = aimedNote) {
   if (target.kind === 'station' && target.deskId) {
     const w = store.workerAtDesk(target.deskId);
     if (key === 'E' || key === 'P') return askStation(target.deskId);
-    if (key === 'O' && w) return openWorkerTerminal(w.id);
     if (key === 'X' && w) return killWorker(w.id);
     return;
   }
@@ -3992,7 +3991,7 @@ function deskHint(deskId: string): Hint {
       h('span.title', {}, `${sign ? `🪧 ${sign} · ` : ''}${w.name} · ${STATUS_LABEL[w.status]}`),
       doing ? aside(doing) : '',
       spent ? h('span.cost', { title: usageTitle(w.usage!, workerProvider) }, spent) : '',
-      key('E', 'Open terminal'),
+      key('E / Right-click', 'Open terminal'),
       key('C', 'Changes'),
       isAsleep(w.status) ? key('R', shell ? 'Restart' : 'Resume') : key('P', shell ? 'Run command' : 'Prompt'),
       w.repos?.length ? reposKey(w) : w.pr ? key('O', `PR #${w.pr.number}`) : w.prOpening ? aside('⏳ Opening PR…') : prReady(w) ? key('O', 'Open PR') : '',
@@ -4038,7 +4037,7 @@ function stationHint(deskId: string): Hint {
       doing ? aside(doing) : '',
       spent ? h('span.cost', { title: usageTitle(w.usage!, provider) }, spent) : '',
       key('E', kind === 'maintenance' ? settings.maintenanceChat ? 'Workspace' : 'Review / correct' : isAsleep(w.status) ? 'Wake with a prompt' : 'Prompt'),
-      key('O', 'Terminal'),
+      key('Right-click', 'Terminal'),
       key('X', kind === 'maintenance' ? settings.maintenanceChat ? 'New conversation' : 'End session' : 'Send home'),
     ],
   };
@@ -4486,6 +4485,16 @@ canvas.addEventListener('pointermove', (e) => {
   (pointer ??= new THREE.Vector2()).set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
 });
 canvas.addEventListener('pointerleave', () => (pointer = null));
+
+player.onRightClick = (ndc) => {
+  if (modalOpen() || golf.active || thrower.active || telescope.active || hanger.active || emoteWheel.isOpen || holdingBall()) return;
+  const aim = aimedAt(ndc, player.view === 'third' ? 2.5 : 0);
+  if (!aim || !aim.near || (aim.it.kind !== 'desk' && aim.it.kind !== 'station') || !aim.it.deskId) return;
+  const worker = store.workerAtDesk(aim.it.deskId);
+  if (!worker) return;
+  reach();
+  openWorkerTerminal(worker.id);
+};
 
 player.onClick = (ndc) => {
   // At the tee, a click is you steadying the mouse to aim: nothing else is in reach.

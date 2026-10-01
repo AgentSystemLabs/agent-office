@@ -325,6 +325,7 @@ deploy/dokploy.sh ssh 'node /opt/agent-office/bin/agent-office.js accounts invit
 | W A S D | Walk (hold Shift to run) |
 | Space | Jump |
 | Mouse drag / wheel | Orbit / zoom the camera |
+| Right-click | Open the terminal of the worker at the desk or board-agent kiosk you point at, within reach |
 | E | Interact: hire a worker, open its terminal, read a board, sit down, ride the elevator |
 | P | Give a task to a new worker, or to the one at this desk |
 | C | See a worker's changes: diff, commit, open a PR |

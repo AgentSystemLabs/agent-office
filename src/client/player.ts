@@ -88,6 +88,7 @@ export class PlayerController {
    * In first person it is always the crosshair, (0, 0).
    */
   onClick: ((ndc: THREE.Vector2) => void) | null = null;
+  onRightClick: ((ndc: THREE.Vector2) => void) | null = null;
   private keys = new Set<string>();
   private drag: { x: number; y: number; moved: number } | null = null;
   /** Set when this browser won't lock the pointer; first person falls back to drag-to-look. */
@@ -154,8 +155,16 @@ export class PlayerController {
       true,
     );
 
+    dom.addEventListener('contextmenu', (e) => e.preventDefault());
     dom.addEventListener('pointerdown', (e) => {
       if (!this.enabled) return;
+      if (e.button === 2) {
+        e.preventDefault();
+        const r = dom.getBoundingClientRect();
+        this.onRightClick?.(this.view === 'first' ? CENTER : new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1));
+        return;
+      }
+      if (e.button !== 0) return;
       if (this.view === 'first' && e.pointerType === 'mouse' && !this.lockFailed) {
         if (this.locked) {
           if (e.button === 0) this.onClick?.(CENTER);
@@ -170,7 +179,7 @@ export class PlayerController {
       const d = this.drag;
       this.drag = null;
       // A click that captured the mouse is not also a click on the world.
-      if (!d || d.moved > 5 || !this.enabled || this.locked || this.lockPending || e.target !== dom) return;
+      if (e.button !== 0 || !d || d.moved > 5 || !this.enabled || this.locked || this.lockPending || e.target !== dom) return;
       if (this.view === 'first') this.onClick?.(CENTER);
       else {
         const r = dom.getBoundingClientRect();

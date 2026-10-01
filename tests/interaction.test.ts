@@ -45,3 +45,12 @@ test('L hangs a sign over any desk, empty or not, but not over a bean bag or a m
   assert.equal(interactionAvailable(interaction('expand'), 'E', state()), true);
   assert.equal(interactionAvailable(null, 'L', state()), false);
 });
+
+test('O no longer opens board-agent terminals, but still handles desk pull requests', () => {
+  const worker = { id: 'worker-1', status: 'working' } as InteractionState['worker'];
+  const station = interaction('station', { deskId: 'station-issues' });
+  assert.equal(interactionAvailable(station, 'O', state({ worker })), false);
+  assert.equal(interactionAvailable(station, 'E', state({ worker })), true);
+  assert.equal(interactionAvailable(station, 'X', state({ worker })), true);
+  assert.equal(interactionAvailable(interaction('desk', { deskId: 'desk-1' }), 'O', state({ worker })), true);
+});
