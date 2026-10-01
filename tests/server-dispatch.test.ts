@@ -267,7 +267,7 @@ test('welcomes a browser and dispatches what it sends', async () => {
   assert.equal(ada?.name, 'Ada');
   assert.equal(ada?.color, '#ff8a5b');
   assert.equal(ada?.floor, floor.id);
-  assert.deepEqual(Object.keys(welcome).slice(-17), ['floor', 'project', 'workers', 'issues', 'pulls', 'queue', 'decor', 'plan', 'services', 'dog', 'ball', 'cars', 'jail', 'jukebox', 'whiteboard', 'meeting', 'cabinet']);
+  assert.deepEqual(Object.keys(welcome).slice(-18), ['floor', 'project', 'workers', 'issues', 'pulls', 'queue', 'decor', 'plan', 'services', 'dog', 'ball', 'cars', 'jail', 'jukebox', 'whiteboard', 'meeting', 'cabinet', 'furnishings']);
 
   a.send({ t: 'ping', at: 42 });
   const pong = await a.take('pong');
@@ -299,6 +299,11 @@ test('welcomes a browser and dispatches what it sends', async () => {
   a.send({ t: 'desk.label', deskId: 'desk-1', text: 'Payments' });
   assert.equal((await b.take('plan')).plan.labels['desk-1']?.text, 'Payments');
   for (const who of [a, b]) assert.equal((await who.take('toast', (m) => m.text.includes('Payments'))).text, '🪧 Ada L hung a sign over Desk 1: “Payments”');
+
+  // The wardrobe: the floor sees its furnishings change and hears who swapped what.
+  a.send({ t: 'furnish.set', slot: 'sofa', variant: 'red' });
+  assert.equal((await b.take('furnishings')).furnishings.sofa, 'red');
+  for (const who of [a, b]) assert.equal((await who.take('toast', (m) => m.text.startsWith('🧥'))).text, '🧥 Ada L swapped the sofa: Red');
 
   a.send({ t: 'leaveOnMerge.set', on: true });
   for (const who of [a, b]) {

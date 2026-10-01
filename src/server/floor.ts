@@ -13,6 +13,7 @@ import type { GhAs } from './signins.js';
 import { TaskQueue } from './queue.js';
 import { Changes } from './changes.js';
 import { Decor } from './decor.js';
+import { FurnishingsStore } from './furnishings.js';
 import { FloorPlanStore } from './floorplan.js';
 import { Docs } from './docs.js';
 import { Dog } from './dog.js';
@@ -117,6 +118,7 @@ export class Floor {
   readonly queue: TaskQueue;
   readonly changes: Changes;
   readonly decor: Decor;
+  readonly furnishings: FurnishingsStore;
   /** The signs over its desks, and how far its back office is built out. */
   readonly plan: FloorPlanStore;
   readonly jukebox: Jukebox;
@@ -305,6 +307,7 @@ export class Floor {
     );
 
     this.decor = new Decor(dataDir);
+    this.furnishings = new FurnishingsStore(dataDir);
     this.jukebox = new Jukebox(dataDir);
     this.whiteboard = new Whiteboard(dataDir);
     this.ready = this.workers.start();

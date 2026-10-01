@@ -33,6 +33,7 @@ import { installBarGames } from './features/bargames';
 import { installBasketball } from './features/basketball';
 import { installBoards } from './features/boards';
 import { installBookshelf } from './features/bookshelf';
+import { installWardrobe } from './features/wardrobe';
 import { installCabinet } from './features/cabinet';
 import { installCarrying } from './features/carrying';
 import { installCars } from './features/cars';
@@ -164,6 +165,7 @@ parts.cards = installCarrying(ctx, {
 });
 parts.seating = installSeating(ctx, { shares: () => parts.talk.currentShares(), watchShare: () => parts.talk.watchShare(), arcade: parts.arcade, showBar: parts.bar.showBar, usable: () => parts.pointer.usable() });
 installGong(ctx, { burstOver: parts.views.burstOver, workerViews: parts.views.workerViews, court: () => parts.worlds.court(), idleAgents: () => parts.worlds.idleAgents() });
+installWardrobe(ctx);
 
 parts.hintbar = installHintBar(ctx, core, parts);
 parts.emotes = installEmotes(ctx, { personOf });

@@ -267,6 +267,9 @@ export const CABINET = { x: FLOOR.maxX - 0.42, z: 7.05, width: 0.8, depth: 0.8, 
  */
 export const BOOKSHELF = { x: -6.5, z: FLOOR.maxZ - 0.21, width: 1.7, depth: 0.42, height: 2.3 } as const;
 
+/** The wardrobe (features/wardrobe/), against the south wall between the balcony doors and the window east of them, facing into the room (-z). `width` runs along the wall. */
+export const WARDROBE = { x: -1.5, z: FLOOR.maxZ - 0.3, width: 1.3, depth: 0.6, height: 2.2 } as const;
+
 export const SPAWN = { x: 8, z: 7 } as const;
 
 /** The gong: on the north wall just past the elevator from the PR board, facing into the room. It rings when a PR merges. */
