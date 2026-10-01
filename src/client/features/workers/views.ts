@@ -132,7 +132,8 @@ export function installWorkerViews(ctx: Ctx, core: CoreState, parts: WorkerViews
         // Called to a meeting just now: out of the elevator and over to the table, one after another.
         if (desk.def.room && !seatedAlready) arrivals.add(model, desk);
         // In the castle, a worker at the tables gets up and walks about (see Court): a new one runs in to its seat.
-        else if (court && inCourt(w)) court.add(w.id, model, desk, seatedAlready ? undefined : cameFrom(w));
+        // In the office it's there for breaks (see features/breaks), and a new one is at its desk as ever.
+        else if (court && inCourt(w)) court.add(w.id, model, desk, seatedAlready || plan().style === 'office' ? undefined : cameFrom(w));
         const laptop = new Laptop(world.device);
         desk.laptopAnchor.add(laptop.root);
         noOutline(desk.group);

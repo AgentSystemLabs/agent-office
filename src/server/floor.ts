@@ -27,6 +27,7 @@ import { landedWork, landedWorkers, type Landed } from './leave-on-merge.js';
 import type { Ledger } from './usage.js';
 import type { Capacity } from './machine.js';
 import { officePrompt, type PromptSource } from './prompts.js';
+import { breakOver } from './workers/breaks.js';
 
 type ToastLevel = 'info' | 'warn' | 'error';
 
@@ -174,6 +175,7 @@ export class Floor {
       ctx.hook,
       {
         update: (worker) => {
+          breakOver(worker, this.workers?.get(worker.id));
           ctx.emit(this, { t: 'worker.update', worker });
           // Still being built: the first updates come from waking the workers already at their desks.
           this.queue?.onWorker(worker);

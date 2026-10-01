@@ -28,6 +28,8 @@ export interface WorkerTask {
 
 export interface WorkerInfo {
   id: string;
+  /** On a break since then (the office's clock): up from its desk, wandering the office until there's work for it (see features/breaks). */
+  resting?: number;
   /** 'agent' runs the selected provider; 'shell' is a plain shared login shell. */
   kind: WorkerKind;
   provider?: AgentProvider;
@@ -177,6 +179,8 @@ export type WorkerClientMsg =
   | { t: 'worker.spawn'; deskId: string; prompt?: string; worktree?: boolean; kind?: WorkerKind; provider?: AgentProvider; model?: string; effort?: AgentEffort; issue?: number; repos?: string[]; via?: 'herald' }
   | { t: 'worker.resume'; workerId: string }
   | { t: 'worker.kill'; workerId: string; cleanup?: WorktreeCleanup }
+  /** Send a worker that's at rest off on a break round the office (or call it back to its desk). */
+  | { t: 'worker.rest'; workerId: string; on: boolean }
   /** Asks what the worker's worktree holds; answered with a `worker.worktree` message. */
   | { t: 'worker.worktree'; workerId: string }
   /** Puts a lost worker's worktree back and starts it again (see WorkerInfo.lost); `all`: every lost worker on the floor. */
