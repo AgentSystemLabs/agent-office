@@ -20,6 +20,8 @@ export function transcriptMessage(row: any): { role: 'user' | 'assistant'; conte
   if (message.role === 'user') {
     // The first request is wrapped in the station brief; follow-ups carry the TV instructions.
     if (clean.startsWith("You're the Maintenance agent in Agent Office")) clean = clean.split('\n\nThe request:\n\n').at(-1) ?? clean;
+    const images = clean.indexOf('\n\n[Maintenance images]');
+    if (images >= 0) clean = clean.slice(0, images);
     const tv = clean.indexOf('\n\nOffice TV:');
     if (tv >= 0) clean = clean.slice(0, tv);
     if (/^<(?:environment_context|permissions instructions|turn_aborted|system_reminder)>/.test(clean.trim())) return;
@@ -119,11 +121,14 @@ export class MaintenanceChatArchive {
     const old = this.conversations.find(c => c.id === worker.id);
     const conversation: MaintenanceConversation = old ? { ...old, messages: [...old.messages] } : { id: worker.id, title: 'Maintenance conversation', createdAt: worker.createdAt, updatedAt: worker.createdAt, messages: [] };
     let changed = false;
-    for (const message of incoming.filter(validMessage)) {
+    for (const raw of incoming.filter(validMessage)) {
+      const message = raw.role === 'user' ? { ...raw, content: raw.content.split('\n\n[Maintenance images]')[0] } : raw;
       if (conversation.messages.some(m => m.id === message.id)) continue;
+      const accepted = message.pending && message.attachments?.length ? conversation.messages.find(m => m.pending && m.content === message.content) : undefined;
+      if (accepted) { accepted.attachments = message.attachments; changed = true; continue; }
       // Accepted requests appear immediately, then acquire the transcript's stable ID once logged.
       const pending = message.role === 'user' && !message.pending ? conversation.messages.findIndex(m => m.pending && m.content === message.content) : -1;
-      if (pending >= 0) conversation.messages[pending] = { ...message, by: conversation.messages[pending].by };
+      if (pending >= 0) conversation.messages[pending] = { ...message, by: conversation.messages[pending].by, attachments: conversation.messages[pending].attachments };
       else conversation.messages.push(message);
       changed = true;
     }

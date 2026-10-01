@@ -1,5 +1,5 @@
 import type { MaintenanceIssues } from '../shared/protocol.js';
-import { GitHub } from './github.js';
+import { GitHub, gh } from './github.js';
 import { originRepo } from './building.js';
 import type { GhAs } from './signins.js';
 import { officeSourceDir } from './maintenance.js';
@@ -9,12 +9,12 @@ export class MaintenanceBoard {
   private github?: GitHub;
   state: MaintenanceIssues = { items: [], fetchedAt: 0, loading: false };
 
-  constructor(private emit: (state: MaintenanceIssues) => void, source = officeSourceDir()) {
-    if (source) {
-      const repo = originRepo(source);
+  constructor(private emit: (state: MaintenanceIssues) => void, private source = officeSourceDir()) {
+    if (this.source) {
+      const repo = originRepo(this.source);
       if (repo) {
         this.state.repo = repo;
-        this.github = new GitHub(source, (state) => this.set({ ...state, repo: this.state.repo }), () => {}, repo);
+        this.github = new GitHub(this.source, (state) => this.set({ ...state, repo: this.state.repo }), () => {}, repo);
       } else this.state.error = "The office source needs a GitHub origin remote for its maintenance issues board";
     }
     else this.state.error = "Can't find Agent Office's own source (set AGENT_OFFICE_SOURCE)";
@@ -44,6 +44,16 @@ export class MaintenanceBoard {
 
   async refresh() {
     await Promise.all([this.github?.refresh(), this.identify()]);
+  }
+
+  async create(title: string, body: string, as?: GhAs) {
+    if (!this.github || !this.source || !this.state.repo) throw new Error(this.state.error ?? 'No maintenance repository');
+    if (!title.trim() || title.length > 200 || body.length > 20000) throw new Error('Use a title up to 200 characters and a description up to 20,000.');
+    const url = (await gh(['issue', 'create', '--repo', this.state.repo, '--title', title.trim(), '--body', body], this.source, undefined, as?.env)).trim();
+    const number = Number(/\/issues\/(\d+)$/.exec(url)?.[1]);
+    if (!number) throw new Error('GitHub did not return an issue URL');
+    void this.refresh();
+    return { number, title: title.trim(), url };
   }
 
   async claim(number: number, as?: GhAs) {

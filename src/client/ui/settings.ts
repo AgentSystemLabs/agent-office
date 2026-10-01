@@ -19,10 +19,10 @@ const THEME_LABEL: Record<ThemePick, string> = { auto: '📅 By the calendar', h
 const WEBHOOK_NAME: Record<WebhookKind, string> = { slack: 'Slack', discord: 'Discord', other: 'a webhook' };
 
 /** The categories down the side of ⚙️ Settings. */
-export type SettingsPane = 'you' | 'sound' | 'notify' | 'building' | 'workers' | 'experiments';
+export type SettingsPane = 'you' | 'sound' | 'notify' | 'building' | 'workers' | 'maintenance';
 
 const PANES: { id: SettingsPane; icon: string; label: string; blurb: string }[] = [
-  { id: 'experiments', icon: '🧪', label: 'Experiments', blurb: 'Try optional views. Your choice is saved in this browser.' },
+  { id: 'maintenance', icon: '🛠️', label: 'Maintenance', blurb: 'Manage work on Agent Office. Choose the workspace or legacy interface for this browser.' },
   { id: 'you', icon: '🧍', label: 'You', blurb: 'How you look, how you see the office, and how you’re signed in.' },
   { id: 'sound', icon: '🔊', label: 'Sound & voice', blurb: 'How loud the office is for you, and how voice chat works.' },
   { id: 'notify', icon: '🔔', label: 'Notifications', blurb: 'Hear about a worker that needs someone, or finished, while you’re somewhere else.' },
@@ -504,15 +504,15 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
   const signOut = h('button.btn', { type: 'button' }, '🚪 Sign out');
   signOut.addEventListener('click', onSignOut);
   const character = h('button.btn', { type: 'button' }, account ? '🧍 Change your look' : '🧍 Change your look & name');
-  const chatExperiment = h('input', { type: 'checkbox', 'aria-label': 'Experimental Maintenance chat' });
+  const chatExperiment = h('input', { type: 'checkbox', 'aria-label': 'Maintenance engineering workspace' });
   chatExperiment.checked = settings.maintenanceChat;
   chatExperiment.addEventListener('change', () => {
     settings = { ...settings, maintenanceChat: chatExperiment.checked };
     onChange(settings);
   });
   const panes: Record<SettingsPane, Node[]> = {
-    experiments: [setting('Maintenance chat', 'you', h('label', {}, chatExperiment, ' Use the experimental chat view'),
-      h('p.setting-note', {}, 'A modern conversation view for the real Maintenance agent, with rendered Markdown, sandboxed HTML previews and a searchable shared archive. The office saves conversations across restarts whether this view is on or off. Terminal access stays available for approvals.'))],
+    maintenance: [setting('Maintenance workspace', 'you', h('label', {}, chatExperiment, ' Use the engineering workspace (default)'),
+      h('p.setting-note', {}, 'Manage GitHub issues, queued work, screenshots, the live agent console and stack review in one workspace. Turn this off to use the legacy stack/request view. Both views share the agent, history and stack.'))],
     you: [
       setting('Your character', null, character),
       setting('Camera view', 'you', seg, note),

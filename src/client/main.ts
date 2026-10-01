@@ -2407,7 +2407,7 @@ function killWorker(id: string) {
   if (w.deskId === MAINTENANCE_DESK) {
     if (settings.maintenanceChat) return void openMaintenanceConversation(undefined, true);
     confirmDialog('End Maintenance session?',
-      'Stops the current agent session for everyone, including any unfinished work. Saved conversation history, edited files and stacked commits remain. Your next request starts a fresh session. For a new issue without interrupting work, use Maintenance chat in Settings → Experiments.',
+      'Stops the current agent session for everyone, including any unfinished work. Saved conversation history, edited files and stacked commits remain. Your next request starts a fresh session. For a new issue without interrupting work, use the engineering workspace in Settings → Maintenance.',
       'End session', () => net.send({ t: 'worker.kill', workerId: id }));
     return;
   }
@@ -2723,6 +2723,7 @@ function showSearch() {
 function openWorkerChanges(id: string, repo?: string) {
   const w = store.workers.get(id);
   if (!w) return;
+  if (w.deskId === MAINTENANCE_DESK) return void (settings.maintenanceChat ? openMaintenanceConversation().review() : openStack(message => net.send(message), maintenanceActions()));
   if (w.lost) return fixLostWorktree(w);
   openChanges(net, id, () => openWorkerTerminal(id), repo);
 }
@@ -4023,7 +4024,7 @@ function stationHint(deskId: string): Hint {
       parts: [
         h('span.title', {}, `${info.icon} ${STATION_AGENT[kind].name}`),
         aside(info.offer.replace(/^Ask me /, '')),
-        full ? h('span.cost', {}, `🚫 Office full · ${m.workers} of ${m.limit} workers`) : key('E', kind === 'maintenance' ? settings.maintenanceChat ? 'Chat' : 'Review / request' : 'Prompt'),
+        full ? h('span.cost', {}, `🚫 Office full · ${m.workers} of ${m.limit} workers`) : key('E', kind === 'maintenance' ? settings.maintenanceChat ? 'Workspace' : 'Review / request' : 'Prompt'),
       ],
     };
   }
@@ -4036,7 +4037,7 @@ function stationHint(deskId: string): Hint {
       h('span.title', {}, `${info.icon} ${w.name} · ${STATUS_LABEL[w.status]}`),
       doing ? aside(doing) : '',
       spent ? h('span.cost', { title: usageTitle(w.usage!, provider) }, spent) : '',
-      key('E', kind === 'maintenance' ? settings.maintenanceChat ? 'Chat' : 'Review / correct' : isAsleep(w.status) ? 'Wake with a prompt' : 'Prompt'),
+      key('E', kind === 'maintenance' ? settings.maintenanceChat ? 'Workspace' : 'Review / correct' : isAsleep(w.status) ? 'Wake with a prompt' : 'Prompt'),
       key('O', 'Terminal'),
       key('X', kind === 'maintenance' ? settings.maintenanceChat ? 'New conversation' : 'End session' : 'Send home'),
     ],

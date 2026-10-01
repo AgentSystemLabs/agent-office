@@ -180,6 +180,17 @@ export class MaintenanceStackKeeper {
     }
   }
 
+  /** Inspect unfinished tracked edits in Maintenance's worktree without mutating it. */
+  async workingChanges() {
+    if (!this.dir) return { files: '', diff: '', truncated: false };
+    const [files, diff] = await Promise.all([
+      run('git', ['status', '--short', '--untracked-files=normal'], this.tree),
+      run('git', ['diff', 'HEAD', '--stat', '--patch', '--no-ext-diff', '--no-textconv', '--'], this.tree),
+    ]);
+    const limit = 160_000;
+    return { files: files.slice(0, 20000), diff: diff.slice(0, limit), truncated: diff.length > limit || files.length > 20000 };
+  }
+
   /** Read a commit that is still on this stack, never an arbitrary Git revision. */
   async review(sha: string): Promise<{ diff: string; truncated: boolean }> {
     if (!/^[a-f0-9]{7,40}$/.test(sha)) throw new Error('Bad commit');
@@ -190,9 +201,33 @@ export class MaintenanceStackKeeper {
     return { diff: diff.slice(0, limit), truncated: diff.length > limit };
   }
 
+  /** Explicit worktree-only validation. Never pushes, merges, deploys or restarts. */
+  async check(): Promise<string | undefined> {
+    if (this.current.phase === 'shipping') return 'Wait for shipping to finish';
+    if (this.current.validation?.phase === 'running') return 'Checks are already running';
+    if (this.opts.busy()) return 'Wait for Maintenance to finish before checking its work';
+    if (!this.dir) return 'Ask Maintenance for a change first';
+    const validation: NonNullable<MaintenanceStack['validation']> = { phase: 'running', at: Date.now() };
+    this.set({ validation });
+    void (async () => {
+      try {
+        validation.sha = await run('git', ['rev-parse', '--short', 'HEAD'], this.tree);
+        for (const check of this.checks) {
+          this.set({ validation: { ...validation, step: check.step } });
+          await run(check.cmd, check.args, this.tree, SHIP_TIMEOUT_MS);
+        }
+        this.set({ validation: { ...validation, phase: 'passed', finishedAt: Date.now(), step: 'Typecheck, tests and build passed' } });
+      } catch (err) {
+        this.set({ validation: { ...validation, phase: 'failed', finishedAt: Date.now(), error: (err as Error).message } });
+      }
+    })();
+    return undefined;
+  }
+
   /** Starts shipping the stack. Returns why it can't, if it can't. */
   async ship(by: string): Promise<string | undefined> {
     if (this.current.phase === 'shipping') return 'The stack is already being shipped';
+    if (this.current.validation?.phase === 'running') return 'Wait for the worktree checks to finish';
     if (this.opts.busy()) return "The Maintenance agent is still working: wait until he's done, so his change goes out whole";
     // What he has committed since anyone last looked.
     await this.refresh();

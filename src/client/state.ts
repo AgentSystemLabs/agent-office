@@ -135,10 +135,11 @@ export function rememberSpot(s: Spot) {
 }
 
 export function loadSettings(): Settings {
-  const s: Settings = { view: 'first', maintenanceChat: false, volume: 0.7, muted: false, music: 0.5, musicMuted: false, pageTurns: true, pushToTalk: false, notify: true, hud: { ...HUD_DEFAULTS }, pins: [] };
+  const s: Settings = { view: 'first', maintenanceChat: true, volume: 0.7, muted: false, music: 0.5, musicMuted: false, pageTurns: true, pushToTalk: false, notify: true, hud: { ...HUD_DEFAULTS }, pins: [] };
   try {
     const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? 'null');
-    if (typeof saved?.maintenanceChat === 'boolean') s.maintenanceChat = saved.maintenanceChat;
+    // Promote the workspace once; an explicit legacy choice made after migration remains respected.
+    if (saved?.maintenanceWorkspaceVersion === 1 && typeof saved?.maintenanceChat === 'boolean') s.maintenanceChat = saved.maintenanceChat;
     if (saved?.view === 'first' || saved?.view === 'third') s.view = saved.view;
     if (typeof saved?.volume === 'number' && Number.isFinite(saved.volume)) s.volume = Math.max(0, Math.min(1, saved.volume));
     if (typeof saved?.muted === 'boolean') s.muted = saved.muted;
@@ -157,7 +158,7 @@ export function loadSettings(): Settings {
 
 export function saveSettings(s: Settings) {
   try {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify({ ...s, maintenanceWorkspaceVersion: 1 }));
   } catch {
     // storage blocked
   }

@@ -86,6 +86,12 @@ const KEYPAD: { label: string; title: string; keys: string | ((term: Terminal) =
 let current: { workerId: string; modal: Modal; find(f: TerminalFind): void } | null = null;
 const listeners = new Set<(msg: ServerMsg) => void>();
 
+/** Share the existing terminal stream with embedded Maintenance controls. */
+export function subscribeTerminal(receive: (msg: ServerMsg) => void) {
+  listeners.add(receive);
+  return () => { listeners.delete(receive); };
+}
+
 /** Main feeds every server message through here so open terminals can pick theirs. */
 export function routeTerminalMessage(msg: ServerMsg) {
   listeners.forEach((fn) => fn(msg));

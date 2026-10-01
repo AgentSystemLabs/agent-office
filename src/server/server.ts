@@ -47,6 +47,7 @@ import { MAX_FLOORS } from '../shared/floors.js';
 import { lookFromSeed, sanitizeLook } from '../shared/avatar.js';
 import { MAX_QUESTION, askLaptop, laptopModel, maintenanceTree } from './maintenance.js';
 import { MaintenanceChatArchive } from './maintenance-chat.js';
+import { MaintenanceImages, MaintenanceWork, MAINTENANCE_IMAGE_MAX } from './maintenance-work.js';
 import { MaintenanceBoard } from './maintenance-board.js';
 import { MaintenanceStackKeeper, stackTree } from './maintenance-stack.js';
 import { Approvals } from './approvals.js';
@@ -635,6 +636,9 @@ export async function startServer(cfg: Config) {
   };
 
   const maintenanceHistory = new MaintenanceChatArchive(cfg.dataDir);
+  const maintenanceImages = new MaintenanceImages(cfg.dataDir);
+  const maintenanceWork = new MaintenanceWork(cfg.dataDir);
+  let maintenanceStarting = false;
   const floorContext: FloorContext = {
     maintenanceConversation: (worker, messages) => {
       try { maintenanceHistory.capture(worker, messages); }
@@ -811,7 +815,7 @@ export async function startServer(cfg: Config) {
     emit: (state) => broadcast({ t: 'maintenance.stack', state }),
     busy: () => {
       const s = maintenanceAgent()?.info.status;
-      return s === 'working' || s === 'needs_input';
+      return maintenanceStarting || s === 'starting' || s === 'working' || s === 'needs_input';
     },
     restart: async (by, state) => {
       const latest = state.changes.at(-1);
@@ -1102,14 +1106,60 @@ export async function startServer(cfg: Config) {
         }
         return send(res, 404, { error: 'Not found' });
       }
+      if (p === '/api/maintenance/image') {
+        try {
+          if (req.method === 'GET') {
+            const image = maintenanceImages.get(url.searchParams.get('id') ?? '');
+            const body = readFileSync(image.path);
+            res.writeHead(200, { 'content-type': image.type, 'x-content-type-options': 'nosniff', 'cache-control': 'private, max-age=31536000, immutable', 'content-security-policy': "default-src 'none'; sandbox" });
+            res.end(body); return;
+          }
+          if (req.method !== 'POST') return send(res, 405, { error: 'Method not allowed' });
+          if (!sameOrigin(req, cfg)) return send(res, 403, { error: 'Forbidden' });
+          const image = maintenanceImages.save(str(url.searchParams.get('name'), 256), str(req.headers['content-type'], 128), await readBytes(req, MAINTENANCE_IMAGE_MAX));
+          return send(res, 200, image);
+        } catch (err) { return send(res, 400, { error: (err as Error).message }); }
+      }
+      if (['/api/maintenance/issue', '/api/maintenance/queue'].includes(p) && req.method === 'POST') {
+        if (!sameOrigin(req, cfg)) return send(res, 403, { error: 'Forbidden' });
+        try {
+          const body = JSON.parse(await readBody(req, 24000));
+          const repo = maintenanceBoard.state.repo;
+          if (!repo) throw new Error('No maintenance repository');
+          const by = session.account?.name ?? 'Office user';
+          if (p === '/api/maintenance/issue') {
+            const as = session.account ? signins.ghAs(session.account.id) : undefined;
+            if (typeof as === 'string') throw new Error(as);
+            const images = maintenanceImages.resolve(body.attachments ?? []);
+            const issue = await maintenanceBoard.create(str(body.title, 201), str(body.body, 20001), as);
+            if (body.queue === true) maintenanceWork.queue(repo, issue, by, images);
+            return send(res, 200, issue);
+          }
+          const number = Number(body.number);
+          if (!Number.isSafeInteger(number) || number <= 0) throw new Error('Bad issue number');
+          if (body.reviewed === true) maintenanceWork.reviewed(repo, number);
+          else if (body.remove === true) maintenanceWork.remove(repo, number);
+          else {
+            const detail = await maintenanceBoard.issue(number);
+            if (detail.state !== 'OPEN') throw new Error('Reopen this issue before queuing it');
+            const issue = maintenanceBoard.state.items.find(i => i.number === number);
+            if (!issue) throw new Error('Refresh the issue list before queuing this issue');
+            maintenanceWork.queue(repo, issue, by, maintenanceImages.resolve(body.attachments ?? []));
+          }
+          return send(res, 200, { ok: true });
+        } catch (err) { return send(res, 400, { error: (err as Error).message }); }
+      }
       if (p.startsWith('/api/maintenance/') && req.method === 'GET') {
         try {
           if (p === '/api/maintenance/issue') return send(res, 200, await maintenanceBoard.issue(Number(url.searchParams.get('number')), session.account ? signins.githubLogin(session.account.id) : undefined));
+          if (p === '/api/maintenance/working') return send(res, 200, await stack.workingChanges());
           if (p === '/api/maintenance/change') return send(res, 200, await stack.review(url.searchParams.get('sha') ?? ''));
           if (p === '/api/maintenance/chat') {
             const agent = maintenanceAgent();
+            maintenanceWork.reconcile(agent?.info, stack.state.changes);
             const id = url.searchParams.get('thread') ?? agent?.info.id;
             return send(res, 200, {
+              work: maintenanceWork.list(maintenanceBoard.state.repo), stack: stack.state,
               conversations: maintenanceHistory.list(),
               conversation: id ? maintenanceHistory.page(id, url.searchParams.get('before') ?? undefined) : undefined,
               worker: agent?.info, floor: agent?.floor.def.id, floorName: agent?.floor.def.name,
@@ -1889,26 +1939,56 @@ export async function startServer(cfg: Config) {
         // Nobody there yet: whoever asks first hires it, on their own sign-ins.
         const chat = msg.t === 'maintenance.chat.send' ? { newConversation: msg.newConversation === true, thread: str(msg.thread, 64) || undefined } : undefined;
 
-        const maintenanceIssue = msg.t === 'station.prompt' && deskId === MAINTENANCE_DESK ? issueNumber(msg.maintenanceIssue) : undefined;
+        const maintenanceIssue = deskId === MAINTENANCE_DESK ? issueNumber(msg.maintenanceIssue) : undefined;
         const send = async () => {
-          let prompt = str(msg.prompt, 20000);
+          const maintenance = deskId === MAINTENANCE_DESK;
+          if (maintenance && maintenanceStarting) { reply('Another Maintenance request is being started. Try again in a moment.'); return; }
+          if (maintenance) maintenanceStarting = true;
           try {
-            if (maintenanceIssue) prompt = await maintenanceBoard.request(maintenanceIssue);
-          } catch (err) { reply((err as Error).message); return; }
-          if (deskId === MAINTENANCE_DESK && stack.state.phase === 'shipping') { reply('The stack is being shipped: wait for the office to restart'); return; }
-          const target = deskId === MAINTENANCE_DESK ? maintenanceAgent()?.floor ?? floor : floor;
-          const hires = chat?.newConversation || !target.workers.deskOccupied(deskId);
-          withSignIn(c, hires ? claudeFor(target.workers.officeDefault.provider) : undefined, () => {
-            const r = target.workers.station(deskId, who, prompt, c.accountId, chat);
-            if (typeof r === 'string') reply(r);
-            else {
-              reply(undefined, r.info.id);
-              if (maintenanceIssue) withGitHub(c, (as) => void maintenanceBoard.claim(maintenanceIssue, as).then((error) => {
-                if (error) warn(c, `Maintenance started, but assigning the issue failed: ${error}`);
-              }).catch((err) => warn(c, (err as Error).message)));
-              if (r.hired) toastFloor(floor, `${who} asked the ${r.info.name} something`);
+            let prompt = str(msg.prompt, 20000);
+            try {
+              if (maintenanceIssue) prompt = await maintenanceBoard.request(maintenanceIssue);
+            } catch (err) { reply((err as Error).message); return; }
+            if (deskId === MAINTENANCE_DESK && (stack.state.phase === 'shipping' || stack.state.validation?.phase === 'running')) { reply('The stack is being shipped or checked: wait for it to finish'); return; }
+            const target = deskId === MAINTENANCE_DESK ? maintenanceAgent()?.floor ?? floor : floor;
+            if (maintenanceIssue) await stack.refresh();
+            maintenanceWork.reconcile(maintenanceAgent()?.info, stack.state.changes);
+            const queued = maintenanceIssue && maintenanceBoard.state.repo ? maintenanceWork.get(maintenanceBoard.state.repo, maintenanceIssue) : undefined;
+            const active = maintenanceAgent()?.info;
+            if (maintenanceIssue && active && !['idle', 'done', 'exited'].includes(active.status)) { reply('Maintenance is busy. Queue the issue and start it after current work finishes.'); return; }
+            const images = msg.t === 'maintenance.chat.send' ? maintenanceImages.resolve(msg.attachments ?? queued?.attachments.map(i => i.id) ?? []) : [];
+            const displayPrompt = prompt;
+            if (maintenance) prompt = maintenanceImages.prompt(prompt, images);
+            const stationChat = maintenanceIssue && maintenance ? { ...chat, newConversation: true, thread: undefined } : chat;
+            const hires = stationChat?.newConversation || !target.workers.deskOccupied(deskId);
+            const signIn = hires ? claudeFor(target.workers.officeDefault.provider) : undefined;
+            if (signIn && c.accountId && !signins.claudeReady(c.accountId)) {
+              await signins.look(c.accountId, true);
+              if (!signins.claudeReady(c.accountId)) {
+                const why = signins.why(signIn); reply(why); sendTo(c, { t: 'signins.needed', which: signIn, why }); return;
+              }
             }
-          }, (why) => reply(why));
+            if (c.out || c.ws.readyState !== WebSocket.OPEN) return;
+            if (maintenance && (stack.state.phase === 'shipping' || stack.state.validation?.phase === 'running')) { reply('Wait for shipping or checks to finish.'); return; }
+            if (maintenanceIssue && maintenanceWork.list(maintenanceBoard.state.repo).some(i => i.status === 'running')) { reply('Another issue is active. Finish it before starting the next one.'); return; }
+            {
+              if (maintenanceIssue && maintenanceBoard.state.repo) maintenanceWork.queue(maintenanceBoard.state.repo, { number: maintenanceIssue, title: maintenanceBoard.state.items.find(i => i.number === maintenanceIssue)?.title ?? `Issue #${maintenanceIssue}`, url: `https://github.com/${maintenanceBoard.state.repo}/issues/${maintenanceIssue}` }, who, images);
+              const r = target.workers.station(deskId, who, prompt, c.accountId, stationChat);
+              if (typeof r === 'string') reply(r);
+              else {
+                if (images.length) maintenanceHistory.capture(r.info, [{ id: randomBytes(16).toString('hex'), role: 'user', content: displayPrompt, attachments: images, by: who, at: Date.now(), pending: true }]);
+                if (maintenanceIssue && maintenanceBoard.state.repo) {
+                  maintenanceWork.start(maintenanceBoard.state.repo, maintenanceIssue, r.info, stack.state.changes.map(c => c.sha));
+                }
+                reply(undefined, r.info.id);
+                if (maintenanceIssue) withGitHub(c, (as) => void maintenanceBoard.claim(maintenanceIssue, as).then((error) => {
+                  if (error) warn(c, `Maintenance started, but assigning the issue failed: ${error}`);
+                }).catch((err) => warn(c, (err as Error).message)));
+                if (r.hired) toastFloor(floor, `${who} asked the ${r.info.name} something`);
+              }
+            }
+          } catch (err) { reply((err as Error).message); }
+          finally { if (maintenance) maintenanceStarting = false; }
         };
         if (deskId !== MAINTENANCE_DESK) {
           send();
@@ -1917,7 +1997,7 @@ export async function startServer(cfg: Config) {
         // One Maintenance agent for the whole office, in his own worktree.
         const at = maintenanceAgent();
         if (at && at.floor !== floor) {
-          if (stack.state.phase === 'shipping') reply('The stack is being shipped: wait for the office to restart');
+          if (stack.state.phase === 'shipping') reply('The stack is being shipped or checked: wait for it to finish');
           else {
             void send();
           }
@@ -1939,6 +2019,9 @@ export async function startServer(cfg: Config) {
           approvals.set(msg.easy, who);
           toastAll(msg.easy ? `${who} pulled the lever: workers hired or resumed from now on start in their agent's automatic mode` : `${who} put the lever back: workers hired or resumed from now on ask as usual`);
         }
+        break;
+      case 'maintenance.check':
+        void stack.check().then(why => warn(c, why));
         break;
       case 'maintenance.issues':
         void maintenanceBoard.refresh().then(() => sendTo(c, { t: 'maintenance.issues', state: maintenanceBoard.state }));

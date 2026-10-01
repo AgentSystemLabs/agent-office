@@ -124,7 +124,7 @@ export function openStack(send: (msg: ClientMsg) => void, actions?: MaintenanceA
 }
 
 /** Inspect a stacked commit without any commit/discard/deploy actions. */
-function openStackChange(change: { sha: string; subject: string }, actions?: MaintenanceActions) {
+export function openStackChange(change: { sha: string; subject: string }, actions?: MaintenanceActions) {
   const body = h('div.body', {}, h('p', {}, 'Loading change…'));
   const modal = openModal(h('div.modal.maintenance-change', { role: 'dialog', 'aria-label': 'Maintenance change details' },
     h('header', {}, h('h2', {}, change.subject)), body));

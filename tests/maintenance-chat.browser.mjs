@@ -4,10 +4,11 @@
 import { chromium } from 'playwright-core';
 import { writeFileSync } from 'node:fs';
 const browser = await chromium.launch({headless:true, executablePath:process.env.CHROMIUM_PATH,args:['--no-sandbox']});
+try {
 const page = await browser.newPage({viewport:{width:1360,height:980}});
 const issues=[];page.on('pageerror',e=>issues.push(e.message));
 await page.route('http://127.0.0.1:5199/', r=>r.fulfill({contentType:'text/html',body:'<html><link rel="stylesheet" href="/style.css"><body><div id="modal-root"></div></body></html>'}));
-let worker={id:'maintenance',createdAt:1,name:'Maintenance',status:'working',deskId:'station-maintenance',provider:'codex',kind:'agent',color:'#f08c00'};
+let worker={id:'maintenance',createdAt:1,name:'Maintenance',status:'working',deskId:'station-maintenance',provider:'codex',kind:'agent',color:'#f08c00',cols:80,rows:24,viewers:[],viewerIds:[]};
 const msg=(id,role,content,at=1790856000000)=>({id,role,content,at,by:role==='user'?'Alex':undefined});
 const threads={
  maintenance:{id:'maintenance',title:'Build a modern Maintenance chat view',createdAt:1,updatedAt:1790856000000,hasOlder:false,messages:[
@@ -26,7 +27,9 @@ await page.evaluate(async()=>{
  const chat=await import('/ui/maintenance-chat.ts'),state=await import('/state.ts');window.chat=chat;window.store=state.store;
  state.store.floor='test-floor';window.sent=[];window.watches=[];window.stackOpens=0;
  window.actions={correct(){},watch:(...args)=>window.watches.push(args)};
- window.openChat=()=>window.chatModal=chat.openMaintenanceChat(m=>window.sent.push(m),window.actions,()=>window.stackOpens++);
+ window.terminalModule=await import('/ui/terminal.ts');
+ window.send=m=>{window.sent.push(m);if(m.t==='worker.attach') setTimeout(()=>terminalModule.routeTerminalMessage({t:'term.snapshot',workerId:m.workerId,cols:60,rows:18,data:'Maintenance agent\r\nWorking on the request…'}),0);};
+ window.openChat=()=>window.chatModal=chat.openMaintenanceChat(window.send,window.actions,()=>window.stackOpens++);
  window.openChat();
 });
 await page.waitForSelector('[data-message="a2"]');
@@ -53,22 +56,27 @@ if(await page.locator('.maintenance-conversation').count()!==1)throw Error('sear
 await page.getByRole('searchbox').fill('');
 const input=page.getByRole('textbox',{name:'Message to Maintenance'});
 await input.fill('Try this request');await input.press('Shift+Enter');
-if((await page.evaluate(()=>window.sent.length))!==0)throw Error('Shift+Enter sent');
+if((await page.evaluate(()=>window.sent.filter(m=>m.t==='maintenance.chat.send').length))!==0)throw Error('Shift+Enter sent');
 await input.press('Enter');
-const sent=await page.evaluate(()=>window.sent.at(-1));
+const sent=await page.evaluate(()=>window.sent.filter(m=>m.t==='maintenance.chat.send').at(-1));
 if(sent.t!=='maintenance.chat.send'||sent.prompt!=='Try this request')throw Error('request routing failed');
 await page.evaluate(id=>chat.onMaintenanceChatSent({t:'maintenance.chat.sent',id,error:'Maintenance is waiting on an approval'}),sent.id);
 await page.getByRole('alert').filter({hasText:'waiting on an approval'}).waitFor();
 if(await input.inputValue()!=='Try this request')throw Error('failed request not restored');
 await input.fill('Add a compact view');await input.press('Enter');
-const success=await page.evaluate(()=>window.sent.at(-1));
+const success=await page.evaluate(()=>window.sent.filter(m=>m.t==='maintenance.chat.send').at(-1));
 threads.maintenance.messages.push(msg('u3','user','Add a compact view',1790856080000));
 await page.evaluate(id=>chat.onMaintenanceChatSent({t:'maintenance.chat.sent',id,workerId:'maintenance'}),success.id);
 await page.waitForSelector('[data-message="u3"]');
 if(await input.inputValue()!=='')throw Error('accepted request not cleared');
 worker={...worker,status:'needs_input'};
 await page.evaluate(()=>store.emit('workers'));
-await page.waitForFunction(()=>document.querySelector('textarea').disabled);
+await page.getByText('Your attention is needed',{exact:true}).waitFor();
+if(!await page.getByRole('button',{name:'Send',exact:true}).isDisabled())throw Error('request allowed during approval');
+await page.getByRole('textbox',{name:'Console answer'}).fill('my answer');
+await page.getByRole('button',{name:'Answer',exact:true}).click();
+await page.waitForTimeout(150);
+if(!await page.evaluate(()=>window.sent.some(m=>m.t==='term.input'&&m.data.includes('my answer'))))throw Error('inline answer did not reach provider');
 await page.getByRole('button',{name:'Open terminal'}).click();
 if(await page.evaluate(()=>window.watches.length)!==1)throw Error('terminal unavailable');
 if(await page.locator('.maintenance-chat').count())throw Error('terminal does not close chat');
@@ -78,7 +86,7 @@ await page.getByRole('button',{name:'+ New conversation',exact:true}).click();
 await page.waitForSelector('.maintenance-chat-empty');
 if(await input.isDisabled())throw Error('new issue composer disabled after completion');
 await input.fill('Build a meeting room');await input.press('Enter');
-const newIssue=await page.evaluate(()=>window.sent.at(-1));
+const newIssue=await page.evaluate(()=>window.sent.filter(m=>m.t==='maintenance.chat.send').at(-1));
 if(!newIssue.newConversation||newIssue.thread)throw Error('new issue did not request a fresh session');
 threads.room={id:'room',title:'Build a meeting room',createdAt:2,updatedAt:1790856100000,hasOlder:false,messages:[msg('room1','user','Build a meeting room')]};
 worker={...worker,id:'room',status:'working'};
@@ -87,7 +95,8 @@ await page.waitForSelector('[data-message="room1"]');
 if(await page.locator('[data-message="a2"]').count())throw Error('previous issue leaked into new conversation');
 await page.getByRole('button',{name:'+ New conversation',exact:true}).click();
 await page.waitForSelector('.maintenance-chat-empty');
-if(!await input.isDisabled())throw Error('new issue allowed while Maintenance works');
+if(!await page.getByRole('button',{name:'Send',exact:true}).isDisabled())throw Error('new issue allowed while Maintenance works');
+if(await input.isDisabled())throw Error('drafting blocked while busy');
 await page.getByRole('button',{name:'Build a modern Maintenance chat view'}).click();
 await page.waitForSelector('[data-message="a2"]');
 if(!await input.isDisabled())throw Error('previous issue is not archived');
@@ -100,27 +109,31 @@ if(await page.locator('.maintenance-chat').evaluate(el=>el.scrollWidth>el.client
 await page.keyboard.press('Escape');if(await page.locator('.maintenance-chat').count())throw Error('Escape fails');
 await page.setViewportSize({width:1360,height:980});
 // Kiosk X opens a fresh draft without sending a kill or interrupting active work.
-await page.evaluate(()=>window.chatModal=chat.openMaintenanceChat(m=>window.sent.push(m),window.actions,()=>window.stackOpens++, '', true));
+await page.evaluate(()=>window.chatModal=chat.openMaintenanceChat(window.send,window.actions,()=>window.stackOpens++, '', true));
 await page.waitForSelector('.maintenance-chat-empty');
-if(!await input.isDisabled())throw Error('kiosk draft allowed while Maintenance works');
+if(!await page.getByRole('button',{name:'Send',exact:true}).isDisabled())throw Error('kiosk draft allowed while Maintenance works');
 if(await page.evaluate(()=>window.sent.some(m=>m.t==='worker.kill')))throw Error('draft stopped Maintenance');
 await page.screenshot({path:'/tmp/maintenance-chat-new-draft.png',animations:'disabled'});
 await page.getByRole('button',{name:'Current conversation',exact:true}).click();
 await page.waitForSelector('[data-message="room1"]');
 await page.keyboard.press('Escape');
-// The experiment is opt-in, persisted locally, and can be disabled without losing the archive.
+// Workspace defaults and one-time promotion preserve later explicit legacy choices.
 await page.evaluate(async()=>{
  const state=await import('/state.ts');localStorage.removeItem('agent-office.settings');
- if(state.loadSettings().maintenanceChat!==false)throw Error('not opt-in');
+ if(state.loadSettings().maintenanceChat!==true)throw Error('workspace not default');
+ localStorage.setItem('agent-office.settings',JSON.stringify({maintenanceChat:false,volume:.4}));
+ if(state.loadSettings().maintenanceChat!==true||state.loadSettings().volume!==.4)throw Error('old browser choice was not migrated');
  let settings=state.loadSettings();
  const {openSettings}=await import('/ui/settings.ts');
- window.settingsModal=openSettings({send(){}},settings,s=>{settings=s;state.saveSettings(s)},()=>{},()=>{},{},()=>{},undefined,'experiments');
+ window.settingsModal=openSettings({send(){}},settings,s=>{settings=s;state.saveSettings(s)},()=>{},()=>{},{},()=>{},undefined,'maintenance');
 });
-await page.getByRole('checkbox',{name:'Experimental Maintenance chat'}).check();
+await page.getByRole('checkbox',{name:'Maintenance engineering workspace'}).uncheck();
+if(await page.evaluate(async()=>!(await import('/state.ts')).loadSettings().maintenanceChat)!==true)throw Error('explicit legacy choice not preserved');
+await page.getByRole('checkbox',{name:'Maintenance engineering workspace'}).check();
 if(await page.evaluate(()=>JSON.parse(localStorage.getItem('agent-office.settings')).maintenanceChat)!==true)throw Error('preference not saved');
 await page.screenshot({path:'/tmp/maintenance-chat-settings.png',animations:'disabled'});
-await page.getByRole('checkbox',{name:'Experimental Maintenance chat'}).uncheck();
+await page.getByRole('checkbox',{name:'Maintenance engineering workspace'}).uncheck();
 await page.keyboard.press('Escape');
 if(issues.length)throw Error('Browser errors: '+issues.join('; '));
-console.log('Passed: desktop/mobile, Markdown/HTML/code rendering and sanitization, archive search/read-only/reopen, request send/rejection/acknowledgement, approvals terminal, Escape close, opt-in settings persistence, fresh issue conversations, retained archive and busy guard.');
-await browser.close();
+console.log('Passed: desktop/mobile, Markdown/HTML/code rendering and sanitization, archive search/read-only/reopen, request send/rejection/acknowledgement, approvals terminal, Escape close, default workspace migration and explicit legacy preference, fresh issue conversations, retained archive and busy guard.');
+} finally { await browser.close(); }

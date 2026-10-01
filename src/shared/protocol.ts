@@ -83,6 +83,14 @@ export interface WorkerTask {
 export interface Presentation { title: string; summary: string; html: string; at: number; links?: { label: string; url: string }[] }
 export interface ArchivedPresentation { id: string; workerId: string; name: string; presentation: Presentation }
 
+export interface MaintenanceAttachment { id: string; name: string; type: string; size: number }
+export interface MaintenanceWorkItem {
+  repo: string; number: number; title: string; url: string;
+  status: 'queued' | 'running' | 'review' | 'paused' | 'done';
+  by: string; at: number; workerId?: string; baseline?: string[];
+  attachments: MaintenanceAttachment[]; commits: { sha: string; subject: string }[];
+}
+
 /** Public Maintenance dialogue. Tool output and private reasoning are excluded. */
 export interface MaintenanceChatMessage {
   id: string;
@@ -93,6 +101,7 @@ export interface MaintenanceChatMessage {
   phase?: string;
   /** Accepted by the office but not yet matched to its transcript entry. */
   pending?: boolean;
+  attachments?: MaintenanceAttachment[];
 }
 export interface MaintenanceConversation {
   id: string;
@@ -108,6 +117,8 @@ export interface MaintenanceChatState {
   floor?: string;
   floorName?: string;
   richReplies: boolean;
+  work?: MaintenanceWorkItem[];
+  stack?: MaintenanceStack;
 }
 
 export interface WorkerInfo {
@@ -1061,6 +1072,7 @@ export interface MaintenanceStack {
   /** Why there's no stack, when the office's source isn't something he can work on. */
   unavailable?: string;
   phase: 'idle' | 'shipping' | 'failed';
+  validation?: { phase: 'running' | 'passed' | 'failed'; step?: string; at: number; finishedAt?: number; error?: string; sha?: string };
   /** Where a shipment has got to. */
   step?: string;
   by?: string;
@@ -1214,11 +1226,12 @@ export type ClientMsg =
    * typed into its session, which is woken up first if it's asleep, or hired there when nobody is.
    */
   | { t: 'station.prompt'; deskId: string; prompt: string; maintenanceIssue?: number }
-  | { t: 'maintenance.chat.send'; id: string; prompt: string; newConversation?: boolean; thread?: string }
+  | { t: 'maintenance.chat.send'; id: string; prompt: string; newConversation?: boolean; thread?: string; attachments?: string[]; maintenanceIssue?: number }
   /** A question for the maintenance closet's laptop (a small model that knows the office's source); `id` comes back on the `maintenance.answer`. */
   | { t: 'maintenance.ask'; id: string; question: string }
   /** The big button in the maintenance closet: commit what's stacked, check it, push, rebuild and restart the office. */
   | { t: 'maintenance.ship' }
+  | { t: 'maintenance.check' }
   /** The lever in the maintenance closet. */
   | { t: 'approvals.set'; easy: boolean }
   /** Asks for the stack as it is now; answered with a `maintenance.stack`. */

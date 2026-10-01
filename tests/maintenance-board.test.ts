@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { MaintenanceBoard } from '../src/server/maintenance-board.js';
@@ -21,6 +21,7 @@ const office = process.cwd().endsWith('/agent-office') && process.env.GH_REPO ==
 const title = office ? 'Fix the maintenance closet' : 'Unrelated project issue';
 const args = process.argv.slice(2);
 if (args[0] === 'repo') console.log(JSON.stringify({nameWithOwner: office ? 'team/agent-office' : 'team/project'}));
+else if (args[0] === 'issue' && args[1] === 'create') { require('node:fs').writeFileSync(process.cwd() + '/created.json', JSON.stringify({args, marker:process.env.CREATE_AS})); console.log('https://github.com/team/agent-office/issues/43'); }
 else if (args[0] === 'issue' && args[1] === 'view') console.log(JSON.stringify({number:42,state:'OPEN',body:title,comments:[]}));
 else if (args[0] === 'issue' && args.includes('open')) console.log(JSON.stringify([{number:42,title,state:'OPEN',url:'https://github.com/team/agent-office/issues/42'}]));
 else console.log('[]');
@@ -37,6 +38,12 @@ else console.log('[]');
   assert.match(await board.request(42), /Fix the maintenance closet/);
   assert.match(await board.request(42), /https:\/\/github.com\/team\/agent-office\/issues\/42/);
   assert.equal(await board.claim(42), undefined);
+  assert.equal((await board.create('Improve Maintenance', 'Keep ideas while it works', { env: { ...process.env, CREATE_AS: 'requester' } } as any)).number, 43);
+  const created = JSON.parse(readFileSync(path.join(source, 'created.json'), 'utf8'));
+  assert.equal(created.marker, 'requester');
+  assert.ok(created.args.includes('team/agent-office'));
+  assert.ok(created.args.includes('Keep ideas while it works'));
+  await assert.rejects(board.create('', ''), /title/);
   await assert.rejects(board.issue(-1), /Bad issue number/);
   board.stop();
 });

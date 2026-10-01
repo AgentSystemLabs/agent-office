@@ -1450,3 +1450,77 @@ a.when:hover { text-decoration: underline; }
 
 .maintenance-chat > header > div:first-child { min-width: 0; }
 @media (max-width: 700px) { .maintenance-chat > header h2 { font-size: 18px; } }
+
+/* Maintenance is an engineering workspace: backlog, conversation, review and real agent controls. */
+.modal.maintenance-chat { width: min(1680px, 96vw); height: 92dvh; max-height: 92dvh; display: flex; flex-direction: column; }
+.maintenance-chat-layout { grid-template-columns: 220px minmax(330px, 1fr) minmax(340px, .85fr); }
+.maintenance-chat aside { overflow: auto; }
+.maintenance-chat-archive { flex: 1; }
+.maintenance-tabs { display: flex; flex-shrink: 0; gap: 6px; padding: 12px 18px; border-bottom: 1px solid #e7eaf0; background: #fafbfc; }
+.maintenance-chat .maintenance-tabs button[aria-pressed="true"] { background: #e8edf9; color: #3b5293; border-color: #b9c6e8; }
+.maintenance-console-rail { display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: 16px; border-left: 1px solid #e7eaf0; background: #f7f8fb; overflow: auto; }
+.maintenance-console-rail h3 { font: 650 13px system-ui; margin: 0 0 8px; }
+.maintenance-activity { margin: 0 0 12px; font-size: 12px; color: #526074; overflow-wrap: anywhere; }
+.maintenance-attention { border: 1px solid #edc777; border-radius: 10px; background: #fff7e5; padding: 12px; margin-bottom: 12px; font-size: 12px; }
+.maintenance-attention p { margin: 6px 0 10px; }
+.maintenance-console { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.maintenance-console > summary { font-size: 12px; cursor: pointer; margin-bottom: 10px; }
+.maintenance-console:not([open]) .maintenance-live-console { display: none; }
+.maintenance-live-console { display: flex; flex-direction: column; flex: 1; min-height: 340px; }
+.maintenance-console-host { flex: 1; min-height: 230px; padding: 8px; background: #1e1f2e; border-radius: 10px; overflow: auto; }
+.maintenance-console-keys { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+.maintenance-chat .maintenance-console-keys button { padding: 5px 7px; font-size: 11px; }
+.maintenance-console-answer { display: flex; gap: 6px; margin-top: 8px; }
+.maintenance-console-answer input { min-width: 0; flex: 1; padding: 8px; }
+.maintenance-work-view, .maintenance-review-view { flex: 1; overflow: auto; padding: 22px; min-height: 0; }
+.maintenance-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 14px; }
+.maintenance-section-heading h3, .maintenance-section-heading h4 { margin: 0; }
+.maintenance-section-heading p { margin: 5px 0 0; font-size: 12px; color: #788193; }
+.maintenance-work-intro { padding: 14px; border-radius: 10px; background: #eef2ff; font-size: 12px; }
+.maintenance-work-card { border: 1px solid #e0e5ef; border-radius: 10px; padding: 14px; margin-bottom: 10px; background: #fff; overflow-wrap: anywhere; }
+.maintenance-work-card > a { display: block; font-weight: 600; color: #4564c7; text-decoration: none; }
+.maintenance-work-card small { display: block; color: #788193; margin: 4px 0 10px; }
+.maintenance-work-card button { margin: 4px 6px 0 0; font-size: 12px; }
+.maintenance-chat .maintenance-issue-title { display: block; text-align: left; border: 0; padding: 0; font-size: 14px; font-weight: 600; }
+.maintenance-muted { color: #788193; font-size: 12px; }
+.maintenance-image-composer { margin: 8px 0; }
+.maintenance-image-composer > div:last-of-type { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.maintenance-upload-status { font-size: 11px; color: #788193; }
+.maintenance-image-drafts, .maintenance-images { display: flex; flex-wrap: wrap; gap: 8px; }
+.maintenance-image-drafts > div { position: relative; margin-bottom: 8px; }
+.maintenance-image-drafts img, .maintenance-images img { width: 95px; height: 70px; object-fit: cover; border: 1px solid #dce1e8; border-radius: 8px; }
+.maintenance-images { margin-top: 12px; }
+.maintenance-image-drafts button { position: absolute; top: -5px; right: -5px; padding: 0 5px; }
+.maintenance-issue-create { width: min(680px, 94vw); }
+.maintenance-issue-create .body { display: flex; flex-direction: column; gap: 12px; }
+.maintenance-issue-create input[type="text"] { padding: 10px; width: 100%; font: inherit; }
+.maintenance-issue-create textarea { width: 100%; }
+.maintenance-chat .maintenance-review-commit { display: block; width: 100%; margin: 8px 0; text-align: left; }
+.maintenance-review-commit span { display: block; font-size: 11px; color: #788193; margin-top: 4px; }
+.maintenance-review-status { padding: 12px; background: #eef2ff; border-radius: 8px; font-size: 12px; overflow-wrap: anywhere; }
+.maintenance-working-files { font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.maintenance-review-view .maintenance-diff { max-height: 500px; overflow: auto; font-size: 12px; }
+@media (max-width: 1150px) {
+  .maintenance-chat-layout { grid-template-columns: 180px minmax(0, 1fr); overflow-y: auto; }
+  .maintenance-console-rail { grid-column: 1 / -1; min-height: 370px; border-left: 0; border-top: 1px solid #e7eaf0; }
+  .maintenance-chat-main { min-height: 450px; }
+  .maintenance-console-host { min-height: 260px; }
+}
+@media (max-width: 700px) {
+  .modal.maintenance-chat { width: 100%; height: 94dvh; max-height: 94dvh; }
+  .maintenance-chat > header { flex-wrap: wrap; }
+  .maintenance-chat-layout { display: flex; flex-direction: column; overflow: auto; }
+  .maintenance-chat aside { display: grid; grid-template-columns: 1fr 1fr; flex-shrink: 0; max-height: 190px; }
+  .maintenance-chat aside > .maintenance-current { grid-column: 1 / -1; }
+  .maintenance-chat-archive { max-height: 85px; }
+  .maintenance-chat aside > input { grid-column: 1 / -1; }
+  .maintenance-chat-main { flex-shrink: 0; min-height: 520px; max-height: 650px; }
+  .maintenance-tabs { padding: 8px; gap: 4px; }
+  .maintenance-chat .maintenance-tabs button { font-size: 11px; padding: 7px; flex: 1; }
+  .maintenance-console-rail { flex-shrink: 0; min-height: 390px; }
+  .maintenance-work-view, .maintenance-review-view { padding: 14px; }
+  .maintenance-chat-composer { padding: 12px; }
+  .maintenance-chat .maintenance-console-answer input { width: 0; }
+}
+.maintenance-console-host { flex: none; height: clamp(230px, 44dvh, 520px); }
+.maintenance-live-console { flex: none; min-height: 0; }

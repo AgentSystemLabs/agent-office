@@ -245,3 +245,38 @@ test('review shows the stacked change and its reason, and refuses revisions outs
   await assert.rejects(k.review(git(o.src, 'rev-parse', '--short', 'HEAD')), /no longer on the stack/);
   assert.equal(git(o.src, 'show', 'HEAD:app.txt'), 'one', 'reading a review leaves the running source untouched');
 });
+
+test('worktree checks and working-diff review never ship, change the source or restart the office', async () => {
+  const o = office(), { k, restarts } = keeper(o);
+  assert.equal(await k.prepare(), undefined);
+  const sourceHead = git(o.src, 'rev-parse', 'HEAD');
+  writeFileSync(path.join(k.dir!, 'app.txt'), 'workspace edit\n');
+  writeFileSync(path.join(k.dir!, 'new.txt'), 'untracked\n');
+  const working = await k.workingChanges();
+  assert.match(working.files, /app.txt/); assert.match(working.files, /new.txt/);
+  assert.match(working.diff, /workspace edit/);
+  assert.equal(await k.check(), undefined);
+  assert.match((await k.check())!, /already running/);
+  assert.match((await k.ship('Alex'))!, /checks to finish/);
+  for (let i = 0; i < 200 && k.state.validation?.phase === 'running'; i++) await new Promise(resolve => setTimeout(resolve, 10));
+  assert.equal(k.state.validation?.phase, 'passed');
+  assert.equal(k.state.phase, 'idle');
+  assert.equal(git(o.src, 'rev-parse', 'HEAD'), sourceHead);
+  assert.equal(readFileSync(path.join(o.src, 'app.txt'), 'utf8'), 'one\n');
+  assert.equal(readFileSync(path.join(o.src, 'dist', 'public', 'built.txt'), 'utf8'), 'old');
+  assert.deepEqual(restarts, []);
+});
+
+test('worktree check failures surface without starting shipment and busy work blocks checks', async () => {
+  const o = office();
+  let busy = true;
+  const { k } = keeper(o, { busy: () => busy, checks: [{ step: 'Tests', cmd: 'sh', args: ['-c', 'echo "broken test" >&2; exit 1'] }] });
+  await k.prepare();
+  assert.match((await k.check())!, /finish/);
+  busy = false;
+  assert.equal(await k.check(), undefined);
+  for (let i = 0; i < 200 && k.state.validation?.phase === 'running'; i++) await new Promise(resolve => setTimeout(resolve, 10));
+  assert.equal(k.state.validation?.phase, 'failed');
+  assert.match(k.state.validation?.error ?? '', /broken test/);
+  assert.equal(k.state.phase, 'idle');
+});
