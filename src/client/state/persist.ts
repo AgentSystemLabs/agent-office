@@ -37,9 +37,9 @@ export function saveProfile(p: Omit<Profile, 'look'> & { look?: Look }) {
 export type ViewMode = 'first' | 'third';
 
 /** The panels you can show or hide on screen, from the ☰ menu. */
-export type HudPanel = 'workers' | 'people' | 'spend' | 'limits' | 'chat' | 'floor';
-/** Out of the way by default: only the chat shows until you turn the rest on. */
-export const HUD_DEFAULTS: Record<HudPanel, boolean> = { workers: false, people: false, spend: false, limits: false, chat: true, floor: false };
+export type HudPanel = 'workers' | 'people' | 'spend' | 'limits' | 'chat' | 'floor' | 'map';
+/** Out of the way by default: only the chat and the minimap show until you turn the rest on. */
+export const HUD_DEFAULTS: Record<HudPanel, boolean> = { workers: false, people: false, spend: false, limits: false, chat: true, floor: false, map: true };
 
 export interface Settings {
   view: ViewMode;
