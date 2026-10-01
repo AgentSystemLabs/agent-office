@@ -216,6 +216,8 @@ export function buildWalls(group: THREE.Group, colliders: Collider[], openings: 
       m.position.copy(at((u0 + u1) / 2, (y0 + y1) / 2));
       m.castShadow = y1 <= SHADE_HEIGHT;
       m.receiveShadow = true;
+      // Indoors the loop stops walls taking shadows, which the lamps overhead would cast down them from whatever hangs there.
+      m.userData.wall = true;
       group.add(m);
     };
     // Baseboard and collider run between the doors.

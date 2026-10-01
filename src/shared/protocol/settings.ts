@@ -127,6 +127,8 @@ export interface SkyState {
   city?: string;
   /** °C, from the forecast. */
   temp?: number;
+  /** The sky keeps the office's real clock (--real-time-sky), instead of a whole day going by every hour. */
+  realTime?: boolean;
 }
 
 /** A holiday the whole building dresses up for (see shared/theme.ts). */

@@ -12,6 +12,11 @@ export const SKY_DAY_MS = 3_600_000;
  * UTC: it goes round a whole day every SKY_DAY_MS, midnight on the hour and noon at half past. It
  * stays on today's date, so the sun rises and sets as early or as late as it does there this time of year.
  */
+/** The time of day in `s`'s sky at `ms`: the real time when it keeps the office's clock, else skyTime. */
+export function skyNow(ms: number, s: { utcOffset: number; realTime?: boolean }): number {
+  return s.realTime ? ms : skyTime(ms, s.utcOffset);
+}
+
 export function skyTime(ms: number, utcOffset: number): number {
   const local = ms + utcOffset * 60_000;
   const midnight = Math.floor(local / DAY) * DAY;

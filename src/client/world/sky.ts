@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { FLOOR, SLAB, STREET_Y, WALL_HEIGHT, WALL_T, WING, wingMinZ } from '../../shared/layout';
 import type { SkyState, Theme, Weather } from '../../shared/protocol';
-import { guessPlace, skyTime, sunPosition } from '../../shared/sun';
+import { guessPlace, skyNow, sunPosition } from '../../shared/sun';
 import type { NightParts } from './outside';
 
 /*
@@ -210,7 +210,7 @@ const ICON: Record<Weather, string> = { clear: '☀️', cloudy: '☁️', rain:
 
 /** "🌙 Clear · 9:41 PM outside · Berlin, Germany, 11 °C", for Settings: the time of day in the sky (see skyTime). */
 export function describeSky(s: SkyState, now = Date.now()): string {
-  const sky = skyTime(now, s.utcOffset);
+  const sky = skyNow(now, s);
   const night = sunPosition(sky, s.lat, s.lon).el < -4 * DEG;
   const icon = s.weather === 'clear' && night ? '🌙' : ICON[s.weather];
   const time = new Date(sky + s.utcOffset * 60_000).toLocaleTimeString([], { timeZone: 'UTC', hour: 'numeric', minute: '2-digit' });
@@ -632,7 +632,7 @@ export class Sky {
   /** The time of day in the sky (see skyTime), or the previewed hour today. */
   private now(): number {
     const h = this.preview.hour;
-    if (h === undefined) return skyTime(this.clock(), this.state.utcOffset);
+    if (h === undefined) return skyNow(this.clock(), this.state);
     const off = this.state.utcOffset * 60_000;
     const midnight = Math.floor((this.clock() + off) / 86_400_000) * 86_400_000;
     return midnight - off + h * 3_600_000;

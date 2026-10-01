@@ -529,7 +529,7 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
               'Outside',
               'office',
               h('p.outside-now', {}, outside.now),
-              h('p.setting-note', {}, outside.live ? 'Everyone sees the same sky: a whole day and night every hour, and the live weather where it is.' : 'Everyone sees the same sky: a whole day and night every hour, and weather that comes and goes. Start the office with --city to use a real city’s forecast.'),
+              h('p.setting-note', {}, `Everyone sees the same sky: ${store.sky?.realTime ? 'the real time of day' : 'a whole day and night every hour'}, and ${outside.live ? 'the live weather where it is.' : 'weather that comes and goes. Start the office with --city to use a real city’s forecast.'}`),
             ),
           ]
         : []),
