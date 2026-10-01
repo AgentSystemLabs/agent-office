@@ -17,9 +17,11 @@ test('maintenance issues and detail use the office source even when the project 
   execFileSync('git', ['remote', 'add', 'upstream', 'https://github.com/upstream/agent-office.git'], { cwd: source });
   const cli = path.join(root, 'gh');
   writeFileSync(cli, `#!${process.execPath}
-const office = process.cwd().endsWith('/agent-office') && process.env.GH_REPO === 'team/agent-office';
-const title = office ? 'Fix the maintenance closet' : 'Unrelated project issue';
 const args = process.argv.slice(2);
+const selected = args[0] === 'repo' ? args[2] : args[args.indexOf('--repo') + 1];
+const office = process.cwd().endsWith('/agent-office') && selected === 'team/agent-office';
+if (['repo', 'issue', 'pr'].includes(args[0]) && !office) { console.error('Wrong repository: upstream issue #42 does not exist'); process.exit(1); }
+const title = office ? (require('node:fs').existsSync(process.cwd() + '/title.txt') ? require('node:fs').readFileSync(process.cwd() + '/title.txt', 'utf8') : 'Fix the maintenance closet') : 'Unrelated project issue';
 if (args[0] === 'repo') console.log(JSON.stringify({nameWithOwner: office ? 'team/agent-office' : 'team/project'}));
 else if (args[0] === 'issue' && args[1] === 'create') { require('node:fs').writeFileSync(process.cwd() + '/created.json', JSON.stringify({args, marker:process.env.CREATE_AS})); console.log('https://github.com/team/agent-office/issues/43'); }
 else if (args[0] === 'issue' && args[1] === 'view') console.log(JSON.stringify({number:42,state:'OPEN',body:title,comments:[]}));
@@ -37,6 +39,9 @@ else console.log('[]');
   assert.equal((await board.issue(42, 'reviewer')).body, 'Fix the maintenance closet');
   assert.match(await board.request(42), /Fix the maintenance closet/);
   assert.match(await board.request(42), /https:\/\/github.com\/team\/agent-office\/issues\/42/);
+  writeFileSync(path.join(source, 'title.txt'), 'Updated issue title');
+  assert.match(await board.request(42), /Updated issue title/);
+  assert.equal(board.state.items[0].title, 'Updated issue title');
   assert.equal(await board.claim(42), undefined);
   assert.equal((await board.create('Improve Maintenance', 'Keep ideas while it works', { env: { ...process.env, CREATE_AS: 'requester' } } as any)).number, 43);
   const created = JSON.parse(readFileSync(path.join(source, 'created.json'), 'utf8'));

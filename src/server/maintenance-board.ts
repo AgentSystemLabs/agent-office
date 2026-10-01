@@ -62,6 +62,8 @@ export class MaintenanceBoard {
   }
 
   async request(number: number) {
+    await this.refresh();
+    if (this.state.error) throw new Error(this.state.error);
     const detail = await this.issue(number);
     if (detail.state !== 'OPEN') throw new Error('Reopen this issue before starting Maintenance');
     const issue = this.state.items.find((item) => item.number === number);

@@ -117,6 +117,12 @@ export class GitHub {
 
   /** Explicit repository selection also applies to gh api's {owner}/{repo} placeholders. */
   private run(args: string[], _dir: string, timeout?: number, env?: Record<string, string>) {
+    if (this.repository) {
+      // CLI commands and API placeholders must agree even in a fork with an upstream remote.
+      if ((args[0] === 'issue' || args[0] === 'pr') && !args.includes('--repo')) args = [...args, '--repo', this.repository];
+      else if (args[0] === 'repo' && args[1] === 'view') args = [...args.slice(0, 2), this.repository, ...args.slice(2)];
+      else if (args[0] === 'api') args = args.map(arg => arg.startsWith('repos/{owner}/{repo}/') ? arg.replace('repos/{owner}/{repo}/', `repos/${this.repository}/`) : arg);
+    }
     return gh(args, this.dir, timeout, this.repository ? { ...(env ?? process.env), GH_REPO: this.repository } as Record<string, string> : env);
   }
 
