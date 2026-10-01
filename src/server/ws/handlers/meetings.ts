@@ -1,4 +1,4 @@
-// The meeting room: calling a meeting, stopping it, and clearing the table.
+// The meeting room: calling a meeting, stopping it, clearing the table, and posting a held review.
 import { isAgentEffort, isAgentProvider, type MeetingClientMsg, type MeetingRequest } from '../../../shared/protocol.js';
 import { OPEN_CODE_MODEL_MAX } from '../../../shared/providers.js';
 import { str } from '../../office/input.js';
@@ -31,6 +31,7 @@ export const meetingHandlers = {
       provider: msg.provider,
       model: msg.model === undefined ? undefined : str(msg.model, OPEN_CODE_MODEL_MAX + 1),
       effort: isAgentEffort(msg.effort) ? msg.effort : undefined,
+      hold: msg.hold === true,
     };
     ctx.withSignIn(c, ctx.claudeFor(request.provider ?? floor.workers.officeDefault.provider), () => ctx.withFreshBase(c, floor, () => ctx.warn(c, floor.meetings.start(request, who, c.accountId))));
   },
@@ -43,5 +44,10 @@ export const meetingHandlers = {
     const who = c.peer.name;
     const floor = here(ctx, c);
     if (floor) ctx.warn(c, floor.meetings.clear(who));
+  },
+  'meeting.post'(ctx, c, msg) {
+    const who = c.peer.name;
+    const floor = here(ctx, c);
+    if (floor) ctx.warn(c, floor.meetings.post(Array.isArray(msg.drop) ? msg.drop.slice(0, 200).filter((i: unknown): i is number => Number.isInteger(i)) : [], who));
   },
 } satisfies HandlerMap<MeetingClientMsg>;

@@ -1,6 +1,7 @@
 import './meeting.css';
 import { MEETING_PATTERNS, MEETING_PATTERN_IDS, TOKENS_PER_SEAT, meetingSpend, meetingStage, outputProblem, slugify } from '../../shared/meetings';
 import { fmtTokens, type Meeting, type MeetingPattern, type MeetingTurn } from '../../shared/protocol';
+import { lensTag, where as findingWhere, type ReviewFinding } from '../../shared/review';
 import type { Net } from '../net';
 import { store } from '../state';
 import { h, openModal, timeAgo, toast, STATUS_LABEL, type Modal } from './dom';
@@ -28,6 +29,11 @@ export interface MeetingActions {
 export function issueMeeting(n: number, title: string): MeetingPreset {
   return { issue: n, title: `#${n} ${title}`, prompt: officePrompt('issue.meeting', issueVars({ number: n, title })) };
 }
+
+/** The findings someone unticked in a held review panel, by meeting: kept across the window's redraws. */
+const trimmed = new Map<string, Set<number>>();
+
+const SEVERITY_ICON: Record<ReviewFinding['severity'], string> = { high: '🔴', medium: '🟠', low: '🟡' };
 
 const PART_LABEL: Record<MeetingTurn['state'], string> = { waiting: '⏳ up next', sent: '📨 handed over', working: '💬 on it', done: '✅ written' };
 
@@ -97,7 +103,11 @@ function renderStatus(m: Meeting, body: HTMLElement, foot: HTMLElement, net: Net
     }),
   );
   const where = m.worktree ? h('span', {}, '🌿 ', h('code', {}, m.worktree.branch), m.commit ? ` · committed ${m.commit}` : '') : null;
-  const review = m.review?.url ? h('a', { href: m.review.url, target: '_blank', rel: 'noopener noreferrer' }, `🔍 The review on PR #${m.pr} ↗`) : m.review?.error ? h('span.bad', {}, `Couldn't post the review: ${m.review.error}`) : null;
+  const review = m.review?.url ? h('a', { href: m.review.url, target: '_blank', rel: 'noopener noreferrer' }, `🔍 The review on PR #${m.pr} ↗`) : m.review?.error ? h('span.bad', {}, `Couldn't post the review: ${m.review.error}`) : m.review?.posting ? h('span.muted', {}, 'Posting the review…') : null;
+  const canPost = m.pattern === 'review' && m.status === 'done' && !!m.findings && !m.review?.url && !m.review?.posting && (m.hold || !!m.review?.error);
+  const drop = trimmed.get(m.id) ?? new Set<number>();
+  trimmed.set(m.id, drop);
+  const postIt = () => net.send({ t: 'meeting.post', drop: [...drop] });
   body.replaceChildren(
     ...present(
     h('div.meeting-head', {}, pill, h('b', {}, `${p.icon} ${p.label}`), h('span.meeting-title', { title: m.prompt }, m.title)),
@@ -105,6 +115,7 @@ function renderStatus(m: Meeting, body: HTMLElement, foot: HTMLElement, net: Net
     h('div.meeting-budget', { title: `${m.tokens.toLocaleString()} of ${m.budget.toLocaleString()} tokens` }, h('div.meeting-bar', {}, h('i', { style: `width:${(f * 100).toFixed(1)}%;background:${f > 0.9 ? 'var(--bad)' : f > 0.7 ? 'var(--warn)' : 'var(--good)'}` })), h('span', {}, `${meetingSpend(m)} of ${fmtTokens(m.budget)} tokens`)),
     seats,
     h('div.meeting-out', {}, h('div.meeting-out-head', {}, h('b', {}, '📄 '), h('code', {}, m.output), where, review), h('pre.meeting-preview', {}, m.preview?.trim() ? m.preview : running ? 'Nothing written yet.' : 'Nothing was written.')),
+    m.findings ? findingsList(m.findings, canPost ? drop : undefined, m.review?.url ? m.dropped : undefined) : null,
     store.meeting.past.length
       ? h('details.meeting-past', {}, h('summary', {}, `Earlier meetings (${store.meeting.past.length})`), h('ul', {}, ...store.meeting.past.map((r) => h('li', { title: `Called by ${r.calledBy}` }, h('b', {}, r.title), h('div.muted', {}, r.summary)))))
       : null,
@@ -116,9 +127,45 @@ function renderStatus(m: Meeting, body: HTMLElement, foot: HTMLElement, net: Net
     h('span.grow', {}, running ? 'The workers stay at the table after it ends, so you can read their terminals.' : 'Clearing the room sends the workers home. A committed output stays on its branch.'),
     running ? h('button.btn', { type: 'button', onclick: () => confirmDialog('Stop the meeting?', `The workers stop where they are and stay at the table. ${m.output} is only there if it was written.`, 'Stop it', () => net.send({ t: 'meeting.stop' })) }, '⛔ Stop meeting') : null,
     !running && m.commit && head?.worktree ? h('button.btn', { type: 'button', title: `Push ${m.worktree?.branch} and open a pull request`, onclick: () => actions.openPr(head.id) }, head.pr ? `🔀 PR #${head.pr.number}` : '🔀 Open PR') : null,
+    canPost ? h('button.btn.primary', { type: 'button', title: 'Post the ticked findings on the pull request as one review', onclick: postIt }, m.review?.error ? '🔍 Try posting again' : '🔍 Post the review') : null,
     !running ? h('button.btn', { type: 'button', onclick: () => net.send({ t: 'meeting.clear' }) }, '🧹 Clear the room') : null,
     !running ? h('button.btn.primary', { type: 'button', onclick: callAnother }, '🤝 Call a meeting…') : null,
     ),
+  );
+}
+
+/**
+ * A review panel's merged findings, tagged by lens. With `drop`, each has a tick box: unticking one
+ * leaves it out of the review that gets posted. Once it's posted, `dropped` are the ones left out.
+ */
+function findingsList(findings: ReviewFinding[], drop?: Set<number>, dropped?: number[]): HTMLElement {
+  const count = h('span.muted');
+  const recount = () => (count.textContent = drop ? `${findings.length - drop.size} of ${findings.length} to post` : dropped?.length ? `${findings.length - dropped.length} of ${findings.length} posted` : `${findings.length}`);
+  recount();
+  return h(
+    'div.meeting-out.meeting-findings',
+    {},
+    h('div.meeting-out-head', {}, h('b', {}, '🔍 Findings'), count, drop ? h('span.muted', {}, '· untick the ones that don’t hold up') : null),
+    findings.length
+      ? h(
+          'ul',
+          {},
+          ...findings.map((f, i) => {
+            const box = drop ? (h('input', { type: 'checkbox', 'aria-label': `Post ${findingWhere(f)}` }) as HTMLInputElement) : null;
+            if (box) {
+              box.checked = !drop!.has(i);
+              box.addEventListener('change', () => {
+                if (box.checked) drop!.delete(i);
+                else drop!.add(i);
+                li.classList.toggle('off', !box.checked);
+                recount();
+              });
+            }
+            const li = h('li', { class: drop?.has(i) || (!drop && dropped?.includes(i)) ? 'off' : '' }, h('label', {}, box, h('span', { title: f.severity }, SEVERITY_ICON[f.severity]), h('b', {}, lensTag(f).replace(/\*\*/g, '')), h('code', {}, findingWhere(f))), h('div', {}, f.comment));
+            return li;
+          }),
+        )
+      : h('p.muted', {}, 'The panel found nothing to flag.'),
   );
 }
 
@@ -140,6 +187,8 @@ function meetingForm(net: Net, preset: MeetingPreset | undefined, done: () => vo
   const prSel = h('select.provider-select', { 'aria-label': 'Pull request' }) as HTMLSelectElement;
   const prRow = h('div.meeting-field', {}, h('label', {}, 'Pull request'), prSel);
   const partsIn = h('textarea', { rows: 3, placeholder: 'src/server/\nsrc/client/\nsrc/shared/', 'aria-label': 'Parts', spellcheck: 'false' }) as HTMLTextAreaElement;
+  const holdIn = h('input', { type: 'checkbox' }) as HTMLInputElement;
+  const holdRow = h('div.meeting-field', {}, h('label.meeting-check', {}, holdIn, 'Let me trim the findings before they’re posted'));
   const partsRow = h('div.meeting-field', {}, h('label', {}, 'Parts, one per line'), partsIn, h('small.muted', {}, 'Handed out to the mappers in turn: files, folders, modules or issues.'));
   const count = h('b');
   const minus = h('button.btn.small', { type: 'button', 'aria-label': 'Fewer workers' }, '−');
@@ -159,7 +208,7 @@ function meetingForm(net: Net, preset: MeetingPreset | undefined, done: () => vo
   const syncOutput = () => {
     if (!outputTouched) outputIn.value = def().output(slug(), pr());
     const problem = outputProblem(outputIn.value.trim());
-    outputNote.textContent = problem ? `⚠️ ${problem}` : pattern === 'review' ? 'It ends when this file is written; the office then posts it on the PR as one review.' : store.project?.branch ? 'It ends when this file is written; the office commits it on the meeting’s own branch.' : 'It ends when this file is written.';
+    outputNote.textContent = problem ? `⚠️ ${problem}` : pattern === 'review' ? 'The review’s summary. It ends when this file is written; the office then posts it on the PR as one review, the findings on their lines.' : store.project?.branch ? 'It ends when this file is written; the office commits it on the meeting’s own branch.' : 'It ends when this file is written.';
     outputNote.classList.toggle('bad', !!problem);
   };
   const syncBudget = () => {
@@ -191,6 +240,7 @@ function meetingForm(net: Net, preset: MeetingPreset | undefined, done: () => vo
     roundsIn.disabled = d.rounds.min === d.rounds.max;
     roundsNote.textContent = d.roundsNote;
     prRow.classList.toggle('hidden', d.needs !== 'pr');
+    holdRow.classList.toggle('hidden', d.needs !== 'pr');
     partsRow.classList.toggle('hidden', d.needs !== 'parts');
     renderRoles();
     syncOutput();
@@ -223,6 +273,7 @@ function meetingForm(net: Net, preset: MeetingPreset | undefined, done: () => vo
     h('div.meeting-field', {}, h('label', {}, 'What’s it about?'), about),
     h('div.meeting-field', {}, titleIn),
     prRow,
+    holdRow,
     partsRow,
     h('div.meeting-field', {}, h('label', {}, 'Output file'), outputIn, outputNote),
     h('div.meeting-field', {}, h('label.meeting-count', {}, 'Workers at the table', minus, count, plus), roleList),
@@ -260,6 +311,7 @@ function meetingForm(net: Net, preset: MeetingPreset | undefined, done: () => vo
       provider: provider.value(),
       model: provider.model(),
       effort: provider.effort(),
+      hold: def().needs === 'pr' && holdIn.checked ? true : undefined,
     });
     toast(`🤝 Calling the ${def().label} meeting: the workers are heading for the meeting room`);
     done();

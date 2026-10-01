@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { closeSync, cpSync, existsSync, mkdirSync, openSync, readFileSync, readSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { MEETING_SEATS } from '../shared/layout.js';
@@ -8,6 +8,8 @@ import { MAX_MEETING_BUDGET, MEETING_NOTES_DIR, MEETING_PATTERNS, TOKENS_PER_SEA
 import { fmtTokens, isAgentEffort, isAgentProvider, tokensOf, type AgentChoice, type AgentEffort, type AgentProvider, type Meeting, type MeetingRecord, type MeetingRequest, type MeetingState, type MeetingTurn, type WorkerInfo, type WorkerStatus } from '../shared/protocol.js';
 import { validateWorkerEffort, validateWorkerModel } from './agents.js';
 import { providerMeta, takesEffort, takesModel } from '../shared/providers.js';
+import type { ReviewFinding } from '../shared/review.js';
+import { FINDINGS, ReviewPanel, findingsNote, readStart } from './meeting-review.js';
 import { gitError, type WorktreeRef, type WorktreeState } from './worktrees.js';
 import { PROMPTS, fillPrompt, type PromptId, type PromptVars } from '../shared/prompts.js';
 
@@ -40,8 +42,11 @@ export interface MeetingEvents {
   toast(text: string, level: 'info' | 'warn' | 'error'): void;
   /** Why nobody may be hired right now (today's budget is spent), if that's so. */
   hiringPaused(): string | undefined;
-  /** Posts the review panel's review on its pull request. Resolves to the review's URL. */
-  postReview(pr: number, file: string, owner?: string): Promise<string>;
+  /**
+   * Posts the review panel's review on its pull request: the head of the table's summary, and the
+   * findings as line comments tagged by lens. Resolves to the review's URL.
+   */
+  postReview(pr: number, summary: string, findings: ReviewFinding[], lenses: string[], owner?: string): Promise<string>;
   /** One of the office's prompts as it has it now (rewritten in ⚙️ Settings, or the default). */
   prompt?(id: PromptId): string;
 }
@@ -57,7 +62,7 @@ const ROLE_MAX = 40;
 const PARTS_MAX = 100;
 /** Who the office types a meeting's prompts as. */
 const BY = 'the meeting room';
-/** What a red team or a reviewer writes when it has nothing to report. */
+/** What a red team writes when it has nothing to report. */
 const NOTHING = /^\W*no findings\b/i;
 
 /** Ready for its next part: not starting up, busy, waiting on someone, or asleep. */
@@ -96,6 +101,8 @@ export class MeetingRoom {
   private closing = false;
   /** When each handed-over part's worker was first seen ready without having started on it. */
   private readySince = new Map<MeetingTurn, number>();
+  /** The review panel's findings: read, merged, and posted on the pull request. */
+  private review: ReviewPanel;
 
   constructor(
     /** The project's checkout. */
@@ -106,6 +113,13 @@ export class MeetingRoom {
     private trees: MeetingTrees | undefined,
     private events: MeetingEvents,
   ) {
+    this.review = new ReviewPanel({
+      cwd: (m) => this.cwd(m),
+      toast: (text, level) => events.toast(text, level),
+      changed: () => this.changed(),
+      prompt: (id, text) => workers.prompt(id, text, BY),
+      postReview: (...args) => events.postReview(...args),
+    });
     this.statePath = path.join(dataDir, 'meetings.json');
     this.restore();
     this.timer = setInterval(() => this.tick(), PUMP_MS);
@@ -194,6 +208,7 @@ export class MeetingRoom {
       calledBy: by,
       ...(owner ? { owner } : {}),
       startedAt: Date.now(),
+      hold: req.pattern === 'review' && req.hold === true ? true : undefined,
       worktree,
       // Without git, the notes go with the floor's other state.
       notes: worktree ? MEETING_NOTES_DIR : `.agent-office/meetings/${id}`,
@@ -240,6 +255,11 @@ export class MeetingRoom {
     this.current = null;
     this.changed();
     return undefined;
+  }
+
+  /** Posts a held review panel's findings, leaving out those at the indexes in `drop`. */
+  post(drop: number[], by: string): string | undefined {
+    return this.review.post(this.current, drop, by);
   }
 
   /** A worker changed: cheap unless it's at the table. */
@@ -361,6 +381,7 @@ export class MeetingRoom {
       case 'working': {
         if (!ready(w.status)) return false;
         if (this.written(m, t)) {
+          if (this.review.sendBack(m, t, w.id)) return true;
           t.state = 'done';
           return true;
         }
@@ -382,6 +403,7 @@ export class MeetingRoom {
   private next(m: Meeting) {
     // Red / blue: the red team found nothing more to fix, so blue writes it up this round.
     if (m.pattern === 'redblue' && m.step === 1 && NOTHING.test(this.head(m, m.turns[0]?.file))) m.lastRound = m.round;
+    if (m.pattern === 'review' && m.round === 1 && !this.isLast(m, 1)) this.review.gather(m);
     const more = this.plan(m, m.round, m.step + 1);
     if (more) {
       m.step++;
@@ -409,19 +431,7 @@ export class MeetingRoom {
     this.events.toast(`🤝 The ${p.label} meeting on “${m.title}” is done: it wrote ${m.output}`, 'info');
     const cwd = this.cwd(m);
     if (m.pattern === 'review' && m.pr !== undefined) {
-      const pr = m.pr;
-      void this.events.postReview(pr, path.join(cwd, m.output), m.owner).then(
-        (url) => {
-          m.review = { url };
-          this.events.toast(`🔍 Posted the panel's review on PR #${pr}`, 'info');
-          this.changed();
-        },
-        (err) => {
-          m.review = { error: (err as Error).message };
-          this.events.toast(`Couldn't post the panel's review on PR #${pr}: ${m.review.error}`, 'warn');
-          this.changed();
-        },
-      );
+      this.review.finish(m);
     } else if (m.worktree) {
       void commitAll(cwd, `${m.title}\n\n${p.label} meeting in Agent Office, called by ${m.calledBy}. Output: ${m.output}`, m.notes).then(
         (sha) => {
@@ -520,7 +530,7 @@ export class MeetingRoom {
       lead: `Round 1: the ${head} splits the task into a part for each of the others and writes the plan. Round 2: each of them does their part. Round 3: the ${head} merges the work, checks it and writes it up.`,
       mapreduce: `Round 1: each mapper does the task over its own parts. Round 2: the ${head} combines what they found into one result.`,
       redblue: `Each round the Red team attacks the change (bugs, security holes, edge cases) and the Blue team fixes what holds up. The ${head} writes it all up in the last round, which comes early if Red finds nothing more.`,
-      review: `Round 1: each reviewer reviews the pull request through their own lens. Round 2: the ${head} merges the reviews into one, which the office posts on the pull request.`,
+      review: `Round 1: each reviewer reviews the pull request through their own lens and writes their findings as JSON. The office merges them, one per problem. Round 2: the ${head} drops the ones that don't hold up and writes the summary; the office posts it on the pull request as one review, the findings as line comments tagged by lens.`,
     };
     const where = !m.worktree
       ? `You're in the project's folder, which other people use too: don't commit, push or switch branches.`
@@ -627,11 +637,11 @@ export class MeetingRoom {
           return all.map((i) => ({
             seat: i,
             doing: 'reviewing',
-            file: note(1, i),
-            ask: this.say('meeting.review.review', { pr: m.pr, role: m.seats[i].role, file: A(note(1, i)) }),
+            file: findingsNote(m, i),
+            ask: this.say('meeting.review.review', { pr: m.pr, role: m.seats[i].role, file: A(findingsNote(m, i)) }),
           }));
         }
-        return [{ seat: 0, doing: 'writing the review', file: m.output, ask: this.say('meeting.review.combine', { findings: notes(1, all), exampleRole: m.seats[1]?.role ?? 'Security', output: A(m.output) }) }];
+        return [{ seat: 0, doing: 'writing the review', file: m.output, ask: this.say('meeting.review.combine', { findings: A(`${m.notes}/${FINDINGS}`), output: A(m.output) }) }];
       }
     }
   }
@@ -726,18 +736,6 @@ async function commitAll(cwd: string, message: string, leaveOut: string): Promis
   if (!(await git(['diff', '--cached', '--name-only']))) return undefined;
   await git(['commit', '-q', '-m', message]);
   return git(['rev-parse', '--short', 'HEAD']);
-}
-
-/** The start of a file, at most `bytes` of it. */
-function readStart(file: string, bytes: number): string {
-  const fd = openSync(file, 'r');
-  try {
-    const buf = Buffer.alloc(bytes);
-    const n = readSync(fd, buf, 0, bytes, 0);
-    return buf.subarray(0, n).toString('utf8').replace(/�+$/, '');
-  } finally {
-    closeSync(fd);
-  }
 }
 
 /** Roles that repeat get numbered, so each worker at the table has one of its own: Engineer 1, Engineer 2. */

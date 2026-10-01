@@ -9,6 +9,7 @@ import { Worktrees } from '../src/server/worktrees.js';
 import type { AgentChoice, MeetingRequest, WorkerInfo } from '../src/shared/protocol.js';
 import { MEETING_PATTERN_IDS, isMeetingPattern } from '../src/shared/meetings.js';
 import { PROMPTS, type PromptId } from '../src/shared/prompts.js';
+import type { ReviewFinding } from '../src/shared/review.js';
 
 function fixture(opts: { git?: boolean; rewritten?: Partial<Record<PromptId, string>>; officeDefault?: AgentChoice } = {}) {
   const dir = mkdtempSync(path.join(tmpdir(), 'office-meeting-'));
@@ -28,8 +29,10 @@ function fixture(opts: { git?: boolean; rewritten?: Partial<Record<PromptId, str
   const prompts: { id: string; text: string }[] = [];
   const typed: { id: string; data: string }[] = [];
   const toasts: string[] = [];
-  const reviews: { pr: number; file: string }[] = [];
+  const reviews: { pr: number; summary: string; findings: ReviewFinding[]; lenses: string[] }[] = [];
   let ids = 0;
+  /** While set, prompts don't get through to the workers. */
+  let refuse = false;
   const manager: MeetingWorkers = {
     defaultProvider: 'claude',
     officeDefault: opts.officeDefault,
@@ -46,6 +49,7 @@ function fixture(opts: { git?: boolean; rewritten?: Partial<Record<PromptId, str
       return worker;
     },
     prompt(id, text) {
+      if (refuse) return 'The worker is gone';
       prompts.push({ id, text });
       return undefined;
     },
@@ -63,8 +67,8 @@ function fixture(opts: { git?: boolean; rewritten?: Partial<Record<PromptId, str
     update() {},
     toast: (text) => toasts.push(text),
     hiringPaused: () => undefined,
-    postReview: async (pr, file) => {
-      reviews.push({ pr, file });
+    postReview: async (pr, summary, findings, lenses) => {
+      reviews.push({ pr, summary, findings, lenses });
       return `https://github.com/o/r/pull/${pr}#pullrequestreview-1`;
     },
     prompt: (id) => opts.rewritten?.[id] ?? PROMPTS[id].text,
@@ -98,7 +102,7 @@ function fixture(opts: { git?: boolean; rewritten?: Partial<Record<PromptId, str
     }
   };
   const start = (req: Partial<MeetingRequest>) => room.start({ pattern: 'debate', prompt: 'Which cache should we use?', roles: [], ...req } as MeetingRequest, 'Ada');
-  return { dir, room, workers, prompts, typed, toasts, reviews, take, settle, start, cwd, kill: (id: string) => manager.kill(id), close() { room.shutdown(); rmSync(dir, { recursive: true, force: true }); } };
+  return { dir, room, workers, prompts, typed, toasts, reviews, take, settle, start, cwd, kill: (id: string) => manager.kill(id), refusePrompts: (v: boolean) => (refuse = v), close() { room.shutdown(); rmSync(dir, { recursive: true, force: true }); } };
 }
 
 test('a debate runs its rounds and ends when the chair writes the decision', (t) => {
@@ -187,7 +191,7 @@ test('red / blue ends early when red finds nothing more', (t) => {
   assert.equal(f.room.state().current!.status, 'done');
 });
 
-test('a review panel posts the combined review on the pull request', async (t) => {
+test('a review panel merges its findings and posts one review tagged by lens', async (t) => {
   const f = fixture(); t.after(() => f.close());
   assert.match(f.start({ pattern: 'review', prompt: 'Review it' }) ?? '', /needs a pull request/);
   assert.equal(f.start({ pattern: 'review', prompt: 'Review it', pr: 42 }), undefined);
@@ -195,14 +199,108 @@ test('a review panel posts the combined review on the pull request', async (t) =
   assert.equal(m.output, 'reviews/pr-42.md');
   assert.equal(m.title, 'Review of PR #42');
   assert.match(f.prompts[1].text, /through your lens, Security/);
-  for (const i of [0, 1, 2]) f.take(i, '- a.ts:1 — something');
-  assert.match(f.prompts.at(-1)!.text, /\*\*\[Security\]\*\*/);
-  f.take(0, 'Looks fine. **[Security]** a.ts:1 — something');
+  assert.match(m.turns[1].file, /r1-2-security\.json$/);
+  const same = { file: 'src/a.ts', line: 10, comment: 'The token is compared with == so a timing attack leaks it' };
+  f.take(0, JSON.stringify([same]));
+  f.take(1, '```json\n' + JSON.stringify([{ ...same, severity: 'high', comment: 'The token is compared with ==, which leaks it through a timing attack: use timingSafeEqual' }]) + '\n```');
+  f.take(2, '[]');
+  m = f.room.state().current!;
+  assert.equal(m.round, 2);
+  const merged = JSON.parse(readFileSync(path.join(f.cwd(), m.notes, 'findings.json'), 'utf8'));
+  assert.equal(merged.length, 1);
+  assert.deepEqual(merged[0].lenses, ['Correctness', 'Security']);
+  assert.equal(merged[0].severity, 'high');
+  assert.match(f.prompts.at(-1)!.text, /findings\.json/);
+  f.take(0, 'Request changes: the token check leaks.');
   await new Promise((r) => setImmediate(r));
   m = f.room.state().current!;
   assert.equal(m.status, 'done');
-  assert.deepEqual(f.reviews, [{ pr: 42, file: path.join(f.dir, 'reviews/pr-42.md') }]);
+  assert.equal(f.reviews.length, 1);
+  assert.equal(f.reviews[0].pr, 42);
+  assert.equal(f.reviews[0].summary, 'Request changes: the token check leaks.');
+  assert.deepEqual(f.reviews[0].findings.map((x) => x.lenses), [['Correctness', 'Security']]);
+  assert.deepEqual(f.reviews[0].lenses, ['Correctness', 'Security', 'Performance & simplicity']);
   assert.equal(m.review?.url, 'https://github.com/o/r/pull/42#pullrequestreview-1');
+});
+
+test('a reviewer whose findings are not JSON is asked once to write them again', (t) => {
+  const f = fixture(); t.after(() => f.close());
+  assert.equal(f.start({ pattern: 'review', prompt: 'Review it', pr: 7 }), undefined);
+  f.take(1, '- a.ts:1 — something');
+  const m = f.room.state().current!;
+  assert.equal(m.turns.find((x) => x.seat === 1)?.state, 'sent');
+  assert.match(f.prompts.at(-1)!.text, /couldn't read your findings/);
+  assert.ok(existsSync(path.join(f.cwd(), m.turns[1].file + '.unreadable')));
+  f.take(1, '[{"file": "a.ts", "line": 1, "comment": "something"}]');
+  assert.equal(f.room.state().current!.turns.find((x) => x.seat === 1)?.state, 'done');
+});
+
+test('being asked to rewrite unreadable findings leaves a reviewer the usual reminder before the meeting stops', (t) => {
+  const f = fixture(); t.after(() => f.close());
+  assert.equal(f.start({ pattern: 'review', prompt: 'Review it', pr: 7 }), undefined);
+  f.take(1, 'not JSON');
+  assert.match(f.prompts.at(-1)!.text, /couldn't read your findings/);
+  // It ends its turn without writing them again: reminded, not stopped.
+  f.take(1, '', true);
+  assert.equal(f.room.state().current!.status, 'running');
+  assert.match(f.prompts.at(-1)!.text, /without writing/);
+  f.take(1, '[]');
+  assert.equal(f.room.state().current!.turns.find((x) => x.seat === 1)?.state, 'done');
+});
+
+test('a reviewer that can\'t be asked to rewrite its unreadable findings is left out, and the panel goes on', (t) => {
+  const f = fixture(); t.after(() => f.close());
+  assert.equal(f.start({ pattern: 'review', prompt: 'Review it', pr: 7 }), undefined);
+  f.take(0, '[{"file": "a.ts", "line": 1, "comment": "Off by one in the loop bound"}]');
+  f.refusePrompts(true);
+  f.take(1, 'not JSON');
+  f.refusePrompts(false);
+  assert.equal(f.room.state().current!.turns.find((x) => x.seat === 1)?.state, 'done');
+  f.take(2, '[]');
+  const m = f.room.state().current!;
+  assert.equal(m.status, 'running');
+  assert.equal(m.round, 2);
+  assert.ok(f.toasts.some((x) => /Left out the Security reviewer's findings/.test(x)));
+  const merged = JSON.parse(readFileSync(path.join(f.cwd(), m.notes, 'findings.json'), 'utf8'));
+  assert.deepEqual(merged.map((x: ReviewFinding) => x.lenses), [['Correctness']]);
+});
+
+test('the head of the table may leave the merged findings wrapped in {"findings": [...]}', async (t) => {
+  const f = fixture(); t.after(() => f.close());
+  assert.equal(f.start({ pattern: 'review', prompt: 'Review it', pr: 5 }), undefined);
+  f.take(0, JSON.stringify([{ file: 'a.ts', line: 3, comment: 'Off by one in the loop bound' }]));
+  f.take(1, JSON.stringify([{ file: 'b.ts', line: 8, comment: 'Unused import of fs' }]));
+  f.take(2, '[]');
+  const m = f.room.state().current!;
+  const merged = path.join(f.cwd(), m.notes, 'findings.json');
+  const kept = JSON.parse(readFileSync(merged, 'utf8')).filter((x: ReviewFinding) => x.file === 'a.ts');
+  writeFileSync(merged, JSON.stringify({ findings: kept }));
+  f.take(0, 'One real problem.');
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual(f.reviews[0].findings.map((x) => x.file), ['a.ts']);
+});
+
+test('a held review panel waits for its findings to be trimmed, then posts the rest', async (t) => {
+  const f = fixture(); t.after(() => f.close());
+  assert.equal(f.start({ pattern: 'review', prompt: 'Review it', pr: 9, hold: true }), undefined);
+  f.take(0, JSON.stringify([{ file: 'a.ts', line: 3, comment: 'Off by one in the loop bound' }]));
+  f.take(1, JSON.stringify([{ file: 'b.ts', line: 8, severity: 'low', comment: 'Unused import of fs' }]));
+  f.take(2, '[]');
+  f.take(0, 'Looks close.');
+  await new Promise((r) => setImmediate(r));
+  let m = f.room.state().current!;
+  assert.equal(m.status, 'done');
+  assert.equal(f.reviews.length, 0);
+  assert.equal(m.findings?.length, 2);
+  assert.equal(m.findings?.[1].file, 'b.ts');
+  assert.equal(f.room.post([1], 'Ada'), undefined);
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual(f.reviews[0].findings.map((x) => x.file), ['a.ts']);
+  m = f.room.state().current!;
+  assert.ok(m.review?.url);
+  // The window shows which ones were left out.
+  assert.deepEqual(m.dropped, [1]);
+  assert.match(f.room.post([], 'Ada') ?? '', /already/);
 });
 
 test('map-reduce hands each mapper its own parts', (t) => {

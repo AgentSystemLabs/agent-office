@@ -345,18 +345,18 @@ const DEFS = {
   'meeting.review.review': {
     group: 'meetings',
     label: 'Review panel · review',
-    used: 'Round 1 of a Review panel, for each reviewer. A note that says just NO FINDINGS counts as nothing found.',
+    used: 'Round 1 of a Review panel, for each reviewer. The office reads the file as JSON findings and merges them with the others.',
     vars: { pr: 'The pull request number', role: 'Their lens: Security, Performance…', file: FILE_NOTE },
     needs: ['file'],
-    text: "Review pull request #{{pr}} through your lens, {{role}}, and nothing else. Read it with gh pr view {{pr}} and gh pr diff {{pr}}; don't check it out or change any files. Write your findings to {{file}}, one per bullet: the file:line, what's wrong and what to do about it, the most serious first. If you find nothing, write just NO FINDINGS. Then end your turn.",
+    text: 'Review pull request #{{pr}} through your lens, {{role}}, and nothing else. Read it with gh pr view {{pr}} and gh pr diff {{pr}}; don\'t check it out or change any files. Write your findings to {{file}} as nothing but a JSON array, the most serious first, one object per problem: {"file": "path/from/the/repo/root.ts", "line": 12, "severity": "high" | "medium" | "low", "comment": "what\'s wrong and what to do about it"}. The line is in the new version of the file, on a line the diff shows; leave it out for a finding about a whole file. Write [] if you find nothing. Then end your turn.',
   },
   'meeting.review.combine': {
     group: 'meetings',
     label: 'Review panel · combine',
-    used: 'Round 2 of a Review panel, for the head of the table. The office posts the file on the pull request.',
-    vars: { findings: "Every reviewer's notes", exampleRole: "A reviewer's lens, for the example tag", output: OUTPUT_NOTE },
-    needs: ['output'],
-    text: `Read every reviewer's findings ({{findings}}). Drop the duplicates, keeping the clearest wording, and write one combined review to {{output}} in Markdown: a short summary with your verdict first, then the findings, the most serious first, each tagged with the lens it came from in bold brackets like **[{{exampleRole}}]**, with its file:line. Don't post it: the office posts it on the pull request once the file is written. ${OUTPUT}`,
+    used: "Round 2 of a Review panel, for the head of the table. The office posts the file as the review's summary, and the findings left in the merged file as line comments.",
+    vars: { findings: "The office's merged findings file", output: OUTPUT_NOTE },
+    needs: ['findings', 'output'],
+    text: `The office merged every reviewer's findings into {{findings}}, one per problem, each with the lenses that found it. Check them against the diff and delete from that file the ones that don't hold up, keeping it a JSON array of the same objects. Then write the review's summary to {{output}} in Markdown: your verdict first, then a few lines on what matters most. Don't list the findings: the office posts them on the lines they're about, tagged by lens. Don't post anything yourself. ${OUTPUT}`,
   },
 
   // --- 🏷️ Worker signs ---

@@ -1,5 +1,6 @@
 // The meeting room.
 
+import type { ReviewFinding } from '../review.js';
 import type { AgentEffort, AgentProvider } from './agents.js';
 
 /** How the workers at the meeting table work together (see shared/meetings.ts). */
@@ -31,6 +32,8 @@ export interface MeetingTurn {
   sentAt?: number;
   /** It was reminded once already: it ended its turn without writing the file, or never started. */
   retried?: boolean;
+  /** Review panel: its findings couldn't be read and it was asked to write them again. */
+  reread?: boolean;
 }
 
 export type MeetingStatus = 'running' | 'done' | 'stopped';
@@ -88,8 +91,14 @@ export interface Meeting {
   notes: string;
   /** The commit on the meeting's branch that holds the output. */
   commit?: string;
-  /** Review panel: the review the office posted on the pull request, or why it couldn't. */
-  review?: { url?: string; error?: string };
+  /** Review panel: the review the office posted on the pull request (or is posting), or why it couldn't. */
+  review?: { url?: string; error?: string; posting?: boolean };
+  /** Review panel: every reviewer's findings, merged, once the meeting is done. */
+  findings?: ReviewFinding[];
+  /** Review panel: the indexes in `findings` someone trimmed before posting the review. */
+  dropped?: number[];
+  /** Review panel: wait for someone to trim the findings in the meeting room before posting them. */
+  hold?: boolean;
   /** The start of the output file as it gets written, for the board in the room. */
   preview?: string;
   /** Its workers have gone home and its worktree was tidied away. */
@@ -134,6 +143,8 @@ export interface MeetingRequest {
   provider?: AgentProvider;
   model?: string;
   effort?: AgentEffort;
+  /** Review panel: hold the findings for someone to trim before they're posted. */
+  hold?: boolean;
 }
 
 export type MeetingClientMsg =
@@ -142,7 +153,9 @@ export type MeetingClientMsg =
   /** Stop the meeting that's running; its workers stay at the table. */
   | { t: 'meeting.stop' }
   /** Send the last meeting's workers home and clear the table. */
-  | { t: 'meeting.clear' };
+  | { t: 'meeting.clear' }
+  /** Review panel held for trimming: post its findings, leaving out those at these indexes. */
+  | { t: 'meeting.post'; drop: number[] };
 
 export type MeetingServerMsg =
   | { t: 'meeting'; state: MeetingState };

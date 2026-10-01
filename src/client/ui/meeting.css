@@ -41,3 +41,13 @@
 .meeting-past summary { font-weight: 800; cursor: pointer; }
 .meeting-past ul { padding-left: 18px; margin: 6px 0 0; }
 .meeting-past li { margin: 6px 0; }
+.meeting-findings ul { list-style: none; margin: 0; padding: 0; max-height: 280px; overflow: auto; }
+.meeting-findings li { padding: 6px 10px; border-top: 1px solid var(--paper-2); font-size: 12.5px; }
+.meeting-findings li:first-child { border-top: 0; }
+.meeting-findings li label { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.meeting-findings li code { font-size: 12px; }
+.meeting-findings li > div { margin-top: 2px; white-space: pre-wrap; }
+.meeting-findings li.off { opacity: 0.45; }
+.meeting-findings li.off > div { text-decoration: line-through; }
+.meeting-findings > p { margin: 0; padding: 10px; }
+.meeting-check { display: flex; gap: 6px; align-items: center; font-weight: 600; }

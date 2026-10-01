@@ -266,9 +266,9 @@ export class Floor {
         update: (state) => ctx.emit(this, { t: 'meeting', state }),
         toast: (text, level) => ctx.toast(this, text, level),
         hiringPaused: () => ctx.ledger.hiringPaused,
-        postReview: (pr, file, owner) => {
+        postReview: (pr, summary, findings, lenses, owner) => {
           const as = ctx.ghAs(owner);
-          return typeof as === 'string' ? Promise.reject(new Error(as)) : this.github.review(pr, file, as);
+          return typeof as === 'string' ? Promise.reject(new Error(as)) : this.github.review(pr, summary, findings, lenses, as);
         },
         prompt: (id) => ctx.prompts.text(id),
       },
