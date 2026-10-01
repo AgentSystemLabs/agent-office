@@ -755,10 +755,6 @@ body.telescope-active #hud { visibility: hidden; }
 
 /* Upgrading the office */
 .conn.upgrading { background: var(--warn); color: var(--ink); }
-/* Musical chairs: the round, the chairs left and what's happening, under the top bar. */
-.conn.chairs { background: var(--info); color: #fff; border-color: #fff; box-shadow: 0 0 0 3px var(--ink); animation: chairs-pulse 1.1s ease-in-out infinite; }
-@keyframes chairs-pulse { 50% { transform: translateX(-50%) scale(1.04); } }
-@media (prefers-reduced-motion: reduce) { .conn.chairs { animation: none; } }
 .upgrade .version { display: block; font-weight: 700; }
 .upgrade .version small { color: var(--muted); font-weight: 600; }
 .upgrade code, .restart code { font: 12px ui-monospace, Menlo, monospace; background: var(--paper-2); border-radius: 5px; padding: 1px 5px; }

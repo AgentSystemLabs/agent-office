@@ -31,10 +31,6 @@ test('the protocol is 50 messages, not 117', () => {
  */
 const LOOKUP_ONLY = [
   'cabinet.play',
-  // Musical chairs is a game the office machine runs for its own floor, in its own memory: there is
-  // nothing on a host's disk to read, and nobody in the room is there to play it.
-  'chairs.start',
-  'chairs.stop',
   'dog.name',
   'dog.pet',
   'floor.go',

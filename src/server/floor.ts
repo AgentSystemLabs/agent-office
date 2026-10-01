@@ -4,7 +4,6 @@ import path from 'node:path';
 import type { ChangesState, FloorInfo, ForgeKind, GhIssue, GhPull, GhState, PeerInfo, ProjectInfo, ServerMsg, WorkerInfo } from '../shared/protocol.js';
 import { isBusy } from '../shared/status.js';
 import { DESK_BY_ID } from '../shared/layout.js';
-import { caption } from '../shared/chairs.js';
 import type { FloorDef } from './building.js';
 import type { FloorActions } from './floor-actions.js';
 import { excludeFromGit } from './config.js';
@@ -24,7 +23,6 @@ import { Court } from './court.js';
 import { Jail } from './jail.js';
 import { Garage } from './garage.js';
 import { Jukebox } from './jukebox.js';
-import { MusicalChairs } from './chairs.js';
 import { Tv } from './tv.js';
 import { Whiteboard } from './whiteboard.js';
 import { MeetingRoom } from './meetings.js';
@@ -144,8 +142,6 @@ export class Floor {
   readonly garage = new Garage();
   /** Workers sent home on a map that locks them up (see MapPlan.sendHome). */
   readonly jail: Jail;
-  /** Musical chairs for its workers, one round at a time (see shared/chairs.ts). */
-  readonly chairs: MusicalChairs;
   private timer: NodeJS.Timeout;
   /** Pull requests merging, to ring the gong for. */
   private merges = new MergeWatch();
@@ -322,21 +318,6 @@ export class Floor {
 
     this.decor = new Decor(dataDir);
     this.jukebox = new Jukebox(dataDir);
-    // Musical chairs is for the workers at their desks: a board agent stays by its board, and a
-    // worker called to a meeting is busy with the meeting.
-    this.chairs = new MusicalChairs(
-      () =>
-        this.workers
-          .list()
-          .filter((w) => !w.meeting && !DESK_BY_ID.get(w.deskId)?.station)
-          .map((w) => ({ id: w.id, name: w.name, color: w.color })),
-      (state) => {
-        ctx.emit(this, { t: 'chairs', state });
-        // What's said over the PA goes up in the corner of everyone's screen too: the announcement to
-        // start, whoever's just been left out, and the winner at the end.
-        if (state.phase === 'gathering' || state.phase === 'react' || state.phase === 'over') ctx.toast(this, `🪑 ${caption(state)}`);
-      },
-    );
     this.tv = new Tv(dataDir);
     this.whiteboard = new Whiteboard(dataDir);
     this.ready = this.workers.start();
@@ -453,8 +434,6 @@ export class Floor {
     clearInterval(this.timer);
     clearTimeout(this.landedTimer);
     this.dog.stop();
-    // Nobody left to hear the rounds, and the workers are going back to their desks.
-    this.chairs.stop();
     this.queue.shutdown();
     this.meetings.shutdown();
     this.changes.stop();

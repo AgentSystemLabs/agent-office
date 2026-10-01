@@ -10,7 +10,6 @@ import type { AgentEffort, AgentProvider, CarriedIssue, FloorInfo, GhIssue, Gong
 import { MEETING_PATTERNS, meetingStage } from '../shared/meetings';
 import { BEAT as FUGDI_BEAT, FUGDI, fugdiPlan, type FugdiPlan } from '../shared/fugdi';
 import { isAsleep, isBusy, workerPr } from '../shared/status';
-import { NO_CHAIRS, musicOn as chairsMusicOn, playing as chairsPlaying, statusLine } from '../shared/chairs';
 import { Net } from './net';
 import { store, lastFloor, lastSpot, loadProfile, loadSettings, rememberSpot, saveSettings, workerForPull, type Profile, type Spot, type Topic } from './state';
 import { EYE_HEIGHT, PlayerController, groundAt, isTyping } from './player';
@@ -23,7 +22,6 @@ import { buildOffice, type DeskView, type InteractKind, type Interactable } from
 import { officeWorld, type World } from './world/world';
 import { BUILDERS } from './world/styles';
 import { Court } from './world/court';
-import { ChairGame, buildChairRing, type ChairSeat } from './world/chairs';
 import { buildRooftop, type Rooftop } from './world/rooftop';
 import { DrunkVision } from './world/drunk';
 import { Booze, type Stage as Feeling } from './booze';
@@ -1136,21 +1134,6 @@ const arrivals = new Arrivals(
   (x, y, z) => sound.stepAt(x, z, y),
   () => world.ways,
 );
-// Musical chairs: the ring on the office floor, and the game the office plays for the workers at its desks.
-const chairSfx = {
-  clatter: (n: number) => sound.chairClatter(n),
-  announce: (text: string) => sound.announce(text),
-  loser: () => sound.chairLoser(),
-  win: () => sound.chairWin(),
-  step: (x: number, y: number, z: number) => sound.stepAt(x, z, y),
-  burst: (x: number, y: number, z: number, n: number) => confetti.burst(x, y, z, n),
-};
-const chairRing = buildChairRing(chairSfx);
-theOffice.group.add(chairRing.group);
-noOutline(chairRing.group);
-const chairGame = new ChairGame(scene, chairRing, theOffice.nav, groundHere, chairSfx);
-/** Whether the game is being played out on this page: only on the office floor, on the office's own map. */
-let chairsLive = false;
 /** Set while a floor's workers arrive with it (a welcome, an elevator ride): they're in their seats already. */
 let seatedAlready = false;
 let firstWelcome = true;
@@ -1886,8 +1869,6 @@ function applyMap() {
   holiday.group.visible = inOffice() && !upTop;
   dog.root.visible = inOffice() && !!store.dog;
   playJukebox();
-  // Musical chairs is played on the office's own map: anywhere else, the workers here go back to their desks.
-  syncChairs();
   dressBoards(world);
   painted = -1;
   paintFloor();
@@ -3917,65 +3898,6 @@ function gongRang(why: GongWhy, pr?: number) {
   }
 }
 
-// ---- Musical chairs -------------------------------------------------------------------------------
-
-/** The game is played on the office floor, on the office's own map: anywhere else it carries on without us. */
-function chairsHere(): boolean {
-  return inOffice() && !upTop && plan().style === 'office';
-}
-
-/** The worker at `id` and the desk it belongs to, for the game to move it off its seat and back. */
-function chairSeat(id: string): ChairSeat | undefined {
-  const v = workerViews.get(id);
-  const desk = v && world.desks.get(v.deskId);
-  return v && desk ? { model: v.model, desk, deskId: v.deskId } : undefined;
-}
-
-/** The office's clock (ms) as this page's own, so a tune timed from it can be scheduled against the audio. */
-const pageClock = (ms: number) => ms - (store.officeNow() - performance.now());
-
-/** The tune was playing and isn't now: the office has stopped the music, and everyone hears it stop. */
-let chairsMusic = false;
-/** The chairs that are out, in the room's colliders while they are. */
-const chairBoxes: (typeof office.colliders)[number][] = [];
-
-/** The office has said where the game has got to: play it out, and put the tune on or take it off. */
-function syncChairs() {
-  const state = store.chairs;
-  // On another floor, or on another map, the game carries on without us: no chairs, no tune.
-  const here = chairsHere();
-  chairGame.sync(here ? state : NO_CHAIRS, chairSeat);
-  chairsLive = here && chairsPlaying(state);
-  const music = chairsLive && chairsMusicOn(state);
-  if (music) sound.setChairs({ since: pageClock(state.phaseAt) });
-  else if (chairsMusic) sound.chairStop();
-  else sound.setChairs(null);
-  chairsMusic = music;
-  renderChairs();
-}
-store.on('chairs', syncChairs);
-
-/** The line over the office while a game is on, and nothing when it isn't (the office toasts the rest). */
-function renderChairs() {
-  const banner = $('chairs-banner');
-  const on = chairsLive;
-  banner.classList.toggle('hidden', !on);
-  if (on) banner.textContent = statusLine(store.chairs);
-}
-
-/** The chairs that are out are in the way, like any other furniture; the ones taken away aren't. */
-function chairColliders() {
-  const out = chairRing.colliders;
-  for (const c of chairBoxes.splice(0)) {
-    const i = world.colliders.indexOf(c);
-    if (i >= 0) world.colliders.splice(i, 1);
-  }
-  for (const c of out) {
-    chairBoxes.push(c);
-    world.colliders.push(c);
-  }
-}
-
 // ---- Interaction targeting & hint -----------------------------------------------------------------
 let target: Interactable | null = null;
 let hintKey = '';
@@ -4992,24 +4914,6 @@ const hud = mountHud(
     { id: 'share', icon: '🖥️', label: () => (voice.sharing ? 'Stop sharing' : 'Share screen'), section: 'Together', on: () => voice.sharing, status: () => voice.sharing, chip: () => 'Sharing', blocked: noMedia, run: () => void toggleShare() },
     { id: 'decor', icon: '🖼️', label: () => (hanger.active ? 'Stop hanging the picture' : 'Hang a picture'), section: 'Together', key: 'F', shown: () => inOffice(), on: () => hanger.active, status: () => hanger.active, run: () => (hanger.active ? hanger.cancel() : startHanging()) },
     { id: 'moveJukebox', icon: '🎵', label: () => (mover.active ? 'Leave the jukebox where it is' : 'Move the jukebox'), section: 'Together', shown: () => inOffice(), on: () => mover.active, status: () => mover.active, run: () => (mover.active ? mover.cancel() : startMoving()) },
-    {
-      id: 'chairs',
-      icon: '🪑',
-      label: () => (chairsPlaying(store.chairs) ? 'Call musical chairs off' : 'Play musical chairs'),
-      section: 'Together',
-      shown: () => chairsHere(),
-      on: () => chairsPlaying(store.chairs),
-      // While a game's on, it keeps a place on the top bar with the round on it.
-      status: () => chairsPlaying(store.chairs),
-      chip: () => statusLine(store.chairs),
-      title: () => 'Every worker on this floor plays: music, chairs, and one left standing',
-      blocked: () => {
-        if (chairsPlaying(store.chairs)) return undefined;
-        const hired = [...store.workers.values()].filter((w) => !DESK_BY_ID.get(w.deskId)?.station && !w.meeting).length;
-        return hired < 2 ? 'Musical chairs needs at least two workers on this floor' : undefined;
-      },
-      run: () => net.send(chairsPlaying(store.chairs) ? { t: 'chairs.stop' } : { t: 'chairs.start' }),
-    },
     { id: 'team', icon: '👥', label: 'Invite teammates', section: 'Together', shown: () => store.invites, run: () => openTeam(net) },
     { id: 'accounts', icon: '🔑', label: 'Accounts', section: 'Together', shown: () => store.me.admin, title: () => 'Invite people, see who has an account, revoke them', run: () => openAccounts(net) },
     { id: 'signins', icon: '🔐', label: 'Your sign-ins', section: 'Together', shown: () => !!store.me.account, tone: () => (needsSigningIn() ? 'danger' : undefined), status: needsSigningIn, chip: () => 'Sign in to Claude', title: () => 'The Claude plan and GitHub or Bitbucket account your workers run on: your own', run: () => openSignIns(net) },
@@ -5308,14 +5212,6 @@ function frame(ts?: number) {
   sound.setEngines(engines);
 
   const camPos = camera.position;
-  // Musical chairs: the ring, its colliders, and the workers on it — all before they're drawn, so the
-  // dance goes by the music and the chairs move to it. The game keeps going for as long as anyone's
-  // still walking back to their desk after it.
-  if (!upTop) {
-    chairGame.update(dt, t);
-    chairRing.update(dt, sound.chairsFrame(), chairsLive && chairsMusicOn(store.chairs));
-    chairColliders();
-  }
   // How worn out each looks, as they work on (every second or so is plenty).
   const aging = !!plan().agents.ageMinutes && now - agedAt > 1000;
   if (aging) agedAt = now;
@@ -5344,7 +5240,7 @@ function frame(ts?: number) {
   if (inOffice()) dog.update(dt);
   if (!upTop && inOffice()) updateBall(now, dt);
   if (!upTop) {
-    world.update(t, dt, [player.pos, ...[...remotes.values()].map((r) => r.person.root.position), ...departures.positions(), ...sendoffs.positions(), ...arrivals.positions(), ...(court?.positions() ?? []), ...chairGame.positions()]);
+    world.update(t, dt, [player.pos, ...[...remotes.values()].map((r) => r.person.root.position), ...departures.positions(), ...sendoffs.positions(), ...arrivals.positions(), ...(court?.positions() ?? [])]);
     if (inOffice()) {
       office.stack.update(dt, [{ x: player.pos.x, y: player.pos.y, z: player.pos.z, grip }, ...[...remotes.values()].map((r) => ({ x: r.person.root.position.x, y: r.person.root.position.y, z: r.person.root.position.z, grip: r.grip }))], camera.position);
       office.jukebox.update(t, dt, sound.beat());
