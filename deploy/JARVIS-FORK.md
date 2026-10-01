@@ -4,6 +4,16 @@ This fork was pinned to upstream release `v0.1.177` (commit `665aeec571bc03f76cb
 
 The systemd user unit `agent-office.service` has a `fork.conf` drop-in that overrides only `ExecStart`. It launches this checkout's `bin/agent-office.js` using Node, explicitly retaining the same data home (`/home/ubuntu/agent-office`), projects folder, loopback address (`127.0.0.1:4600`), proxy trust, Codex backend and five-worker limit. The original packaged release and launcher stay in place for rollback. Credentials and office data are **not** in this public repository; keep `~/.config/agent-office/office.env`, `~/agent-office/.agent-office/`, and `~/agent-office/<owner>/<repo>/` out of Git.
 
+The drop-in at `~/.config/systemd/user/agent-office.service.d/fork.conf` is:
+
+```ini
+[Service]
+ExecStart=
+ExecStart=/home/ubuntu/.hermes/tools/node-26.7.0-linux-x64/bin/node /home/ubuntu/agent-office-fork/bin/agent-office.js --home /home/ubuntu/agent-office --projects /home/ubuntu/agent-office --host 127.0.0.1 --port 4600 --trust-proxy --agent codex --max-workers 5
+```
+
+Reload systemd after changing it (`systemctl --user daemon-reload`). Node's absolute path reflects the version installed on this VPS; update it if Node moves. The original unit still supplies the claim-token environment file, working directory, restart policy, and private umask.
+
 The existing named Tailscale Service `svc:agent-office` at `https://agent-office.tail03240d.ts.net/` and the interim node-level `https://jarvis.tail03240d.ts.net:14443/` both proxy `127.0.0.1:4600`. Do not edit the Tailscale mapping when changing application code. Never run bare `tailscale serve clear` or `reset`, which removes unrelated services on this node. Tailnet access plus the office login gates a shell-capable application; only authorized users should have access.
 
 ## Edit, test, and deploy

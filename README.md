@@ -1,3 +1,6 @@
+> [!NOTE]
+> **Ruben's Jarvis fork:** This repository is pinned to the `v0.1.177` release; it does not auto-sync upstream. The live Tailscale deployment runs the built checkout on this fork, not the installer shown below. To edit, build, restart safely, or roll back, follow [deploy/JARVIS-FORK.md](deploy/JARVIS-FORK.md).
+
 > [!WARNING]
 > **Work in progress.** Agent Office is built for one person's workflow — mine — and it changes fast as I iterate on it.
 > Expect breaking changes between releases: keys that move, screens that get redrawn, features that come and go
