@@ -21,6 +21,7 @@ import type { installBarGames } from '../features/bargames';
 import type { installBasketball } from '../features/basketball';
 import type { installBoards } from '../features/boards';
 import type { installBookshelf } from '../features/bookshelf';
+import type { installVault } from '../features/vault';
 import type { installCabinet } from '../features/cabinet';
 import type { installCarrying } from '../features/carrying';
 import type { installCars } from '../features/cars';
@@ -113,6 +114,7 @@ export interface Parts {
   waiting: Made<typeof installWaiting>;
   meeting: Made<typeof installMeeting>;
   bookshelf: Made<typeof installBookshelf>;
+  vault: Made<typeof installVault>;
   bar: Made<typeof installBar>;
   coffee: Made<typeof installCoffee>;
   smoking: Made<typeof installSmoke>;

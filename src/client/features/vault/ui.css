@@ -1,0 +1,13 @@
+/* The safe (ui.ts): the names of what's in it, and for an admin, the .env to change */
+.modal.vault { width: min(620px, 100%); }
+.vault-body { display: flex; flex-direction: column; gap: 12px; }
+.vault-note { margin: 0; font-size: 13.5px; line-height: 1.5; color: var(--muted); font-weight: 700; }
+.vault-note code, .vault-keys code { font: 13px ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+.vault-keys { list-style: none; margin: 0; padding: 10px 12px; border: 2px solid var(--ink); border-radius: 12px; background: #fff; max-height: 260px; overflow: auto; }
+.vault-keys li { padding: 3px 0; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vault-dots { color: var(--muted); letter-spacing: 1px; }
+.vault-empty { margin: 0; padding: 14px; text-align: center; font-weight: 800; color: var(--muted); border: 2px dashed rgba(43, 45, 66, .3); border-radius: 12px; }
+.modal .vault-text { width: 100%; box-sizing: border-box; resize: vertical; min-height: 200px; font: 13px/1.5 ui-monospace, 'SF Mono', Menlo, Consolas, monospace; padding: 10px 12px; border: 2px solid var(--ink); border-radius: 12px; background: #fff; color: var(--ink); }
+.vault-status { font-size: 12.5px; font-weight: 800; color: var(--muted); }
+.vault-problem.bad { color: #c1121f; }
+.vault-meta { font-size: 12px; font-weight: 700; color: var(--muted); }

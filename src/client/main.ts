@@ -33,6 +33,7 @@ import { installBarGames } from './features/bargames';
 import { installBasketball } from './features/basketball';
 import { installBoards } from './features/boards';
 import { installBookshelf } from './features/bookshelf';
+import { installVault } from './features/vault';
 import { installCabinet } from './features/cabinet';
 import { installCarrying } from './features/carrying';
 import { installCars } from './features/cars';
@@ -144,6 +145,7 @@ parts.waiting = installWaiting(ctx, core, parts);
 installPalette(ctx, parts);
 parts.meeting = installMeeting(ctx, parts);
 parts.bookshelf = installBookshelf(ctx);
+parts.vault = installVault(ctx);
 installHerald(ctx, parts);
 
 parts.bar = installBar(ctx, { roof: parts.rooftop.roof, djAt: parts.rooftop.djAt, reach });

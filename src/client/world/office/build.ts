@@ -10,6 +10,7 @@ import { gong } from '../../features/gong/world';
 import { jukebox } from '../../features/jukebox/world';
 import { bookshelf } from '../../features/bookshelf/world';
 import { cabinet } from '../../features/cabinet/world';
+import { safe } from '../../features/vault/world';
 import { whiteboard } from '../../features/whiteboard/world';
 import { green, tee } from '../../features/golf/world';
 import { stack } from '../stack';
@@ -58,6 +59,7 @@ function floorPlan() {
     lounge,
     jukebox,
     cabinet,
+    safe,
     bookshelf,
     kitchen,
     plants,

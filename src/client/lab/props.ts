@@ -15,6 +15,7 @@ import { DESKS } from '../../shared/layout';
 import { buildCabinet } from '../features/cabinet/world';
 import { supercar } from '../features/cars/world';
 import { buildGong } from '../features/gong/world';
+import { buildSafe } from '../features/vault/world';
 import { buildJukebox } from '../features/jukebox/world';
 import { buildKitchen } from '../world/kitchen';
 import { preloadModels } from '../world/models';
@@ -41,6 +42,12 @@ const SHOW: Record<string, () => Shown> = {
     return { object: g.group, update: (dt) => g.update(dt) };
   },
   cabinet: () => ({ object: buildCabinet().group }),
+  // It faces -x, as it stands against the east wall: view=-1.6 looks at its door.
+  safe: () => {
+    const s = buildSafe();
+    s.open(true);
+    return { object: s.group, update: (dt) => s.update(dt) };
+  },
   kitchen: () => ({ object: buildKitchen().group }),
   plants: () => {
     // The floor plants at scale 1 side by side, then the desk succulent, to compare them. A param of

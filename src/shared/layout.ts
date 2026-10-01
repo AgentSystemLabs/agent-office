@@ -261,6 +261,12 @@ export const JUKEBOX = { x: FLOOR.maxX - 0.42, y: 0.75, z: 5.4, width: 1.3, dept
 export const CABINET = { x: FLOOR.maxX - 0.42, z: 7.05, width: 0.8, depth: 0.8, height: 1.9 } as const;
 
 /**
+ * The safe the floor's .env is kept in (see features/vault): on the floor against the east wall, between
+ * the Services board (whose servers want what's in it) and the TV, facing into the room. `width` runs along the wall.
+ */
+export const SAFE = { x: FLOOR.maxX - 0.38, z: -4.35, width: 0.8, depth: 0.7, height: 1.05 } as const;
+
+/**
  * The bookshelf of the project's docs (every Markdown file in it, see shared/docs.ts): against the
  * south wall between the middle window and the balcony doors, facing into the room (-z). `width`
  * runs along the wall.
