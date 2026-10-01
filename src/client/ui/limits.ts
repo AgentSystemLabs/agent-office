@@ -2,6 +2,7 @@ import type { PlanWindow } from '../../shared/protocol';
 import { store } from '../state';
 import { $, h } from './dom';
 import { panelHide } from './menu';
+import { resolvedProvider } from './provider';
 
 /** Numbers older than this say when they were read. */
 const STALE_MS = 10 * 60_000;
@@ -34,14 +35,27 @@ function windowRow(w: PlanWindow, now: number): HTMLElement[] {
   ];
 }
 
-/** The Claude plan's 5-hour session and weekly limits, under the workers. Click to read them again. */
+/** Account plan meters. Codex snapshots stay separate because workers may use different accounts. */
 export function renderLimits() {
   const s = store.limits;
+  const codex = [...store.workers.values()].filter(w => w.kind === 'agent' && resolvedProvider(w.provider, store.project) === 'codex');
   const el = $('limits');
-  el.classList.toggle('hidden', !s.windows.length);
-  if (!s.windows.length) return;
+  el.classList.toggle('hidden', !s.windows.length && !codex.length);
+  if (!s.windows.length && !codex.length) return;
   const now = Date.now();
-  const plan = s.plan ? s.plan.charAt(0).toUpperCase() + s.plan.slice(1) : '';
-  el.replaceChildren(h('h3', {}, 'Claude limits', plan ? h('span.plan', {}, plan) : null, panelHide('limits')), ...s.windows.flatMap((w) => windowRow(w, now)));
-  if (now - s.at > STALE_MS) el.append(h('div.row.muted', {}, `As of ${new Date(s.at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`));
+  const rows: HTMLElement[] = [h('h3', {}, 'Limits', panelHide('limits'))];
+  const append = (label: string, limits: typeof s) => {
+    rows.push(h('div.row', {}, label, limits.plan ? h('span.plan', {}, limits.plan) : null));
+    rows.push(...limits.windows.flatMap(w => windowRow(w, now)));
+    if (now - limits.at > STALE_MS) rows.push(h('div.row.muted', {}, `As of ${new Date(limits.at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`));
+  };
+  if (s.windows.length) append('Claude', s);
+  for (const worker of codex) {
+    const limits = worker.usage?.planLimits;
+    const label = `Codex · ${worker.name}`;
+    if (limits?.windows.length) append(label, limits);
+    else rows.push(h('div.row.muted', {}, `${label}: limits unavailable`));
+  }
+  el.title = 'Click to refresh Claude limits. Codex limits update when each worker reports usage; workers may use different accounts.';
+  el.replaceChildren(...rows);
 }

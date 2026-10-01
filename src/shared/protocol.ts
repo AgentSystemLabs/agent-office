@@ -184,6 +184,8 @@ export interface WorkerRepo {
 
 /** Session usage. The persistent office ledger continues to cover Claude Code only. */
 export interface Usage {
+  /** Codex account limits reported by this root session; never sum across workers. */
+  planLimits?: PlanLimits;
   /** Input tokens that missed the prompt cache. */
   input: number;
   output: number;

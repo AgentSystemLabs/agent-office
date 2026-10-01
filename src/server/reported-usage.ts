@@ -1,4 +1,4 @@
-import type { Usage } from '../shared/protocol.js';
+import type { Usage, PlanLimits } from '../shared/protocol.js';
 
 /** Validate a provider snapshot before displaying or restoring it. Never turn invalid data into zero. */
 export function reportedUsage(value: unknown): Usage | undefined {
@@ -13,7 +13,18 @@ export function reportedUsage(value: unknown): Usage | undefined {
   if (v.callsKnown !== undefined && typeof v.callsKnown !== 'boolean') return;
   if (v.incomplete !== undefined && typeof v.incomplete !== 'boolean') return;
   if (v.costKnown !== undefined && typeof v.costKnown !== 'boolean') return;
+  let planLimits: PlanLimits | undefined;
+  if (v.planLimits && typeof v.planLimits === 'object') {
+    const limits = v.planLimits as PlanLimits;
+    if (count(limits.at) && Array.isArray(limits.windows) && limits.windows.length <= 2
+      && limits.windows.every(w => w && typeof w.label === 'string' && w.label.length <= 24
+        && typeof w.pct === 'number' && Number.isFinite(w.pct) && w.pct >= 0 && w.pct <= 100
+        && (w.resetsAt === undefined || count(w.resetsAt)))) {
+      planLimits = { at: limits.at, windows: limits.windows.map(w => ({ label: w.label, pct: w.pct, resetsAt: w.resetsAt })) };
+    }
+  }
   return {
+    ...(planLimits ? { planLimits } : {}),
     input: v.input as number, output: v.output as number,
     cacheWrite: v.cacheWrite as number, cacheRead: v.cacheRead as number,
     cost: v.cost, calls: v.calls as number,

@@ -2287,6 +2287,8 @@ function dressUp() {
 store.on('theme', dressUp);
 store.on('usage', renderUsage);
 store.on('limits', renderLimits);
+store.on('workers', renderLimits);
+store.on('project', renderLimits);
 // The reset countdowns tick down between reads.
 setInterval(renderLimits, 30_000);
 $('limits').addEventListener('click', () => net.send({ t: 'limits.refresh' }));

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { appendFileSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { CodexUsageReader, codexTokenUsage } from '../src/server/codex-usage.js';
+import { CodexUsageReader, codexTokenUsage, codexPlanLimits } from '../src/server/codex-usage.js';
 
 const totals = (input = 120, output = 30) => ({ input_tokens: input, cached_input_tokens: 20, cache_write_input_tokens: 5, output_tokens: output, reasoning_output_tokens: 10, total_tokens: input + output });
 const event = (value = totals()) => JSON.stringify({ type: 'event_msg', payload: { type: 'token_count', info: { total_token_usage: value } } });
@@ -59,4 +59,29 @@ test('bounded tail recovers cumulative usage after large non-metric records', t 
   const { home, file } = fixture(t);
   writeFileSync(file, header() + JSON.stringify({ type: 'response_item', payload: 'x'.repeat(5 * 1024 * 1024) }) + '\n' + event() + '\n');
   assert.deepEqual(new CodexUsageReader().read(file, 'thread-1', home), codexTokenUsage(totals()));
+});
+
+
+test('reads account limits separately from cumulative tokens and preserves their report time', t => {
+  const { home, file } = fixture(t);
+  const reader = new CodexUsageReader();
+  const timestamp = '2026-10-01T12:00:00Z';
+  const rate_limits = { primary: { used_percent: 42, window_minutes: 300, resets_at: 1790859600 }, secondary: { used_percent: 18, window_minutes: 10080 } };
+  const row = JSON.stringify({ timestamp, type: 'event_msg', payload: { type: 'token_count', info: null, rate_limits } });
+  writeFileSync(file, header() + event() + '\n' + row + '\n');
+  const expected = codexPlanLimits(rate_limits, Date.parse(timestamp));
+  assert.deepEqual(reader.read(file, 'thread-1', home)?.planLimits, expected);
+  assert.deepEqual(expected?.windows, [{ label: '5h session', pct: 42, resetsAt: 1790859600000 }, { label: 'Week', pct: 18 }]);
+  appendFileSync(file, event(totals(240, 60)) + '\n');
+  assert.deepEqual(reader.read(file, 'thread-1', home)?.planLimits, expected);
+  appendFileSync(file, JSON.stringify({ timestamp, type: 'event_msg', payload: { type: 'token_count', rate_limits: null } }) + '\n');
+  assert.equal(reader.read(file, 'thread-1', home)?.planLimits, undefined);
+});
+
+test('rejects malformed Codex limits and clamps percentages', () => {
+  assert.equal(codexPlanLimits(null, Date.now()), undefined);
+  assert.equal(codexPlanLimits({ primary: { used_percent: NaN, window_minutes: 300 } }, Date.now()), undefined);
+  assert.equal(codexPlanLimits({ primary: { used_percent: 50, window_minutes: -1 } }, Date.now()), undefined);
+  assert.equal(codexPlanLimits({ primary: { used_percent: 50, window_minutes: 300 } }, NaN), undefined);
+  assert.equal(codexPlanLimits({ primary: { used_percent: 120, window_minutes: 300 } }, Date.now())?.windows[0].pct, 100);
 });

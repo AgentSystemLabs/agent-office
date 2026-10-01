@@ -34,7 +34,7 @@ const PANELS: { id: HudPanel; icon: string; label: string; what: string }[] = [
   { id: 'workers', icon: '🤖', label: 'Workers', what: 'Every desk and what it’s up to' },
   { id: 'people', icon: '👥', label: 'People', what: 'Who’s here, on which floor' },
   { id: 'spend', icon: '💸', label: 'Spend', what: 'Today, the budget, all time' },
-  { id: 'limits', icon: '⏳', label: 'Claude limits', what: 'The plan’s 5-hour and week' },
+  { id: 'limits', icon: '⏳', label: 'Limits', what: 'Claude and Codex plan usage' },
   { id: 'chat', icon: '💬', label: 'Chat', what: 'T opens it either way' },
   { id: 'floor', icon: '🏢', label: 'Floor details', what: 'Branch, folder, default agent' },
 ];

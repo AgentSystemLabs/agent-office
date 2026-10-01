@@ -1,6 +1,6 @@
 import { closeSync, constants, fstatSync, openSync, readSync, realpathSync } from 'node:fs';
 import path from 'node:path';
-import type { Usage } from '../shared/protocol.js';
+import type { Usage, PlanLimits, PlanWindow } from '../shared/protocol.js';
 
 const TAIL_BYTES = 4 * 1024 * 1024;
 const HEADER_BYTES = 1024 * 1024;
@@ -21,6 +21,24 @@ export function codexTokenUsage(value: unknown): Usage | undefined {
     cost: 0, costKnown: false, calls: 0, callsKnown: false, ...(total !== i + o ? { incomplete: true } : {}) };
 }
 
+/** Parse only the numeric plan windows reported in Codex token-count events. */
+export function codexPlanLimits(value: unknown, at: number): PlanLimits | undefined {
+  if (!value || typeof value !== 'object' || !Number.isFinite(at) || at <= 0) return;
+  const v = value as Record<string, unknown>;
+  const windows: PlanWindow[] = [];
+  for (const key of ['primary', 'secondary']) {
+    const w = v[key] as Record<string, unknown> | undefined;
+    if (!w || typeof w.used_percent !== 'number' || !Number.isFinite(w.used_percent)
+      || typeof w.window_minutes !== 'number' || !Number.isSafeInteger(w.window_minutes) || w.window_minutes <= 0) continue;
+    const minutes = w.window_minutes;
+    const label = minutes === 10080 ? 'Week' : minutes % 60 === 0 ? `${minutes / 60}h session` : `${minutes}m session`;
+    const reset = w.resets_at;
+    windows.push({ label, pct: Math.max(0, Math.min(100, w.used_percent)),
+      ...(typeof reset === 'number' && Number.isFinite(reset) && reset > 0 && reset <= 8640000000000 ? { resetsAt: reset * 1000 } : {}) });
+  }
+  return windows.length ? { windows, at } : undefined;
+}
+
 /**
  * Read only the explicitly hooked root rollout, never enumerate other conversations. Bounds both
  * memory and I/O; cumulative counters let a tail read recover totals without replaying messages.
@@ -28,6 +46,7 @@ export function codexTokenUsage(value: unknown): Usage | undefined {
  */
 export class CodexUsageReader {
   private stamp = '';
+  private limits: PlanLimits | undefined;
   read(file: string, sessionId: string, home: string): Usage | undefined {
     let fd: number | undefined;
     try {
@@ -55,15 +74,24 @@ export class CodexUsageReader {
       const lines = text.split('\n');
       lines.pop(); // A final partial line is retried after the next append.
       if (start) lines.shift();
+      let latestUsage: Usage | undefined;
+      let foundLimits = false;
       for (let i = lines.length - 1; i >= 0; i--) {
         if (!lines[i].includes('"token_count"')) continue;
         let row;
         try { row = JSON.parse(lines[i]); } catch { continue; }
         if (row.type !== 'event_msg' || row.payload?.type !== 'token_count') continue;
-        const usage = codexTokenUsage(row.payload.info?.total_token_usage);
-        if (!usage) continue;
+        if (!foundLimits && Object.hasOwn(row.payload, 'rate_limits')) {
+          this.limits = codexPlanLimits(row.payload.rate_limits, Date.parse(row.timestamp));
+          foundLimits = true;
+        }
+        latestUsage ??= codexTokenUsage(row.payload.info?.total_token_usage);
+        if (latestUsage && foundLimits) break;
+      }
+      if (latestUsage) {
+        if (this.limits) latestUsage.planLimits = this.limits;
         this.stamp = stamp;
-        return usage;
+        return latestUsage;
       }
     } catch {
       // No data is preferable to exposing malformed, mismatched, or inaccessible files.

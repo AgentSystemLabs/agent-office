@@ -15,7 +15,7 @@
 **A 3D office your team shares with its coding agents.**
 
 Sit **Claude Code**, **Codex**, **OpenCode**, **Grok**, **Muse** and **DeepSeek Harness** workers at desks, watch each one's terminal on the laptop in front of it,
-and jump into any of them together. Every GitHub repo is a floor of the building.
+and jump into any of them together. Every GitHub repo is a floor of the building. The HUD’s **Limits** panel shows Claude plan usage and Codex plan snapshots reported by workers.
 
 [![Release](https://img.shields.io/github/v/release/AgentSystemLabs/agent-office?style=flat-square&color=e8c547&label=release)](https://github.com/AgentSystemLabs/agent-office/releases)
 [![Build](https://img.shields.io/github/actions/workflow/status/AgentSystemLabs/agent-office/release.yml?style=flat-square&label=build)](https://github.com/AgentSystemLabs/agent-office/actions)
