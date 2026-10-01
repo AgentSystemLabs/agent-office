@@ -2,6 +2,7 @@
 import { isAgentEffort, isAgentProvider, type QueueClientMsg } from '../../../shared/protocol.js';
 import { OPEN_CODE_MODEL_MAX } from '../../../shared/providers.js';
 import { num, str } from '../../office/input.js';
+import { cleanAfter } from '../../queue.js';
 import { here } from './common.js';
 import type { HandlerMap, ViewPieces } from './types.js';
 
@@ -21,7 +22,7 @@ export const queueHandlers = {
     const effort = isAgentEffort(msg.effort) ? msg.effort : undefined;
     // Its worker runs on the sign-ins of whoever queued it, whenever it gets a desk.
     ctx.withSignIn(c, ctx.claudeFor(msg.provider ?? floor.workers.officeDefault.provider), () => {
-      const err = floor.queue.add(str(msg.prompt, 20000), who, str(msg.title, 200), issue, msg.provider, model, effort, c.accountId);
+      const err = floor.queue.add(str(msg.prompt, 20000), who, str(msg.title, 200), issue, msg.provider, model, effort, c.accountId, cleanAfter(msg.after));
       if (err) ctx.warn(c, err);
       else ctx.toastFloor(floor, `📋 ${who} queued ${issue !== undefined ? `issue #${issue}` : 'a task'}`);
     });

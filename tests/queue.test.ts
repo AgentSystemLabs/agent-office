@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { TaskQueue, type QueueWorkers } from '../src/server/queue.js';
-import type { AgentEffort, AgentProvider, WorkerInfo } from '../src/shared/protocol.js';
+import type { AgentEffort, AgentProvider, GhPull, WorkerInfo } from '../src/shared/protocol.js';
 
 function fixture(defaultProvider: AgentProvider = 'claude') {
   const dir = mkdtempSync(path.join(tmpdir(), 'office-queue-'));
@@ -404,4 +404,68 @@ test("a queue worker that switches to a branch of its own takes its task's branc
     headRefName: 'fix-login', baseRefName: 'main', createdAt: new Date().toISOString(), updatedAt: '', additions: 0, deletions: 0, checks: 'none', body: '', closes: [],
   }]);
   assert.equal(q.state().tasks[0].pr?.number, 242);
+});
+
+function pull(number: number, headRefName: string, state: string): GhPull {
+  return {
+    number, title: `PR ${number}`, state, isDraft: false, url: `https://github.com/o/r/pull/${number}`, author: 'a', labels: [],
+    reviewDecision: '', headRefName, baseRefName: 'main', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    additions: 0, deletions: 0, checks: 'none', body: '', closes: [],
+  };
+}
+
+test('a task queued after another waits, without holding up the rest, and starts by itself once that PR merges', (t) => {
+  const f = fixture(); t.after(() => f.close());
+  const q = f.open(undefined, true);
+  q.add('Build the API', 'Tester');
+  const api = q.state().tasks[0];
+  assert.equal(q.add('Use the API', 'Tester', undefined, undefined, undefined, undefined, undefined, undefined, { tasks: [api.id] }), undefined);
+  q.add('Unrelated', 'Tester');
+  let [, next, other] = q.state().tasks;
+  assert.equal(next.status, 'queued');
+  assert.deepEqual(next.waiting, ['“Build the API”']);
+  assert.equal(other.status, 'running', 'the task behind it went ahead');
+
+  f.workers[0].status = 'done'; q.onWorker(f.workers[0]);
+  q.onPulls([pull(41, api.branch!, 'OPEN')]);
+  assert.deepEqual(q.state().tasks[1].waiting, ['“Build the API” (PR #41)'], 'still waiting: the PR is only open');
+  assert.equal(f.workers.length, 2);
+
+  q.onPulls([pull(41, api.branch!, 'MERGED')]);
+  [, next] = q.state().tasks;
+  assert.equal(next.status, 'running');
+  assert.equal(next.waiting, undefined);
+  assert.equal(f.workers.length, 3);
+});
+
+test('a task can wait on a pull request by number, and keeps what it waits for through a restart', (t) => {
+  const f = fixture(); t.after(() => f.close());
+  const before = f.open();
+  before.add('After 7', 'Tester', undefined, undefined, undefined, undefined, undefined, undefined, { prs: [7, 7] });
+  assert.deepEqual(before.state().tasks[0].waiting, ['PR #7']);
+  before.shutdown();
+  const q = f.open();
+  assert.deepEqual(q.state().tasks[0].after, { tasks: [], prs: [7] });
+  assert.equal(f.workers.length, 0);
+  q.onPulls([pull(7, 'feature', 'MERGED')]);
+  assert.equal(q.state().tasks[0].status, 'running');
+});
+
+test('waiting on a task that is not on the queue is refused, and one taken off leaves its PR to wait for', (t) => {
+  const f = fixture(); t.after(() => f.close());
+  const q = f.open(undefined, true);
+  assert.match(q.add('Orphan', 'Tester', undefined, undefined, undefined, undefined, undefined, undefined, { tasks: ['abc123'] }) ?? '', /No task abc123/);
+  q.add('First', 'Tester');
+  const first = q.state().tasks[0];
+  q.add('Second', 'Tester', undefined, undefined, undefined, undefined, undefined, undefined, { tasks: [first.id] });
+  q.add('Third', 'Tester', undefined, undefined, undefined, undefined, undefined, undefined, { tasks: [first.id] });
+  f.workers[0].status = 'done'; q.onWorker(f.workers[0]);
+  q.onPulls([pull(9, first.branch!, 'OPEN')]);
+  q.remove(first.id);
+  assert.deepEqual(q.state().tasks[0].after, { tasks: [], prs: [9] });
+  assert.deepEqual(q.state().tasks[0].waiting, ['PR #9']);
+  q.remove(q.state().tasks[0].id);
+  assert.equal(q.state().tasks[0].status, 'queued');
+  q.onPulls([pull(9, 'x', 'MERGED')]);
+  assert.equal(q.state().tasks[0].status, 'running');
 });

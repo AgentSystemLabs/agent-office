@@ -12,6 +12,9 @@ const USAGE = `Usage:
   office-queue add --title "…" [--issue 12] <<'EOF'  add a task, its prompt on stdin (or --prompt "…");
   …the prompt…                                       prints the new task's id
   EOF
+    --after <task id | #PR>                          start it only once that task's pull request (or that
+                                                     pull request) has merged; repeat it, or list them
+                                                     with commas, to wait for several
   office-queue remove <id>                           take a waiting task off`;
 
 /** A mistake in how the command was called: the usage is shown with it. */
@@ -24,7 +27,7 @@ const TIMEOUT_MS = 15_000;
 
 /**
  * What the command line asks for:
- * { cmd: 'help' } | { cmd: 'list' } | { cmd: 'add', title, issue?, prompt? } | { cmd: 'remove', id }.
+ * { cmd: 'help' } | { cmd: 'list' } | { cmd: 'add', title, issue?, prompt?, after? } | { cmd: 'remove', id }.
  * @param {string[]} argv the arguments after the command's name
  */
 export function parseArgs(argv) {
@@ -40,13 +43,13 @@ export function parseArgs(argv) {
     return { cmd: 'remove', id: rest[0] };
   }
   if (cmd !== 'add') throw new UsageError(`Unknown command: ${cmd}`);
-  /** @type {{ cmd: 'add', title?: string, issue?: number, prompt?: string }} */
+  /** @type {{ cmd: 'add', title?: string, issue?: number, prompt?: string, after?: { tasks: string[], prs: number[] } }} */
   const out = { cmd: 'add' };
   for (let i = 0; i < rest.length; i++) {
     const arg = rest[i];
     const eq = arg.indexOf('=');
     const flag = arg.startsWith('--') && eq > 0 ? arg.slice(0, eq) : arg;
-    if (flag !== '--title' && flag !== '--issue' && flag !== '--prompt') {
+    if (flag !== '--title' && flag !== '--issue' && flag !== '--prompt' && flag !== '--after') {
       throw new UsageError(arg.startsWith('-') ? `Unknown option for add: ${flag}` : `Unexpected argument: ${arg} (quote the title, and give the prompt on stdin or with --prompt)`);
     }
     let value;
@@ -55,7 +58,15 @@ export function parseArgs(argv) {
     else throw new UsageError(`${flag} needs a value`);
     if (flag === '--title') out.title = value.trim();
     else if (flag === '--prompt') out.prompt = value;
-    else {
+    else if (flag === '--after') {
+      const after = (out.after ??= { tasks: [], prs: [] });
+      for (const part of value.split(',').map((v) => v.trim()).filter(Boolean)) {
+        const pr = /^(?:#|pr#?)(\d+)$/i.exec(part);
+        if (pr && Number(pr[1]) > 0) after.prs.push(Number(pr[1]));
+        else if (/^[0-9a-f]{1,32}$/.test(part)) after.tasks.push(part);
+        else throw new UsageError(`--after takes a task id from office-queue list or a pull request as #34 (got ${part})`);
+      }
+    } else {
       const n = /^#?(\d+)$/.exec(value.trim());
       if (!n || Number(n[1]) < 1) throw new UsageError(`--issue takes an issue number, e.g. --issue 12 (got ${value})`);
       out.issue = Number(n[1]);
@@ -102,7 +113,7 @@ export function buildRequest(cmd, office, prompt) {
   if (!text) {
     throw new UsageError(`The task needs a prompt: pipe it in (office-queue add --title "…" <<'EOF' … EOF) or pass --prompt "…"`);
   }
-  const body = { title: cmd.title, prompt: text, ...(cmd.issue !== undefined ? { issue: cmd.issue } : {}) };
+  const body = { title: cmd.title, prompt: text, ...(cmd.issue !== undefined ? { issue: cmd.issue } : {}), ...(cmd.after ? { after: cmd.after } : {}) };
   return { method: 'POST', url: url.href, headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify(body) };
 }
 
@@ -121,6 +132,7 @@ export function formatQueue(view) {
     const parts = [`${t.title ?? ''}${t.issue ? ` (issue #${t.issue})` : ''}`];
     if (t.worker) parts.push(`worker ${t.worker}${t.branch ? ` on ${t.branch}` : ''}`);
     if (t.pr) parts.push(`PR #${t.pr.number}${t.pr.state ? ` ${String(t.pr.state).toLowerCase()}` : ''} ${t.pr.url}`);
+    if (Array.isArray(t.waiting) && t.waiting.length) parts.push(`waiting for ${t.waiting.join(', ')} to merge`);
     if (t.error) parts.push(`error: ${t.error}`);
     lines.push(`${t.id}  ${status(t).padEnd(width)}  ${parts.join(' · ')}`);
   }
@@ -204,7 +216,8 @@ export async function main(argv, io = {}) {
     else {
       const task = res.body?.task ?? {};
       out(task.id ?? '');
-      err(`Queued “${task.title ?? cmd.title}” (${task.status ?? 'queued'}${cmd.issue !== undefined ? `, issue #${cmd.issue}` : ''}).`);
+      const waiting = Array.isArray(task.waiting) && task.waiting.length ? `, waiting for ${task.waiting.join(', ')} to merge` : '';
+      err(`Queued “${task.title ?? cmd.title}” (${task.status ?? 'queued'}${cmd.issue !== undefined ? `, issue #${cmd.issue}` : ''}${waiting}).`);
     }
     return 0;
   } catch (e) {

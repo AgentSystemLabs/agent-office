@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { isAgentProvider, type AgentChoice, type AgentEffort, type AgentProvider, type GhPull, type QueueState, type QueueTask, type WorkerInfo, type WorkerStatus } from '../shared/protocol.js';
+import { isAgentProvider, type AgentChoice, type AgentEffort, type AgentProvider, type GhPull, type QueueAfter, type QueueState, type QueueTask, type WorkerInfo, type WorkerStatus } from '../shared/protocol.js';
 import { DESK_BY_ID, SEATS, nextFreeSeat } from '../shared/layout.js';
 import { validateWorkerEffort, validateWorkerModel } from './agents.js';
 import { savedEffort, savedModel, takesEffort, takesModel } from '../shared/providers.js';
@@ -63,6 +63,8 @@ export class TaskQueue {
   /** Set on shutdown: the workers' exit events must not seat anyone into a dying office. */
   private stopped = false;
   private lastStatus = new Map<string, WorkerStatus>();
+  /** The pull requests GitHub last said have merged, for the tasks waiting on one (see `after`). */
+  private merged = new Set<number>();
 
   constructor(
     dataDir: string,
@@ -77,16 +79,25 @@ export class TaskQueue {
   }
 
   state(): QueueState {
-    return { tasks: this.tasks.map((t) => ({ ...t })), maxWorkers: this.maxWorkers };
+    return {
+      tasks: this.tasks.map((t) => {
+        const waiting = t.status === 'queued' ? this.waitingFor(t) : [];
+        return { ...t, ...(waiting.length ? { waiting } : {}) };
+      }),
+      maxWorkers: this.maxWorkers,
+    };
   }
 
   get limit(): number {
     return this.maxWorkers;
   }
 
-  /** Queues a task. With no `provider`, it runs on the office's default worker, model and effort included. */
-  /** Queues a task; `owner` is the account adding it, whose sign-ins its worker will run on. */
-  add(prompt: string, by: string, title?: string, issue?: number, provider?: AgentProvider, model?: string, effort?: AgentEffort, owner?: string): string | undefined {
+  /**
+   * Queues a task. With no `provider`, it runs on the office's default worker, model and effort included.
+   * `owner` is the account adding it, whose sign-ins its worker will run on. With `after`, it waits on the
+   * queue, without holding up the tasks behind it, until those tasks' pull requests and those pull requests merge.
+   */
+  add(prompt: string, by: string, title?: string, issue?: number, provider?: AgentProvider, model?: string, effort?: AgentEffort, owner?: string, after?: Partial<QueueAfter>): string | undefined {
     if (provider === undefined) ({ provider, model, effort } = this.workers.officeDefault ?? { provider: this.workers.defaultProvider });
     if (!isAgentProvider(provider) || (provider === 'custom' && this.workers.defaultProvider !== 'custom')) return 'Unknown agent provider';
     const modelError = validateWorkerModel('agent', provider, model);
@@ -97,6 +108,9 @@ export class TaskQueue {
     if (!clean) return 'Empty task';
     if (issue !== undefined && this.tasks.some((t) => t.issue === issue && t.status !== 'done')) return `Issue #${issue} is already on the queue`;
     if (this.tasks.filter((t) => t.status !== 'done').length >= MAX_TASKS) return `The queue is full (${MAX_TASKS} tasks)`;
+    const deps = cleanAfter(after);
+    const unknown = deps?.tasks.find((id) => !this.tasks.some((t) => t.id === id));
+    if (unknown) return `No task ${unknown} on the queue to wait for`;
     const task: QueueTask = {
       id: randomBytes(6).toString('hex'),
       provider,
@@ -109,6 +123,7 @@ export class TaskQueue {
       ...(owner ? { owner } : {}),
       addedAt: Date.now(),
       status: 'queued',
+      ...(deps ? { after: deps } : {}),
     };
     this.tasks.push(task);
     this.changed();
@@ -121,6 +136,7 @@ export class TaskQueue {
     if (!t) return 'No such task';
     if (t.status === 'running') return `${t.workerName ?? 'Its worker'} is on it — send the worker home to stop it`;
     this.tasks.splice(this.tasks.indexOf(t), 1);
+    this.forget([t]);
     this.changed();
     this.pump();
     return undefined;
@@ -130,8 +146,9 @@ export class TaskQueue {
   dropIssue(issue: number): boolean {
     const i = this.tasks.findIndex((t) => t.issue === issue && t.status === 'queued');
     if (i < 0) return false;
-    this.tasks.splice(i, 1);
+    this.forget(this.tasks.splice(i, 1));
     this.changed();
+    this.pump();
     return true;
   }
 
@@ -155,7 +172,7 @@ export class TaskQueue {
     if (t.status !== 'done') return 'That task is still on the queue';
     if (t.issue !== undefined && this.tasks.some((x) => x !== t && x.issue === t.issue && x.status !== 'done')) return `Issue #${t.issue} is already on the queue`;
     this.tasks.splice(this.tasks.indexOf(t), 1);
-    const fresh: QueueTask = { id: t.id, provider: t.provider, model: t.model, effort: t.effort, issue: t.issue, title: t.title, prompt: t.prompt, addedBy: t.addedBy, owner: t.owner, addedAt: Date.now(), status: 'queued' };
+    const fresh: QueueTask = { id: t.id, provider: t.provider, model: t.model, effort: t.effort, issue: t.issue, title: t.title, prompt: t.prompt, addedBy: t.addedBy, owner: t.owner, addedAt: Date.now(), status: 'queued', after: t.after };
     this.tasks.push(fresh);
     this.changed();
     this.pump();
@@ -164,9 +181,12 @@ export class TaskQueue {
 
   /** Forgets the finished tasks. */
   clear() {
-    const before = this.tasks.length;
+    const gone = this.tasks.filter((t) => t.status === 'done');
+    if (!gone.length) return;
     this.tasks = this.tasks.filter((t) => t.status !== 'done');
-    if (this.tasks.length !== before) this.changed();
+    this.forget(gone);
+    this.changed();
+    this.pump();
   }
 
   setLimit(n: number) {
@@ -196,7 +216,10 @@ export class TaskQueue {
 
   /** Fresh pull requests from GitHub: link each task to the PR that closes its issue (or came from its branch). */
   onPulls(pulls: GhPull[]) {
-    let changed = false;
+    const merged = new Set(pulls.filter((p) => p.state === 'MERGED').map((p) => p.number));
+    // A merge GitHub reports can start a task that waits on it.
+    let changed = [...merged].some((n) => !this.merged.has(n)) && this.tasks.some((t) => t.status === 'queued' && t.after);
+    for (const n of merged) this.merged.add(n);
     for (const t of this.tasks) {
       if (t.status === 'queued') continue;
       const since = (t.startedAt ?? t.addedAt) - 60_000;
@@ -209,7 +232,9 @@ export class TaskQueue {
       t.pr = pr;
       changed = true;
     }
-    if (changed) this.changed();
+    if (!changed) return;
+    this.changed();
+    this.pump();
   }
 
   /** Finishes tasks whose worker stopped, then seats queued tasks while there's room. */
@@ -315,6 +340,8 @@ export class TaskQueue {
     let changed = false;
     for (const t of this.tasks) {
       if (t.status !== 'queued') continue;
+      // Its prerequisites haven't merged yet: the tasks behind it go ahead.
+      if (this.waitingFor(t).length) continue;
       if (this.busy() >= this.maxWorkers) break;
       // A spent budget holds the queue instead of failing every task; the pump seats them once hiring resumes.
       if (this.events.hiringPaused()) break;
@@ -362,6 +389,37 @@ export class TaskQueue {
     if (changed) this.changed();
   }
 
+  /** What a task still waits for, in words: each task in `after` whose PR hasn't merged, and each PR that hasn't. */
+  private waitingFor(t: QueueTask): string[] {
+    if (!t.after) return [];
+    const out: string[] = [];
+    for (const id of t.after.tasks) {
+      const dep = this.tasks.find((x) => x.id === id);
+      // A prerequisite that's gone from the queue has nothing left to wait for (see forget).
+      if (!dep || dep.pr?.state === 'MERGED' || (dep.pr && this.merged.has(dep.pr.number))) continue;
+      out.push(dep.pr ? `${label(dep)} (PR #${dep.pr.number})` : label(dep));
+    }
+    for (const n of t.after.prs) if (!this.merged.has(n)) out.push(`PR #${n}`);
+    return out;
+  }
+
+  /**
+   * Tasks are leaving the queue: the ones waiting on them wait on their pull request instead, when it
+   * has one that hasn't merged, and otherwise stop waiting on them.
+   */
+  private forget(gone: QueueTask[]) {
+    const byId = new Map(gone.map((t) => [t.id, t]));
+    for (const t of this.tasks) {
+      if (!t.after?.tasks.some((id) => byId.has(id))) continue;
+      const prs = new Set(t.after.prs);
+      for (const id of t.after.tasks) {
+        const pr = byId.get(id)?.pr;
+        if (pr && pr.state !== 'MERGED' && !this.merged.has(pr.number)) prs.add(pr.number);
+      }
+      t.after = cleanAfter({ tasks: t.after.tasks.filter((id) => !byId.has(id)), prs: [...prs] });
+    }
+  }
+
   private changed() {
     this.persist();
     this.events.update(this.state());
@@ -403,6 +461,7 @@ export class TaskQueue {
           outcome: s.outcome,
           error: s.error,
           pr: s.pr,
+          after: cleanAfter(s.after),
         };
         // Whatever was running died with the old office process; its worker comes back asleep at best.
         if (t.status === 'running') {
@@ -421,6 +480,15 @@ export class TaskQueue {
 
 function label(t: QueueTask): string {
   return t.issue !== undefined ? `#${t.issue}` : `“${t.title.length > 40 ? `${t.title.slice(0, 39)}…` : t.title}”`;
+}
+
+/** Prerequisites as given (by a person, an agent or queue.json), tidied up; undefined when there are none. */
+export function cleanAfter(after: unknown): QueueAfter | undefined {
+  const a = (after ?? {}) as Partial<Record<keyof QueueAfter, unknown>>;
+  const list = (v: unknown) => (Array.isArray(v) ? v : []);
+  const tasks = [...new Set(list(a.tasks).filter((id): id is string => typeof id === 'string' && /^[0-9a-f]{1,32}$/.test(id)))];
+  const prs = [...new Set(list(a.prs).filter((n): n is number => Number.isInteger(n) && (n as number) > 0))];
+  return tasks.length || prs.length ? { tasks, prs } : undefined;
 }
 
 function firstLine(s: string): string {

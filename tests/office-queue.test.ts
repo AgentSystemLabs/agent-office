@@ -23,6 +23,7 @@ test('parses list, add and remove, with their options', () => {
   assert.deepEqual(parseArgs(['add', '--title', 'Fix login']), { cmd: 'add', title: 'Fix login' });
   assert.deepEqual(parseArgs(['add', '--title=Fix login', '--issue', '12']), { cmd: 'add', title: 'Fix login', issue: 12 });
   assert.deepEqual(parseArgs(['add', '--issue=#7', '--title', ' Fix login ', '--prompt', 'Do it']), { cmd: 'add', title: 'Fix login', issue: 7, prompt: 'Do it' });
+  assert.deepEqual(parseArgs(['add', '--title', 'T', '--after', '3f9c2a1b7d4e', '--after=#34,pr12']), { cmd: 'add', title: 'T', after: { tasks: ['3f9c2a1b7d4e'], prs: [34, 12] } });
   // A prompt that looks like an option is still the prompt.
   assert.deepEqual(parseArgs(['add', '--title', 'T', '--prompt', '- fix the list']), { cmd: 'add', title: 'T', prompt: '- fix the list' });
 });
@@ -40,6 +41,7 @@ test('says what is wrong with a bad command line', () => {
     [['add', '--title', 'T', '--issue', '0'], /--issue takes an issue number/],
     [['add', '--title', 'T', '--model', 'x'], /Unknown option for add: --model/],
     [['add', 'Fix', 'login'], /Unexpected argument: Fix/],
+    [['add', '--title', 'T', '--after', 'the login task'], /--after takes a task id/],
   ];
   for (const [argv, message] of bad) assert.throws(() => parseArgs(argv), (e: Error) => e instanceof UsageError && message.test(e.message), argv.join(' '));
 });

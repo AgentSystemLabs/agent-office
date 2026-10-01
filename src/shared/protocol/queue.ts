@@ -33,6 +33,16 @@ export interface QueueTask {
   error?: string;
   /** The pull request that closes the issue, or was opened from the worker's branch. */
   pr?: { number: number; url: string; state: string; title: string };
+  /** What it waits for before it starts: each of these tasks' pull requests, and these pull requests, merged. */
+  after?: QueueAfter;
+  /** What it's still waiting for, in words (“PR #212”, ““Fix login””), as the office sees it now. Absent: nothing. */
+  waiting?: string[];
+}
+
+/** A queued task's prerequisites: other tasks on the queue, by id, and pull requests, by number. */
+export interface QueueAfter {
+  tasks: string[];
+  prs: number[];
 }
 
 export interface QueueState {
@@ -42,7 +52,8 @@ export interface QueueState {
 }
 
 export type QueueClientMsg =
-  | { t: 'queue.add'; prompt: string; title?: string; issue?: number; provider?: AgentProvider; model?: string; effort?: AgentEffort }
+  /** `after`: start only once those tasks' pull requests, and those pull requests, have merged. */
+  | { t: 'queue.add'; prompt: string; title?: string; issue?: number; provider?: AgentProvider; model?: string; effort?: AgentEffort; after?: Partial<QueueAfter> }
   | { t: 'queue.remove'; taskId: string }
   /** Move a queued task up (-1) or down (+1) the queue. */
   | { t: 'queue.move'; taskId: string; delta: number }

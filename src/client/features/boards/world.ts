@@ -298,7 +298,12 @@ export class QueueBoardTexture {
         const st = { starting: 'starting', idle: 'ready', working: 'working', needs_input: 'needs input ✋', done: 'done', exited: 'stopped', offline: 'asleep' }[w?.status ?? 'working'];
         return { icon: '🤖', text: name(t), side: `${t.workerName ?? 'a worker'} · ${st}`, color: '#1e8f4e' };
       }),
-      ...queued.map((t, i) => ({ icon: '⏳', text: name(t), side: i === 0 ? 'up next' : `${i + 1}${['th', 'st', 'nd', 'rd'][i + 1 <= 3 ? i + 1 : 0]} in line`, color: '#2b2d42' })),
+      ...queued.map((t, i) => ({
+        icon: '⏳',
+        text: name(t),
+        side: t.waiting?.length ? `after ${t.waiting[0]} merges` : i === 0 ? 'up next' : `${i + 1}${['th', 'st', 'nd', 'rd'][i + 1 <= 3 ? i + 1 : 0]} in line`,
+        color: t.waiting?.length ? '#8a8f98' : '#2b2d42',
+      })),
       ...done.map((t) => ({
         icon: t.outcome === 'done' ? '✅' : '⚠️',
         text: name(t),

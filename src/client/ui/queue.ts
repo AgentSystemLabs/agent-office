@@ -53,8 +53,20 @@ export function openQueue(net: Net, actions: QueueActions) {
 
   const ta = h('textarea', { rows: 2, placeholder: 'Describe a task for the next free worker…', 'aria-label': 'New task' }) as HTMLTextAreaElement;
   const provider = providerPicker(store.project, 'queue-provider');
+  // What a new task waits for: another task on the queue whose pull request has to merge first.
+  const after = h('select.queue-after', { 'aria-label': 'Start after', title: 'Start it by itself once that task’s pull request has merged' }) as HTMLSelectElement;
+  const fillAfter = () => {
+    const pick = after.value;
+    const pending = store.queue.tasks.filter((t) => t.status !== 'done' || (t.outcome === 'done' && t.pr && t.pr.state !== 'MERGED'));
+    after.replaceChildren(
+      h('option', { value: '' }, '▶ Start when there’s room'),
+      ...pending.map((t) => h('option', { value: t.id }, `⏳ After “${t.title.length > 40 ? `${t.title.slice(0, 39)}…` : t.title}” merges`)),
+    );
+    after.value = pending.some((t) => t.id === pick) ? pick : '';
+    after.classList.toggle('hidden', !pending.length);
+  };
   const addBtn = h('button.btn.primary', { type: 'submit' }, 'Add to queue');
-  const form = h('form.queue-add', {}, ta, provider.element, addBtn) as HTMLFormElement;
+  const form = h('form.queue-add', {}, ta, provider.element, after, addBtn) as HTMLFormElement;
   form.noValidate = true;
   const submit = () => {
     const text = ta.value.trim();
@@ -63,8 +75,9 @@ export function openQueue(net: Net, actions: QueueActions) {
       return;
     }
     if (!provider.valid()) return;
-    net.send({ t: 'queue.add', prompt: text, provider: provider.value(), model: provider.model(), effort: provider.effort() });
+    net.send({ t: 'queue.add', prompt: text, provider: provider.value(), model: provider.model(), effort: provider.effort(), ...(after.value ? { after: { tasks: [after.value] } } : {}) });
     ta.value = '';
+    after.value = '';
   };
   form.addEventListener('submit', (e) => {
     e.preventDefault();
@@ -118,6 +131,7 @@ export function openQueue(net: Net, actions: QueueActions) {
       const i = queued.indexOf(t);
       pos = String(i + 1);
       meta.push(`⚙️ ${providerLabel(t.provider, store.project)}${model}${usageSuffix(t.provider, w?.usage)}`);
+      if (t.waiting?.length) meta.push(`⏳ waits for ${t.waiting.join(', ')} to merge`);
       meta.push(`added by ${t.addedBy} ${timeAgo(t.addedAt)}`);
       buttons.push(h('button.btn', { type: 'button', title: 'Move up', 'aria-label': 'Move up', disabled: i === 0, onclick: () => net.send({ t: 'queue.move', taskId: t.id, delta: -1 }) }, '↑'));
       buttons.push(h('button.btn', { type: 'button', title: 'Move down', 'aria-label': 'Move down', disabled: i === queued.length - 1, onclick: () => net.send({ t: 'queue.move', taskId: t.id, delta: 1 }) }, '↓'));
@@ -135,7 +149,7 @@ export function openQueue(net: Net, actions: QueueActions) {
     }
     return h(
       'li',
-      { class: t.status },
+      { class: `${t.status}${t.waiting?.length ? ' waiting' : ''}` },
       pos ? h('span.pos', {}, pos) : null,
       h('div.queue-main', {}, taskTitle(t), h('div.queue-meta', {}, meta.join(' · '))),
       h('div.queue-actions', {}, ...buttons),
@@ -149,6 +163,7 @@ export function openQueue(net: Net, actions: QueueActions) {
   const render = () => {
     const q = store.queue;
     limitValue.textContent = q.maxWorkers === 0 ? 'Paused' : String(q.maxWorkers);
+    fillAfter();
     minus.toggleAttribute('disabled', q.maxWorkers <= 0);
     const running = q.tasks.filter((t) => t.status === 'running');
     const queued = q.tasks.filter((t) => t.status === 'queued');
@@ -162,7 +177,7 @@ export function openQueue(net: Net, actions: QueueActions) {
         h('b', {}, 'Add to queue'),
         ' on an issue. Whenever a desk is free and fewer than ',
         h('b', {}, q.maxWorkers === 0 ? '0' : String(q.maxWorkers)),
-        " of its tasks are running, the next task gets a fresh worker in its own git worktree (workers you hire yourself don't count). Issues are assigned on GitHub when they start, and the pull request is linked when it shows up.",
+        " of its tasks are running, the next task gets a fresh worker in its own git worktree (workers you hire yourself don't count). Issues are assigned on GitHub when they start, and the pull request is linked when it shows up. A task added to start after another waits until that one's pull request merges, then starts by itself.",
       ),
       queued.length && officeFull(m)
         ? h('p.note', {}, `⏸ The office is at its limit of ${m.limit} worker${m.limit === 1 ? '' : 's'}, so the next task waits until one goes home. A queue worker that's finished goes home by itself to make room.`)

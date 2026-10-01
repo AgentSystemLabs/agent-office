@@ -12,6 +12,7 @@
 .queue-add .provider-model input[type=text] { flex: 1 1 0; width: auto; min-width: 140px; padding: 6px 9px; border-width: 2px; border-radius: 9px; font-size: 13px; }
 .queue-add .provider-note, .queue-add .provider-model-hint { order: 2; flex: 1 1 100%; }
 .queue-add button[type=submit] { margin-left: auto; }
+.queue-add .queue-after { flex: 0 1 auto; min-width: 0; max-width: min(260px, 100%); text-overflow: ellipsis; padding: 6px 9px; border: 2px solid var(--ink); border-radius: 9px; background: #fff; color: var(--ink); font: inherit; font-size: 13px; font-weight: 800; }
 /* Too narrow for one line: each label and its picker take a row, so a label never ends up stranded from its picker. */
 @media (max-width: 640px) {
   .queue-add .provider-choice label { flex: 0 0 64px; margin-left: 0; }
@@ -25,6 +26,7 @@
 .queue-list li { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border: 3px solid var(--ink); border-radius: 14px; background: #fff; box-shadow: 0 3px 0 var(--ink); }
 .queue-list li.running { background: #e7f8ee; }
 .queue-list li.done { background: var(--paper-2); }
+.queue-list li.waiting { border-style: dashed; }
 .queue-list .pos { min-width: 24px; text-align: center; font-weight: 900; color: var(--muted); }
 .queue-main { flex: 1; min-width: 0; }
 .queue-title { font-weight: 900; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
