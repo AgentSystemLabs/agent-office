@@ -18,7 +18,7 @@ import type { Capacity } from '../machine.js';
 import { PROVIDERS, providerAdapter, titleNoise, type LaunchPlan, type ProviderFloor } from '../providers/index.js';
 import { launchAcp } from './acp.js';
 import { clockWork } from './clock.js';
-import { childEnv } from './env.js';
+import { childEnv, workerEnv } from './env.js';
 import { midTurn } from './lifecycle.js';
 import { restoreWorkers, saveWorkers } from './persist.js';
 import { WorkerPrs } from './pr.js';
@@ -667,7 +667,7 @@ export class WorkerManager {
     const plan: LaunchPlan = adapter ? adapter.launch({ h: this.handleOf(w), args: base, prompt, resumeSessionId, station, setup: this.setups[adapter.id] }) : { args: base };
     const { args } = plan;
     if (plan.rotateToken) w.hookToken = randomBytes(16).toString('hex');
-    const env = childEnv();
+    const env = workerEnv(this.dir);
     Object.assign(env, {
       TERM: 'xterm-256color',
       COLORTERM: 'truecolor',

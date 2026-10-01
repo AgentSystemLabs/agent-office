@@ -8,36 +8,47 @@ export const VAULT_MAX = 64 * 1024;
 const NAME = /^(?:export\s+)?([A-Za-z_][A-Za-z0-9_.-]*)\s*=(.*)$/;
 
 /**
- * The variables a .env file sets, in order (a name set twice counts once), or what's wrong with it:
- * every line is blank, a # comment or NAME=value, and a value in double or single quotes may run on
- * over more lines (a private key, say) until its closing quote.
+ * The variables a .env file sets, in order (a name set twice counts once, and its last value wins),
+ * or what's wrong with it: every line is blank, a # comment or NAME=value. A value in double quotes
+ * may use \n, \t and \" and, like one in single quotes (taken as it is), run on over more lines (a
+ * private key, say) until its closing quote. An unquoted value ends at a # after a space.
  */
-export function parseEnv(text: string): { keys: string[]; error?: string } {
-  if (text.length > VAULT_MAX) return { keys: [], error: `It's over ${VAULT_MAX / 1024} KB` };
+export function parseEnv(text: string): { keys: string[]; values: Record<string, string>; error?: string } {
   const keys: string[] = [];
+  const values: Record<string, string> = {};
+  if (text.length > VAULT_MAX) return { keys, values, error: `It's over ${VAULT_MAX / 1024} KB` };
   const lines = text.split(/\r?\n/);
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
     if (!line || line.startsWith('#')) continue;
     const m = NAME.exec(line);
-    if (!m) return { keys, error: `Line ${i + 1} isn't NAME=value` };
+    if (!m) return { keys, values, error: `Line ${i + 1} isn't NAME=value` };
     if (!keys.includes(m[1])) keys.push(m[1]);
-    const value = m[2].trim();
+    let value = m[2].trim();
     const q = value[0];
-    if ((q === '"' || q === "'") && !closes(value.slice(1), q)) {
-      const start = i;
-      while (++i < lines.length && !closes(lines[i], q));
-      if (i >= lines.length) return { keys, error: `The value on line ${start + 1} never closes its ${q}` };
+    if (q !== '"' && q !== "'") {
+      values[m[1]] = value.replace(/\s+#.*$/, '');
+      continue;
     }
+    value = value.slice(1);
+    const start = i;
+    let end = closeAt(value, q);
+    while (end < 0) {
+      if (++i >= lines.length) return { keys, values, error: `The value on line ${start + 1} never closes its ${q}` };
+      value += `\n${lines[i]}`;
+      end = closeAt(value, q);
+    }
+    value = value.slice(0, end);
+    values[m[1]] = q === "'" ? value : value.replace(/\\([nrt"\\])/g, (_, c: string) => ({ n: '\n', r: '\r', t: '\t' })[c] ?? c);
   }
-  return { keys };
+  return { keys, values };
 }
 
-/** Whether `rest` (what follows an opening quote) has its closing quote, not counting an escaped one. */
-function closes(rest: string, q: string): boolean {
+/** Where the closing quote is in `rest` (what follows an opening quote), not counting an escaped one; -1 when it isn't there. */
+function closeAt(rest: string, q: string): number {
   for (let i = 0; i < rest.length; i++) {
-    if (rest[i] === '\\') i++;
-    else if (rest[i] === q) return true;
+    if (rest[i] === '\\' && q === '"') i++;
+    else if (rest[i] === q) return i;
   }
-  return false;
+  return -1;
 }

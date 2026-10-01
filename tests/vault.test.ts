@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { parseEnv } from '../src/shared/vault.js';
 import { readVault, saveVault, STOCK_MARK, stocked } from '../src/server/vault.js';
+import { workerEnv } from '../src/server/workers/env.js';
 import { Worktrees } from '../src/server/worktrees.js';
 
 /** A floor's project: a git checkout that ignores .agent-office/, as the office sets them up. */
@@ -24,11 +25,12 @@ function project(t: { after(fn: () => void): void }) {
 const envOf = (at: string) => readFileSync(path.join(at, '.env'), 'utf8');
 
 test('parseEnv names the variables in a .env, and the line it cannot read', () => {
-  assert.deepEqual(parseEnv('# a comment\n\nAPI_TOKEN=abc\nexport DB_URL = "postgres://x"\nAPI_TOKEN=again\n'), { keys: ['API_TOKEN', 'DB_URL'] });
-  assert.deepEqual(parseEnv('KEY="-----BEGIN-----\nabc\n-----END-----"\nNEXT=1'), { keys: ['KEY', 'NEXT'] });
+  assert.deepEqual(parseEnv('# a comment\n\nAPI_TOKEN=abc\nexport DB_URL = "postgres://x"\nAPI_TOKEN=again # the new one\n'), { keys: ['API_TOKEN', 'DB_URL'], values: { API_TOKEN: 'again', DB_URL: 'postgres://x' } });
+  assert.deepEqual(parseEnv('KEY="-----BEGIN-----\nabc\n-----END-----"\nNEXT=1'), { keys: ['KEY', 'NEXT'], values: { KEY: '-----BEGIN-----\nabc\n-----END-----', NEXT: '1' } });
+  assert.deepEqual(parseEnv(`A="line\\nnext \\"q\\""\nB='as \\n is'\nC=has#hash`).values, { A: 'line\nnext "q"', B: 'as \\n is', C: 'has#hash' });
   assert.equal(parseEnv('just some words').error, "Line 1 isn't NAME=value");
   assert.equal(parseEnv('A=1\nB="never closed\nC=3').error, 'The value on line 2 never closes its "');
-  assert.deepEqual(parseEnv(''), { keys: [] });
+  assert.deepEqual(parseEnv(''), { keys: [], values: {} });
 });
 
 test('a new worktree gets the safe as its .env, and git ignores it', (t) => {
@@ -76,4 +78,15 @@ test('the safe turns down what is not a .env file', (t) => {
   assert.deepEqual(saveVault(dir, 'oops\n', 'Ada'), { error: "Line 1 isn't NAME=value" });
   assert.equal(readVault(dir), undefined);
   assert.equal(existsSync(path.join(dir, '.env')), false);
+});
+
+test("a worker starts with the safe's variables in its environment, but not over the office's own", (t) => {
+  const { dir } = project(t);
+  assert.equal(workerEnv(dir).API_TOKEN, undefined);
+  saveVault(dir, 'API_TOKEN="a b"\nPATH=/nowhere\nHOME=/tmp\nAGENT_OFFICE_WORKER_ID=x\n', 'Ada');
+  const env = workerEnv(dir);
+  assert.equal(env.API_TOKEN, 'a b');
+  assert.equal(env.PATH, process.env.PATH);
+  assert.equal(env.HOME, process.env.HOME);
+  assert.equal(env.AGENT_OFFICE_WORKER_ID, undefined);
 });

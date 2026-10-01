@@ -41,7 +41,7 @@ export function openVault(deps: VaultDeps) {
       return;
     }
     body.append(
-      h('p.vault-note', {}, 'Whatever is in here is written as ', h('code', {}, '.env'), " into every worker's worktree on this floor, and the floor's own checkout, so their dev servers and previews have the keys they need. Git is told to ignore it, and a ", h('code', {}, '.env'), ' a project already has is left alone.'),
+      h('p.vault-note', {}, 'Whatever is in here is written as ', h('code', {}, '.env'), " into every worker's worktree on this floor, and the floor's own checkout, so their dev servers and previews have the keys they need. Git is told to ignore it, and a ", h('code', {}, '.env'), ' a project already has is left alone. Every worker on the floor also starts with them as environment variables (one already at work gets changes when it next starts).'),
     );
     if (draft === undefined) {
       const list = h('ul.vault-keys');

@@ -7,7 +7,8 @@ import { parseEnv } from '../shared/vault.js';
 // token, a database URL), kept in the floor's .agent-office/vault.json where only the office's user
 // can read it. The office writes it as .env into every worktree it makes for a worker, and into the
 // floor's own checkout, so `npm run dev` there finds what it needs and the preview works. Git is
-// told to ignore that .env, so a worker can't commit it by mistake.
+// told to ignore that .env, so a worker can't commit it by mistake. Each worker also starts with
+// them in its environment (see workerEnv in workers/env.ts).
 //
 // A .env the safe wrote starts with STOCK_MARK, and it's rewritten (or taken away) when the safe
 // changes. One that doesn't, the project's own or one someone wrote by hand, is never touched.
@@ -33,6 +34,12 @@ export function readVault(dir: string): Saved | undefined {
   } catch {
     return undefined;
   }
+}
+
+/** The variables in floor `dir`'s safe, by name, for a worker's environment (see workerEnv). */
+export function vaultEnv(dir: string): Record<string, string> {
+  const saved = readVault(dir);
+  return saved ? parseEnv(saved.text).values : {};
 }
 
 /**
