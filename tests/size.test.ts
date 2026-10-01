@@ -28,7 +28,7 @@ const CEILINGS: Readonly<Record<string, number>> = {
   'src/client/features/workers/sendhome.ts': 718,
   'src/client/world/holiday.ts': 702,
   'src/client/features/dog/world.ts': 702,
-  'src/client/world/character/person.ts': 699,
+  'src/client/world/character/person.ts': 694,
   'src/server/signins.ts': 660,
   'src/client/dnb.ts': 641,
   'src/client/features/golf/world.ts': 635,

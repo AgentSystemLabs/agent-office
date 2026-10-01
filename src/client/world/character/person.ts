@@ -8,10 +8,11 @@ import { HIPS, type PersonRig } from './rig';
 import { axeModel, dartModel } from '../../features/bargames/world';
 import { OpenBook } from '../../features/bookshelf/book';
 import { HeldCard } from '../../features/carrying/card';
-import { UNDEAD_SKIN, santaHat, warlockHat } from '../costumes';
+import { UNDEAD_SKIN } from '../costumes';
+import { HolidayOutfit } from './person-outfit';
 import { disposeSprite, mesh, textSprite, toon, toonUnique } from '../toon';
 import { EXHALE_AT, REACH_TIME, SMOKE_CYCLE, dragCurve, reachCurve } from './curves';
-import { cigarette, coffeeMug, drinkGlass, putDownGlass, undress } from './props';
+import { cigarette, coffeeMug, drinkGlass, putDownGlass } from './props';
 import { styleHair } from './person-hair';
 import { clubSwing, strike, swingStep, type Golf } from './person-golf';
 import { propPosition, throwStep, type Oche } from './person-throw';
@@ -110,9 +111,9 @@ export class Person {
    * `top`) or taking it back all by itself first (`autoT`), and how long until the next is in hand.
    */
   private oche: Oche | null = null;
-  /** Dressed up for a holiday (see setCostume): a warlock's hat and undead skin, or a Santa hat. */
+  /** Dressed up for a holiday (see setCostume), and what they've got on for it. */
   private costume: Theme | null = null;
-  private hat: THREE.Object3D[] = [];
+  private outfit?: HolidayOutfit;
   /** A hand on someone's shoulder, marching them along (see holdOn). */
   private gripping = false;
   /** Something they're saying (see say), and for how many more seconds. */
@@ -232,17 +233,11 @@ export class Person {
     this.dress();
   }
 
-  /** Dresses up for a holiday: a crooked warlock's hat and undead skin for Halloween, a Santa hat for Christmas. Null takes it off. */
+  /** Dresses up for a holiday, head to toe (see person-outfit.ts), with undead skin for Halloween. Null takes it off. */
   setCostume(theme: Theme | null) {
     if (theme === this.costume) return;
     this.costume = theme;
-    undress(this.hat);
-    const hat = theme === 'halloween' ? warlockHat() : theme === 'christmas' ? santaHat() : null;
-    if (hat) {
-      hat.traverse((o) => ((o as THREE.Mesh).castShadow = true));
-      this.head.add(hat);
-      this.hat.push(hat);
-    }
+    (this.outfit ??= new HolidayOutfit(this.rig)).set(theme);
     this.dress();
   }
 
