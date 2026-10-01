@@ -1,4 +1,4 @@
-import type { AccountsState, ApprovalsState, ChatLine, FloorInfo, FloorView, GhIssue, GhPull, GhState, JailState, LeaveOnMergeState, MachineState, MaintenanceIssues, MaintenanceStack, MapState, MeetingState, NotifyState, PeerInfo, PlanLimits, Me, ProjectInfo, ProjectsDirState, PromptsState, QueueState, QueueTask, RepoChoice, ServerMsg, ServicesState, SignInsState, SkyState, TeamState, ThemeState, UpgradeState, Usage, UsageState, WorkerInfo } from '../shared/protocol';
+import type { ArchivedPresentation, AccountsState, ApprovalsState, ChatLine, FloorInfo, FloorView, GhIssue, GhPull, GhState, JailState, LeaveOnMergeState, MachineState, MaintenanceIssues, MaintenanceStack, MapState, MeetingState, NotifyState, PeerInfo, PlanLimits, Me, ProjectInfo, ProjectsDirState, PromptsState, QueueState, QueueTask, RepoChoice, ServerMsg, ServicesState, SignInsState, SkyState, TeamState, ThemeState, UpgradeState, Usage, UsageState, WorkerInfo } from '../shared/protocol';
 import type { ScreenState } from './world/laptop';
 import { randomLook, sanitizeLook, type Look } from '../shared/avatar';
 import type { Decoration } from '../shared/decor';
@@ -171,6 +171,7 @@ class Store {
   profile: Profile = { name: 'Guest', color: AVATAR_COLORS[1], look: randomLook() };
   peers = new Map<string, PeerInfo>();
   workers = new Map<string, WorkerInfo>();
+  presentations: ArchivedPresentation[] = [];
   screens = new Map<string, ScreenState>();
   project: ProjectInfo | null = null;
   /** Every floor of the building, and the one you're on (null while there are none). */
@@ -306,6 +307,7 @@ class Store {
 
   /** Everything on the floor you just arrived on, in place of the last one's. */
   private enter(v: FloorView) {
+    this.presentations = v.presentations ?? [];
     this.floor = v.floor;
     rememberFloor(v.floor);
     this.project = v.project;
@@ -415,6 +417,10 @@ class Store {
       case 'peer.leave':
         this.peers.delete(msg.id);
         this.emit('peers');
+        break;
+      case 'presentations':
+        this.presentations = msg.items;
+        this.emit('workers');
         break;
       case 'worker.update':
         this.workers.set(msg.worker.id, msg.worker);

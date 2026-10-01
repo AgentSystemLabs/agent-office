@@ -4545,7 +4545,9 @@ artifactCanvas.width = 1280; artifactCanvas.height = 720;
 const artifactTexture = new THREE.CanvasTexture(artifactCanvas);
 artifactTexture.colorSpace = THREE.SRGBColorSpace;
 function presentations() {
-  return [...store.workers.values()].filter(w => w.presentation).sort((a, b) => b.presentation!.at - a.presentation!.at);
+  const archived = store.presentations;
+  const legacy = [...store.workers.values()].filter(w => w.presentation && !archived.some(a => a.workerId === w.id && a.presentation.at === w.presentation!.at));
+  return [...archived, ...legacy].sort((a, b) => b.presentation!.at - a.presentation!.at);
 }
 function refreshPresentations() {
   const items = presentations();
@@ -4582,12 +4584,17 @@ function openTVRemote() {
   const content = h('div.body.tv-remote-body');
   const el = h('div.modal.tv-remote', { role: 'dialog', 'aria-label': 'TV remote' },
     h('header', {}, h('h2', {}, '📺 TV remote'), close), content);
-  const modal = openModal(el, { doing: '📺 browsing presentations' });
+  let refreshTimer: ReturnType<typeof setInterval>;
+  const modal = openModal(el, { doing: '📺 browsing presentations', onClose: () => {
+    clearInterval(refreshTimer);
+    if (document.fullscreenElement === el) void document.exitFullscreen().catch(() => {});
+  } });
   close.onclick = () => modal.close();
+  let query = '';
   const render = () => {
     const items = presentations(); const w = items[presentationIndex];
     const screen = h('button.btn', { onclick: () => { tvChannel = 'screen'; refreshPresentations(); modal.close(); watchScreenShare(); } }, '🖥 Screen sharing');
-    const channel = h('button.btn', { 'aria-pressed': String(tvChannel === 'artifacts'), onclick: () => { tvChannel = 'artifacts'; refreshPresentations(); render(); } }, '🎨 Worker showcase');
+    const channel = h('button.btn', { 'aria-pressed': String(tvChannel === 'artifacts'), onclick: () => { tvChannel = 'artifacts'; refreshPresentations(); render(); } }, '🗂 Artifact archive');
     const previous = h('button.btn', { onclick: () => { presentationIndex = (presentationIndex - 1 + items.length) % items.length; refreshPresentations(); render(); } }, '◀ Previous');
     const next = h('button.btn', { onclick: () => { presentationIndex = (presentationIndex + 1) % items.length; refreshPresentations(); render(); } }, 'Next ▶');
     previous.disabled = next.disabled = items.length < 2;
@@ -4595,14 +4602,46 @@ function openTVRemote() {
       h('div.tv-remote-channels', {}, screen, channel),
       h('div.tv-remote-navigation', {}, previous, h('span.tv-remote-count', {}, items.length ? `${presentationIndex + 1} / ${items.length}` : '0 / 0'), next)));
     if (!w) { content.append(h('p', {}, 'Completed worker presentations will appear here automatically.')); return; }
-    content.append(h('div.tv-remote-description', {}, h('h2', {}, w.presentation!.title), h('p', {}, `${w.name}: ${w.presentation!.summary}`)));
+    const layout = h('div.tv-archive-layout');
+    const sidebar = h('aside.tv-archive-sidebar', { 'aria-label': 'Archived artifacts' });
+    const search = h('input', { type: 'search', placeholder: 'Search artifacts…', value: query, 'aria-label': 'Search artifacts' }) as HTMLInputElement;
+    const list = h('div.tv-archive-list');
+    const populate = () => {
+      list.replaceChildren();
+      items.forEach((item, index) => {
+        if (!(item.presentation!.title + ' ' + item.name + ' ' + item.presentation!.summary).toLowerCase().includes(query.toLowerCase())) return;
+        list.append(h('button.tv-archive-item', { 'aria-pressed': String(index === presentationIndex), onclick: () => { presentationIndex = index; tvChannel = 'artifacts'; refreshPresentations(); render(); } },
+          h('strong', {}, item.presentation!.title), h('small', {}, item.name + ' · ' + new Date(item.presentation!.at).toLocaleString())));
+      });
+      if (!list.childElementCount) list.append(h('p', {}, 'No matching artifacts.'));
+    };
+    search.oninput = () => { query = search.value; populate(); };
+    populate(); sidebar.append(search, list);
+    const viewer = h('section.tv-archive-viewer');
+    layout.append(sidebar, viewer); content.append(layout);
+    viewer.append(h('div.tv-remote-description', {}, h('h2', {}, w.presentation!.title), h('p', {}, `${w.name}: ${w.presentation!.summary}`)));
     const frame = document.createElement('iframe');
     frame.title = w.presentation!.title; frame.setAttribute('sandbox', 'allow-scripts allow-popups allow-popups-to-escape-sandbox');
     frame.className = 'tv-remote-artifact';
     frame.srcdoc = `<base target="_blank"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; connect-src 'none';">` + w.presentation!.html;
-    content.append(frame);
+    const context = h('div.tv-remote-channels');
+    for (const link of w.presentation!.links ?? []) context.append(h('a.btn', { href: link.url, target: '_blank', rel: 'noopener noreferrer' }, link.label));
+    if (!context.childElementCount) context.append(h('span', {}, 'No PR / issue linked'));
+    const fullscreen = h('button.btn', { onclick: async () => {
+      try {
+        if (document.fullscreenElement) await document.exitFullscreen();
+        else await el.requestFullscreen();
+      } catch { fullscreen.textContent = 'Fullscreen unavailable'; }
+    } }, '⛶ Fullscreen');
+    const reload = h('button.btn', { onclick: () => { frame.srcdoc = frame.srcdoc; } }, '↻ Reload');
+    viewer.append(context, h('div.tv-remote-channels', {}, fullscreen, reload), frame);
   };
   render();
+  let archiveKey = presentations().map(w => w.id + JSON.stringify(w.presentation!.links)).join('|');
+  refreshTimer = setInterval(() => {
+    const key = presentations().map(w => w.id + JSON.stringify(w.presentation!.links)).join('|');
+    if (key !== archiveKey) { archiveKey = key; render(); }
+  }, 1000);
 }
 setInterval(refreshPresentations, 1000);
 

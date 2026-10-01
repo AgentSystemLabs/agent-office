@@ -756,6 +756,7 @@ export async function startServer(cfg: Config) {
     floor: floor?.id ?? null,
     project: floor?.project ?? null,
     workers: floor?.workers.list() ?? [],
+    presentations: floor?.presentations.items ?? [],
     issues: floor?.github.issues ?? { items: [], fetchedAt: 0, loading: false },
     pulls: floor?.github.pulls ?? { items: [], fetchedAt: 0, loading: false },
     queue: floor?.queue.state() ?? { tasks: [], maxWorkers: 0 },

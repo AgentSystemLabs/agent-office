@@ -1,3 +1,4 @@
+import { PresentationArchive } from './presentations.js';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
@@ -113,6 +114,7 @@ export class Floor {
   readonly dir: string;
   readonly project: ProjectInfo;
   readonly workers: WorkerManager;
+  readonly presentations: PresentationArchive;
   readonly github: GitHub;
   readonly queue: TaskQueue;
   readonly changes: Changes;
@@ -155,6 +157,7 @@ export class Floor {
     this.project = projectInfo(def.dir, def.name, ctx.agentCmd, ctx.agentArgs);
     this.docs = new Docs(def.dir);
     // Before the workers and the dog: the back office's desks are only there once it's built.
+    this.presentations = new PresentationArchive(dataDir);
     this.plan = new FloorPlanStore(dataDir);
     this.jail = new Jail(dataDir);
 
@@ -174,6 +177,11 @@ export class Floor {
       ctx.hook,
       {
         update: (worker) => {
+          const links = worker.pr ? [{ label: 'PR #' + worker.pr.number, url: worker.pr.url }] : [];
+          const task = this.queue?.state().tasks.find(t => t.workerId === worker.id && t.issue);
+          const issue = this.github?.issues.items.find(i => i.number === task?.issue);
+          if (issue) links.push({ label: 'Issue #' + issue.number, url: issue.url });
+          if (this.presentations.capture(worker, links)) ctx.emit(this, { t: 'presentations', items: this.presentations.items });
           ctx.emit(this, { t: 'worker.update', worker });
           // Still being built: the first updates come from waking the workers already at their desks.
           this.queue?.onWorker(worker);

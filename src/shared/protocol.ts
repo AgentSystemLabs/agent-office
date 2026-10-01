@@ -80,7 +80,8 @@ export interface WorkerTask {
   summary: string;
 }
 
-export interface Presentation { title: string; summary: string; html: string; at: number }
+export interface Presentation { title: string; summary: string; html: string; at: number; links?: { label: string; url: string }[] }
+export interface ArchivedPresentation { id: string; workerId: string; name: string; presentation: Presentation }
 
 export interface WorkerInfo {
   presentation?: Presentation;
@@ -774,6 +775,7 @@ export interface FloorView {
   floor: string | null;
   project: ProjectInfo | null;
   workers: WorkerInfo[];
+  presentations?: ArchivedPresentation[];
   issues: GhState<GhIssue>;
   pulls: GhState<GhPull>;
   queue: QueueState;
@@ -1406,6 +1408,7 @@ export type ServerMsg =
   /** Someone up on the roof threw a dart or an axe (see the client's 'toss'). */
   | { t: 'toss'; id: string; game: BarGame; u: number; v: number; stick: boolean; n: number }
   | { t: 'peer.emote'; id: string; emote: EmoteId }
+  | { t: 'presentations'; items: ArchivedPresentation[] }
   | { t: 'worker.update'; worker: WorkerInfo }
   /** A worker's gone; `jail`, when it was sent home on a map that locks workers up (MapPlan.sendHome), with it in there now. */
   | { t: 'worker.remove'; workerId: string; jail?: JailState }
