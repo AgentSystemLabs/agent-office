@@ -65,7 +65,11 @@ export type DogClientMsg =
   /** Give the dog on your floor a pat; it has to be within reach. */
   | { t: 'dog.pet' }
   /** Name the dog on your floor ('' gives it back its first name). */
-  | { t: 'dog.name'; name: string };
+  | { t: 'dog.name'; name: string }
+  /** Make the dog on your floor another breed (one of DOG_BREEDS). */
+  | { t: 'dog.breed'; breed: string }
+  /** Give the dog on your floor another coat (an index into DOG_COATS). */
+  | { t: 'dog.coat'; coat: number };
 
 export type ToysServerMsg =
   | { t: 'decor'; items: Decoration[] }

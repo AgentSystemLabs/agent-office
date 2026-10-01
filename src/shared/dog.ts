@@ -34,8 +34,17 @@ export const DOG_NAME_MAX = 24;
 export const DOG_NAMES = ['Biscuit', 'Pancake', 'Peanut', 'Pepper', 'Cookie', 'Bagel', 'Ziggy', 'Pretzel', 'Maple', 'Scout'];
 
 /** A floor's dog is one of these, each its own model (dog-<breed>.glb) with the same rig and clips. */
-export const DOG_BREEDS = ['pup', 'corgi', 'dachshund', 'pug', 'shiba'] as const;
+export const DOG_BREEDS = ['pup', 'corgi', 'dachshund', 'pug', 'shiba', 'pomeranian'] as const;
 export type DogBreed = (typeof DOG_BREEDS)[number];
+/** What ⚙️ Settings calls each breed. */
+export const DOG_BREED_NAMES: Record<DogBreed, string> = { pup: '🐶 Pup', corgi: '🦊 Corgi', dachshund: '🌭 Dachshund', pug: '🐾 Pug', shiba: '🍂 Shiba', pomeranian: '🧸 Pomeranian' };
+
+/**
+ * The breeds a floor's dog is dealt from its id (see dogDefaults): the ones there were when floors first
+ * got breeds, so a floor's dog doesn't turn into another one when a breed is added. Any breed can be
+ * picked in ⚙️ Settings.
+ */
+const DEALT: readonly DogBreed[] = ['pup', 'corgi', 'dachshund', 'pug', 'shiba'];
 
 /** A breed as the office sent it, or the pup when there's none (an older office) or it's one this page doesn't know (a newer one). */
 export function dogBreed(breed: unknown): DogBreed {
@@ -50,7 +59,19 @@ export const DOG_COATS: [string, string, string][] = [
   ['#f3dcb0', '#fffaf0', '#d9a066'], // cream
   ['#a4acb6', '#f4f6f8', '#6f7884'], // grey
   ['#cf6a45', '#fbe1d2', '#9c4527'], // red
+  ['#ffffff', '#ffffff', '#f3e9e2'], // white
 ];
+/** What ⚙️ Settings calls each coat, in DOG_COATS's order. */
+export const DOG_COAT_NAMES = ['Golden', 'Black and white', 'Chocolate', 'Cream', 'Grey', 'Red', 'White'];
+
+/**
+ * How much of its own colour each coat gives off, so a pale one stays pale in the office's warm light
+ * and at dusk rather than going beige (the others are as the light makes them).
+ */
+export const DOG_COAT_GLOW: readonly number[] = [0, 0, 0, 0, 0, 0, 0.42];
+
+/** How many coats a floor's dog is dealt from (see dogDefaults): the ones there were, so none changes colour when one is added. */
+const DEALT_COATS = 6;
 
 /** Once it gets to a desk whose worker needs input, it barks this often... */
 export const BARK_EVERY_S = 14;
@@ -67,7 +88,7 @@ export function dogDefaults(floorId: string): { name: string; coat: number; bree
   let h = 0;
   for (const ch of floorId) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
   const stirred = Math.imul(h ^ (h >>> 16), 0x45d9f3b) >>> 0;
-  return { name: DOG_NAMES[h % DOG_NAMES.length], coat: (h >>> 8) % DOG_COATS.length, breed: DOG_BREEDS[(stirred >>> 16) % DOG_BREEDS.length] };
+  return { name: DOG_NAMES[h % DOG_NAMES.length], coat: (h >>> 8) % DEALT_COATS, breed: DEALT[(stirred >>> 16) % DEALT.length] };
 }
 
 /** Takes control characters out and trims to DOG_NAME_MAX; '' when nothing's left. */

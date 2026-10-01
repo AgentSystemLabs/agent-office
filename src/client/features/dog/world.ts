@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { BARK_EVERY_S, BARK_FOR_S, DOG_COATS, dogAt, dogBreed, legSeconds, type DogAct, type DogBreed, type DogState } from '../../../shared/dog';
+import { BARK_EVERY_S, BARK_FOR_S, DOG_COATS, DOG_COAT_GLOW, dogAt, dogBreed, legSeconds, type DogAct, type DogBreed, type DogState } from '../../../shared/dog';
 import type { Theme } from '../../../shared/protocol';
 import { dogAntlers, dogBatWings, dogRedNose, dogScarf, dogWitchHat } from '../../world/costumes';
 import { loadModel, type Model } from '../../world/models';
@@ -236,7 +236,8 @@ export class Dog {
     if (breed !== this.wants) this.wear(breed);
     if (state.coat !== this.coat) {
       this.coat = state.coat;
-      DOG_COATS[state.coat % DOG_COATS.length].forEach((c, i) => this.coatMats[i].color.set(c));
+      const coat = state.coat % DOG_COATS.length;
+      DOG_COATS[coat].forEach((c, i) => this.coatMats[i].color.set(c) && this.coatMats[i].emissive.set(c).multiplyScalar(DOG_COAT_GLOW[coat] ?? 0));
     }
     if (state.name !== this.tagName) this.setTag(state.name);
     this.arriveAt = start + legSeconds(state) * 1000;
