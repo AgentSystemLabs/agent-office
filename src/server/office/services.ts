@@ -99,7 +99,7 @@ export function createServices(ctx: Ctx): BuildingServices {
   };
 
   // Slack / Discord pings for workers that need input or finish (set from ⚙️ Settings or --webhook).
-  const webhook = new Webhook(cfg.dataDir, (workerId) => (workerId && ctx.workerFloor(workerId)?.def.name) || ctx.officeName, (state) => ctx.broadcast({ t: 'notify', state }));
+  const webhook = new Webhook(cfg.dataDir, (workerId) => (workerId && ctx.workerFloor(workerId)?.def.name) || ctx.officeName(), (state) => ctx.broadcast({ t: 'notify', state }));
   if (cfg.webhook !== undefined) {
     const err = webhook.set(cfg.webhook, L.srv.commandLine);
     if (err) console.error(`agent-office: --webhook: ${err}`);

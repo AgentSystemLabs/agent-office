@@ -40,7 +40,6 @@ const API_KEY = /^sk-ant-api/;
 /** ghp_…, github_pat_…, gho_… and the like. */
 const GITHUB_TOKEN = /^[A-Za-z0-9_]{20,255}$/;
 const ACCOUNT_ID = /^[A-Za-z0-9]{6,64}$/;
-const HELP_WHERE = L.srvSignin.where;
 
 interface Saved {
   /** Unset: its own login, in its folder. A token pasted from `claude setup-token` (or an API key). The office machine's own (admins). */
@@ -113,8 +112,8 @@ export class SignIns {
   /** What to tell someone who needs `which` signed in first. */
   why(which: SignInKind): string {
     return which === 'claude'
-      ? L.srvSignin.claudeFirst(HELP_WHERE)
-      : L.srvSignin.githubFirst(HELP_WHERE);
+      ? L.srvSignin.claudeFirst(L.srvSignin.where)
+      : L.srvSignin.githubFirst(L.srvSignin.where);
   }
 
   /**

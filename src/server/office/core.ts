@@ -30,7 +30,7 @@ export function createCore(ctx: Ctx, cfg: Config, publicDir: string): Core {
     if (first) ctx.toastFloor(ctx.floors.get(first.floor), L.srv.highScore(first.score.name, scoreText(first.score.score)));
   });
   /** What the office is called where it has no project of its own to go by (webhooks, invites). */
-  const officeName = cfg.project ? path.basename(cfg.project) : L.srv.theOffice;
+  const officeName = () => (cfg.project ? path.basename(cfg.project) : L.srv.theOffice);
   // The model lists come from the provider's own CLI: the office's --agent when it's that one.
   const cli = (provider: AgentProvider) => {
     const command = providerCommand(provider, cfg.agentCmd);

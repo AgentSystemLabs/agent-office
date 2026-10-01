@@ -47,7 +47,7 @@ export interface Core {
   highScores: HighScores;
   arcade: Arcade;
   /** What the office is called where it has no project of its own to go by (webhooks, invites). */
-  officeName: string;
+  officeName(): string;
   openCodeModels: OpenCodeModelCatalogue;
   grokModels: GrokModelCatalogue;
   /** The building: a floor per project, each with its own workers, boards and queue. */

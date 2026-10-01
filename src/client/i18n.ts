@@ -8,11 +8,9 @@ const KEY = 'agent-office-lang';
 
 function pickLocale(): Locale {
   try {
+    // For this page only: a shared link with ?lang= doesn't change what its reader picked for themselves.
     const asked = matchLocale(new URLSearchParams(location.search).get('lang') ?? undefined);
-    if (asked) {
-      localStorage.setItem(KEY, asked);
-      return asked;
-    }
+    if (asked) return asked;
     const saved = matchLocale(localStorage.getItem(KEY) ?? undefined);
     if (saved) return saved;
   } catch {

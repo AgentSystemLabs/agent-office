@@ -7,8 +7,6 @@ import { clientIp, isSecure, readBody, send } from '../util.js';
 import type { Route } from '../router.js';
 import { L } from '../../i18n.js';
 
-const TOO_MANY_ATTEMPTS = L.srv.tooMany;
-
 /**
  * A password, claim-token or invite guess: counts it against the IP, then reads the small JSON
  * body. Undefined once it has already answered (rate limited, or a bad body).
@@ -16,7 +14,7 @@ const TOO_MANY_ATTEMPTS = L.srv.tooMany;
 async function readGuess(ctx: Ctx, req: http.IncomingMessage, res: http.ServerResponse): Promise<{ ip: string; body: Record<string, unknown> } | undefined> {
   const ip = clientIp(req, ctx.cfg.trustProxy);
   // Counted before the body is read, so parallel guesses can't all slip under the limit.
-  if (!ctx.auth.allowAttempt(ip)) return void send(res, 429, { error: TOO_MANY_ATTEMPTS });
+  if (!ctx.auth.allowAttempt(ip)) return void send(res, 429, { error: L.srv.tooMany });
   try {
     const body = JSON.parse(await readBody(req, 4096));
     if (body && typeof body === 'object') return { ip, body };
@@ -62,7 +60,7 @@ async function join(ctx: Ctx, req: http.IncomingMessage, res: http.ServerRespons
   const invite = accounts.findInvite(token);
   if (!invite) return send(res, 410, { error: L.srv.inviteExpired });
   auth.recordSuccess(guess.ip);
-  if (guess.body.peek === true) return send(res, 200, { name: invite.name, role: invite.role, by: invite.createdBy, project: ctx.officeName });
+  if (guess.body.peek === true) return send(res, 200, { name: invite.name, role: invite.role, by: invite.createdBy, project: ctx.officeName() });
   const r = await accounts.join(token, str(guess.body.name, 64), str(guess.body.password, 1024));
   if (typeof r === 'string') return send(res, 400, { error: r });
   console.log(`  ${L.srv.joined(r.name, r.createdBy)}`);
