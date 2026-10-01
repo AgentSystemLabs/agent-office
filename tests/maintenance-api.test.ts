@@ -43,6 +43,12 @@ else if (a[0] === 'issue' && a[1] === 'create') {
 else if(a[0] === 'issue' && a[1] === 'list' && a.includes('open') && fs.existsSync(${JSON.stringify(path.join(root, 'created.json'))})) console.log(JSON.stringify([{number:7,title:'Capture this idea',state:'OPEN',url:'https://github.com/fork/agent-office/issues/7',labels,assignees:[]} ]));
 else console.log('[]');
 `); chmodSync(cli, 0o755);
+  const codex = path.join(root, 'codex');
+  writeFileSync(codex, `#!${process.execPath}
+const fs = require('node:fs');
+fs.writeFileSync(${JSON.stringify(path.join(root, 'draft-args.json'))}, JSON.stringify(process.argv.slice(2)));
+console.log(JSON.stringify({title:'Improve captured idea',body:'## Scope\\nGrounded technical context.\\n## Acceptance criteria\\nVerify behavior.'}));
+`); chmodSync(codex, 0o755);
   const before = { PATH: process.env.PATH, AGENT_OFFICE_SOURCE: process.env.AGENT_OFFICE_SOURCE };
   process.env.PATH = `${root}${path.delimiter}${before.PATH}`; process.env.AGENT_OFFICE_SOURCE = source;
   let office: Awaited<ReturnType<typeof startServer>> | undefined;
@@ -75,6 +81,11 @@ else console.log('[]');
   assert.equal((await created.json()).number, 7);
   const sent = JSON.parse(readFileSync(path.join(root, 'created.json'), 'utf8'));
   assert.ok(sent.args.includes('fork/agent-office'));
+  assert.equal(sent.title, 'Improve captured idea');
+  assert.match(sent.args[sent.args.indexOf('--body') + 1], /Acceptance criteria/);
+  const draftArgs = JSON.parse(readFileSync(path.join(root, 'draft-args.json'), 'utf8'));
+  assert.equal(draftArgs[draftArgs.indexOf('--model') + 1], 'gpt-6-luna');
+  assert.equal(draftArgs[draftArgs.indexOf('--sandbox') + 1], 'read-only');
   const work = await (await fetch(`${base}/api/maintenance/chat`, { headers: { cookie } })).json();
   assert.equal(work.worker, undefined);
   assert.equal(work.work[0].status, 'queued'); assert.equal(work.work[0].number, 7);

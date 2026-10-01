@@ -31,7 +31,7 @@ export function openMaintenanceIssueCreate(saved: () => void) {
   try { const draft = JSON.parse(localStorage.getItem(draftKey) ?? 'null'); if (draft) { title.value = typeof draft.title === 'string' ? draft.title : ''; description.value = typeof draft.body === 'string' ? draft.body : ''; queue.checked = draft.queue !== false; images.set(Array.isArray(draft.attachments) ? draft.attachments.filter((i: MaintenanceAttachment) => i && /^[a-f0-9-]{36}$/.test(i.id)) : []); updateLabel(); } } catch { /* Storage unavailable. */ }
   const form = h('form.modal.maintenance-issue-create', { role: 'dialog', 'aria-label': 'Create maintenance issue' },
     h('header', {}, h('h2', {}, 'Capture an idea')),
-    h('div.body', {}, h('p', {}, `Creates an issue in ${store.maintenanceIssues.repo ?? 'Agent Office’s repository'}. Maintenance keeps working on its current task.`), error, title, description, images.element,
+    h('div.body', {}, h('p', {}, `Creates an issue in ${store.maintenanceIssues.repo ?? 'Agent Office’s repository'}. A small model (gpt-6-luna) reads the office source and crafts a technical issue from your idea. Maintenance keeps working on its current task.`), error, title, description, images.element,
       h('label', {}, queue, ' Add to the Maintenance queue'), h('p.setting-note', {}, 'Start queued work when the agent is free. Screenshots stay with the queued item in the office; they are not published to GitHub.')),
     h('footer', {}, submit));
   images.bind(form);
@@ -39,10 +39,10 @@ export function openMaintenanceIssueCreate(saved: () => void) {
   form.addEventListener('submit', e => {
     e.preventDefault(); if (sending || images.uploading || !title.value.trim()) return;
     if (!queue.checked && images.images.length) { showError('Keep “Add to the Maintenance queue” checked to retain screenshot evidence with this issue.'); return; }
-    sending = true; submit.disabled = true; title.disabled = description.disabled = queue.disabled = true; images.disable(true); showError('');
+    sending = true; submit.textContent = 'Crafting issue…'; submit.disabled = true; title.disabled = description.disabled = queue.disabled = true; images.disable(true); showError('');
     void maintenancePost('/api/maintenance/issue', { title: title.value, body: description.value, queue: queue.checked, attachments: images.images.map(i => i.id) })
       .then(() => { completed = true; try { localStorage.removeItem(draftKey); } catch { /* Storage unavailable. */ } modal.close(); saved(); })
-      .catch(err => { showError(err.message); sending = false; submit.disabled = false; title.disabled = description.disabled = queue.disabled = false; images.disable(false); });
+      .catch(err => { showError(err.message); sending = false; updateLabel(); submit.disabled = false; title.disabled = description.disabled = queue.disabled = false; images.disable(false); });
   });
   title.focus(); return modal;
 }
