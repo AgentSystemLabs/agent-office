@@ -71,7 +71,7 @@ test('where the TV is ticks on while it plays, and stands still when it doesn’
   assert.equal(positionAt(going, 4_500), 15.5);
   assert.equal(positionAt({ ...going, playing: false }, 4_500), 12);
   assert.equal(positionAt({ ...going, position: 0, at: 1_000 }, 500), 0, 'a clock behind where it started is still the start');
-  assert.deepEqual(TV_OFF, { on: false, playing: false, position: 0, at: 0 });
+  assert.deepEqual(TV_OFF, { on: false, playing: false, position: 0, at: 0, theatre: false });
 });
 
 test('what the TV is showing, in a line for the hint bar and the toasts', () => {
@@ -136,6 +136,31 @@ test('the TV’s four moves carry a link from one to the next', (t) => {
   assert.equal(tv.title(), 'example.com · movie.mp4');
 });
 
+test('the switch by the TV puts the room in the dark, and leaves the film where it was', (t) => {
+  const { dir, tv } = tvFor(t);
+  assert.equal(tv.state().theatre, false, 'a floor starts lit');
+  assert.equal(tv.play({ url: YT }, 'Ada').changed, true);
+
+  // On, then off, then on again: two people at the switch in a moment don't fight over it.
+  assert.equal(tv.theatre(true, 'Grace'), true);
+  assert.equal(tv.state().theatre, true);
+  assert.equal(tv.theatre(true, 'Grace'), false, 'a switch already thrown that way is not news');
+  assert.equal(tv.theatre(false, 'Ken'), true);
+  assert.equal(tv.state().theatre, false);
+  assert.equal(tv.theatre(false, 'Ken'), false);
+  // Only a yes or a no is a switch.
+  assert.equal(tv.theatre('yes' as unknown as boolean, 'Ken'), false);
+
+  // The room going dark must not take the picture along with it: the position is where it was.
+  const before = positionAt(tv.state(), Date.now());
+  assert.equal(tv.theatre(true, 'Grace'), true);
+  const after = positionAt(tv.state(), Date.now());
+  assert.ok(Math.abs(after - before) < 1, `the film carried on rather than jumping: ${after - before}`);
+
+  // It is the room's, and it stays how it was left.
+  assert.equal(new Tv(dir).state().theatre, true);
+});
+
 test('what’s on the TV is still on it after a restart, and only they can read it', (t) => {
   const { dir, tv } = tvFor(t);
   assert.equal(tv.play({ url: `${YT}&t=90` }, 'Ada').changed, true);
@@ -164,4 +189,7 @@ test('a tv.json nobody would have allowed leaves the screen dark', (t) => {
   assert.equal(broken.state().by, undefined, 'a name that is not a name is left out');
   writeFileSync(path.join(dir, 'tv.json'), '{ not json');
   assert.equal(new Tv(dir).state().on, false);
+  // A room that was never told to go dark is lit, whatever the file claims.
+  writeFileSync(path.join(dir, 'tv.json'), JSON.stringify({ on: false, playing: false, position: 0, at: 0, theatre: 'yes' }));
+  assert.equal(new Tv(dir).state().theatre, false);
 });

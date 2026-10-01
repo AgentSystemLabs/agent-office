@@ -2513,6 +2513,13 @@ case 'jukebox.place': {
         toastFloor(floor, `📺 ${who} turned the TV off`);
         break;
       }
+      case 'tv.theatre': {
+        const floor = here();
+        if (!floor || !floor.tv.theatre(msg.on === true, who)) break;
+        tvChanged(floor);
+        toastFloor(floor, msg.on ? `🎬 ${who} put the room in the dark for the film` : `💡 ${who} turned the room's lights back on`);
+        break;
+      }
       case 'ping':
         sendTo(c, { t: 'pong', at: num(msg.at), now: Date.now() });
         break;

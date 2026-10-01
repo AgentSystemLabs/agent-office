@@ -5,7 +5,7 @@
 
 import * as THREE from 'three';
 import { TV } from '../shared/layout';
-import { classify, embedUrl, positionAt, youtubeId, type TvKind, type TvState } from '../shared/tv';
+import { TV_OFF, classify, embedUrl, positionAt, youtubeId, type TvKind, type TvState } from '../shared/tv';
 import { roomMediaGain } from './spatial-audio';
 import { store } from './state';
 import { h, toast } from './ui/dom';
@@ -145,7 +145,7 @@ export class TvScreen {
   private readonly layer: HTMLElement | null;
   /** The 1280×720 element that gets transformed onto the TV's corners. */
   private readonly frame: HTMLElement;
-  private state: TvState = { on: false, playing: false, position: 0, at: 0 };
+  private state: TvState = TV_OFF;
   /** How the picture is being driven, which is embed rather than youtube when the API can't load. */
   private kind: TvKind | null = null;
   private el: HTMLElement | null = null;

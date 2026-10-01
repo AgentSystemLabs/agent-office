@@ -31,6 +31,8 @@ export function openTv(net: Net, tvScreen: TvScreen, share: () => void) {
   const level = h('input', { type: 'range', min: '0', max: '100', step: '1', 'aria-label': 'TV volume' }) as HTMLInputElement;
   const pct = h('span.vol-pct');
   const sound = h('div.volume', {}, mute, level, pct);
+  // The room, not your own: the switch on the wall by the TV, which everyone on the floor shares.
+  const theatre = h('button.btn', { type: 'button' });
   const el = h(
     'div.modal.tv',
     { role: 'dialog', 'aria-label': 'Office TV' },
@@ -40,6 +42,8 @@ export function openTv(net: Net, tvScreen: TvScreen, share: () => void) {
       {},
       now,
       h('div.volume.tv-scrub', {}, scrub, time, open),
+      h('label', { style: 'margin-top:16px' }, 'The room'),
+      h('div.volume', {}, theatre, h('span.setting-note', {}, "The switch by the TV: the office's own light goes down, and the picture stands out in the dark.")),
       h('label', { style: 'margin-top:16px' }, 'Your sound'),
       sound,
       h('label', { style: 'margin-top:16px' }, 'Put something on'),
@@ -96,8 +100,13 @@ export function openTv(net: Net, tvScreen: TvScreen, share: () => void) {
       boxed = s.url ?? '';
       url.value = boxed;
     }
+    theatre.textContent = s.theatre ? '💡 Lights back up' : '🎬 Lights down';
+    theatre.title = s.theatre ? "Put the office's lights back on" : "Take the office's light down, so the picture stands out";
+    theatre.setAttribute('aria-pressed', String(s.theatre));
+    theatre.classList.toggle('primary', s.theatre);
     tick();
   };
+  theatre.addEventListener('click', () => net.send({ t: 'tv.theatre', on: !store.tv.theatre }));
 
   const putOnUrl = () => {
     const found = checkTvUrl(url.value, window.location.origin);

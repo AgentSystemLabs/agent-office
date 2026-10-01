@@ -361,8 +361,9 @@ export class RemoteFloor implements FloorActions {
       pause: async (position, by) => Boolean(await remote.call('tv.pause', { position, by })),
       seek: async (position, by) => Boolean(await remote.call('tv.seek', { position, by })),
       stop: async (by) => Boolean(await remote.call('tv.stop', { by })),
+      theatre: async (on, by) => Boolean(await remote.call('tv.theatre', { on, by })),
       // Read from the `tv` event the host emits as its state changes.
-      state: () => remote.last<TvState>('tv', { on: false, playing: false, position: 0, at: 0 }),
+      state: () => remote.last<TvState>('tv', { on: false, playing: false, position: 0, at: 0, theatre: false }),
     };
   }
 

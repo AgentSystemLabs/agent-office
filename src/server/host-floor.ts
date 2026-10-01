@@ -366,6 +366,8 @@ export class HostFloors {
         return str(await floor.tv.seek(m.position, s('by')));
       case 'tv.stop':
         return str(await floor.tv.stop(s('by')));
+      case 'tv.theatre':
+        return str(await floor.tv.theatre(m.on === true, s('by')));
 
       case 'meeting.start':
       case 'meeting.stop':

@@ -1324,6 +1324,11 @@ export type ClientMsg =
   /** Take the big TV off; its link stays for next time. */
   | { t: 'tv.stop' }
   /**
+   * The switch by the big TV: `on` puts the room's light down so the picture is the brightest thing
+   * in it, `off` brings the light back. The room's, so it counts for everyone on the floor.
+   */
+  | { t: 'tv.theatre'; on: boolean }
+  /**
    * Step up to the arcade cabinet on your floor to carry on with `game` (one the office started for
    * you), or to start a new game, even while you're at it; the office answers with `cabinet`, naming
    * who got it and their game.
