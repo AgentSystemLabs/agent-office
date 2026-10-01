@@ -152,8 +152,9 @@ Options:
                           whole day and night go by every hour
       --weather <kind>    Pin the weather: clear, cloudy, rain, storm, snow or
                           fog (env AGENT_OFFICE_WEATHER)
-      --real-time-sky     Keep the sky on the office's real clock, so it's night when
+      --real-time-sky     Start the sky on the office's real clock, so it's night when
                           it's night there, instead of a day and night every hour
+                          (⚙️ Settings can switch it)
                           (env AGENT_OFFICE_SKY_CLOCK=real)
   -h, --help              Show this help
 

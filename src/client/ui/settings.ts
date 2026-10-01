@@ -9,6 +9,7 @@ import { DOG_NAME_MAX, cleanDogName } from '../../shared/dog';
 import { h, openModal, timeAgo } from './dom';
 import { agentFields, choiceLabel, officeChoice } from './provider';
 import { openPromptEditor, rewrittenPrompts } from './prompts';
+import { outsideSetting } from './settings-sky';
 
 const VIEWS: [ViewMode, string, string][] = [
   ['first', '👀 First person', 'See through your own eyes. Click the office to look around with the mouse and click things to use them. Esc frees the mouse.'],
@@ -500,6 +501,8 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
     if (e.key === 'Enter') renameDog();
   });
 
+  // What the sky's doing, and which clock it keeps (see settings-sky.ts).
+  const sky = outside && outsideSetting(net, outside, (body) => setting('Outside', 'office', ...body));
   const account = store.me.account;
   const signOut = h('button.btn', { type: 'button' }, '🚪 Sign out');
   signOut.addEventListener('click', onSignOut);
@@ -523,16 +526,7 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
     building: [
       setting('Map', 'office', mapRow, mapNote, mapBad),
       setting('Holiday theme', 'office', themeRow, themeNote),
-      ...(outside
-        ? [
-            setting(
-              'Outside',
-              'office',
-              h('p.outside-now', {}, outside.now),
-              h('p.setting-note', {}, `Everyone sees the same sky: ${store.sky?.realTime ? 'the real time of day' : 'a whole day and night every hour'}, and ${outside.live ? 'the live weather where it is.' : 'weather that comes and goes. Start the office with --city to use a real city’s forecast.'}`),
-            ),
-          ]
-        : []),
+      ...(sky ? [sky.section] : []),
       dogSection,
       setting('Workspace folder', 'office', dirRow, dirActions, dirNote),
     ],
@@ -592,6 +586,7 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
       offNotify();
       offDog();
       offTheme();
+      sky?.off();
       offMap();
       offLeave();
       offLimit.forEach((off) => off());

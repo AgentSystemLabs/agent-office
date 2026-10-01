@@ -109,19 +109,22 @@ export class Sky {
   private warned = false;
   /** Forecasts missed in a row (see RETRY_MS). */
   private misses = 0;
+  /** The sky keeps the real time of day, not a day every hour (see setClock). */
+  private realTime: boolean;
 
   constructor(
-    private opts: { city?: string; weather?: Weather; realTime?: boolean; placeFile?: string },
+    private opts: { city?: string; weather?: Weather; realTime?: boolean; placeFile?: string; clockFile?: string },
     private onChange: (state: SkyState) => void,
   ) {
+    this.realTime = this.savedClock() ?? !!opts.realTime;
     const now = new Date();
     const here = guessPlace(now);
     const weather = opts.weather ? pinned(opts.weather) : opts.city ? pinned('clear') : wander(null, now.getMonth(), here.lat < 0);
     // The city where the last forecast put it, so a restart is already there before the next one comes.
     const known = opts.city ? this.knownPlace(opts.city) : undefined;
     this.state = known
-      ? { lat: known.lat, lon: known.lon, utcOffset: known.utcOffset, ...weather, city: known.name, ...(opts.realTime ? { realTime: true } : {}) }
-      : { ...here, utcOffset: -now.getTimezoneOffset(), ...weather, ...(opts.realTime ? { realTime: true } : {}) };
+      ? { lat: known.lat, lon: known.lon, utcOffset: known.utcOffset, ...weather, city: known.name, ...(this.realTime ? { realTime: true } : {}) }
+      : { ...here, utcOffset: -now.getTimezoneOffset(), ...weather, ...(this.realTime ? { realTime: true } : {}) };
     if (known) this.place = { lat: known.lat, lon: known.lon, name: known.name };
   }
 
@@ -152,8 +155,35 @@ export class Sky {
     this.timer.unref();
   }
 
+  /**
+   * Which clock the sky keeps, picked in ⚙️ Settings: the real time of day (true), or a whole day and
+   * night every hour. Kept in clockFile, so it outlasts a restart; until someone picks, --real-time-sky says.
+   */
+  setClock(real: boolean) {
+    this.realTime = real;
+    if (this.opts.clockFile) {
+      try {
+        writeFileSync(this.opts.clockFile, JSON.stringify({ realTime: real }));
+      } catch {
+        // It still changes for now.
+      }
+    }
+    this.set({ ...this.state });
+  }
+
+  private savedClock(): boolean | undefined {
+    if (!this.opts.clockFile) return undefined;
+    try {
+      const saved = JSON.parse(readFileSync(this.opts.clockFile, 'utf8'));
+      return typeof saved?.realTime === 'boolean' ? saved.realTime : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
   private set(next: SkyState) {
-    if (this.opts.realTime) next = { ...next, realTime: true };
+    const { realTime: _, ...rest } = next;
+    next = this.realTime ? { ...rest, realTime: true } : rest;
     if (JSON.stringify(next) === JSON.stringify(this.state)) return;
     this.state = next;
     this.onChange(next);

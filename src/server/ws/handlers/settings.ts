@@ -80,6 +80,12 @@ export const settingsHandlers = {
             : `📅 ${who} set the decorations to follow the calendar${now ? ` (it's ${now === 'halloween' ? 'Halloween 🎃' : 'Christmas 🎄'} season)` : ''}`,
     );
   },
+  'sky.clock'(ctx, c, msg) {
+    const real = msg.real === true;
+    if (real === !!ctx.sky.state.realTime) return;
+    ctx.sky.setClock(real);
+    ctx.toastAll(real ? `🕰️ ${c.peer.name} put the sky on the real time of day` : `⏩ ${c.peer.name} set the sky to a whole day every hour`);
+  },
   'map.set'(ctx, c, msg) {
     const who = c.peer.name;
     // Someone opened the list, or picked a map: either way the folder of maps of your own is read again first.

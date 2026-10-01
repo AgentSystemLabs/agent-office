@@ -34,7 +34,7 @@ agent-office [dir] [options]
       --webhook <url>     Post to this Slack / Discord webhook when a worker needs input or finishes
       --city <name>       Put the office in a real city: its sun and live weather (open-meteo.com)
       --weather <kind>    Pin the weather: clear, cloudy, rain, storm, snow or fog
-      --real-time-sky     Keep the sky on the office's real clock, not a day an hour (env AGENT_OFFICE_SKY_CLOCK=real)
+      --real-time-sky     Start the sky on the real clock, not a day an hour (env AGENT_OFFICE_SKY_CLOCK=real; ⚙️ Settings can switch it)
 
 agent-office setup [--projects <dir>] [--project <owner/repo>]... [--home <dir>]
 
