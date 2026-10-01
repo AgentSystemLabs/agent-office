@@ -110,7 +110,7 @@ test('normalizeAntigravityHook normalizes lifecycle events and filters malformed
   });
 });
 
-test('ensureAntigravityWorkspace creates .agents/hooks.json and configures git exclude', () => {
+test('ensureAntigravityWorkspace creates .agents/hooks.json, .agents/mcp_config.json, .agents/rules, and configures git exclude', () => {
   const tmp = mkdtempSync(path.join(tmpdir(), 'antigravity-workspace-'));
   try {
     const gitDir = path.join(tmp, '.git', 'info');
@@ -120,15 +120,38 @@ test('ensureAntigravityWorkspace creates .agents/hooks.json and configures git e
 
     const hookScript = path.join(tmp, 'hook.cjs');
     writeFileSync(hookScript, '// dummy hook');
+    const mcpScript = path.join(tmp, 'office-workers.js');
+    writeFileSync(mcpScript, '// dummy mcp script');
 
-    ensureAntigravityWorkspace(tmp, hookScript);
+    ensureAntigravityWorkspace(tmp, hookScript, mcpScript);
 
+    // 1. Hooks JSON
     const hooksJsonPath = path.join(tmp, '.agents', 'hooks.json');
     const hooksJson = JSON.parse(readFileSync(hooksJsonPath, 'utf8'));
     assert.ok(hooksJson['agent-office-bridge']);
     assert.ok(hooksJson['agent-office-bridge'].PreToolUse);
     assert.ok(hooksJson['agent-office-bridge'].Stop);
 
+    // 2. MCP Config JSON (Summer Engine and Agent Office)
+    const mcpConfigPath = path.join(tmp, '.agents', 'mcp_config.json');
+    const mcpConfig = JSON.parse(readFileSync(mcpConfigPath, 'utf8'));
+    assert.ok(mcpConfig.mcpServers['summer-engine']);
+    assert.ok(mcpConfig.mcpServers['summer-engine'].command.startsWith('npx'));
+    assert.deepEqual(mcpConfig.mcpServers['summer-engine'].args, ['-y', 'summer-engine@latest', 'mcp']);
+    assert.ok(mcpConfig.mcpServers['agent-office']);
+    assert.equal(mcpConfig.mcpServers['agent-office'].command, process.execPath);
+    assert.deepEqual(mcpConfig.mcpServers['agent-office'].args, [mcpScript, 'mcp']);
+
+    // 3. Studio rules
+    const rulesPath = path.join(tmp, '.agents', 'rules', 'summer_engine.md');
+    const rulesContent = readFileSync(rulesPath, 'utf8');
+    assert.ok(rulesContent.includes('Summer Engine'));
+    assert.ok(rulesContent.includes('Art (Art Lead)'));
+    assert.ok(rulesContent.includes('Code (Gameplay Engineer)'));
+    assert.ok(rulesContent.includes('Design (Game Designer)'));
+    assert.ok(rulesContent.includes('Director (Lead / Producer)'));
+
+    // 4. Git exclude
     const excludeContent = readFileSync(excludeFile, 'utf8');
     assert.ok(excludeContent.includes('.agents/'));
   } finally {

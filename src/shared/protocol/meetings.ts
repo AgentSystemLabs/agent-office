@@ -3,7 +3,7 @@
 import type { AgentEffort, AgentProvider } from './agents.js';
 
 /** How the workers at the meeting table work together (see shared/meetings.ts). */
-export type MeetingPattern = 'debate' | 'lead' | 'mapreduce' | 'redblue' | 'review';
+export type MeetingPattern = 'debate' | 'lead' | 'mapreduce' | 'redblue' | 'review' | 'gamestudio';
 
 /** A worker's place at a meeting. */
 export interface MeetingSeat {

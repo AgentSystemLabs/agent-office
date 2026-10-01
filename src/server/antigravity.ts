@@ -194,24 +194,117 @@ export function antigravityHooksConfig(hookScriptPath: string): Record<string, u
   };
 }
 
-/** Sets up .agents/hooks.json in cwd and ensures it is git-ignored via .git/info/exclude. */
-export function ensureAntigravityWorkspace(cwd: string, hookScriptPath: string): void {
+/** Configuration for the Summer Engine MCP server. */
+export function summerEngineMcpConfig(): Record<string, unknown> {
+  const isWin = process.platform === 'win32';
+  return {
+    command: isWin ? 'npx.cmd' : 'npx',
+    args: ['-y', 'summer-engine@latest', 'mcp'],
+  };
+}
+
+/** Configuration for the Agent Office MCP server. */
+export function agentOfficeMcpConfig(mcpScript: string): Record<string, unknown> {
+  return {
+    command: process.execPath,
+    args: [mcpScript, 'mcp'],
+  };
+}
+
+export const SUMMER_ENGINE_RULES = `# Summer Engine & Game Studio Guidelines
+
+This workspace is integrated with **Summer Engine** via MCP and configured for collaborative game development.
+
+## 🛠️ Summer Engine Overview
+Summer Engine connects your agent to a Godot-compatible game engine runtime. Use the \`summer_*\` tools to inspect, compose, script, and playtest games:
+- **Project & Scenes**: \`summer_get_project_context\`, \`summer_get_scene_tree\`, \`summer_create_scene\`, \`summer_open_scene\`, \`summer_save_scene\`
+- **Nodes & Properties**: \`summer_add_node\`, \`summer_set_prop\`, \`summer_connect_signal\`, \`summer_remove_node\`, \`summer_replace_node\`
+- **Asset Generation & 2D/3D**:
+  - \`summer_generate_image\` (textures, concept art, sprite sheets)
+  - \`summer_slice_asset_sheet\` (slicing atlas textures into tiles/sprites)
+  - \`summer_generate_3d\`, \`summer_fabricate_3d\` (3D models, meshes)
+  - \`summer_generate_audio\` (sound effects, ambient sound, background music)
+- **Code & Diagnostics**: \`summer_write_file\`, \`summer_replace_text\`, \`summer_read_file\`, \`summer_get_diagnostics\`, \`summer_get_console\`
+- **Runtime & Playtesting**: \`summer_play\`, \`summer_stop\`, \`summer_screenshot\`, \`summer_get_runtime_tree\`, \`summer_game_input\`
+
+## 👥 Studio Roles & Team Collaboration
+When working in an Agent Office game studio team or meeting:
+
+### 🎨 Art (Art Lead)
+- Responsible for all visual and audio assets in \`res://assets/\` (\`sprites/\`, \`models/\`, \`audio/\`).
+- Generate 2D pixel art, sprites, tilesets, textures with \`summer_generate_image\`.
+- Slice sprite sheets using \`summer_slice_asset_sheet\`.
+- Generate 3D meshes using \`summer_generate_3d\` / \`summer_fabricate_3d\`.
+- Produce SFX and musical tracks with \`summer_generate_audio\`.
+
+### 💻 Code (Gameplay Engineer)
+- Responsible for GDScript logic in \`res://scripts/\`.
+- Write clean, modular, typed GDScript for player controllers, game managers, scoring, physics interactions.
+- Connect signals (\`summer_connect_signal\`) between buttons/areas and scripts.
+- Check engine logs and compiler diagnostics with \`summer_get_diagnostics\` and \`summer_get_console\`.
+
+### 🕹️ Design (Game Designer)
+- Responsible for scene composition in \`res://scenes/\` and gameplay balance.
+- Assemble nodes, collision shapes, tilemaps, lights, and camera framing (\`summer_add_node\`, \`summer_set_prop\`).
+- Configure user input mappings (\`summer_input_map_bind\`).
+- Launch runtime sessions (\`summer_play\`), simulate player inputs (\`summer_game_input\`), capture screenshots (\`summer_screenshot\`), and inspect runtime state (\`summer_get_runtime_tree\`).
+
+### 🎬 Director (Lead / Producer)
+- Plans the game scope, architecture, and feature backlog.
+- Assigns responsibilities to Art, Code, and Design.
+- Verifies integration across disciplines, tests the full game loop, and writes release documentation.
+
+## 🤝 Office Coordination
+Use \`office-workers list\` to check on teammates and other desks in the office.
+`;
+
+/** Sets up .agents/hooks.json, .agents/mcp_config.json, and .agents/rules in cwd and ensures .agents is git-ignored via .git/info/exclude. */
+export function ensureAntigravityWorkspace(cwd: string, hookScriptPath: string, mcpScriptPath?: string): void {
   try {
     const agentsDir = path.join(cwd, '.agents');
     mkdirSync(agentsDir, { recursive: true, mode: 0o700 });
-    const hooksPath = path.join(agentsDir, 'hooks.json');
 
-    let currentConfig: Record<string, unknown> = {};
+    // 1. Hooks configuration
+    const hooksPath = path.join(agentsDir, 'hooks.json');
+    let currentHooks: Record<string, unknown> = {};
     if (existsSync(hooksPath)) {
       try {
-        currentConfig = JSON.parse(readFileSync(hooksPath, 'utf8'));
+        currentHooks = JSON.parse(readFileSync(hooksPath, 'utf8'));
       } catch {}
     }
-
     const bridgeConfig = antigravityHooksConfig(hookScriptPath);
-    Object.assign(currentConfig, bridgeConfig);
-    writeFileSync(hooksPath, JSON.stringify(currentConfig, null, 2), { mode: 0o600 });
+    Object.assign(currentHooks, bridgeConfig);
+    writeFileSync(hooksPath, JSON.stringify(currentHooks, null, 2), { mode: 0o600 });
 
+    // 2. MCP configuration (Summer Engine & Office Workers)
+    const mcpConfigPath = path.join(agentsDir, 'mcp_config.json');
+    let currentMcp: { mcpServers?: Record<string, unknown> } = {};
+    if (existsSync(mcpConfigPath)) {
+      try {
+        currentMcp = JSON.parse(readFileSync(mcpConfigPath, 'utf8'));
+      } catch {}
+    }
+    if (!currentMcp || typeof currentMcp !== 'object' || Array.isArray(currentMcp)) {
+      currentMcp = {};
+    }
+    const servers =
+      currentMcp.mcpServers && typeof currentMcp.mcpServers === 'object' && !Array.isArray(currentMcp.mcpServers)
+        ? (currentMcp.mcpServers as Record<string, unknown>)
+        : {};
+    servers['summer-engine'] = summerEngineMcpConfig();
+    if (mcpScriptPath) {
+      servers['agent-office'] = agentOfficeMcpConfig(mcpScriptPath);
+    }
+    currentMcp.mcpServers = servers;
+    writeFileSync(mcpConfigPath, JSON.stringify(currentMcp, null, 2), { mode: 0o600 });
+
+    // 3. Studio rules & instructions
+    const rulesDir = path.join(agentsDir, 'rules');
+    mkdirSync(rulesDir, { recursive: true, mode: 0o700 });
+    const rulesPath = path.join(rulesDir, 'summer_engine.md');
+    writeFileSync(rulesPath, SUMMER_ENGINE_RULES, { mode: 0o600 });
+
+    // 4. Git exclude for .agents/
     const gitExclude = path.join(cwd, '.git', 'info', 'exclude');
     if (existsSync(gitExclude)) {
       try {

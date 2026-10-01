@@ -296,3 +296,36 @@ test('a meeting says what the office’s rewritten prompts say, and seats the de
   assert.equal(g.start({ provider: 'claude', model: 'haiku' }), undefined);
   assert.deepEqual(g.workers.map((x) => x.model), ['haiku', 'haiku', 'haiku']);
 });
+
+test('a gamestudio meeting plans, divides into art/code/design, and merges into game design docs', (t) => {
+  const f = fixture();
+  t.after(() => f.close());
+  assert.equal(f.start({ pattern: 'gamestudio', prompt: 'Build a 2D space shooter' }), undefined);
+  f.settle();
+  let m = f.room.state().current!;
+  assert.equal(m.seats.length, 4);
+  assert.deepEqual(m.seats.map((s) => s.role), ['Director', 'Art Lead', 'Gameplay Engineer', 'Game Designer']);
+  assert.equal(m.round, 1);
+  assert.equal(m.output, 'docs/game-design/build-a-2d-space-shooter.md');
+
+  // Round 1: Director plans
+  f.take(0, '# Space Shooter Plan\n- Art: ship sprites\n- Code: laser firing\n- Design: asteroid obstacles');
+  m = f.room.state().current!;
+  assert.equal(m.round, 2);
+
+  // Round 2: Art Lead, Gameplay Engineer, Game Designer work in parallel
+  assert.equal(m.turns.length, 3);
+  f.take(1, 'Art created sprites');
+  f.take(2, 'Code implemented lasers');
+  f.take(3, 'Design assembled arena scene');
+  m = f.room.state().current!;
+  assert.equal(m.round, 3);
+
+  // Round 3: Director merges and playtests
+  assert.deepEqual(m.turns.map((x) => [x.seat, x.file]), [[0, m.output]]);
+  f.take(0, '# Space Shooter Game Design\nPlaytested with Summer Engine and verified!');
+  m = f.room.state().current!;
+  assert.equal(m.status, 'done');
+  assert.equal(readFileSync(path.join(f.dir, m.output), 'utf8'), '# Space Shooter Game Design\nPlaytested with Summer Engine and verified!');
+});
+

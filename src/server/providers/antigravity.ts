@@ -9,23 +9,27 @@ import type { ProviderAdapter } from './types.js';
 
 export interface AntigravityState {
   hookScript?: string;
+  mcpScript?: string;
 }
 
 export interface AntigravitySetup {
   hookScript: string;
+  mcpScript?: string;
 }
 
 export const antigravity: ProviderAdapter<AntigravityState, AntigravitySetup> = {
   id: 'antigravity',
   createState: () => ({}),
-  prepare({ dataDir }) {
+  prepare({ dataDir, mcpScript }) {
     return {
       hookScript: writeAntigravityHookScript(dataDir),
+      mcpScript,
     };
   },
   launch({ h, args, prompt, resumeSessionId, setup }) {
     const { info } = h;
     h.state.hookScript = setup.hookScript;
+    h.state.mcpScript = setup.mcpScript;
     args = antigravityArgs(args, {
       model: info.model,
       effort: info.effort,
@@ -40,7 +44,7 @@ export const antigravity: ProviderAdapter<AntigravityState, AntigravitySetup> = 
   usage: {
     locate(h, cwd) {
       if (h.state.hookScript) {
-        ensureAntigravityWorkspace(cwd, h.state.hookScript);
+        ensureAntigravityWorkspace(cwd, h.state.hookScript, h.state.mcpScript);
       }
     },
   },

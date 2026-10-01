@@ -518,6 +518,7 @@ export class MeetingRoom {
     const how: Record<Meeting['pattern'], string> = {
       debate: `Round 1: everyone proposes an answer. Each round after that until the last: everyone reads the others' latest notes, critiques them and revises their own. Last round: the ${head} writes the decision.`,
       lead: `Round 1: the ${head} splits the task into a part for each of the others and writes the plan. Round 2: each of them does their part. Round 3: the ${head} merges the work, checks it and writes it up.`,
+      gamestudio: `Round 1: the ${head} outlines game features, architecture, and assigns roles (Art, Code, Design). Round 2: Art produces assets, Code implements game systems, Design composes scenes and tunes mechanics using Summer Engine. Round 3: the ${head} playtests, verifies integration, and writes the game documentation.`,
       mapreduce: `Round 1: each mapper does the task over its own parts. Round 2: the ${head} combines what they found into one result.`,
       redblue: `Each round the Red team attacks the change (bugs, security holes, edge cases) and the Blue team fixes what holds up. The ${head} writes it all up in the last round, which comes early if Red finds nothing more.`,
       review: `Round 1: each reviewer reviews the pull request through their own lens. Round 2: the ${head} merges the reviews into one, which the office posts on the pull request.`,
@@ -582,6 +583,7 @@ export class MeetingRoom {
           ask: this.say('meeting.debate.critique', { previousRound: round - 1, theirNotes: notes(round - 1, all.filter((j) => j !== i)), file: A(note(round, i)) }),
         }));
       }
+      case 'gamestudio':
       case 'lead': {
         const team = all.slice(1);
         if (step > 1) return null;

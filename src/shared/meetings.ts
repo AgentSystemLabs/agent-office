@@ -75,6 +75,16 @@ export const MEETING_PATTERNS: Record<MeetingPattern, PatternDef> = {
     output: (_slug, pr) => `reviews/pr-${pr ?? 'n'}.md`,
     needs: 'pr',
   },
+  gamestudio: {
+    icon: '🎮',
+    label: 'Game Studio',
+    blurb: 'Director plans game features, Art produces visual/audio assets, Code writes mechanics, Design tunes and tests with Summer Engine.',
+    roles: ['Director', 'Art Lead', 'Gameplay Engineer', 'Game Designer'],
+    seats: { min: 2, max: 4, default: 4 },
+    rounds: { min: 3, max: 3, default: 3 },
+    roundsNote: 'Director spec, team production, playtest & polish.',
+    output: (slug) => `docs/game-design/${slug}.md`,
+  },
 };
 
 export const MEETING_PATTERN_IDS = Object.keys(MEETING_PATTERNS) as MeetingPattern[];

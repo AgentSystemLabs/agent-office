@@ -36,7 +36,7 @@ export const SIGN_COLORS = [
 ] as const;
 
 /** A few to start from, in the label window. */
-export const LABEL_IDEAS = ['Operations', 'Code cleanup', 'Frontend', 'Backend', 'Bug fixes', 'Docs', 'Infra', 'Research'];
+export const LABEL_IDEAS = ['Operations', 'Code cleanup', 'Frontend', 'Backend', 'Bug fixes', 'Docs', 'Infra', 'Research', '🎨 Art', '💻 Code', '🕹️ Design', '🎬 Director'];
 
 /** Desks that can have a sign: the room's and the back office's, not the bean bags, kiosks or meeting chairs. */
 const LABELABLE = new Set([...DESKS, ...WING_DESKS].map((d) => d.id));
