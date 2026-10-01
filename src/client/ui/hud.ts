@@ -64,6 +64,11 @@ export function orderedWorkers() {
 
 let workerHints: HTMLElement | undefined;
 export function showWorkerShortcuts(show: boolean) {
+  if (!show) {
+    workerHints?.classList.add('hidden');
+    document.body.classList.remove('worker-shortcuts-visible');
+    return;
+  }
   if (!workerHints) {
     workerHints = h('div.worker-shortcuts.hidden', { 'aria-label': 'Worker terminal shortcuts' });
     document.body.append(workerHints);

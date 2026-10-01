@@ -21,7 +21,7 @@ Back to the [README](../README.md).
 | Q | Put back the issue card you're carrying, or drop the basketball |
 | H | These controls; in a car, honk the horn |
 | T / Enter | Chat |
-| Shift + 1–9 / 0 | Open the corresponding worker terminal in WORKERS panel order; 0 selects the tenth worker. Hold Shift to see a small numbered tip; release it to hide the tip. Emote keybinds have been removed. |
+| Shift + 1–9 / 0 | Open the corresponding worker terminal in WORKERS panel order; 0 selects the tenth worker. Hold Shift to see a small numbered tip; release either Shift key to hide the tip. The tip also clears when you enter a text field, open a modal or leave the page. Emote keybinds have been removed. |
 | / | Search the chat and every terminal on your floor |
 | Ctrl + K (⌘K on a Mac) | Command palette: find a worker, issue, PR, service, board, teammate or action; Enter opens it, Shift+Enter walks you there first |
 | V | Join voice; in voice, hold to talk (you're muted when you let go) |

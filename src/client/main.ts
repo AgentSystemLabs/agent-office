@@ -4217,10 +4217,20 @@ window.addEventListener('keydown', (e) => {
   if (officeKey(e)) player.clearKeys();
 });
 window.addEventListener('keyup', (e) => {
-  if (e.key === 'Shift' && !e.shiftKey) showWorkerShortcuts(false);
   if (e.code === 'KeyE') letFly();
 });
+// Observe releases before focused controls can stop them. Some platforms keep shiftKey
+// set on the Shift keyup itself, so the released key is authoritative.
+window.addEventListener('keyup', (e) => {
+  if (e.key === 'Shift' || e.code === 'ShiftLeft' || e.code === 'ShiftRight' || !e.shiftKey) showWorkerShortcuts(false);
+}, true);
+// Recover if a release happened outside the page and the browser didn't deliver it.
+window.addEventListener('keydown', (e) => { if (!e.shiftKey) showWorkerShortcuts(false); }, true);
+window.addEventListener('pointermove', (e) => { if (!e.shiftKey) showWorkerShortcuts(false); }, true);
 window.addEventListener('blur', () => { windFrom = 0; showWorkerShortcuts(false); });
+window.addEventListener('focus', () => showWorkerShortcuts(false));
+document.addEventListener('visibilitychange', () => { if (document.hidden) showWorkerShortcuts(false); });
+document.addEventListener('focusin', () => { if (isTyping()) showWorkerShortcuts(false); });
 // First person with the mouse captured, the button winds up a shot like E does (see player.onClick).
 window.addEventListener('pointerup', (e) => {
   if (e.button === 0 && windFrom && player.locked) letFly();
@@ -4351,7 +4361,10 @@ let pressedMouse = false;
 window.addEventListener('pointerdown', () => (pressedMouse = true), true);
 window.addEventListener('keydown', () => (pressedMouse = false), true);
 onModalChange((open) => {
-  if (open) telescope.exit();
+  if (open) {
+    telescope.exit();
+    showWorkerShortcuts(false);
+  }
   player.enabled = !open;
   player.clearKeys();
   sendDoing();
