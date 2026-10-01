@@ -42,49 +42,6 @@ export function installLoop(ctx: Ctx, core: CoreState, parts: Pick<Parts, 'stage
   /** Frames coming too slowly for the 3D to be any fun: the 2D view is offered. */
   const slowFrames = new SlowFrames();
 
-  /**
-   * Indoors the light that casts shadows comes from the lamps overhead, not the street's sun: the office is
-   * lit as if it had no roof, so the sun's shadows fell across the walls from nowhere anyone could see.
-   * INDOOR_LIGHT is where that light comes from (nearly straight down, a little off so walls aren't
-   * side-on to it), how dark its shadows are, and how bright and warm it is once the lamps are on.
-   */
-  const INDOOR_LIGHT = { dir: new THREE.Vector3(0.22, 1, 0.14).normalize(), shadow: 0.7, lamp: 0.7, color: new THREE.Color('#ffe2b8') };
-  /** 0 outdoors to 1 indoors, eased as you come in or go out. */
-  let indoorness = 0;
-  /**
-   * The office's outside walls (see buildWalls in world/office/shell.ts): indoors they take no shadows, or
-   * the light from overhead would streak them down from the hoop, the TV and the boards hanging on them.
-   */
-  let officeWalls: THREE.Object3D[] | null = null;
-  let wallsShaded = true;
-
-  /** After the sky's had its say: indoors, the shadows come from overhead and the walls take none. */
-  function indoorLight(dt: number) {
-    const { sun } = parts.stage;
-    const { sky } = ctx;
-    indoorness += ((parts.place.indoors() ? 1 : 0) - indoorness) * (1 - Math.exp(-dt * 3));
-    if (indoorness > 0.001) {
-      const from = sun.position.clone().sub(sun.target.position).normalize();
-      sun.position.copy(sun.target.position).addScaledVector(from.lerp(INDOOR_LIGHT.dir, indoorness).normalize(), 45);
-      const lamp = INDOOR_LIGHT.lamp * sky.lampsOn;
-      if (lamp > sun.intensity) {
-        sun.color.lerp(INDOOR_LIGHT.color, indoorness * Math.min(1, (lamp - sun.intensity) / lamp));
-        sun.intensity += (lamp - sun.intensity) * indoorness;
-      }
-    }
-    sun.shadow.intensity = 1 + (INDOOR_LIGHT.shadow - 1) * indoorness;
-    if (wallsShaded !== indoorness < 0.5) {
-      wallsShaded = indoorness < 0.5;
-      if (!officeWalls) {
-        const walls: THREE.Object3D[] = (officeWalls = []);
-        ctx.office.group.traverse((o) => {
-          if (o.userData.wall) walls.push(o);
-        });
-      }
-      for (const w of officeWalls) w.receiveShadow = wallsShaded;
-    }
-  }
-
   /** Frames coming too slowly for the 3D to be any fun: the 2D view is offered. */
   function watchFrameRate({ now, delta }: Frame) {
     if (slowFrames.frame(now, delta * 1000)) deps.offer2d('slow');
@@ -197,7 +154,6 @@ export function installLoop(ctx: Ctx, core: CoreState, parts: Pick<Parts, 'stage
     else sun.target.position.set(0, 0, 0);
     sun.target.updateMatrixWorld();
     sky.update(dt, t, camera);
-    indoorLight(dt);
     if (!core.upTop && ctx.inOffice()) office.scenic.cull(camera.position, office.night.street, (scene.fog as THREE.Fog).far);
     // A map of its own lights itself its own way (the castle's torchlit hall), after the sky's had its say.
     if (!core.upTop) ctx.world().mood?.({ sun, hemi, ambient, scene }, sky.daylight, t, camera.position);
