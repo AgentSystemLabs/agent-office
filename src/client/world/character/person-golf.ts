@@ -23,7 +23,7 @@ const hands = new THREE.Vector3();
 const armDir = new THREE.Vector3();
 
 /** A golf club, hanging down from the hands (its grip at 0): a wrapped grip, a steel shaft and the head at the bottom, its face toward +x. */
-function golfClub(): THREE.Group {
+export function golfClub(): THREE.Group {
   const club = new THREE.Group();
   club.add(mesh(new THREE.CylinderGeometry(0.02, 0.017, 0.2, 8), toon('#2b2d42'), 0, -0.04, 0, false));
   club.add(mesh(new THREE.CylinderGeometry(0.011, 0.009, CLUB - 0.36 - 0.05, 6), toon('#ced4da'), 0, -(CLUB - 0.36) / 2 - 0.05, 0, false));

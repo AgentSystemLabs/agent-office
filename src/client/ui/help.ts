@@ -26,6 +26,7 @@ export const HELP_ROWS: readonly (readonly [string, string])[] = [
   ['B', 'Open a shared shell (dev servers, git, tests) at an empty desk'],
   ['R', 'Resume a sleeping worker'],
   ['X', 'Send a worker home (frees the desk)'],
+  ['Z', 'Take a break: a finished worker gets up and wanders the office (coffee, the couch, the jukebox, golf on the balcony, a cigarette for the smokers). Z again, or a new task, brings it back to its desk'],
   ['L', 'Hang a big sign over the desk you face ("Operations", "Code cleanup"), or change or take down the one there'],
   ['🚧', 'Room to grow: E at the sign on the north wall past the gong knocks through into a back office with 2 more desks, and again for 2 more. The same sign walls a row back up'],
   ['F', 'Hang a picture from the web on a wall. Look at a picture and press E to move, edit or take it down'],

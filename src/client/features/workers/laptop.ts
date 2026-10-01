@@ -201,8 +201,15 @@ export class Laptop {
     this.drawnVersion = -2;
   }
 
-  /** `distance` to the camera throttles repaints: far-away laptops refresh rarely. */
-  update(dt: number, screen: ScreenState | undefined, distance = 0) {
+  /**
+   * `distance` to the camera throttles repaints: far-away laptops refresh rarely. `closed`: its worker's
+   * away from its desk on a break (see features/breaks), so the lid's down until it's back.
+   */
+  update(dt: number, screen: ScreenState | undefined, distance = 0, closed = false) {
+    if (closed) {
+      this.shut(dt);
+      return;
+    }
     if (this.openT < 1) this.setLid(Math.min(1, this.openT + dt * 1.6));
     const version = screen ? screen.version : -1;
     const now = performance.now();

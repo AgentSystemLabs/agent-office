@@ -55,7 +55,8 @@ export function installPointer(ctx: Ctx, core: CoreState, parts: PointerParts) {
   function usable(): (readonly Interactable[])[] {
     const roof = parts.rooftop.roof();
     if (core.upTop && roof) return [roof.interactables];
-    return inOffice() ? [office.interactables, ...ctx.usables.lists()] : [ctx.world().interactables, parts.worlds.court()?.interactables ?? []];
+    // The office's workers out on a break are somewhere to walk up to as well (see world/court.ts).
+    return inOffice() ? [office.interactables, ...ctx.usables.lists(), parts.worlds.court()?.interactables ?? []] : [ctx.world().interactables, parts.worlds.court()?.interactables ?? []];
   }
 
   /** `note` is the issue note you're pointing at on the issues board, if any (see aimedNote). */

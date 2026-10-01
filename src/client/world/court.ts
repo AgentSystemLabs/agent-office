@@ -11,6 +11,10 @@ import type { DeskView, Interactable } from './types';
  * to its seat once it has been. A new one runs in from wherever it was sent out from (the herald by
  * the throne, or the doors) to its seat. While it's up, its seat is empty but still its own, and the
  * spot it stands in is somewhere to walk up to it (`interactables`), as good as its seat.
+ *
+ * Anywhere, a worker on a break (see features/breaks) is sent from stop to stop round the room the
+ * same way (`visit`): the coffee machine, the couch, the jukebox, out through the balcony door to the
+ * ashtray. While it's out, the spot it stands in is somewhere to walk up to it too.
  */
 
 /** Walking pace (m/s), and running, for a new worker sent out to its seat. */
@@ -21,8 +25,20 @@ const HOP = 0.5;
 /** A worker's feet are this far above its origin (see features/workers/leaving.ts). */
 const FEET = 0.07;
 
-/** Where it's going: its seat, or a spot in line (its index). */
-type Goal = { seat: true } | { spot: number };
+/**
+ * Somewhere a worker on a break goes: where it stands (or sits, `sit` meters up), facing `rotY`, and
+ * for somewhere off the floor's walkways (the balcony), the way there from the edge of them (`through`).
+ */
+export interface Stop {
+  x: number;
+  z: number;
+  rotY: number;
+  sit?: number;
+  through?: Pt[];
+}
+
+/** Where it's going: its seat, a spot in line (its index), or a stop on a break. */
+type Goal = { seat: true } | { spot: number } | { stop: Stop };
 
 interface Courtier {
   id: string;
@@ -40,10 +56,14 @@ interface Courtier {
   stepIn: number;
   /** m/s, before its age slows it down. */
   pace: number;
+  /** Out off the walkways (on the balcony): the way back to them, the last of it first. */
+  out: Pt[];
+  /** Where to walk up to it while it's away from its seat on a break. */
+  it: Interactable;
 }
 
 const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
-const sameGoal = (a: Goal, b: Goal) => ('seat' in a ? 'seat' in b : 'spot' in b && a.spot === b.spot);
+const sameGoal = (a: Goal, b: Goal) => ('seat' in a ? 'seat' in b : 'spot' in a ? 'spot' in b && a.spot === b.spot : 'stop' in b && a.stop === b.stop);
 
 export class Court {
   /** One for each spot in line: walk up to whoever stands there, as at its seat. */
@@ -54,7 +74,7 @@ export class Court {
   constructor(
     private parent: THREE.Object3D,
     private plan: MapPlan,
-    private nav: NavGrid,
+    private navOf: () => NavGrid,
     /** The top of whatever is underfoot at (x, z) for feet at `y`. */
     private ground: (x: number, z: number, y: number) => number,
     private footstep: (x: number, y: number, z: number) => void,
@@ -67,7 +87,9 @@ export class Court {
    * undefined: it's in its seat already.
    */
   add(id: string, model: Worker, desk: DeskView, from?: Pt) {
-    const c: Courtier = { id, model, desk, goal: { seat: true }, state: 'seated', way: [], next: 0, hop: 0, from: new THREE.Vector3(), heading: 0, stepIn: 0, pace: WALK };
+    const it: Interactable = { kind: 'desk', deskId: desk.def.id, x: 0, z: 0, radius: 1.3, off: true };
+    this.interactables.push(it);
+    const c: Courtier = { id, model, desk, goal: { seat: true }, state: 'seated', way: [], next: 0, hop: 0, from: new THREE.Vector3(), heading: 0, stepIn: 0, pace: WALK, out: [], it };
     this.people.set(id, c);
     if (!from) return;
     // Out into the hall where it comes in, then off to its seat at a run.
@@ -85,6 +107,7 @@ export class Court {
     const c = this.people.get(id);
     if (!c) return undefined;
     this.people.delete(id);
+    this.interactables.splice(this.interactables.indexOf(c.it), 1);
     c.model.walking = false;
     c.model.gait = 1;
     delete c.model.root.userData.interact;
@@ -112,11 +135,58 @@ export class Court {
     const order = waiting.filter((id) => this.people.has(id)).slice(0, spots);
     for (const c of this.people.values()) {
       const i = order.indexOf(c.id);
+      // On a break: that's features/breaks's to send back.
+      if (i < 0 && 'stop' in c.goal) continue;
       const goal: Goal = i >= 0 ? { spot: i } : { seat: true };
       if (sameGoal(goal, c.goal)) continue;
       c.pace = WALK;
       this.walkTo(c, goal);
     }
+  }
+
+  /** Moves `id` on `seconds` at once, and quietly: catching up with where everyone else sees it. */
+  advance(id: string, seconds: number) {
+    const c = this.people.get(id);
+    if (!c) return;
+    const footstep = this.footstep;
+    this.footstep = () => {};
+    for (let t = Math.min(seconds, 60); t > 0; t -= 0.1) this.step(c, Math.min(0.1, t));
+    this.footstep = footstep;
+  }
+
+  /** Puts `id` straight at `stop`, as if it had walked there already (a page just opened on its break). */
+  placeAt(id: string, stop: Stop) {
+    const c = this.people.get(id);
+    if (!c || c.state !== 'seated') return;
+    this.detach(c);
+    c.goal = { stop };
+    c.model.root.position.set(stop.x, this.ground(stop.x, stop.z, 2) - FEET + (stop.sit ?? 0), stop.z);
+    c.model.root.rotation.set(0, stop.rotY, 0);
+    c.state = 'stand';
+    c.out = stop.through ? [...stop.through].reverse() : [];
+    this.freeSpots();
+  }
+
+  /** Sends `id` (on a break) to `stop`, or back to its seat (null). */
+  visit(id: string, stop: Stop | null) {
+    const c = this.people.get(id);
+    if (!c) return;
+    const goal: Goal = stop ? { stop } : { seat: true };
+    if (sameGoal(goal, c.goal)) return;
+    c.pace = WALK;
+    this.walkTo(c, goal);
+  }
+
+  /** The stop `id` is at, or on its way to, on a break; undefined in its seat, in line or on its way back. */
+  stopOf(id: string): Stop | undefined {
+    const c = this.people.get(id);
+    return c && 'stop' in c.goal ? c.goal.stop : undefined;
+  }
+
+  /** Whether `id` has got to the stop it was sent to (and isn't still walking there). */
+  arrived(id: string): boolean {
+    const c = this.people.get(id);
+    return !!c && c.state === 'stand' && 'stop' in c.goal;
   }
 
   /** Everyone walking about, for the doors to open (the same list each time, to save making one a frame). */
@@ -137,12 +207,14 @@ export class Court {
    * spot or leaves one.
    */
   private freeSpots() {
-    for (const it of this.interactables) {
+    const spots = this.interactables.slice(0, this.plan.lineup.length);
+    for (const it of spots) {
       it.off = true;
       it.deskId = undefined;
     }
     for (const c of this.people.values()) {
-      const it = c.state === 'stand' && 'spot' in c.goal ? this.interactables[c.goal.spot] : undefined;
+      const it = c.state === 'stand' && 'spot' in c.goal ? this.interactables[c.goal.spot] : c.state !== 'seated' && 'stop' in c.goal ? c.it : undefined;
+      c.it.off = it !== c.it;
       if (it) {
         it.off = false;
         it.deskId = c.desk.def.id;
@@ -169,11 +241,15 @@ export class Court {
   private walkTo(c: Courtier, goal: Goal): void {
     c.goal = goal;
     c.model.stopDancing();
-    const target: Pt | null = 'spot' in goal ? [this.plan.lineup[goal.spot].x, this.plan.lineup[goal.spot].z] : null;
+    const nav = this.navOf();
+    const stop = 'stop' in goal ? goal.stop : undefined;
+    const target: Pt | null = 'spot' in goal ? [this.plan.lineup[goal.spot].x, this.plan.lineup[goal.spot].z] : stop ? (stop.through?.[0] ?? [stop.x, stop.z]) : null;
+    /** Past the edge of the walkways to the stop itself (through its door), when it's off them. */
+    const beyond: Pt[] = stop ? [...(stop.through ?? []).slice(1), ...(stop.through ? [[stop.x, stop.z] as Pt] : [])] : [];
     if (c.state === 'seated') {
       if (!target) return;
       this.detach(c);
-      c.way = this.nav.wayFrom(c.desk.def, target);
+      c.way = [...nav.wayFrom(c.desk.def, target), ...beyond];
       c.from.copy(c.model.root.position);
       c.state = 'down';
       c.hop = 0;
@@ -191,11 +267,15 @@ export class Court {
     // Still getting down: from where it lands, it heads the new way.
     if (c.state === 'down') {
       const land = c.way[0];
-      c.way = [land, ...(target ? this.nav.route(land, target) : this.nav.wayTo(land, c.desk.def)).slice(1)];
+      c.way = [land, ...(target ? nav.route(land, target) : nav.wayTo(land, c.desk.def)).slice(1), ...beyond];
       return;
     }
     const left = c.state === 'stand';
-    c.way = target ? this.nav.route(here, target) : this.nav.wayTo(here, c.desk.def);
+    // Off the walkways (out on the balcony): back the way it came first, to where they start.
+    const back = c.out.length ? [here, ...c.out] : [here];
+    const from = back[back.length - 1];
+    c.out = [];
+    c.way = [...back.slice(0, -1), ...(target ? nav.route(from, target) : nav.wayTo(from, c.desk.def)), ...beyond];
     c.next = 1;
     c.state = 'walk';
     // Out of its spot in line: it's no longer there to walk up to.
@@ -265,13 +345,18 @@ export class Court {
         c.from.copy(pos);
       } else {
         c.state = 'stand';
+        // Off the walkways: the way back to them, nearest first.
+        if ('stop' in c.goal && c.goal.stop.through) c.out = [...c.goal.stop.through].reverse();
         this.freeSpots();
       }
     }
     // Up and down the dais steps as it goes, and facing the way it's walking, or the throne once it's in line.
-    const g = this.ground(pos.x, pos.z, pos.y + FEET + 0.35) - FEET;
-    pos.y += (g - pos.y) * Math.min(1, dt * 14);
-    const face = c.state === 'stand' && 'spot' in c.goal ? this.plan.lineup[c.goal.spot].rotY : c.heading;
+    const sitting = c.state === 'stand' && 'stop' in c.goal ? (c.goal.stop.sit ?? 0) : 0;
+    const g = this.ground(pos.x, pos.z, pos.y + FEET + 0.35) - FEET + sitting;
+    pos.y += (g - pos.y) * Math.min(1, dt * (sitting ? 6 : 14));
+    const face = c.state === 'stand' && 'spot' in c.goal ? this.plan.lineup[c.goal.spot].rotY : c.state === 'stand' && 'stop' in c.goal ? c.goal.stop.rotY : c.heading;
+    c.it.x = pos.x;
+    c.it.z = pos.z;
     root.rotation.set(0, root.rotation.y + wrap(face - root.rotation.y) * Math.min(1, dt * 8), 0);
   }
 

@@ -39,12 +39,15 @@ export function createWorlds(ctx: Ctx) {
   let idleAgents = idleAgentsIn(world);
   /** The board agents waiting at the office's kiosks (the ones made at the start). */
   const officeIdle = idleAgents;
+  /** The office's workers getting up for a break and wandering about (see features/breaks); it has no line for a throne. */
+  const officeCourt = new Court(theOffice.group, theOffice.plan, () => theOffice.nav, (x, z, y) => groundAt(theOffice.colliders, x, z, y), (x, y, z) => ctx.sound.stepAt(x, z, y));
+  court = officeCourt;
   /** The worlds built for maps of their own, by map id, with the plan each was built from (a custom map can change). */
   const built = new Map<string, { plan: MapPlan; world: World; court: Court; idle: IdleAgent[] }>();
 
   /** The world for `p`: the office, or the one its style's builder puts up for it, the first time it's wanted. */
   function worldFor(p: MapPlan): MapWorld {
-    if (p.style === 'office') return { world: theOffice, court: null, idle: officeIdle };
+    if (p.style === 'office') return { world: theOffice, court: officeCourt, idle: officeIdle };
     let b = built.get(p.id);
     // A map of your own was edited since: it's built again.
     if (b && b.plan !== p) {
@@ -60,7 +63,7 @@ export function createWorlds(ctx: Ctx) {
       scene.add(w.group);
       noOutline(w.group);
       const ground = (x: number, z: number, y: number) => Math.max(groundAt(w.colliders, x, z, y), w.dungeon?.plan.floor ?? 0);
-      b = { plan: p, world: w, court: new Court(w.group, p, w.nav, ground, (x, y, z) => ctx.sound.stepAt(x, z, y)), idle: idleAgentsIn(w) };
+      b = { plan: p, world: w, court: new Court(w.group, p, () => w.nav, ground, (x, y, z) => ctx.sound.stepAt(x, z, y)), idle: idleAgentsIn(w) };
       built.set(p.id, b);
     }
     return b;

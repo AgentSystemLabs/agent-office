@@ -6,6 +6,7 @@ import { isAgentEffort, isAgentProvider, type WorkerClientMsg } from '../../../s
 import { issueNumber, num, str } from '../../office/input.js';
 import { here, workerOf } from './common.js';
 import type { FeatureHooks, HandlerMap, ViewPieces } from './types.js';
+import { takeBreak } from '../../workers/breaks.js';
 
 const CLEANUPS = new Set(['keep', 'worktree', 'all']);
 
@@ -50,6 +51,16 @@ export const workerHandlers = {
   'worker.resume'(ctx, c, msg) {
     const w = workerOf(ctx, msg.workerId);
     ctx.warn(c, w ? w.floor.workers.resume(w.wid) : 'No such worker');
+  },
+  'worker.rest'(ctx, c, msg) {
+    const w = workerOf(ctx, msg.workerId);
+    if (!w) return ctx.warn(c, 'No such worker');
+    const on = msg.on === true;
+    const live = w.floor.workers.get(w.wid);
+    const err = live ? takeBreak(live, on) : 'No such worker';
+    if (err || !live) return ctx.warn(c, err);
+    ctx.toFloor(w.floor, { t: 'worker.update', worker: { ...live } });
+    ctx.toastFloor(w.floor, on ? `☕ ${c.peer.name} sent ${w.info.name} off on a break` : `💻 ${c.peer.name} called ${w.info.name} back to its desk`);
   },
   'worker.kill'(ctx, c, msg) {
     const who = c.peer.name;
