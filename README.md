@@ -370,3 +370,5 @@ Every change to the app that lands on `main` is published as a GitHub release by
 ## License
 
 [MIT](LICENSE)
+
+Workers can present completed work on the lounge TV's **Worker showcase** channel. Use the remote on the coffee table (or the TV) to browse interactive artifacts or switch to screen sharing. See [TV presentations](docs/features.md#tv-presentations).

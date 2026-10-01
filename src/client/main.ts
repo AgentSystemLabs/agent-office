@@ -2896,6 +2896,10 @@ function boardActions() {
 }
 
 function watchShare() {
+  openTVRemote();
+}
+
+function watchScreenShare() {
   const streams = currentShares();
   if (!streams.length) {
     void toggleShare();
@@ -3471,6 +3475,7 @@ function freePlace(seat: SeatDef): SeatPlace | null {
 
 /** Someone else's screen is up on the TV. */
 function tvShowing(): boolean {
+  if (tvChannel === 'artifacts') return presentations().length > 0;
   return currentShares().some(([who]) => who !== 'You');
 }
 
@@ -3696,7 +3701,7 @@ function hintFor(it: Interactable): Hint {
     }
     case 'tv': {
       const any = currentShares().length > 0;
-      return { k: String(any), parts: [title('📺 Office TV'), key('E', any ? 'Watch full screen' : 'Share your screen')] };
+      return { k: String(any), parts: [title('📺 Office TV'), key('E', 'TV remote · channels & presentations')] };
     }
     case 'coffee': {
       const buzzed = caffeine.buzzed(performance.now() / 1000);
@@ -4488,6 +4493,74 @@ function currentShares(): [string, MediaStream][] {
   return out;
 }
 
+let tvChannel: 'screen' | 'artifacts' = 'artifacts';
+let presentationIndex = 0;
+let tvArtifactKey = '';
+let latestPresentationKey = '';
+const artifactCanvas = document.createElement('canvas');
+artifactCanvas.width = 1280; artifactCanvas.height = 720;
+const artifactTexture = new THREE.CanvasTexture(artifactCanvas);
+artifactTexture.colorSpace = THREE.SRGBColorSpace;
+function presentations() {
+  return [...store.workers.values()].filter(w => w.presentation).sort((a, b) => b.presentation!.at - a.presentation!.at);
+}
+function refreshPresentations() {
+  const items = presentations();
+  const latest = `${items[0]?.id}:${items[0]?.presentation?.at}`;
+  if (latest !== latestPresentationKey) { latestPresentationKey = latest; presentationIndex = 0; }
+  presentationIndex = Math.min(presentationIndex, Math.max(0, items.length - 1));
+  const w = items[presentationIndex];
+  const key = `${tvChannel}:${w?.id}:${w?.presentation?.at}:${tvStream !== null}`;
+  if (key === tvArtifactKey) return;
+  tvArtifactKey = key;
+  if (tvChannel === 'screen') { tvMat.map = tvStream ? tvTexture : tvIdle; }
+  else if (!w) tvMat.map = tvIdle;
+  else {
+    const g = artifactCanvas.getContext('2d')!;
+    g.fillStyle = '#1b1d2e'; g.fillRect(0, 0, 1280, 720);
+    g.fillStyle = '#4cc9f0'; g.font = 'bold 36px system-ui';
+    g.fillText(`WORKER SHOWCASE · ${presentationIndex + 1}/${items.length}`, 60, 85);
+    g.fillStyle = '#fff'; g.font = 'bold 52px system-ui';
+    const wrap = (text: string, y: number, width: number, line: number) => {
+      let row = ''; for (const word of text.split(/\s+/)) {
+        if (g.measureText(row + word).width > width) { g.fillText(row, 60, y); y += line; row = ''; }
+        row += word + ' ';
+      } g.fillText(row, 60, y); return y + line;
+    };
+    const y = wrap(w.presentation!.title, 175, 1160, 65);
+    g.font = '30px system-ui'; wrap(w.presentation!.summary.slice(0, 400), y + 30, 1160, 42);
+    g.fillStyle = '#4cc9f0'; g.fillText(`${w.name} · Use the remote to explore the interactive artifact`, 60, 655);
+    artifactTexture.needsUpdate = true; tvMat.map = artifactTexture;
+  }
+  tvMat.needsUpdate = true;
+}
+function openTVRemote() {
+  const close = h('button.btn.close', { 'aria-label': 'Close' }, '✕');
+  const content = h('div');
+  const el = h('div.modal.viewer', { role: 'dialog', 'aria-label': 'TV remote' },
+    h('header', {}, h('h2', {}, '📺 TV remote'), close), content);
+  const modal = openModal(el, { doing: '📺 browsing presentations' });
+  close.onclick = () => modal.close();
+  const render = () => {
+    const items = presentations(); const w = items[presentationIndex];
+    const screen = h('button.btn', { onclick: () => { tvChannel = 'screen'; refreshPresentations(); modal.close(); watchScreenShare(); } }, '🖥 Screen sharing');
+    const channel = h('button.btn', { onclick: () => { tvChannel = 'artifacts'; refreshPresentations(); render(); } }, '🎨 Worker showcase');
+    const previous = h('button.btn', { onclick: () => { presentationIndex = (presentationIndex - 1 + items.length) % items.length; refreshPresentations(); render(); } }, '◀ Previous');
+    const next = h('button.btn', { onclick: () => { presentationIndex = (presentationIndex + 1) % items.length; refreshPresentations(); render(); } }, 'Next ▶');
+    previous.disabled = next.disabled = items.length < 2;
+    content.replaceChildren(h('div', {}, screen, channel, previous, next));
+    if (!w) { content.append(h('p', {}, 'Completed worker presentations will appear here automatically.')); return; }
+    content.append(h('h2', {}, w.presentation!.title), h('p', {}, `${w.name}: ${w.presentation!.summary}`));
+    const frame = document.createElement('iframe');
+    frame.title = w.presentation!.title; frame.setAttribute('sandbox', 'allow-scripts');
+    frame.style.cssText = 'width:100%;height:55vh;border:0;background:white';
+    frame.srcdoc = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; connect-src 'none';">` + w.presentation!.html;
+    content.append(frame);
+  };
+  render();
+}
+setInterval(refreshPresentations, 1000);
+
 let tvStream: MediaStream | null = null;
 function refreshShares() {
   const shares = currentShares();
@@ -4498,7 +4571,8 @@ function refreshShares() {
     tvStream = stream;
     tvVideo.srcObject = stream;
     if (stream) void tvVideo.play().catch(() => {});
-    tvMat.map = stream ? tvTexture : tvIdle;
+    tvArtifactKey = '';
+    refreshPresentations();
     tvMat.needsUpdate = true;
   }
   const box = $('shares');

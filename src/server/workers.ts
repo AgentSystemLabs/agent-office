@@ -1,3 +1,4 @@
+import { presentationBrief, readPresentation } from './presentations.js';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync, accessSync, chmodSync, mkdirSync, readdirSync, rmdirSync, unlinkSync, constants } from 'node:fs';
 import { execFile, execFileSync } from 'node:child_process';
@@ -947,7 +948,7 @@ export class WorkerManager {
     if (w.dsh) {
       const clean = text.replace(/\r\n?/g, '\n').trim();
       if (!clean) return 'Empty prompt';
-      w.dsh.prompt(clean);
+      w.dsh.prompt(clean + (w.info.kind === 'agent' ? '\n\n' + presentationBrief(id) : ''));
       w.info.activity = truncate(clean, 80);
       this.notePrompt(w, clean);
       if (by) w.info.lastInput = { by, at: Date.now() };
@@ -958,7 +959,8 @@ export class WorkerManager {
     const clean = text.replace(/\r\n?/g, '\n').trim();
     if (!clean) return 'Empty prompt';
     // Bracketed paste keeps multi-line prompts in one message, then Enter submits.
-    w.pty.write(`\x1b[200~${clean}\x1b[201~`);
+    const sent = clean + (w.info.kind === 'agent' ? '\n\n' + presentationBrief(id) : '');
+    w.pty.write(`\x1b[200~${sent}\x1b[201~`);
     setTimeout(() => w.pty?.write('\r'), 120);
     w.info.activity = truncate(clean, 80);
     this.notePrompt(w, clean);
@@ -1552,6 +1554,7 @@ export class WorkerManager {
 
   private launch(w: Worker, prompt: string | undefined, resumeSessionId: string | undefined) {
     const { info } = w;
+    if (prompt && info.kind === 'agent') prompt += '\n\n' + presentationBrief(info.id);
     // Its folder was deleted meanwhile: it waits, marked lost, for someone to rebuild it or send it home.
     if (this.checkLost(w)) {
       clockWork(info, 'exited');
@@ -2019,6 +2022,10 @@ export class WorkerManager {
     if (w.info.status === 'needs_input') w.leftNeedsInputAt = Date.now();
     clockWork(w.info, status);
     w.info.status = status;
+    if (status === 'done' && w.info.kind === 'agent') {
+      const artifact = readPresentation(this.cwd(w.info), w.info.id, w.info.presentation?.at ?? 0);
+      if (artifact) w.info.presentation = artifact;
+    }
     // Done, idle or asleep: it's not acting anything out any more.
     if (status !== 'working' && status !== 'needs_input') w.info.action = undefined;
     // Nobody is looking at the terminal right now -> raise the flag (the worker jumps). A worker at the

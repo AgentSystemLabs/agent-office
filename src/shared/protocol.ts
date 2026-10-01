@@ -80,7 +80,10 @@ export interface WorkerTask {
   summary: string;
 }
 
+export interface Presentation { title: string; summary: string; html: string; at: number }
+
 export interface WorkerInfo {
+  presentation?: Presentation;
   id: string;
   /** 'agent' runs the selected provider; 'shell' is a plain shared login shell. */
   kind: WorkerKind;

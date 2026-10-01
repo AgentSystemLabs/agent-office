@@ -18,7 +18,7 @@ import { buildGong } from '../world/gong';
 import { buildJukebox } from '../world/jukebox';
 import { buildKitchen } from '../world/kitchen';
 import { preloadModels } from '../world/models';
-import { DESK_BOOKS, FLOOR_PLANTS, buildDesk, coffeeTable, deskBooks, deskMug, loungeCouch, plant, pouf } from '../world/office';
+import { DESK_BOOKS, FLOOR_PLANTS, buildDesk, coffeeTable, tvRemote, deskBooks, deskMug, loungeCouch, plant, pouf } from '../world/office';
 import { toon } from '../world/toon';
 import { ready, stage } from './stage';
 
@@ -30,6 +30,7 @@ interface Shown {
 
 /** Every prop, built the way the office builds it. Add yours here. */
 const SHOW: Record<string, () => Shown> = {
+  tv_remote: () => ({ object: tvRemote() }),
   jukebox: () => {
     const j = buildJukebox();
     j.show(true, 'Lab tune');

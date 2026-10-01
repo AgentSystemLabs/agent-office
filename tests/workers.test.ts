@@ -5,6 +5,7 @@ import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Ledger } from '../src/server/usage.js';
+import { presentationBrief } from '../src/server/presentations.js';
 import { CARRY_ON_PROMPT, WorkerManager, type WorkerEvents } from '../src/server/workers.js';
 import { Worktrees } from '../src/server/worktrees.js';
 import type { AgentProvider, WorkerInfo } from '../src/shared/protocol.js';
@@ -203,8 +204,10 @@ async function waitFor<T>(read: () => T, predicate: (value: T) => boolean, timeo
   return value;
 }
 
+const taskPrompt = (value: string) => value.split('\n\nOffice TV:')[0];
+
 function hasPrompt(invocation: Invocation, prompt: string): boolean {
-  return invocation.args.includes(prompt) || invocation.stdin?.includes(prompt) === true;
+  return invocation.args.some(arg => arg === prompt || arg.startsWith(prompt + '\n\nOffice TV:')) || invocation.stdin?.includes(prompt) === true;
 }
 
 test('Claude workers use the configured executable, pass prompts and resume ids, and stay hook-operational', async (t) => {
@@ -377,7 +380,7 @@ test('OpenCode model overrides configured model flags on first launch and is omi
   if (typeof worker === 'string') return;
   const first = await waitFor(() => f.read(), (records) => records.some((r) => r.kind === 'opencode'));
   const firstInvocation = first.find((r) => r.kind === 'opencode')!;
-  assert.deepEqual(firstInvocation.args, ['--keep', 'yes', '--model', 'openai/gpt-5/nested', '--prompt', 'modelled prompt']);
+  assert.deepEqual(firstInvocation.args, ['--keep', 'yes', '--model', 'openai/gpt-5/nested', '--prompt', 'modelled prompt' + '\n\n' + presentationBrief(worker.id)]);
   assert.equal(workers.get(worker.id)?.model, 'openai/gpt-5/nested');
 
   assert.equal(workers.handleOpenCodeHook(worker.id, firstInvocation.env.hookToken!, { type: 'session', sessionId: 'oc-model', status: 'starting' }), true);
@@ -476,7 +479,7 @@ test('an explicit Claude model/effort overrides --agent-args and persists across
   const first = await waitFor(() => f.read(), (records) => records.some((r) => r.kind === 'claude'));
   const firstInvocation = first.find((r) => r.kind === 'claude')!;
   // The per-worker choice is appended after --agent-args, so it wins even though "opus" also appears.
-  assert.deepEqual(firstInvocation.args.slice(firstInvocation.args.indexOf('--model')), ['--model', 'opus', '--model', 'haiku', '--effort', 'high', '--', 'haiku task']);
+  assert.deepEqual(firstInvocation.args.slice(firstInvocation.args.indexOf('--model')), ['--model', 'opus', '--model', 'haiku', '--effort', 'high', '--', 'haiku task' + '\n\n' + presentationBrief(worker.id)]);
 
   assert.equal(workers.handleHook(worker.id, firstInvocation.env.hookToken!, 'SessionStart', { session_id: 'claude-model-1' }), true);
   await waitFor(() => workers.get(worker.id)?.status, (status) => status === 'exited');
@@ -516,7 +519,7 @@ test('a worker hired on Fable launches with --model fable and keeps it across a 
   if (typeof worker === 'string') return;
   const records = await waitFor(() => f.read(), (rs) => rs.some((r) => r.kind === 'claude'));
   const launch = records.find((r) => r.kind === 'claude')!;
-  assert.deepEqual(launch.args.slice(launch.args.indexOf('--model')), ['--model', 'opus', '--model', 'fable', '--', 'fable task']);
+  assert.deepEqual(launch.args.slice(launch.args.indexOf('--model')), ['--model', 'opus', '--model', 'fable', '--', 'fable task' + '\n\n' + presentationBrief(worker.id)]);
 
   workers.shutdown();
   const restored = manager(f, f.claude, [], ['--model', 'opus']);
@@ -617,7 +620,8 @@ test('Codex workers preserve native approvals, follow authenticated root hooks, 
   process.env.FAKE_AGENT_LOG = f.log;
   t.after(() => { if (oldLog === undefined) delete process.env.FAKE_AGENT_LOG; else process.env.FAKE_AGENT_LOG = oldLog; f.close(); });
   const book = ledger(f.data);
-  const workers = new WorkerManager(f.root, f.data, f.claude, ['--claude-only'], { url: 'http://127.0.0.1:1', token: '' }, events([]), book);
+  const updates: WorkerInfo[] = [];
+  const workers = new WorkerManager(f.root, f.data, f.claude, ['--claude-only'], { url: 'http://127.0.0.1:1', token: '' }, events(updates), book);
   t.after(() => workers.shutdown());
   const worker = workers.spawn('desk-1', 'test', '- fix the login', false, 'agent', 'codex');
   assert.notEqual(typeof worker, 'string'); if (typeof worker === 'string') return;
@@ -629,7 +633,7 @@ test('Codex workers preserve native approvals, follow authenticated root hooks, 
   // The office's MCP server, with the office's variables passed on to it, which Codex doesn't do unasked.
   assert.ok(first.args.some((a) => a.startsWith('mcp_servers.agent-office.args=') && a.includes('office-workers.js')));
   assert.ok(first.args.includes('mcp_servers.agent-office.env_vars=["AGENT_OFFICE_HOOK_URL","AGENT_OFFICE_WORKER_ID","AGENT_OFFICE_HOOK_TOKEN"]'));
-  assert.deepEqual(first.args.slice(-2), ['--', '- fix the login']);
+  assert.deepEqual(first.args.slice(-2), ['--', '- fix the login' + '\n\n' + presentationBrief(worker.id)]);
   assert.equal(first.args.some(a => /bypass|--yolo|--claude-only|--settings/.test(a)), false);
   assert.equal(first.args.filter(a => a.startsWith('hooks.')).length, 7);
   assert.equal(calls.some(r => r.kind === 'claude'), false);
@@ -649,8 +653,13 @@ test('Codex workers preserve native approvals, follow authenticated root hooks, 
   assert.equal(worker.status, 'needs_input');
   assert.equal(hook('PostToolUse', { tool_name: 'exec_command', tool_use_id: 'call-permission' }), true);
   assert.equal(worker.status, 'working');
+  const presentationDir = path.join(f.root, '.agent-office', 'presentations');
+  mkdirSync(presentationDir, { recursive: true });
+  writeFileSync(path.join(presentationDir, `${worker.id}.json`), JSON.stringify({ title: 'Login demo', summary: 'Validated login', html: '<button>Try login</button>' }));
   assert.equal(hook('Stop'), true);
   assert.equal(worker.status, 'done');
+  assert.equal(worker.presentation?.title, 'Login demo');
+  assert.equal(updates.at(-1)?.presentation?.title, 'Login demo');
   assert.equal(workers.handleHook(worker.id, token, 'Stop', { session_id: 'claude' }), false);
   assert.equal(workers.handleOpenCodeHook(worker.id, token, { type: 'session', sessionId: 'oc', status: 'starting' }), false);
   assert.equal(worker.sessionId, 'codex-root');
@@ -696,7 +705,7 @@ test('Grok workers isolate GROK_HOME, follow authenticated hooks, and resume the
   assert.ok(first.args.includes('grok-4.6'));
   assert.ok(first.args.includes('--effort'));
   assert.ok(first.args.includes('high'));
-  assert.deepEqual(first.args.slice(-2), ['--', '- fix the login']);
+  assert.deepEqual(first.args.slice(-2), ['--', '- fix the login' + '\n\n' + presentationBrief(worker.id)]);
   assert.equal(first.args.includes('--claude-only'), false);
   assert.equal(first.env.grokHome, path.join(f.data, 'grok-home'));
   assert.equal(calls.some(r => r.kind === 'claude'), false);
@@ -766,7 +775,7 @@ test('Muse workers isolate XDG, follow authenticated hooks, resume by uuid, and 
   assert.ok(first.args.includes('muse-spark-1.3-contributor'));
   assert.ok(first.args.includes('--reasoning-effort'));
   assert.ok(first.args.includes('high'));
-  assert.deepEqual(first.args.slice(-2), ['--', '- fix the login']);
+  assert.deepEqual(first.args.slice(-2), ['--', '- fix the login' + '\n\n' + presentationBrief(worker.id)]);
   assert.equal(first.args.includes('resume'), false);
   assert.equal(first.args.includes('--yolo'), false);
   assert.equal(first.args.includes('--claude-only'), false);
@@ -913,7 +922,7 @@ test('a board agent is hired with its brief on the first prompt, then prompted, 
   assert.equal(hired.info.deskId, 'station-issues');
   assert.equal(hired.info.activity, 'File an issue about the dog');
   const [first] = await waitFor(launches, (l) => l.length === 1);
-  const initial = first.args.at(-1)!;
+  const initial = taskPrompt(first.args.at(-1)!);
   assert.match(initial, /Issues agent/);
   assert.match(initial, /office-queue add/);
   // Only the queue agent loses its file-editing tools.
@@ -944,7 +953,7 @@ test('a board agent is hired with its brief on the first prompt, then prompted, 
   assert.deepEqual(typeof woken === 'object' && [woken.hired, woken.info.id], [false, id]);
   const [, second] = await waitFor(launches, (l) => l.length === 2);
   assert.ok(second.args.includes('--resume') && second.args.includes('issues-session'));
-  assert.equal(second.args.at(-1), 'Close the duplicates');
+  assert.equal(taskPrompt(second.args.at(-1)!), 'Close the duplicates');
 });
 
 test('a worker nobody picked a model for starts on the office default, and a board agent is told its rewritten brief', async (t) => {
@@ -971,7 +980,7 @@ test('a worker nobody picked a model for starts on the office default, and a boa
   if (typeof hired === 'string') return;
   assert.deepEqual([hired.info.provider, hired.info.model, hired.info.effort], ['claude', 'sonnet', 'low']);
   const [first] = await waitFor(() => launches(hired.info.id), (l) => l.length === 1);
-  assert.equal(first.args.at(-1), 'You triage issues. The request:\n\nFile one about the dog');
+  assert.equal(taskPrompt(first.args.at(-1)!), 'You triage issues. The request:\n\nFile one about the dog');
   assert.deepEqual([flag(first.args, '--model'), flag(first.args, '--effort')], ['sonnet', 'low']);
 
   // Picked at the desk, the pick wins, down to "the provider's own model".
@@ -1019,7 +1028,7 @@ test('the queue agent is launched without file-editing tools, and board agents g
   const [first] = await waitFor(() => launches(id), (l) => l.length === 1);
   assert.deepEqual(denied(first.args), ['Edit', 'Write', 'NotebookEdit']);
   assert.ok(first.args.indexOf('--disallowedTools') < first.args.indexOf('--'), 'the tools come before the prompt');
-  assert.ok(first.args.at(-1)!.endsWith('Fix the typo in the README'));
+  assert.ok(taskPrompt(first.args.at(-1)!).endsWith('Fix the typo in the README'));
   assert.ok(onPath(first), 'office-queue is first on its PATH');
 
   // Woken up carrying on its session, it's still without them.
@@ -1029,7 +1038,7 @@ test('the queue agent is launched without file-editing tools, and board agents g
   const [, second] = await waitFor(() => launches(id), (l) => l.length === 2);
   assert.ok(second.args.includes('--resume') && second.args.includes('queue-session'));
   assert.deepEqual(denied(second.args), ['Edit', 'Write', 'NotebookEdit']);
-  assert.equal(second.args.at(-1), 'Also bump the version');
+  assert.equal(taskPrompt(second.args.at(-1)!), 'Also bump the version');
   assert.ok(onPath(second));
 
   // The other board agents keep their tools; they, and a desk worker, get the commands all the same.
@@ -1172,7 +1181,7 @@ test('a worker is stamped with when it started waiting on someone, afresh each t
 /** Each Claude worker launch so far (not the task namer's calls), oldest first. */
 const launches = (f: Fixture) => f.read().filter((r) => r.kind === 'claude' && r.args.includes('--settings'));
 /** What a launch was told to do: the prompt after `--`, if any. */
-const promptOf = (r: Invocation) => (r.args.includes('--') ? r.args[r.args.indexOf('--') + 1] : undefined);
+const promptOf = (r: Invocation) => (r.args.includes('--') ? r.args[r.args.indexOf('--') + 1]?.split('\n\nOffice TV:')[0] : undefined);
 
 function carryOnFixture(t: { after(fn: () => void): void }) {
   const f = fixture();

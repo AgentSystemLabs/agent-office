@@ -1533,6 +1533,10 @@ export function buildOffice(): Office {
   const table = coffeeTable();
   table.position.set(13, 0, 0);
   group.add(table);
+  const remote = tvRemote();
+  remote.position.set(13, 0.51, 0.2);
+  remote.userData.interact = tv;
+  group.add(remote);
   colliders.push({ minX: 12.2, maxX: 13.8, minZ: -0.8, maxZ: 0.8, top: 0.46 });
   const lounge = mesh(roundedBox(7, 0.02, 7, 1.2), toon('#ffc6ff'), 13.4, 0.011, 0, false);
   group.add(lounge);
@@ -2101,4 +2105,12 @@ function buildLoft(group: THREE.Group, colliders: Collider[], interactables: Int
   outside.rotation.y = Math.PI;
   group.add(outside);
   return screen;
+}
+
+/** The lounge TV remote, also shown in the props lab. */
+export function tvRemote(): THREE.Group {
+  const remote = new THREE.Group();
+  remote.add(mesh(roundedBox(0.18, 0.05, 0.42, 0.025), toon(PALETTE.ink), 0, 0, 0));
+  for (let i = 0; i < 4; i++) remote.add(mesh(new THREE.SphereGeometry(0.025, 8, 6), toon(i === 0 ? '#ff595e' : '#4cc9f0'), 0, 0.032, -0.12 + i * 0.075));
+  return remote;
 }
