@@ -92,5 +92,13 @@ test('the laptop gives back what the model printed, or says why it could not', {
   const failed = await askLaptop('hi', { codex: fake('bad', 'echo "unknown model" >&2; exit 1') });
   assert.deepEqual(failed, { error: 'unknown model' });
   const missing = await askLaptop('hi', { codex: path.join(dir, 'nope') });
-  assert.ok('error' in missing && /codex CLI isn't installed/.test(missing.error));
+  assert.ok('error' in missing && /Couldn't run .*nope/.test(missing.error));
+  // The office's own PATH may be bare: codex's folder (and node's) are put on it for the call.
+  const where = await askLaptop('hi', { codex: fake('where', 'echo "$PATH"'), env: { PATH: '/usr/bin:/bin' } });
+  assert.ok('answer' in where && where.answer.split(path.delimiter).includes(dir) && where.answer.split(path.delimiter).includes(path.dirname(process.execPath)));
+  // …and it isn't handed the office's own secrets: it runs with the workers' environment.
+  process.env.AGENT_OFFICE_HOOK_TOKEN = 'secret';
+  const leaked = await askLaptop('hi', { codex: fake('dump', 'env') });
+  delete process.env.AGENT_OFFICE_HOOK_TOKEN;
+  assert.ok('answer' in leaked && !/AGENT_OFFICE_HOOK_TOKEN/.test(leaked.answer));
 });
