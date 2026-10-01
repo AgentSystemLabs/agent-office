@@ -73,7 +73,7 @@ import { isPaletteKey } from '../shared/palette';
 import { IS_MAC } from './ui/termkeys';
 import { openQueue } from './ui/queue';
 import { openUpgrade, restarting, showRestarting, showUpgraded } from './ui/upgrade';
-import { openHelp, renderCaffeine, renderChat, renderPeople, renderWorkers, updateSpeaking } from './ui/hud';
+import { openHelp, renderCaffeine, renderChat, renderPeople, renderWorkers, orderedWorkers, showWorkerShortcuts, updateSpeaking } from './ui/hud';
 import { Compass, type Bearing } from './ui/compass';
 import { openCharacter } from './ui/character';
 import { openSettings, type SettingsPane } from './ui/settings';
@@ -92,7 +92,7 @@ import { Arcade } from './ui/arcade';
 import { Cabinet } from './ui/cabinet';
 import { trackTitle } from '../shared/jukebox';
 import { GAME, scoreText } from '../shared/cabinet';
-import { EMOTES, EMOTE_BY_ID, EmoteBucket, type EmoteId } from '../shared/emotes';
+import { EMOTE_BY_ID, EmoteBucket, type EmoteId } from '../shared/emotes';
 import { EmoteWheel } from './ui/emotes';
 import { whereabouts } from './ui/whereabouts';
 import { wayTo } from './walkto';
@@ -4148,23 +4148,6 @@ function popEmoji(id: EmoteId) {
   $('hud').append(el);
 }
 
-/** G opens the emote wheel (hold it and point, or tap it and click); 1–6 play one straight away. */
-function emoteKey(e: KeyboardEvent): boolean {
-  if (e.code === 'KeyG') {
-    if (!e.repeat) emoteWheel.press();
-    return true;
-  }
-  if (e.code === 'Escape' && emoteWheel.isOpen) {
-    emoteWheel.close();
-    return true;
-  }
-  const n = /^(?:Digit|Numpad)([1-6])$/.exec(e.code);
-  if (!n) return false;
-  emoteWheel.close();
-  emote(EMOTES[Number(n[1]) - 1].id);
-  return true;
-}
-
 /** Keys that use what you're facing: at a desk, each does something else (see interact). */
 function use(it: Interactable | null, key: DeskKey, note = aimedNote): boolean {
   const worker = it?.deskId ? store.workerAtDesk(it.deskId) : undefined;
@@ -4183,6 +4166,20 @@ window.addEventListener('keydown', (e) => {
     return;
   }
   if (modalOpen() || isTyping(e) || e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.key === 'Shift') showWorkerShortcuts(true);
+  const workerNumber = /^(?:Digit|Numpad)([0-9])$/.exec(e.code);
+  if (e.shiftKey && workerNumber) {
+    e.preventDefault();
+    if (!e.repeat) {
+      const worker = orderedWorkers()[Number(workerNumber[1]) === 0 ? 9 : Number(workerNumber[1]) - 1];
+      if (worker) {
+        showWorkerShortcuts(false);
+        player.clearKeys();
+        openWorkerTerminal(worker.id);
+      }
+    }
+    return;
+  }
   if (relookOnKey && e.key !== 'Escape' && player.canLock) player.lock();
   if (hanger.active && hangingKey(e.code)) {
     e.preventDefault();
@@ -4217,14 +4214,13 @@ window.addEventListener('keydown', (e) => {
     else dropBall();
     return;
   }
-  if (emoteKey(e)) return;
   if (officeKey(e)) player.clearKeys();
 });
 window.addEventListener('keyup', (e) => {
-  if (e.code === 'KeyG') emoteWheel.release();
+  if (e.key === 'Shift' && !e.shiftKey) showWorkerShortcuts(false);
   if (e.code === 'KeyE') letFly();
 });
-window.addEventListener('blur', () => (windFrom = 0));
+window.addEventListener('blur', () => { windFrom = 0; showWorkerShortcuts(false); });
 // First person with the mouse captured, the button winds up a shot like E does (see player.onClick).
 window.addEventListener('pointerup', (e) => {
   if (e.button === 0 && windFrom && player.locked) letFly();

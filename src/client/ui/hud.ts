@@ -57,11 +57,29 @@ export function updateSpeaking(voice: Voice) {
   }
 }
 
+/** Matches the WORKERS panel, including kiosk agents. 0 selects the tenth worker. */
+export function orderedWorkers() {
+  return [...store.workers.values()].sort((a, b) => a.createdAt - b.createdAt);
+}
+
+let workerHints: HTMLElement | undefined;
+export function showWorkerShortcuts(show: boolean) {
+  if (!workerHints) {
+    workerHints = h('div.worker-shortcuts.hidden', { 'aria-label': 'Worker terminal shortcuts' });
+    document.body.append(workerHints);
+  }
+  workerHints.replaceChildren(h('b', {}, 'WORKERS · Shift + number'),
+    ...orderedWorkers().slice(0, 10).map((w, i) => h('div', {}, h('kbd', {}, String((i + 1) % 10)), h('span', {}, w.name))),
+    ...(!store.workers.size ? [h('small', {}, 'No workers on this floor')] : []));
+  workerHints.classList.toggle('hidden', !show);
+  document.body.classList.toggle('worker-shortcuts-visible', show);
+}
+
 export function renderWorkers(onOpen: (id: string) => void) {
   const ul = $('workers');
   ul.replaceChildren();
-  const workers = [...store.workers.values()].sort((a, b) => a.createdAt - b.createdAt);
-  for (const w of workers) {
+  const workers = orderedWorkers();
+  for (const [i, w] of workers.entries()) {
     const provider = w.kind === 'agent' ? providerLabel(w.provider, store.project) : null;
     const providerKind = w.kind === 'agent' ? resolvedProvider(w.provider, store.project) : undefined;
     const usageState = w.kind === 'agent' ? providerUsageState(w.provider, store.project, w.usage) : undefined;
@@ -73,6 +91,7 @@ export function renderWorkers(onOpen: (id: string) => void) {
       h(
         'li',
         { onclick: () => onOpen(w.id), title: `Open ${w.name}'s terminal` },
+        i < 10 ? h('kbd.worker-shortcut', {}, `⇧${(i + 1) % 10}`) : null,
         h('span.dot', { style: `background:${w.color}` }),
         h('span.name', {}, w.name, sub ? h('span.sub', {}, sub) : null,
           usageState === 'tracked' && w.usage ? h('span.cost', { title: usageTitle(w.usage, providerKind) }, usageLabel(w.usage, providerKind)) : null),
@@ -80,6 +99,7 @@ export function renderWorkers(onOpen: (id: string) => void) {
       ),
     );
   }
+  if (document.body.classList.contains('worker-shortcuts-visible')) showWorkerShortcuts(true);
   if (!workers.length) ul.append(h('li.empty', {}, 'Walk up to a desk and press E to hire one'));
   // The count is the workers hired onto desks and bean bags (and a meeting's table): the board agents
   // standing at the Issues, PR and queue kiosks are listed but aren't counted.
@@ -135,6 +155,7 @@ export function openHelp() {
   const rows: [string, string][] = [
     ['W A S D', 'Walk (hold Shift to run)'],
     ['Space', 'Jump'],
+    ['Shift + 1–9 / 0', 'Open the corresponding worker terminal in WORKERS order (0 is tenth). Hold Shift to see the numbers'],
     ['☕', 'Press E at the coffee machine in the kitchen for a minute of quicker walking and higher jumps. Three cups in a row gives you the jitters'],
     ['Mouse', 'Look around in first person (click to capture the mouse, Esc to free it)'],
     ['Click / E', "Use what you look at: hire a worker, open its terminal, read a board, call a meeting in the meeting room, watch the TV, put a song on the jukebox, tee off from the balcony, sit on a couch, a beanbag, a chair or the balcony bench (walk off to get up)"],
@@ -162,7 +183,6 @@ export function openHelp() {
     ['🐶', 'Walk up to the office dog and press E to pet it. When a worker needs input, it runs to that desk and barks. Name it in ⚙️ Settings'],
     ['O', 'Open a pull request for a worker on its own branch, or see the one it has'],
     ['T', 'Chat'],
-    ['G / 1–6', 'Emote: hold G, point at one and let go (or tap G and click one), or press 1–6: wave, thumbs up, clap, dance, point, facepalm. Everyone on your floor sees it'],
     ['/', 'Search the chat and every terminal on your floor, back to before the office last restarted'],
     [IS_MAC ? '⌘K' : 'Ctrl+K', 'Command palette: type a few letters to find a worker, issue, PR, service, board, teammate or action. Enter opens it, Shift+Enter walks you over to it first'],
     ['V', 'Join voice. In voice, hold V to talk (push to talk): you’re muted once you let go. Leave voice from the ☰ menu'],
