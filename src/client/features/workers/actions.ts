@@ -395,7 +395,8 @@ export function installWorkerActions(ctx: Ctx, core: CoreState, parts: WorkerAct
         key('C', 'Changes'),
         isAsleep(w.status) ? key('R', shell ? 'Restart' : 'Resume') : key('P', shell ? 'Run command' : 'Prompt'),
         w.repos?.length ? reposKey(w) : w.pr ? key('O', `PR #${w.pr.number}`) : w.prOpening ? aside('⏳ Opening PR…') : prReady(w) ? key('O', 'Open PR') : '',
-        plan().style === 'office' && canRest(w) ? key('Z', w.resting ? 'Back to work' : 'Take a break') : '',
+        // Z itself is features/breaks'.
+        plan().style === 'office' && canRest(w, !!plan().byId.get(w.deskId)?.station) ? key('Z', w.resting ? 'Back to work' : 'Take a break') : '',
         key('X', 'Send home'),
         labelKey,
       ],
@@ -459,7 +460,6 @@ export function installWorkerActions(ctx: Ctx, core: CoreState, parts: WorkerAct
       if (key === 'C' && w) return openWorkerChanges(w.id);
       if (key === 'R' && w && isAsleep(w.status)) return resumeWorker(w);
       if (key === 'X' && w) return killWorker(w.id);
-      if (key === 'Z' && w && canRest(w) && plan().style === 'office') return net.send({ t: 'worker.rest', workerId: w.id, on: !w.resting });
       if (key === 'O' && w) return pullRequestFor(w);
     },
   });

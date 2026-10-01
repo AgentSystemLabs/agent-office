@@ -1,42 +1,20 @@
-import * as THREE from 'three';
-import { mesh, toon } from '../toon';
-import { undress } from './props';
+import type * as THREE from 'three';
+import { EXHALE_AT, SMOKE_CYCLE, dragCurve } from './curves';
+import { golfClub } from './person-golf';
+import { cigarette, coffeeMug, undress } from './props';
 
 // What a worker on a break has in its hand (see features/breaks): a mug of coffee it sips, a
-// cigarette it takes a drag on now and then, or a golf club it swings.
+// cigarette it takes a drag on now and then (the same as yours, see props.ts and curves.ts), or a golf
+// club it swings.
 
 export type Held = 'mug' | 'cigarette' | 'club';
 
 /** Where the hand is, down the arm from the shoulder (see the arms in worker.ts). */
 const HAND = -0.25;
-
-function mug(): THREE.Group {
-  const g = new THREE.Group();
-  g.add(mesh(new THREE.CylinderGeometry(0.055, 0.048, 0.1, 14), toon('#fffaf3'), 0, 0, 0, false));
-  g.add(mesh(new THREE.CylinderGeometry(0.046, 0.046, 0.01, 14), toon('#6f4518'), 0, 0.046, 0, false));
-  const handle = mesh(new THREE.TorusGeometry(0.03, 0.01, 6, 12, Math.PI), toon('#fffaf3'), 0.055, 0, 0, false);
-  handle.rotation.z = -Math.PI / 2;
-  g.add(handle);
-  return g;
-}
-
-function cigarette(): { group: THREE.Group; tip: THREE.Object3D } {
-  const g = new THREE.Group();
-  const stick = mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.08, 6), toon('#fffaf3'), 0, 0, 0.04, false);
-  stick.rotation.x = Math.PI / 2;
-  g.add(stick);
-  const tip = mesh(new THREE.SphereGeometry(0.01, 6, 4), toon('#ff7b00', { emissive: '#ff4d00' }), 0, 0, 0.082, false);
-  g.add(tip);
-  return { group: g, tip };
-}
-
-function club(): THREE.Group {
-  const g = new THREE.Group();
-  g.add(mesh(new THREE.CylinderGeometry(0.01, 0.008, 0.5, 6), toon('#adb5bd'), 0, -0.25, 0, false));
-  g.add(mesh(new THREE.CylinderGeometry(0.016, 0.016, 0.1, 6), toon('#2b2d42'), 0, -0.02, 0, false));
-  g.add(mesh(new THREE.BoxGeometry(0.05, 0.03, 0.09), toon('#ced4da'), 0, -0.5, 0.03, false));
-  return g;
-}
+/** A worker's a little smaller than a person: what it holds is too. */
+const SIZE = { mug: 1, cigarette: 0.7, club: 0.6 };
+/** A sip every this many seconds. */
+const SIP_CYCLE = 4.5;
 
 /** A break's prop in a worker's right hand, and how its arms move with it. */
 export class BreakHands {
@@ -63,9 +41,11 @@ export class BreakHands {
     if (what === 'cigarette') {
       const c = cigarette();
       this.prop = c.group;
-      this.tip = c.tip;
-    } else this.prop = what === 'mug' ? mug() : club();
-    this.prop.position.set(0, HAND, what === 'club' ? 0 : 0.04);
+      // Its lit end: the piece in the ember's material.
+      this.tip = c.group.children.find((o) => (o as THREE.Mesh).material === c.ember) ?? null;
+    } else this.prop = what === 'mug' ? coffeeMug() : golfClub();
+    this.prop.scale.setScalar(SIZE[what]);
+    this.prop.position.set(0, HAND - (what === 'mug' ? 0.05 : 0), what === 'club' ? 0 : 0.04);
     this.armR.add(this.prop);
   }
 
@@ -75,16 +55,16 @@ export class BreakHands {
     this.t += dt;
     if (this.held === 'club') return this.swing();
     // A sip every few seconds, a drag a bit less often: up to its face and back down.
-    const every = this.held === 'mug' ? 4.5 : 6;
+    const every = this.held === 'mug' ? SIP_CYCLE : SMOKE_CYCLE;
+    const prev = (this.t - dt) % every;
     const k = this.t % every;
-    const up = k < 0.4 ? k / 0.4 : k < 1.6 ? 1 : k < 2 ? 1 - (k - 1.6) / 0.4 : 0;
-    const e = up * up * (3 - 2 * up);
+    const e = dragCurve(k);
     const low = this.held === 'mug' ? -1.1 : -0.35;
     const rx = low + (-2.3 - low) * e;
     this.armR.rotation.set(rx, 0, -0.35 * e);
     // The mug stays upright; the cigarette points out ahead.
     this.prop.rotation.set(this.held === 'mug' ? -rx : -rx - Math.PI / 2, 0, 0);
-    if (this.held === 'cigarette' && k > 2.1 && k < 2.2) this.puffed = true;
+    if (this.held === 'cigarette' && prev < EXHALE_AT && k >= EXHALE_AT) this.puffed = true;
   }
 
   /** A golf swing every few seconds: both hands on the club, back over its shoulder and through. */

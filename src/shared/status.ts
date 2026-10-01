@@ -2,7 +2,6 @@
 
 import type { GhPull, QueueTask, WorkerInfo, WorkerStatus } from './protocol.js';
 
-/** Its process isn't running: it exited, or came back asleep after a restart. R wakes it. */
 /**
  * Whether a worker can go on a break round the office (see WorkerInfo.resting), or is on one: an
  * agent that's finished, at a desk of its own (not a board agent's kiosk, not in a meeting).
@@ -11,6 +10,7 @@ export function canRest(w: WorkerInfo, station?: boolean): boolean {
   return w.kind === 'agent' && !station && !w.meeting && (!!w.resting || w.status === 'idle' || w.status === 'done');
 }
 
+/** Its process isn't running: it exited, or came back asleep after a restart. R wakes it. */
 export function isAsleep(status: WorkerStatus): boolean {
   return status === 'exited' || status === 'offline';
 }

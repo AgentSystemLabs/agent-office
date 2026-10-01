@@ -1,9 +1,9 @@
 import { canLabel } from '../shared/floorplan';
 import type { GhIssue, WorkerInfo } from '../shared/protocol';
-import { canRest, isAsleep } from '../shared/status';
+import { isAsleep } from '../shared/status';
 import type { Interactable } from './world/types';
 
-export const DESK_KEYS = { KeyE: 'E', KeyP: 'P', KeyR: 'R', KeyX: 'X', KeyB: 'B', KeyC: 'C', KeyO: 'O', KeyL: 'L', KeyZ: 'Z' } as const;
+export const DESK_KEYS = { KeyE: 'E', KeyP: 'P', KeyR: 'R', KeyX: 'X', KeyB: 'B', KeyC: 'C', KeyO: 'O', KeyL: 'L' } as const;
 export type DeskKey = (typeof DESK_KEYS)[keyof typeof DESK_KEYS];
 
 export interface InteractionState {
@@ -30,7 +30,6 @@ export function interactionAvailable(it: Interactable | null, key: DeskKey, stat
     if (key === 'B') return !state.worker;
     if (key === 'P' || key === 'E') return true;
     if (key === 'R') return !!state.worker && isAsleep(state.worker.status);
-    if (key === 'Z') return !!state.worker && canRest(state.worker);
     return !!state.worker && (key === 'C' || key === 'X' || key === 'O');
   }
 

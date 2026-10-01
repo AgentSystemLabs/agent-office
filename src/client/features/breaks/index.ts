@@ -12,6 +12,7 @@ import type { Pt } from '../../../shared/nav';
 import type { Ctx } from '../../core/context';
 import type { Parts } from '../../core/parts';
 import { store } from '../../state';
+import { canRest } from '../../../shared/status';
 import type { Court, Stop } from '../../world/court';
 import { BreakHands, type Held } from '../../world/character/worker-break';
 
@@ -90,7 +91,18 @@ function hash(s: string): number {
   return h >>> 0;
 }
 
-export function installBreaks(ctx: Ctx, parts: Pick<Parts, 'worlds' | 'views'>) {
+export function installBreaks(ctx: Ctx, parts: Pick<Parts, 'worlds' | 'views' | 'pointer'>) {
+  // Z at a finished worker's desk (or at the worker, out on its break): off on a break, or back to work.
+  ctx.keys.bind({
+    code: 'KeyZ',
+    run: () => {
+      const it = parts.pointer.target();
+      const w = it?.kind === 'desk' && it.deskId ? store.workerAtDesk(it.deskId) : undefined;
+      const plan = parts.worlds.plan();
+      if (!w || plan.style !== 'office' || !canRest(w, !!plan.byId.get(w.deskId)?.station)) return false;
+      ctx.net.send({ t: 'worker.rest', workerId: w.id, on: !w.resting });
+    },
+  });
   const all = spots();
   /** Each worker's own copies of the stops, nudged a little so two at the same one don't stand inside each other. */
   const mine = new Map<string, Stop[]>();
@@ -136,14 +148,25 @@ export function installBreaks(ctx: Ctx, parts: Pick<Parts, 'worlds' | 'views'>) 
     return s;
   }
 
-  /** Where `id`'s break has got to `ms` after it started, as an index into the stops. */
-  function spotAt(id: string, resting: number, ms: number, taken: Set<number>): number {
+  /** Each worker's round as it is now (worked out again only when a new one starts), by worker. */
+  const rounds = new Map<string, { key: string; order: number[] }>();
+  /** `id`'s round of the stops at its `n`th: shuffled, a new one each time it's been everywhere. */
+  function roundOf(id: string, resting: number, n: number): number[] {
     const smoker = hash(id) % 3 === 0;
     const can = all.map((s, i) => (s.smokers && !smoker ? -1 : i)).filter((i) => i >= 0);
-    const n = Math.floor(ms / (STAY * 1000));
-    // A shuffled round, a new one each time it's been everywhere.
     const round = Math.floor(n / can.length);
-    const order = [...can].sort((a, b) => hash(`${id}:${resting}:${round}:${a}`) - hash(`${id}:${resting}:${round}:${b}`));
+    const key = `${id}:${resting}:${round}`;
+    const had = rounds.get(id);
+    if (had?.key === key) return had.order;
+    const order = can.sort((a, b) => hash(`${key}:${a}`) - hash(`${key}:${b}`));
+    rounds.set(id, { key, order });
+    return order;
+  }
+
+  /** Where `id`'s break has got to `ms` after it started, as an index into the stops. */
+  function spotAt(id: string, resting: number, ms: number, taken: Set<number>): number {
+    const n = Math.floor(ms / (STAY * 1000));
+    const order = roundOf(id, resting, n);
     // Somewhere someone else is already (one at the tee, one in each seat): on to the next stop in its round.
     for (let k = 0; k < order.length; k++) {
       const i = order[(n + k) % order.length];
@@ -189,5 +212,6 @@ export function installBreaks(ctx: Ctx, parts: Pick<Parts, 'worlds' | 'views'>) 
       }
     }
     for (const id of hands.keys()) if (!parts.views.workerViews.has(id)) hands.delete(id);
+    for (const id of rounds.keys()) if (!store.workers.get(id)?.resting) rounds.delete(id);
   });
 }
