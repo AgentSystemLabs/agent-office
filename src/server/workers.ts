@@ -34,7 +34,7 @@ import { ScrollbackStore, searchTerminal, terminalTail } from './history.js';
 import { DSH_PROFILE_DEFAULT, DshSession, dshArgs, terminalSafe, writeDshPatch } from './dsh.js';
 import { DropStore } from './drops.js';
 import { maintenanceTree, officeSourceDir } from './maintenance.js';
-import { approvalArgs, easyApprovals } from './approvals.js';
+import { approvalArgs, easyApprovals, automaticApprovalMode, AUTO_APPROVAL_GRACE_MS } from './approvals.js';
 import { screenSnapshot } from './screen.js';
 import type { Capacity } from './machine.js';
 
@@ -159,6 +159,10 @@ interface Worker {
   screenDirty: boolean;
   lastLines: string[];
   leftNeedsInputAt: number;
+  /** Mode of the running process, not the lever's current position. */
+  automaticApprovals?: boolean;
+  permissionTimer?: NodeJS.Timeout;
+  permissionReview?: { since: number; activity?: string };
   keyframeAt: number;
   hookToken: string;
   /** Claude never reported SessionStart: it's stuck on a trust/login/onboarding screen. */
@@ -170,6 +174,9 @@ interface Worker {
   codexTranscript?: string;
   codexTools: Map<string, string>;
   codexPending: Set<string>;
+  codexQuestions: Set<string>;
+  codexQuestionUnknown?: boolean;
+  codexPermissionTool?: string;
   codexPermissionUnknown?: boolean;
   /** Test runs and builds that have failed in a row (see FAILS_TO_DESPAIR). */
   failStreak: number;
@@ -602,6 +609,7 @@ export class WorkerManager {
   async kill(id: string, cleanup?: WorktreeCleanup, landed?: string, landedRepos?: Record<string, string | undefined>): Promise<{ note?: string; error?: string }> {
     const w = this.workers.get(id);
     if (!w) return {};
+    this.clearPermissionWait(w);
     this.workers.delete(id);
     this.namer.forget(id);
     clearTimeout(w.scanTimer);
@@ -1151,6 +1159,7 @@ export class WorkerManager {
         }
         break;
       case 'UserPromptSubmit':
+        this.clearPermissionWait(w);
         w.bootBlocked = false;
         w.info.action = undefined;
         if (typeof payload?.prompt === 'string') {
@@ -1163,6 +1172,7 @@ export class WorkerManager {
       case 'PreToolUse':
         if (payload?.tool_name === 'AskUserQuestion') this.setStatus(w, 'needs_input');
         else {
+          this.clearPermissionWait(w);
           w.info.activity = describeTool(payload);
           w.info.action = toolAction(payload?.tool_name, payload?.tool_input);
           this.noteTool(w, w.info.activity);
@@ -1173,20 +1183,23 @@ export class WorkerManager {
       case 'PostToolUse':
       case 'PostToolUseFailure':
         this.noteOutcome(w, payload, event === 'PostToolUseFailure');
-        if (w.info.status === 'needs_input') {
+        if (w.info.status === 'needs_input' || w.permissionTimer) {
           w.leftNeedsInputAt = now;
           this.setStatus(w, 'working');
         }
         break;
       case 'PermissionRequest':
         w.info.activity = `Wants permission: ${describeTool(payload)}`;
-        this.setStatus(w, 'needs_input');
+        this.requestPermission(w);
         break;
       case 'Notification':
         if (payload?.notification_type === 'permission_prompt') {
-          if (now - w.leftNeedsInputAt > LATE_PROMPT_GRACE_MS) this.setStatus(w, 'needs_input');
+          if (w.permissionTimer || now - w.leftNeedsInputAt > LATE_PROMPT_GRACE_MS) {
+            if (w.permissionReview?.activity) w.info.activity = w.permissionReview.activity;
+            this.setStatus(w, 'needs_input');
+          }
         } else if (payload?.notification_type === 'idle_prompt') {
-          if (w.info.status === 'working') this.setStatus(w, 'done');
+          if (w.info.status === 'working' && !w.permissionTimer) this.setStatus(w, 'done');
         }
         break;
       case 'Stop':
@@ -1219,9 +1232,16 @@ export class WorkerManager {
     const clearPending = () => {
       w.codexTools.clear();
       w.codexPending.clear();
+      w.codexQuestions.clear();
+      w.codexQuestionUnknown = false;
       w.codexPermissionUnknown = false;
+      w.codexPermissionTool = undefined;
     };
-    const busy = () => this.setStatus(w, w.codexPending.size || w.codexPermissionUnknown ? 'needs_input' : 'working');
+    const busy = () => {
+      if (w.codexQuestions.size || w.codexQuestionUnknown) this.setStatus(w, 'needs_input');
+      else if (w.codexPending.size || w.codexPermissionUnknown) this.requestPermission(w);
+      else this.setStatus(w, 'working');
+    };
     switch (report.event) {
       case 'SessionStart':
         clearPending();
@@ -1243,8 +1263,8 @@ export class WorkerManager {
         w.info.action = toolAction(report.tool);
         if (report.toolUseId && w.codexTools.size < 256) w.codexTools.set(report.toolUseId, report.tool ?? '');
         if (/(?:^|[.])(?:AskUserQuestion|request_user_input)$/.test(report.tool ?? '')) {
-          if (report.toolUseId) w.codexPending.add(report.toolUseId);
-          else w.codexPermissionUnknown = true;
+          if (report.toolUseId) w.codexQuestions.add(report.toolUseId);
+          else w.codexQuestionUnknown = true;
         }
         busy();
         break;
@@ -1253,17 +1273,29 @@ export class WorkerManager {
         // PermissionRequest has no tool_use_id in the native schema. Keep every matching
         // active call pending so an unrelated parallel tool cannot dismiss the prompt.
         const candidates = [...w.codexTools].filter(([, tool]) => tool === report.tool);
-        if (!candidates.length) w.codexPermissionUnknown = true;
+        if (!candidates.length) {
+          w.codexPermissionUnknown = true;
+          w.codexPermissionTool = report.tool;
+        }
         for (const [id] of candidates) w.codexPending.add(id);
-        this.setStatus(w, 'needs_input');
+        if (w.codexQuestions.size || w.codexQuestionUnknown) this.setStatus(w, 'needs_input');
+        else this.requestPermission(w);
         break;
-      case 'PostToolUse':
+      case 'PostToolUse': {
+        const tool = report.tool ?? (report.toolUseId ? w.codexTools.get(report.toolUseId) : undefined);
         if (report.toolUseId) {
           w.codexTools.delete(report.toolUseId);
           w.codexPending.delete(report.toolUseId);
+          w.codexQuestions.delete(report.toolUseId);
         }
+        if (w.codexPermissionUnknown && tool && tool === w.codexPermissionTool) {
+          w.codexPermissionUnknown = false;
+          w.codexPermissionTool = undefined;
+        }
+        if (w.codexQuestionUnknown && /(?:^|[.])(?:AskUserQuestion|request_user_input)$/.test(tool ?? '')) w.codexQuestionUnknown = false;
         busy();
         break;
+      }
       case 'Stop':
       case 'Interrupt':
         clearPending();
@@ -1522,6 +1554,9 @@ export class WorkerManager {
     clearInterval(this.saveTimer);
     for (const w of this.workers.values()) {
       clearTimeout(w.scanTimer);
+      clearTimeout(w.permissionTimer);
+      w.permissionTimer = undefined;
+      if (!keep) w.permissionReview = undefined;
       this.scanUsage(w);
       // Before the process goes, so the next office shows what it was doing, not how it was stopped.
       if (w.unsaved) this.saveScrollback(w);
@@ -1639,10 +1674,15 @@ export class WorkerManager {
         if (prompt) args.push('--', prompt);
       }
     }
+    this.clearPermissionWait(w);
+    w.automaticApprovals = automaticApprovalMode(provider, args);
     if (isCodex) {
       w.codexTools.clear();
       w.codexPending.clear();
+      w.codexQuestions.clear();
+      w.codexQuestionUnknown = false;
       w.codexPermissionUnknown = false;
+      w.codexPermissionTool = undefined;
     }
     if (isOpenCode || isCodex || isGrok || isMuse) {
       w.hookToken = randomBytes(16).toString('hex');
@@ -1819,6 +1859,14 @@ export class WorkerManager {
   /** Takes back a terminal the host kept running while the office was down. */
   private adopt(w: Worker, adopted: Adopted, saved: NonNullable<Worker['saved']>) {
     const { info } = w;
+    // Older offices did not save the launch mode. On Linux, recover it from this process
+    // rather than guessing from the lever, which may have moved since it was hired.
+    if (w.automaticApprovals === undefined) {
+      try {
+        const args = readFileSync(`/proc/${adopted.pty.pid}/cmdline`, 'utf8').split('\0').slice(1);
+        w.automaticApprovals = automaticApprovalMode(info.provider, args);
+      } catch { w.automaticApprovals = false; }
+    }
     // It kept working through the restart: nothing to carry on.
     w.interrupted = false;
     info.cols = adopted.cols;
@@ -1839,6 +1887,7 @@ export class WorkerManager {
     }
     if (info.provider === 'codex') w.codexHome = codexHome(this.cwd(info), childEnv());
     this.follow(w, adopted.pty, term, undefined);
+    if (w.permissionReview) this.requestPermission(w);
     // A turn that ended while the office was down says so with its Stop hook, which retries until
     // the office is back. Claude's progress report, where it gives one, says a turn is still going.
     if (adopted.busy && info.provider === 'claude') this.onProgress(w, true);
@@ -1895,6 +1944,7 @@ export class WorkerManager {
     proc.onExit(({ exitCode, error, lost }) => {
       if (w.pty !== proc || this.workers.get(info.id) !== w) return;
       w.pty = undefined;
+      this.clearPermissionWait(w);
       if (error) {
         this.startFailed(w, error);
         return;
@@ -2011,13 +2061,46 @@ export class WorkerManager {
 
   private onProgress(w: Worker, busy: boolean) {
     const s = w.info.status;
+    if (!busy && w.permissionTimer) return;
     if (busy && (s === 'idle' || s === 'done' || s === 'starting')) this.setStatus(w, 'working');
     // Progress stays busy while a permission prompt is open, so going idle from needs_input means the
     // turn ended without a Stop hook (the prompt was rejected or Esc'd).
     else if (!busy && (s === 'working' || (s === 'needs_input' && !w.bootBlocked))) this.setStatus(w, 'done');
   }
 
+  private clearPermissionWait(w: Worker) {
+    if (!w.permissionTimer && !w.permissionReview) return;
+    clearTimeout(w.permissionTimer);
+    w.permissionReview = undefined;
+    w.permissionTimer = undefined;
+    // Ignore a notification that arrives just after the reviewer allowed the call.
+    w.leftNeedsInputAt = Date.now();
+    this.persist();
+  }
+
+  /** Review is busy work; only a confirmed or persistent prompt needs a person. */
+  private requestPermission(w: Worker) {
+    if (!w.automaticApprovals) { this.setStatus(w, 'needs_input'); return; }
+    if (w.permissionTimer || w.info.status === 'needs_input') return;
+    const review = w.permissionReview ?? { since: Date.now(), activity: w.info.activity };
+    this.setStatus(w, 'working');
+    w.permissionReview = review;
+    const activity = review.activity;
+    w.info.activity = activity?.replace(/^Wants permission:/, 'Reviewing permission:') ?? 'Reviewing permission automatically';
+    this.emitUpdate(w);
+    w.permissionTimer = setTimeout(() => {
+      w.permissionTimer = undefined;
+      w.permissionReview = undefined;
+      if (this.closing || this.workers.get(w.info.id) !== w || !w.pty || w.info.status !== 'working') return;
+      w.info.activity = activity ?? 'Permission review still waiting — check the terminal';
+      this.setStatus(w, 'needs_input');
+    }, Math.max(0, AUTO_APPROVAL_GRACE_MS - (Date.now() - review.since)));
+    w.permissionTimer.unref();
+    this.persist();
+  }
+
   private setStatus(w: Worker, status: WorkerStatus) {
+    this.clearPermissionWait(w);
     if (w.info.status === status) return;
     if (w.info.status === 'needs_input') w.leftNeedsInputAt = Date.now();
     clockWork(w.info, status);
@@ -2190,7 +2273,7 @@ process.stdin.on('end', () => {
   }
 
   private persist() {
-    const saved = [...this.workers.values()].map(({ info, owner, tracker, codexTranscript, hookToken, pty, bootBlocked, interrupted }) => ({
+    const saved = [...this.workers.values()].map(({ info, owner, tracker, codexTranscript, hookToken, pty, bootBlocked, interrupted, automaticApprovals, permissionReview, codexTools, codexPending, codexQuestions, codexQuestionUnknown, codexPermissionUnknown, codexPermissionTool }) => ({
       id: info.id,
       owner,
       kind: info.kind,
@@ -2217,6 +2300,9 @@ process.stdin.on('end', () => {
       codexTranscript: info.provider === 'codex' ? codexTranscript : undefined,
       // A terminal still running in the host, to pick back up after a restart. Its hooks keep the token.
       hookToken,
+      automaticApprovals,
+      permissionReview,
+      codexWait: info.provider === 'codex' ? { tools: [...codexTools], pending: [...codexPending], questions: [...codexQuestions], questionUnknown: codexQuestionUnknown, permissionUnknown: codexPermissionUnknown, permissionTool: codexPermissionTool } : undefined,
       pty: pty?.id ? { id: pty.id, status: info.status, acked: info.acked, waitingSince: info.waitingSince } : undefined,
       // In the middle of something: if its terminal doesn't make it through a restart, it carries on after.
       midTurn: !this.stopping && (!!interrupted || midTurn({ info, bootBlocked })),
@@ -2231,7 +2317,7 @@ process.stdin.on('end', () => {
   private restore() {
     if (!existsSync(this.statePath)) return;
     try {
-      const saved = JSON.parse(readFileSync(this.statePath, 'utf8')) as (Partial<WorkerInfo> & { owner?: unknown; tracker?: unknown; codexTranscript?: unknown; hookToken?: unknown; pty?: any; midTurn?: unknown })[];
+      const saved = JSON.parse(readFileSync(this.statePath, 'utf8')) as (Partial<WorkerInfo> & { owner?: unknown; tracker?: unknown; codexTranscript?: unknown; hookToken?: unknown; automaticApprovals?: unknown; permissionReview?: any; codexWait?: any; pty?: any; midTurn?: unknown })[];
       for (const s of saved) {
         if (!s.id || !s.deskId || !DESK_BY_ID.has(s.deskId) || this.deskOccupied(s.deskId)) continue;
         const tracker = restoreTracker(s.tracker);
@@ -2272,6 +2358,19 @@ process.stdin.on('end', () => {
           workedMs: typeof s.workedMs === 'number' && Number.isFinite(s.workedMs) && s.workedMs > 0 ? s.workedMs : undefined,
         };
         const w = newWorker(info, tracker, typeof s.hookToken === 'string' && s.hookToken ? s.hookToken : undefined);
+        w.automaticApprovals = typeof s.automaticApprovals === 'boolean' ? s.automaticApprovals : undefined;
+        if (w.automaticApprovals && Number.isFinite(s.permissionReview?.since)) {
+          w.permissionReview = { since: s.permissionReview.since, activity: typeof s.permissionReview.activity === 'string' ? s.permissionReview.activity : undefined };
+        }
+        if (provider === 'codex' && s.codexWait) {
+          const strings = (v: unknown): string[] => Array.isArray(v) ? v.filter(x => typeof x === 'string').slice(0, 256) : [];
+          if (Array.isArray(s.codexWait.tools)) w.codexTools = new Map(s.codexWait.tools.filter((v: unknown) => Array.isArray(v) && v.length === 2 && v.every(x => typeof x === 'string')).slice(0, 256));
+          w.codexPending = new Set(strings(s.codexWait.pending));
+          w.codexQuestions = new Set(strings(s.codexWait.questions));
+          w.codexQuestionUnknown = s.codexWait.questionUnknown === true;
+          w.codexPermissionUnknown = s.codexWait.permissionUnknown === true;
+          w.codexPermissionTool = typeof s.codexWait.permissionTool === 'string' ? s.codexWait.permissionTool : undefined;
+        }
         if (typeof s.owner === 'string' && s.owner) w.owner = s.owner;
         if (provider === 'codex' && typeof s.codexTranscript === 'string') w.codexTranscript = s.codexTranscript;
         w.screenDirty = false;
@@ -2310,6 +2409,7 @@ function newWorker(info: WorkerInfo, tracker: UsageTracker, hookToken = randomBy
     codexUsage: new CodexUsageReader(),
     codexTools: new Map(),
     codexPending: new Set(),
+    codexQuestions: new Set(),
     failStreak: 0,
     prompts: [],
     tools: [],

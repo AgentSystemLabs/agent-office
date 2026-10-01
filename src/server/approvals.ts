@@ -26,6 +26,33 @@ export function approvalArgs(provider: AgentProvider | undefined, easy: boolean,
   return [];
 }
 
+/** Whether this run actually uses automatic review, including explicit CLI overrides. */
+export function automaticApprovalMode(provider: AgentProvider | undefined, args: readonly string[]): boolean {
+  const options = args.slice(0, args.indexOf('--') < 0 ? args.length : args.indexOf('--'));
+  if (provider === 'claude') {
+    if (options.includes('--dangerously-skip-permissions')) return true;
+    let mode: string | undefined;
+    options.forEach((arg, index) => {
+      if (arg === '--permission-mode') mode = options[index + 1];
+      else if (arg.startsWith('--permission-mode=')) mode = arg.slice('--permission-mode='.length);
+    });
+    return mode === 'auto';
+  }
+  if (provider === 'codex') {
+    if (options.includes('--dangerously-bypass-approvals-and-sandbox')) return true;
+    let reviewer: string | undefined;
+    for (const arg of options) {
+      const match = /^approvals_reviewer\s*=\s*["']?([^"']+)["']?$/.exec(arg);
+      if (match) reviewer = match[1].trim();
+    }
+    return reviewer === 'auto_review';
+  }
+  return false;
+}
+
+/** Bounded fallback when a provider cannot distinguish review from a human prompt. */
+export const AUTO_APPROVAL_GRACE_MS = 10_000;
+
 /** The state of the lever, kept in <data>/approvals.json so it stays where it was left. */
 export class Approvals {
   private by?: string;

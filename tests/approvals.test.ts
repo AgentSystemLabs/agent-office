@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { Approvals, approvalArgs, easyApprovals } from '../src/server/approvals.js';
+import { Approvals, approvalArgs, easyApprovals, automaticApprovalMode } from '../src/server/approvals.js';
 import type { ApprovalsState } from '../src/shared/protocol.js';
 
 test("with the lever up, Claude Code and Codex start in their own automatic modes, and nothing else changes", () => {
@@ -42,4 +42,14 @@ test('the lever starts down, remembers where it was put across restarts, and tel
   assert.equal(easyApprovals.on, false);
   assert.equal(new Approvals(dir, () => {}).on, false);
   assert.equal(new Approvals(path.join(dir, 'nothing-here'), () => {}).on, false, 'with no file it is down');
+});
+
+test('review grace follows the effective launch mode and ignores prompt text', () => {
+  assert.equal(automaticApprovalMode('claude', ['--permission-mode', 'auto']), true);
+  assert.equal(automaticApprovalMode('claude', ['--permission-mode=auto', '--permission-mode', 'plan']), false);
+  assert.equal(automaticApprovalMode('claude', ['--', '--permission-mode=auto']), false);
+  assert.equal(automaticApprovalMode('codex', ['-c', 'approvals_reviewer=auto_review']), true);
+  assert.equal(automaticApprovalMode('codex', ['-c', 'approvals_reviewer=auto_review', '-c', 'approvals_reviewer=user']), false);
+  assert.equal(automaticApprovalMode('codex', ['--full-auto']), false);
+  assert.equal(automaticApprovalMode('muse', ['--permission-mode=auto']), false);
 });
