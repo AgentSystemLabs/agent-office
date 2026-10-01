@@ -1,5 +1,5 @@
 /**
- * /party in the chat (the office tells everyone on that floor: see server/ws/handlers/presence.ts): for
+ * /party in the chat (the floor's, see server/ws/handlers/party.ts, and store.party): for
  * a minute every worker and board agent up on its desk dancing, the dog too, the DJ's set playing on
  * the floor, and the room a club (the lights down, lasers, a mirror ball, spots on the floor and
  * flashes on the beat, in the track's colour). When it's over the music stops and the lights fade back.
@@ -20,19 +20,12 @@ export interface PartyDeps {
   dog: Dog;
   /** How far into the DJ's set it is (see features/rooftop). */
   djAt(): number;
-  /** Whether you're up on the roof, where the DJ plays anyway. */
-  upTop(): boolean;
   /** The lights the sky sets each frame (see core/scene.ts), for the club to turn down. */
   lights: { sun: THREE.DirectionalLight; hemi: THREE.HemisphereLight; ambient: THREE.AmbientLight };
 }
 
-/** Until when a /party is on, on the office's clock (0: none). */
-let partyUntil = 0;
-
-/** Whether a /party is on right now. */
-export function partyOn(): boolean {
-  return store.officeNow() < partyUntil;
-}
+/** Whether the floor's /party is on right now. */
+const partyOn = () => !!store.party && store.officeNow() < store.party.until;
 
 export function installParty(ctx: Ctx, deps: PartyDeps) {
   const lights = buildPartyLights(FLOOR, WALL_HEIGHT);
@@ -42,30 +35,18 @@ export function installParty(ctx: Ctx, deps: PartyDeps) {
   let danceAt = 0;
   const flash = new THREE.Color();
 
-  const music = () => ctx.sound.setDj(deps.upTop() || partyOn() ? deps.djAt : null);
-
   ctx.messages.on('party', (msg) => {
-    partyUntil = msg.until;
     danceAt = 0;
-    music();
     toast(msg.until ? `🎉 ${msg.by} started a party on this floor! (/party stop ends it)` : `${msg.by} called the party off`);
-  });
-
-  // A party is its floor's: off to another floor (or up on the roof), and it's over for you.
-  store.on('floor', () => {
-    if (!partyUntil) return;
-    partyUntil = 0;
-    music();
   });
 
   // After the sky has lit the room (see updateSky in core/loop.ts): the club turns the lights down.
   ctx.ticks.add('env', ({ t, dt }) => {
-    const on = partyOn();
-    if (!on && partyUntil && level < 0.01) {
-      partyUntil = 0;
-      music();
-    }
-    const here = on && !deps.upTop() && ctx.inOffice();
+    // The floor's: on another floor, or up on the roof, it's not yours. (Arriving mid-party, you're
+    // in it: see store.party.)
+    const here = partyOn() && !ctx.upTop() && ctx.inOffice();
+    // The DJ plays up on the roof and at a party (the sound only changes when that does).
+    ctx.sound.setDj(ctx.upTop() || here ? deps.djAt : null);
     // The club lights are the office's; on a map of its own it's the dancing and the music.
     level += ((here && ctx.plan().style === 'office' ? 1 : 0) - level) * (1 - Math.exp(-dt * 2));
     if (here && t >= danceAt) {

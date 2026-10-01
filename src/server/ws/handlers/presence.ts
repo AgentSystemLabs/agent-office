@@ -9,9 +9,7 @@ import { isBarGame } from '../../../shared/bargames.js';
 import { throttle } from '../../office/client.js';
 import { COLOR_RE, issueNumber, num, str } from '../../office/input.js';
 import type { HandlerMap } from './types.js';
-
-/** How long a /party in the chat goes on for. */
-const PARTY_MS = 60_000;
+import { partyCommand } from './party.js';
 
 export const presenceHandlers = {
   move(ctx, c, msg) {
@@ -110,14 +108,8 @@ export const presenceHandlers = {
     const who = c.peer.name;
     const text = str(msg.text, 500).trim();
     if (!text) return;
-    // /party starts one for everyone on your floor (/party stop ends it) instead of saying it.
-    if (/^\/party\b/i.test(text)) {
-      const floor = ctx.floorOf(c);
-      if (!floor) return;
-      const stop = /\b(stop|off)\b/i.test(text);
-      ctx.toFloor(floor, { t: 'party', until: stop ? 0 : Date.now() + PARTY_MS, by: who });
-      return;
-    }
+    // /party starts one for everyone on your floor (/party stop ends it) instead of saying it (see party.ts).
+    if (partyCommand(ctx, c, text)) return;
     const line: ChatLine = { from: c.id, name: who, color: c.peer.color, text, at: Date.now(), ...(c.accountId ? { account: true } : {}) };
     ctx.chat.add(line);
     ctx.broadcast({ t: 'chat', ...line });

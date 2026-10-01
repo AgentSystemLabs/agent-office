@@ -23,6 +23,7 @@ import { machine } from './machine';
 import { map } from './map';
 import { meeting } from './meeting';
 import { notify } from './notify';
+import { party } from './party';
 import { prompts } from './prompts';
 import { services } from './services';
 import { signins } from './signins';
@@ -52,6 +53,7 @@ export const SLICES: readonly Slice[] = [
   floorPlan,
   services,
   dog,
+  party,
   jukebox,
   whiteboard,
   cabinet,

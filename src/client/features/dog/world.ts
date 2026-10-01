@@ -1,11 +1,11 @@
 import * as THREE from 'three';
-import { BARK_EVERY_S, BARK_FOR_S, DOG_COATS, DogDance, dogAt, dogBreed, legSeconds, type DogAct, type DogBreed, type DogState } from '../../../shared/dog';
+import { BARK_EVERY_S, BARK_FOR_S, DOG_COATS, dogAt, dogBreed, legSeconds, type DogAct, type DogBreed, type DogState } from '../../../shared/dog';
 import type { Theme } from '../../../shared/protocol';
 import { dogAntlers, dogBatWings, dogRedNose, dogScarf, dogWitchHat } from '../../world/costumes';
 import { loadModel, type Model } from '../../world/models';
 import type { Interactable } from '../../world/types';
 import { disposeSprite, textSprite, toon, toonUnique } from '../../world/toon';
-
+import { DogDance } from './dance';
 export interface DogSounds {
   bark(x: number, z: number, times: number): void;
   /** A happy little yip, when someone pets it. */

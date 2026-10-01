@@ -105,6 +105,12 @@ export type PresenceClientMsg =
   | { t: 'chat'; text: string }
   | { t: 'ping'; at: number };
 
+/** A floor's /party: until when (the office's clock) and who started it. */
+export interface PartyState {
+  until: number;
+  by: string;
+}
+
 export type PresenceServerMsg =
   | ({
       t: 'welcome';
@@ -145,7 +151,7 @@ export type PresenceServerMsg =
   | { t: 'rtc'; from: string; data: unknown }
   | ({ t: 'chat' } & ChatLine)
   /** /party in the chat: everyone dances to the DJ's set under club lights until `until` (the office's clock); 0 stops it. */
-  | { t: 'party'; until: number; by: string }
+  | ({ t: 'party' } & PartyState)
   | { t: 'toast'; text: string; level: 'info' | 'warn' | 'error' }
   /** Sent to whoever tried to sit where someone on the floor already is. */
   | { t: 'sit.refused'; seat: string; by: string }

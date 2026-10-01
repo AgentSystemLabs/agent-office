@@ -14,6 +14,7 @@ import { jukeboxHandlers, jukeboxView } from './jukebox.js';
 import { meetingHandlers, meetingView } from './meetings.js';
 import { planHandlers, planView } from './plan.js';
 import { presenceHandlers } from './presence.js';
+import { partyView } from './party.js';
 import { queueHandlers, queueView } from './queue.js';
 import { rooftopHandlers } from './rooftop.js';
 import { servicesView, settingsHandlers } from './settings.js';
@@ -66,6 +67,7 @@ export const views: ViewPieces = {
   plan: planView,
   services: servicesView,
   dog: dogView,
+  party: partyView,
   ball: ballView,
   cars: carsView,
   jail: jailView,
