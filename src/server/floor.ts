@@ -11,6 +11,7 @@ import { WorkerManager, workedMs, type HookEnv, type RunAs } from './workers.js'
 import { GitHub, MergeWatch } from './github.js';
 import type { GhAs } from './signins.js';
 import { TaskQueue } from './queue.js';
+import { IssueDone } from './issue-done.js';
 import { Changes } from './changes.js';
 import { Decor } from './decor.js';
 import { FloorPlanStore } from './floorplan.js';
@@ -138,6 +139,8 @@ export class Floor {
   private timer: NodeJS.Timeout;
   /** Pull requests merging, to ring the gong for. */
   private merges = new MergeWatch();
+  /** Issues whose queue task's pull request merges, to move to ✅ Done. */
+  private issueDone = new IssueDone();
   /** A look for workers whose pull request merged, due shortly (see sendLandedHome). */
   private landedTimer?: NodeJS.Timeout;
   /** Workers across repositories whose worktrees are being checked before they go home. */
@@ -218,6 +221,13 @@ export class Floor {
         for (const p of this.merges.look(state.items)) {
           ctx.toast(this, `🎉 PR #${p.number} merged: ${p.title}`);
           this.merged(p.number);
+        }
+        for (const d of this.issueDone.look(state.items, this.queue?.state().tasks ?? [], this.github.issues.items)) {
+          const as = ctx.ghAs(d.owner);
+          if (typeof as === 'string') continue;
+          void this.github.close('issue', d.issue, { comment: `Done in #${d.pr}`, reason: 'completed' }, as).then((err) => {
+            if (err) ctx.toast(this, `Couldn't move issue #${d.issue} to done: ${err}`, 'warn');
+          });
         }
         this.sendLandedHome();
         ctx.pullsChanged(this);

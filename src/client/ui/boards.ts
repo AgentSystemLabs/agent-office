@@ -23,14 +23,23 @@ interface Column<T> {
 
 const byUpdated = (a: { updatedAt: string }, b: { updatedAt: string }) => b.updatedAt.localeCompare(a.updatedAt);
 
+/** An open issue with an open pull request for it: one that says it closes it, or its queue task's. */
+function inReview(i: GhIssue): boolean {
+  const pr = store.taskForIssue(i.number)?.pr;
+  return (!!pr && (pr.state === 'OPEN' || pr.state === 'DRAFT')) || store.pulls.items.some((p) => p.state === 'OPEN' && p.closes.includes(i.number));
+}
+
 function issueColumns(items: GhIssue[]): Column<GhIssue>[] {
   const open = items.filter((i) => i.state === 'OPEN');
-  const inProgress = open.filter((i) => i.assignees.length > 0 || i.labels.some((l) => /progress|doing|wip|started/i.test(l.name)) || store.taskForIssue(i.number)?.status === 'running');
-  const todo = open.filter((i) => !inProgress.includes(i));
+  // Once its pull request merges, the office closes it (server/issue-done.ts), so it goes on to Done.
+  const review = open.filter(inReview);
+  const inProgress = open.filter((i) => !review.includes(i) && (i.assignees.length > 0 || i.labels.some((l) => /progress|doing|wip|started/i.test(l.name)) || store.taskForIssue(i.number)?.status === 'running'));
+  const todo = open.filter((i) => !inProgress.includes(i) && !review.includes(i));
   return [
     { key: 'open', title: '📥 Open', items: todo },
     { key: 'progress', title: '🚧 In progress', items: inProgress },
-    { key: 'closed', title: '✅ Closed', items: items.filter((i) => i.state !== 'OPEN').sort(byUpdated), max: 40 },
+    { key: 'review', title: '👀 In review', items: review },
+    { key: 'closed', title: '✅ Done', items: items.filter((i) => i.state !== 'OPEN').sort(byUpdated), max: 40 },
   ];
 }
 
@@ -299,6 +308,8 @@ export function openBoard(kind: 'issues' | 'pulls', net: Net, actions: BoardActi
   const unsubs = [store.on(kind, render), store.on('queue', render)];
   // Which desk a PR came from can change (a worker sent home, a PR opened from a desk).
   if (kind === 'pulls') unsubs.push(store.on('workers', render));
+  // An issue moves to In review when a pull request for it opens.
+  else unsubs.push(store.on('pulls', render));
   const timer = setInterval(() => {
     const st = kind === 'issues' ? store.issues : store.pulls;
     status.textContent = st.loading ? 'Refreshing…' : st.fetchedAt ? `Updated ${timeAgo(st.fetchedAt)}` : '';
