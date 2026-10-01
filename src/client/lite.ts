@@ -29,6 +29,7 @@ import { askNotifyPermission, DesktopNotifier, notifyPermission, waitingOnSomeon
 import { repoChoices } from './shared/hiring';
 // The tab title counts the workers waiting on someone, on every floor, as the 3D office's does.
 import { renderTitle } from './shared/title';
+import { doneHomeButton } from './shared/done-home';
 
 // Sent here because this browser can't draw the 3D office (see noWebGL in core/scene.ts).
 if (new URLSearchParams(location.search).get('why') === 'webgl') {
@@ -128,12 +129,17 @@ store.on('project', renderFloors);
 /** What each worker was last, to tell when one starts waiting on someone. */
 const lastStatus = new Map<string, string>();
 
+// 🏠 Every worker that's done, home at once.
+const doneHome = doneHomeButton(net, () => store.workers.values());
+$('workers').before(doneHome.el);
+
 function renderWorkers() {
   const list = byUrgency(store.workers.values());
   const ul = $('workers');
   ul.replaceChildren(...list.map(workerCard));
   if (!list.length) ul.append(h('li.lite-empty', {}, store.project ? 'Nobody is working on this floor. ✨ New task hires someone.' : 'No workers here.'));
   $('waiting-now').textContent = waitingLabel(waitingInOrder(list));
+  doneHome.render();
   renderTitle();
 }
 
