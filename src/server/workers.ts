@@ -32,6 +32,7 @@ import { MCP_READ_ONLY, codexMcpArgs, openCodeMcp, writeClaudeMcpConfig } from '
 import { ScrollbackStore, searchTerminal, terminalTail } from './history.js';
 import { DSH_PROFILE_DEFAULT, DshSession, dshArgs, terminalSafe, writeDshPatch } from './dsh.js';
 import { DropStore } from './drops.js';
+import { officeSourceDir } from './maintenance.js';
 import { screenSnapshot } from './screen.js';
 import type { Capacity } from './machine.js';
 
@@ -1954,8 +1955,13 @@ export class WorkerManager {
     return info.provider === this.defaultProvider ? this.agentCmd : info.provider ?? this.agentCmd;
   }
 
-  /** Where a worker works: its worktree, a workspace for a worker across repositories, or the project itself. */
+  /**
+   * Where a worker works: its worktree, a workspace for a worker across repositories, or the project itself.
+   * The maintenance agent works in the office's own source instead (see maintenance.ts), where its brief
+   * and the checkout's CLAUDE.md tell it to keep to a worktree of its own.
+   */
   private cwd(info: WorkerInfo): string {
+    if (DESK_BY_ID.get(info.deskId)?.station === 'maintenance') return officeSourceDir() ?? this.dir;
     const rel = workspaceOf(info);
     return rel ? path.join(this.dir, rel) : this.dir;
   }

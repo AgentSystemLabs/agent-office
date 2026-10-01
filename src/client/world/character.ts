@@ -9,7 +9,7 @@ import { HIPS } from '../player';
 import { axeModel, dartModel } from './bargames';
 import { OpenBook } from './book';
 import { HeldCard } from './card';
-import { GRIME, UNDEAD_SKIN, beard, beardColor, elfBoot, elfHat, elfWorker, grime, peasantGarb, santaHat, warlockHat, zombieWorker, type Beard, type PeasantGarb } from './costumes';
+import { GRIME, UNDEAD_SKIN, beard, beardColor, elfBoot, engineerGear, elfHat, elfWorker, grime, peasantGarb, santaHat, warlockHat, zombieWorker, type Beard, type PeasantGarb } from './costumes';
 import { cardSprite, disposeSprite, mesh, textSprite, toon, toonUnique } from './toon';
 
 export type Pose = 'stand' | 'walk' | 'sit' | 'type';
@@ -1574,6 +1574,8 @@ export class Worker {
   gait = 1;
   /** Its headset, which a peasant doesn't wear. */
   private headset: THREE.Object3D[] = [];
+  /** The maintenance agent's hard hat and vest (see setRole). */
+  private gear: THREE.Object3D[] = [];
   /** What it wears on the map it's on (see setOutfit): a peasant's smock and coif, or its own skin. */
   private garb: PeasantGarb | null = null;
   /** How worn out it looks, 0–1 (see setAge), and the beard, brows and dirt that show it. */
@@ -1693,6 +1695,19 @@ export class Worker {
     }
     // An elf's hat goes on over the coif.
     if (this.garb) this.garb.cap.visible = theme !== 'christmas';
+  }
+
+  /** Kits it out for its job: an infrastructure engineer's hard hat, headlamp, hi-vis vest and tool belt (the maintenance agent's), or nothing (null). */
+  setRole(role: 'engineer' | null) {
+    if (!!this.gear.length === (role === 'engineer')) return;
+    undress(this.gear);
+    if (role !== 'engineer') return;
+    const { hat, vest } = engineerGear();
+    for (const o of [hat, vest]) {
+      o.traverse((m) => ((m as THREE.Mesh).castShadow = true));
+      this.body.add(o);
+      this.gear.push(o);
+    }
   }
 
   /**

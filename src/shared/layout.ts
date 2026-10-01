@@ -124,7 +124,7 @@ export const BEANBAGS: DeskDef[] = (
     [0.8, 10.2, Math.PI],
     [12.2, -5.6, -Math.PI / 2],
     [12.2, 5.6, -Math.PI / 2],
-    [-16.1, 3, Math.PI / 2],
+    [-16.1, 9.7, Math.PI / 2],
     // Clear of the board agents' kiosks, and of the floor in front of them.
     [-13.2, -9.8, 0],
     [-12.6, 9.2, Math.PI / 2],
@@ -136,7 +136,9 @@ export const BEANBAGS: DeskDef[] = (
 export const SEATS: DeskDef[] = [...DESKS, ...WING_DESKS, ...BEANBAGS];
 
 /** The boards with an agent standing by: the Issues board, the PR board and the task queue. */
-export type StationKind = 'issues' | 'pulls' | 'queue';
+export type BoardKind = 'issues' | 'pulls' | 'queue';
+/** Every agent standing by in a kiosk: the board agents, and the maintenance closet's (see MAINTENANCE). */
+export type StationKind = BoardKind | 'maintenance';
 
 /**
  * The board agents: a worker standing behind a little kiosk just west of each of those boards (see
@@ -150,6 +152,8 @@ export const STATIONS: DeskDef[] = [
   { id: 'station-pulls', station: 'pulls', x: 0, z: FLOOR.minZ + 1.3, rotY: Math.PI, label: 'PR board' },
   // Between the Issues board and the task queue.
   { id: 'station-queue', station: 'queue', x: -7.8, z: FLOOR.minZ + 1.3, rotY: Math.PI, label: 'Task queue' },
+  // In the maintenance closet (see MAINTENANCE), with his back to the west wall.
+  { id: 'station-maintenance', station: 'maintenance', x: -16.1, z: 3, rotY: -Math.PI / 2, label: 'Maintenance' },
 ];
 /** A board agent's kiosk: its top, and how far behind its middle (toward the wall) the agent stands. */
 export const KIOSK = { width: 0.8, depth: 0.5, height: 0.55, stand: 0.55 } as const;
@@ -158,7 +162,31 @@ export const STATION_AGENT: Record<StationKind, { name: string; color: string }>
   issues: { name: 'Issues agent', color: '#ef476f' },
   pulls: { name: 'PR agent', color: '#118ab2' },
   queue: { name: 'Queue agent', color: '#06d6a0' },
+  maintenance: { name: 'Maintenance agent', color: '#f08c00' },
 };
+
+/**
+ * The maintenance closet: a tiny room against the west wall, between the ladder and the exit door
+ * (where a window was), with the Maintenance agent at his counter (STATIONS) and a laptop on a bench
+ * to ask him things about the office itself, on the south wall. `door` is the gap in its east wall.
+ * The agent works on the office's own source, not the floor's project (server/maintenance.ts).
+ */
+export const MAINTENANCE = {
+  minX: FLOOR.minX,
+  maxX: -14.6,
+  minZ: 1.2,
+  maxZ: 4.8,
+  height: 2.7,
+  door: { z0: 2.2, z1: 3.8, height: 2.2 },
+  /** The server rack in the north-west corner, facing the door. */
+  rack: { x: -17.45, z: 1.75, width: 0.7, depth: 0.8, height: 1.9 },
+  /** The bench along the south wall: x is its middle; the laptop sits on it, facing north. */
+  bench: { x: -16.3, z: 4.45, width: 1.7, depth: 0.7, height: 0.76 },
+} as const;
+/** The small model the closet's laptop answers with (the server's AGENT_OFFICE_MAINTENANCE_MODEL changes it). */
+export const MAINTENANCE_MODEL = 'gpt-6-luna';
+/** Where you use the closet's laptop from: just in front of its bench. */
+export const MAINTENANCE_LAPTOP = { x: MAINTENANCE.bench.x, z: MAINTENANCE.bench.z - MAINTENANCE.bench.depth / 2 - 0.2 } as const;
 
 /** The upstairs office: a glass-walled loft on posts in the south-east corner, looking down on the desks. */
 export const LOFT = { minX: 9, maxX: FLOOR.maxX, minZ: 8, maxZ: FLOOR.maxZ, y: 3, height: 2.8 } as const;
@@ -338,7 +366,7 @@ export interface Opening {
 /** Windows you can see out of, and the loft's two, which sit higher up. */
 export const WINDOWS: Opening[] = [
   ...[-14, -9, 1].map((u) => ({ wall: 'south' as const, u, width: 3, y0: 1.1, y1: 3.3 })),
-  ...[-9, -3, 3].map((u) => ({ wall: 'west' as const, u, width: 3, y0: 1.1, y1: 3.3 })),
+  ...[-9, -3].map((u) => ({ wall: 'west' as const, u, width: 3, y0: 1.1, y1: 3.3 })),
   { wall: 'south', u: LOFT.minX + 2, width: 2.8, y0: LOFT.y + 0.9, y1: LOFT.y + 2.5 },
   { wall: 'east', u: (LOFT.minZ + LOFT.maxZ) / 2, width: 2.8, y0: LOFT.y + 0.9, y1: LOFT.y + 2.5 },
 ];

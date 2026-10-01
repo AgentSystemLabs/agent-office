@@ -45,6 +45,7 @@ import { WB_MAX_FILE_BYTES } from '../shared/whiteboard.js';
 import { DROP_MAX_BYTES } from '../shared/drops.js';
 import { MAX_FLOORS } from '../shared/floors.js';
 import { lookFromSeed, sanitizeLook } from '../shared/avatar.js';
+import { MAX_QUESTION, askLaptop, laptopModel } from './maintenance.js';
 import { EMOTE_EVERY, EmoteBucket, isEmote } from '../shared/emotes.js';
 import { isThemePick } from '../shared/theme.js';
 import { PROMPTS, PROMPT_MAX, isPromptId } from '../shared/prompts.js';
@@ -94,6 +95,8 @@ interface Client {
   /** When they last threw a dart or an axe up there. */
   lastTossAt: number;
   emotes: EmoteBucket;
+  /** The maintenance laptop is working on their question: one at a time each. */
+  asking: boolean;
   /** Has the floor's whiteboard open. */
   whiteboard: boolean;
   lastWbPointerAt: number;
@@ -1179,6 +1182,7 @@ export async function startServer(cfg: Config) {
       lastTossAt: 0,
       // A little more lenient than the page's own, so emotes it let through aren't dropped for arriving bunched up.
       emotes: new EmoteBucket(EMOTE_EVERY * 0.8),
+      asking: false,
       whiteboard: false,
       lastWbPointerAt: 0,
       playing: false,
@@ -1814,6 +1818,22 @@ export async function startServer(cfg: Config) {
           const r = floor.workers.station(deskId, who, str(msg.prompt, 20000), c.accountId);
           if (typeof r === 'string') warn(c, r);
           else if (r.hired) toastFloor(floor, `${who} asked the ${r.info.name} something`);
+        });
+        break;
+      }
+      case 'maintenance.ask': {
+        const id = str(msg.id, 32);
+        const question = str(msg.question, MAX_QUESTION).trim();
+        const model = laptopModel();
+        if (!id || !question) break;
+        if (c.asking) {
+          sendTo(c, { t: 'maintenance.answer', id, model, error: 'The laptop is still working on your last question' });
+          break;
+        }
+        c.asking = true;
+        void askLaptop(question).then((r) => {
+          c.asking = false;
+          sendTo(c, { t: 'maintenance.answer', id, model, ...r });
         });
         break;
       }

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { FloorPalette } from '../../shared/floors';
-import { KIOSK, STATION_AGENT, deskSeat, type DeskDef, type StationKind } from '../../shared/layout';
+import { KIOSK, STATION_AGENT, deskSeat, type BoardKind, type DeskDef } from '../../shared/layout';
 import { BENCH_OUT, BOARD_KEYS, COUNCIL, THRONE_SIZE, type BoardKey, type MapPlan, type PropConfig } from '../../shared/maps';
 import type { PropKind } from '../../shared/maps/props';
 import { PROP_SIZE, boxFootprint } from '../../shared/maps/props';
@@ -1656,11 +1656,12 @@ function heraldry(p: FloorPalette): string {
   return `#${new THREE.Color().setHSL(hsl.h, 0.62, 0.3).getHexString()}`;
 }
 
-const LECTERN_SIGN: Record<StationKind, string> = { issues: '📜 Ask me', pulls: '🔀 Ask me', queue: '📋 Ask me' };
+const LECTERN_SIGN: Record<BoardKind, string> = { issues: '📜 Ask me', pulls: '🔀 Ask me', queue: '📋 Ask me' };
 
 /** A board agent's lectern (a scribe's desk): the agent stands behind it, as at the office's kiosk. */
 function lectern(kit: Kit, def: DeskDef): DeskView {
-  const kind = def.station!;
+  // The castle's maps only have the board agents: the maintenance closet is the office's.
+  const kind = def.station as BoardKind;
   const g = new THREE.Group();
   g.position.set(def.x, 0, def.z);
   g.rotation.y = def.rotY;

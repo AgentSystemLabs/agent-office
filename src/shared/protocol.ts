@@ -1141,6 +1141,8 @@ export type ClientMsg =
    * typed into its session, which is woken up first if it's asleep, or hired there when nobody is.
    */
   | { t: 'station.prompt'; deskId: string; prompt: string }
+  /** A question for the maintenance closet's laptop (a small model that knows the office's source); `id` comes back on the `maintenance.answer`. */
+  | { t: 'maintenance.ask'; id: string; question: string }
   /** Push a worktree worker's branch and open a pull request for it, drafted from its task. */
   | { t: 'worker.pr'; workerId: string }
   | { t: 'term.input'; workerId: string; data: string }
@@ -1354,6 +1356,8 @@ export type ServerMsg =
   /** A worker's gone; `jail`, when it was sent home on a map that locks workers up (MapPlan.sendHome), with it in there now. */
   | { t: 'worker.remove'; workerId: string; jail?: JailState }
   | { t: 'worker.worktree'; workerId: string; state: WorktreeState }
+  /** The laptop's answer to your `maintenance.ask`: what the model said, or why it couldn't, and which model it was. */
+  | { t: 'maintenance.answer'; id: string; model: string; answer?: string; error?: string }
   | { t: 'screen'; workerId: string; cols: number; rows: number; lines: Record<number, Run[]>; full: boolean; cursor: [number, number] }
   | { t: 'term.snapshot'; workerId: string; data: string; cols: number; rows: number }
   | { t: 'term.data'; workerId: string; data: string }

@@ -838,6 +838,15 @@ a.when:hover { text-decoration: underline; }
 .ask-context { margin-top: 12px; font-size: 13px; }
 .ask-context summary { cursor: pointer; font-weight: 800; color: var(--muted); }
 .ask-context pre { margin: 6px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.5 ui-monospace, Menlo, monospace; background: var(--paper-2); border: 2px solid rgba(43, 45, 66, .2); border-radius: 10px; padding: 8px 10px; }
+/* The maintenance closet's laptop (ui/maintenance.ts) */
+.modal.laptop { width: min(640px, 100%); }
+.laptop-note { margin: 0 0 10px; font-weight: 700; color: var(--muted); }
+.laptop-out { margin-top: 12px; max-height: 46vh; overflow: auto; }
+.laptop-wait { margin: 0; font-weight: 800; color: var(--muted); }
+.laptop-answer { font-size: 14px; background: var(--paper-2); border: 2px solid rgba(43, 45, 66, .2); border-radius: 10px; padding: 8px 12px; overflow-wrap: anywhere; }
+.laptop-answer > :first-child { margin-top: 0; }
+.laptop-answer > :last-child { margin-bottom: 0; }
+.laptop-model { margin: 6px 0 0; font-size: 12px; font-weight: 800; color: var(--muted); text-align: right; }
 /* Hiring across repositories: the other floors' projects to take on too. */
 .repo-picks { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 8px 0 0 26px; font-size: 13px; font-weight: 800; }
 .repo-picks > span { color: var(--muted); margin-right: 2px; }

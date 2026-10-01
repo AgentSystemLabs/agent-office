@@ -170,6 +170,50 @@ export function elfBoot(): THREE.Group {
   return g;
 }
 
+// ---- The maintenance agent (see Worker.setRole) ----------------------------------------------------
+
+/** An infrastructure engineer's kit, over the worker's bean: a hard hat with a headlamp, and a hi-vis vest and tool belt. */
+export function engineerGear(): { hat: THREE.Group; vest: THREE.Group } {
+  const hat = new THREE.Group();
+  const yellow = toon('#ffc20e');
+  hat.add(mesh(new THREE.SphereGeometry(0.3, 20, 10, 0, Math.PI * 2, 0, 1.15), yellow, 0, 0.7, -0.01));
+  // A ridge over the crown, a brim round the front, and the headlamp on it.
+  const ridge = mesh(new THREE.BoxGeometry(0.07, 0.04, 0.5), toon('#e0a800'), 0, 0.99, -0.01);
+  hat.add(ridge);
+  const brim = mesh(new THREE.CylinderGeometry(0.33, 0.33, 0.025, 24, 1, false, -Math.PI * 0.62, Math.PI * 1.24), yellow, 0, 0.745, 0.05);
+  hat.add(brim);
+  hat.add(mesh(new THREE.CylinderGeometry(0.06, 0.07, 0.07, 10).rotateX(Math.PI / 2), toon('#3d405b'), 0, 0.86, 0.3, false));
+  hat.add(mesh(new THREE.CircleGeometry(0.052, 12), toon('#fff3b0', { emissive: '#fff3b0' }), 0, 0.86, 0.336, false));
+  hat.rotation.x = -0.08;
+
+  const vest = new THREE.Group();
+  const orange = toon('#ff7a00');
+  const radius = (y: number) => {
+    const p = onBean(y, 0).at;
+    return Math.hypot(p.x, p.z);
+  };
+  const ys = [0.2, 0.3, 0.4, 0.5, 0.58];
+  vest.add(mesh(new THREE.LatheGeometry(ys.map((y) => new THREE.Vector2(radius(y) + 0.014, y)), 28), orange));
+  // Reflective bands, and the belt with a wrench hung from it.
+  for (const y of [0.34, 0.47]) {
+    const band = mesh(new THREE.TorusGeometry(radius(y) + 0.016, 0.014, 5, 28), detail('#dfe6ee'), 0, y, 0, false);
+    band.rotation.x = Math.PI / 2;
+    vest.add(band);
+  }
+  const belt = mesh(new THREE.TorusGeometry(radius(0.26) + 0.022, 0.02, 6, 28), detail('#6b4a2b'), 0, 0.26, 0, false);
+  belt.rotation.x = Math.PI / 2;
+  vest.add(belt);
+  const wrench = new THREE.Group();
+  wrench.add(mesh(new THREE.BoxGeometry(0.03, 0.2, 0.015), detail('#aab4be'), 0, -0.1, 0, false));
+  wrench.add(mesh(new THREE.TorusGeometry(0.03, 0.012, 6, 12, Math.PI * 1.5), detail('#aab4be'), 0, -0.2, 0, false));
+  const { at, normal } = onBean(0.26, 1.3, 0.05);
+  wrench.position.copy(at);
+  wrench.quaternion.setFromUnitVectors(Z, normal);
+  wrench.rotateZ(0.12);
+  vest.add(wrench);
+  return { hat, vest };
+}
+
 // ---- The castle's workers (see Worker.setOutfit and Worker.setAge) -------------------------------
 
 /** Undyed wool and linen, one per worker (by its name), so a hall full of them isn't in uniform. */

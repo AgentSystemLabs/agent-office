@@ -61,6 +61,7 @@ import { openRepoPulls, workerRepos } from './ui/repos';
 import { openPrompt, confirmDialog, sendHomeDialog, lostWorktreeDialog, routeWorktreeMessage, worktreePref } from './ui/prompt';
 import { issuePrompt, openBoard } from './ui/boards';
 import { openIssue, openPull, routePullMessage } from './ui/pull';
+import { onMaintenanceAnswer, openLaptop } from './ui/maintenance';
 import { openAsk } from './ui/ask';
 import { openTeam, routeTeamMessage } from './ui/team';
 import { openAccounts, routeAccountsMessage } from './ui/accounts';
@@ -185,6 +186,7 @@ const STATION_INFO: Record<StationKind, { icon: string; offer: string; does: str
   issues: { icon: '📌', offer: 'Ask me about issues', does: 'I file, find, triage, label and close them', example: 'File an issue: the dog walks straight through the jukebox' },
   pulls: { icon: '🔀', offer: 'Ask me about PRs', does: 'I sum up, review, comment on and merge them', example: 'Review the newest PR and tell me if it’s ready to merge' },
   queue: { icon: '📋', offer: 'Ask me to queue work', does: 'I turn it into tasks for fresh workers', example: 'Queue every open bug issue, most important first' },
+  maintenance: { icon: '🛠️', offer: 'Ask me to change the office', does: 'I work on Agent Office itself and send you a pull request', example: 'Add a screen where workers can send artifacts that show their progress' },
 };
 /** A board agent waiting by its board before anyone has asked it anything (see buildKiosk), and where. */
 interface IdleAgent {
@@ -200,6 +202,7 @@ function idleAgentsIn(w: World): IdleAgent[] {
     model.setStatus('idle', false);
     model.setTask({ name: STATION_INFO[kind].offer, summary: STATION_INFO[kind].does });
     model.setOutfit(w.plan.agents.outfit === 'peasant' ? 'peasant' : null);
+    if (kind === 'maintenance') model.setRole('engineer');
     const view = w.desks.get(def.id)!;
     view.vacancy.children[0].add(model.root);
     noOutline(model.root);
@@ -1171,6 +1174,9 @@ net.onMessage((msg) => {
     case 'worker.worktree':
       routeWorktreeMessage(msg);
       break;
+    case 'maintenance.answer':
+      onMaintenanceAnswer(msg);
+      break;
     case 'toast':
       toast(msg.text, msg.level);
       break;
@@ -2016,6 +2022,7 @@ function syncWorkers() {
       departures.vacate(w.deskId);
       sendoffs.vacate(w.deskId);
       const model = new Worker(w.name, w.color);
+      if (desk.def.station === 'maintenance') model.setRole('engineer');
       model.setCostume(store.theme.active);
       model.setOutfit(plan().agents.outfit === 'peasant' ? 'peasant' : null);
       model.setAge(ageOf(w));
@@ -2912,6 +2919,10 @@ function interact(target: Interactable | null, key: DeskKey, note = aimedNote) {
     if (key === 'O' && w) return pullRequestFor(w);
     return;
   }
+  if (target.kind === 'maintenance') {
+    if (key === 'E') openLaptop((m) => net.send(m));
+    return;
+  }
   if (target.kind === 'station' && target.deskId) {
     const w = store.workerAtDesk(target.deskId);
     if (key === 'E' || key === 'P') return askStation(target.deskId);
@@ -3679,6 +3690,8 @@ function hintFor(it: Interactable): Hint {
       const why = full ? 'every seat is taken' : officeFull(m) ? `🚫 Office full · ${m.workers} of ${m.limit} workers` : hiringPaused() ? '💸 Budget spent — hiring resumes tomorrow' : '';
       return { k: `${hd?.name}|${why}`, parts: [title(`${plan().icon} ${hd?.name ?? 'Herald'}`), why ? h('span.cost', {}, why) : aside(hd?.says ?? ''), why ? '' : key('E', 'Send out a new worker')] };
     }
+    case 'maintenance':
+      return { k: '', parts: [title('💻 Office laptop'), aside('ask a small model about how the office works'), key('E', 'Ask')] };
     case 'smoke':
       return { k: String(smokeBreakUntil > 0), parts: [title('🚬 Ashtray'), key('E', smokeBreakUntil ? 'Stub it out' : 'Take a smoke break')] };
     case 'gong':
@@ -4312,7 +4325,7 @@ document.addEventListener('pointerlockchange', () => {
 const raycaster = new THREE.Raycaster();
 const CROSSHAIR = new THREE.Vector2(0, 0);
 /** How close (meters from your eyes) you must be to use each kind of thing. */
-const REACH: Record<InteractKind, number> = { desk: 4.5, station: 4.5, coffee: 3, issues: 9, pulls: 9, services: 9, queue: 9, tv: 10, decor: 9, smoke: 3, elevator: 4.5, gong: 3.5, dog: 3.2, jukebox: 4, seat: 3, whiteboard: 7, cabinet: 4, ladder: 3, pole: 4, meeting: 7, bar: 3.5, dj: 6, golf: 3.5, ball: 3.2, bookshelf: 4, darts: 4, axe: 5.5, telescope: 3.5, car: 4, expand: 8, herald: 5 };
+const REACH: Record<InteractKind, number> = { desk: 4.5, station: 4.5, coffee: 3, issues: 9, pulls: 9, services: 9, queue: 9, tv: 10, decor: 9, smoke: 3, elevator: 4.5, gong: 3.5, dog: 3.2, jukebox: 4, seat: 3, whiteboard: 7, cabinet: 4, ladder: 3, pole: 4, meeting: 7, bar: 3.5, dj: 6, golf: 3.5, ball: 3.2, bookshelf: 4, darts: 4, axe: 5.5, telescope: 3.5, car: 4, expand: 8, herald: 5, maintenance: 3.5 };
 const eye = new THREE.Vector3();
 
 /** What the ray through `ndc` lands on first, whether it is within reach (plus `slack` meters), and where it hit. */

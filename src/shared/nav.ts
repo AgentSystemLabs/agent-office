@@ -4,12 +4,14 @@
 // An office floor built out into the back office (see WING) has more of it to get round: the office's
 // helpers take how many rows it's built out (`wing`), and each level gets a grid of its own.
 
-import { BALCONY, BALCONY_DOOR, BEANBAGS, BOOKSHELF, CABINET, DESK_SIZE, ELEVATOR, ELEVATOR_FRONT, EXIT_DOOR, EXIT_STAIRS, FLOOR, GONG, JUKEBOX, KIOSK, LADDER, LOFT, MEETING_ROOM, MEETING_SEATS, MEETING_TABLE, PARACHUTE, POLE, POLES, ROAD, STAIRS, STATIONS, WHITEBOARD, WING, builtDesks, plantsAt, wingLevel, wingMinZ, type DeskDef } from './layout.js';
+import { BALCONY, BALCONY_DOOR, BEANBAGS, BOOKSHELF, CABINET, DESK_SIZE, ELEVATOR, ELEVATOR_FRONT, EXIT_DOOR, EXIT_STAIRS, FLOOR, GONG, JUKEBOX, KIOSK, LADDER, LOFT, MAINTENANCE, MEETING_ROOM, MEETING_SEATS, MEETING_TABLE, PARACHUTE, POLE, POLES, ROAD, STAIRS, STATIONS, WHITEBOARD, WING, builtDesks, plantsAt, wingLevel, wingMinZ, type DeskDef } from './layout.js';
 
 
 export type Pt = [number, number];
 
 const CELL = 0.5;
+/** Half the thickness of a closet wall. */
+const G0 = 0.06;
 /** Half the width of whoever walks it (the dog, a worker), plus a little room: how far they keep from things. */
 const R = 0.3;
 
@@ -91,6 +93,14 @@ function obstacles(wing: number): Obstacles {
     const zs = corners.map(([, z]) => z);
     rects.push([Math.min(...xs), Math.max(...xs), Math.min(...zs), Math.max(...zs)]);
   }
+  // The maintenance closet: its north and south walls, its east one with the doorway, the rack and the
+  // bench along the south wall, as world/closet.ts puts them (the agent's counter is with the kiosks above).
+  const closet = MAINTENANCE;
+  for (const z of [closet.minZ, closet.maxZ]) rects.push([closet.minX, closet.maxX, z - G0, z + G0]);
+  rects.push([closet.maxX - G0, closet.maxX + G0, closet.minZ - G0, closet.door.z0]);
+  rects.push([closet.maxX - G0, closet.maxX + G0, closet.door.z1, closet.maxZ + G0]);
+  rects.push([closet.rack.x - closet.rack.depth / 2, closet.rack.x + closet.rack.depth / 2, closet.rack.z - closet.rack.width / 2, closet.rack.z + closet.rack.width / 2]);
+  rects.push([closet.bench.x - closet.bench.width / 2, closet.bench.x + closet.bench.width / 2, closet.bench.z - closet.bench.depth / 2, closet.maxZ]);
   // The meeting room under the loft: its glass walls, with the doorway in the north one, and the
   // table with its chairs, as office.ts puts them.
   const room = MEETING_ROOM;

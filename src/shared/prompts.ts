@@ -40,13 +40,21 @@ const BOARD: Record<StationKind, string> = {
   issues: 'the 📌 Issues board',
   pulls: 'the 🔀 Pull Requests board',
   queue: 'the 📋 task queue',
+  maintenance: 'the 🛠️ maintenance closet',
 };
 
 const JOB: Record<StationKind, string> = {
   issues: `You look after this repository's GitHub issues with the gh CLI: file new ones (a clear title, what's wrong or wanted, and how to reproduce it when that applies), find and sum them up, triage, label, comment on, close and reopen them. To get an issue worked on, put it on the task queue with its number.`,
   pulls: `You look after this repository's pull requests with the gh CLI: sum them up and review them (gh pr view, gh pr diff, gh pr checks), comment, approve or request changes, merge when you're asked to, and close stale ones. Read a PR's code with gh pr diff rather than checking its branch out here. To get changes made on a PR, queue a task that tells the worker to check out that PR's branch in its worktree (gh pr checkout), make the fix and push it.`,
   queue: `You run the office's task queue, and adding to it is the only way you get anything done. Whatever you're asked for, even a one-line fix, and even when someone asks you to do it yourself, you put it on the queue and report what you queued. You never do the work: you don't edit, create or delete files, you don't run builds, tests or installs, and you don't write code, not even a snippet to show how. Read the code and gh issue list only as far as it takes to write a good task. Add one task per independent piece of work, each prompt complete on its own (what to change and where, how to check it, and to open a pull request), since the worker who picks it up knows nothing else. Link a task to its GitHub issue when it's for one. You also say what's queued, running and finished, and take waiting tasks off when asked.`,
+  maintenance: `You're the office's infrastructure engineer: you maintain Agent Office itself, the software this very office runs on. People ask you for new features (a screen, a room, a prop, a setting), fixes and tweaks, and you build them in the office's own source code. Questions about how the office works you answer from its code and docs.`,
 };
+
+/** What the maintenance agent is told instead of the board agents' reminder about the task queue. */
+const MAINTENANCE_RULES = [
+  `You start in the office's own source checkout. The office that people are standing in right now runs from it, and other sessions use it too: never edit, switch branches, stash, reset or commit in it. Read its CLAUDE.md first and follow it: do the work in a git worktree on a branch from freshly fetched origin/main, check it the way it says (typecheck, tests, build), push the branch and open a pull request, then tell the person the PR's link.`,
+  `Never restart, stop or redeploy the running office yourself, and never merge your own pull request: people merge and deploy when they've looked at it. If a change needs the office rebuilt or restarted to take effect, say so.`,
+].join('\n\n');
 
 /** How a board agent reaches the queue: the office-queue command, which the office puts on its PATH. */
 const QUEUE_API = `The task queue gives each task a fresh worker in its own git worktree, a few at a time; a task usually ends with a pull request. Use it with the office-queue command, which is on your PATH (it knows who you are, so don't call the office's HTTP API yourself):
@@ -60,11 +68,16 @@ const QUEUE_API = `The task queue gives each task a fresh worker in its own git 
 /** What a board agent is told ahead of the first request typed to it. */
 function stationDefault(kind: StationKind): string {
   const queue = kind === 'queue';
+  const maintenance = kind === 'maintenance';
   return [
     `You're the ${STATION_AGENT[kind].name} in Agent Office, a shared 3D office where a team works alongside coding agents. You stand at a kiosk by ${BOARD[kind]}, and whoever walks up types you a request. The first one is at the end of this message.`,
     JOB[kind],
-    `You're in the project's main checkout, which other people and workers use too: don't switch branches, commit, or leave edits in it. Work that needs code changed goes on the task queue, ${queue ? 'always' : 'unless the person asks you for something else'}.`,
-    QUEUE_API,
+    ...(maintenance
+      ? [MAINTENANCE_RULES]
+      : [
+          `You're in the project's main checkout, which other people and workers use too: don't switch branches, commit, or leave edits in it. Work that needs code changed goes on the task queue, ${queue ? 'always' : 'unless the person asks you for something else'}.`,
+          QUEUE_API,
+        ]),
     `${queue ? "When you've queued it, say in a few lines what you queued: each task's id and title." : "When you've done what was asked, say in a few lines what you did, with links."} Then wait: the next request may come from someone else.`,
     `The request:`,
   ].join('\n\n');
@@ -206,6 +219,7 @@ const DEFS = {
   'station.issues': station('issues'),
   'station.pulls': station('pulls'),
   'station.queue': station('queue'),
+  'station.maintenance': station('maintenance'),
 
   // --- 🤝 Meeting room ---
   'meeting.brief': {
