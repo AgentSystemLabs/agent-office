@@ -75,6 +75,7 @@ export function onConnection(ctx: Ctx, ws: WebSocket, url: URL, session: Session
     upgrade: upgrader.state,
     usage: ledger.state(),
     limits: limitsOf(client).state,
+    codexLimits: ctx.codexLimits.state,
     me,
     notify: webhook.state(),
     machine: machine.state(),
@@ -95,6 +96,7 @@ export function onConnection(ctx: Ctx, ws: WebSocket, url: URL, session: Session
     floor.workers.wakeAll();
   }
   limitsOf(client).refresh();
+  ctx.codexLimits.refresh();
   if (account) {
     sendTo(client, { t: 'signins', state: signins.state(account.id) });
     void signins.look(account.id);

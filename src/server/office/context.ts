@@ -14,6 +14,7 @@ import type { Services } from '../services.js';
 import type { ImageProxy } from '../decor.js';
 import type { Ledger } from '../usage.js';
 import type { PlanLimitsReader } from '../limits.js';
+import type { CodexPlanLimitsReader } from '../codex-limits.js';
 import type { Webhook } from '../webhook.js';
 import type { Machine } from '../machine.js';
 import type { Building, FloorDef } from '../building.js';
@@ -65,6 +66,8 @@ export interface BuildingServices {
   signins: SignIns;
   /** The office's own Claude plan limits. */
   limits: PlanLimitsReader;
+  /** The office host's signed-in Codex account allowance. */
+  codexLimits: CodexPlanLimitsReader;
   /** Each account's own, once it runs on a Claude sign-in of its own. */
   accountLimits: Map<string, { key: string; reader: PlanLimitsReader }>;
   webhook: Webhook;

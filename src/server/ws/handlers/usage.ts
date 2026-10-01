@@ -6,4 +6,7 @@ export const usageHandlers = {
   'limits.refresh'(ctx, c) {
     ctx.limitsOf(c).refresh();
   },
+  'codex-limits.refresh'(ctx) {
+    ctx.codexLimits.refresh();
+  },
 } satisfies HandlerMap<UsageClientMsg>;

@@ -7,7 +7,7 @@ import type { DrinkId } from '../rooftop.js';
 import type { Me } from './accounts.js';
 import type { FloorInfo, FloorView, ProjectsDirState } from './floors.js';
 import type { LeaveOnMergeState, MachineState, MapState, NotifyState, PromptsState, SkyState, ThemeState, UpgradeState } from './settings.js';
-import type { PlanLimits, UsageState } from './usage.js';
+import type { CodexPlanLimits, PlanLimits, UsageState } from './usage.js';
 
 /** The issue on a card someone carries around the floor (see PeerInfo.carrying). */
 export interface CarriedIssue {
@@ -123,6 +123,7 @@ export type PresenceServerMsg =
       upgrade: UpgradeState;
       usage: UsageState;
       limits: PlanLimits;
+      codexLimits: CodexPlanLimits;
       me: Me;
       notify: NotifyState;
       machine: MachineState;

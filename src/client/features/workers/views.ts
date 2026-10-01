@@ -23,7 +23,7 @@ import { store } from '../../state';
 import { $ } from '../../ui/dom';
 import { openExpand } from '../../ui/floorplan';
 import { renderWorkers } from '../../ui/workers-panel';
-import { renderLimits } from '../../ui/limits';
+import { renderCodexLimits, renderLimits } from '../../ui/limits';
 import { modelBadge, providerLabel } from '../../ui/provider';
 import { renderUsage } from '../../ui/usage';
 import { Worker } from '../../world/character';
@@ -386,9 +386,12 @@ export function installWorkerViews(ctx: Ctx, core: CoreState, parts: WorkerViews
   store.on('theme', dressUp);
   store.on('usage', renderUsage);
   store.on('limits', renderLimits);
+  store.on('codexLimits', renderCodexLimits);
   // The reset countdowns tick down between reads.
   setInterval(renderLimits, 30_000);
+  setInterval(renderCodexLimits, 30_000);
   $('limits').addEventListener('click', () => net.send({ t: 'limits.refresh' }));
+  $('codex-limits').addEventListener('click', () => net.send({ t: 'codex-limits.refresh' }));
 
   /** Where confetti comes from over a desk: above the worker's head. */
   function burstOver(deskId: string, n: number) {

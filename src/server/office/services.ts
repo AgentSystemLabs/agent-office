@@ -8,6 +8,7 @@ import { Services } from '../services.js';
 import { ImageProxy } from '../decor.js';
 import { Ledger } from '../usage.js';
 import { PlanLimitsReader } from '../limits.js';
+import { CodexPlanLimitsReader } from '../codex-limits.js';
 import { Webhook } from '../webhook.js';
 import { Machine } from '../machine.js';
 import type { Floor } from '../floor.js';
@@ -72,6 +73,14 @@ export function createServices(ctx: Ctx): BuildingServices {
       for (const c of clients.values()) if (limitsOf(c) === limits) ctx.sendTo(c, { t: 'limits', state });
     },
   );
+  // The host's Codex account allowance. Codex app-server handles local auth; the office only sees
+  // the read-only rate-limit response, shared with signed-in office clients.
+  const codexLimits = new CodexPlanLimitsReader(
+    resolveCommand('codex'),
+    childEnv(),
+    () => clients.size > 0,
+    (state) => ctx.broadcast({ t: 'codex-limits', state }),
+  );
   const accountLimits = new Map<string, { key: string; reader: PlanLimitsReader }>();
   /** Whose plan `c` sees: their own, on an account with its own Claude sign-in; else the office's. */
   const limitsOf = (c: Client): PlanLimitsReader => {
@@ -124,7 +133,7 @@ export function createServices(ctx: Ctx): BuildingServices {
     });
   };
 
-  return { sky, themes, maps, prompts, leaveOnMerge, ledger, signins, limits, accountLimits, webhook, machine, limitsOf, pumpQueues };
+  return { sky, themes, maps, prompts, leaveOnMerge, ledger, signins, limits, codexLimits, accountLimits, webhook, machine, limitsOf, pumpQueues };
 }
 
 /** What's made once the floors are open: the SSH team, the tailnet, workers' web servers, pictures and upgrades. */

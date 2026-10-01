@@ -17,6 +17,17 @@ export function fmtReset(at: number, now = Date.now()): string {
 
 const level = (pct: number) => (pct >= 90 ? 'over' : pct >= 75 ? 'near' : '');
 
+function quotaClock(w: PlanWindow): HTMLElement {
+  const pct = Math.round(w.pct);
+  const title = `${w.label} Codex allowance: ${pct}% used${w.resetsAt ? `\nResets ${new Date(w.resetsAt).toLocaleString()}` : ''}`;
+  return h(
+    'div.codex-clock-row',
+    { title },
+    h('div.quota-dial', { class: level(w.pct), style: `--quota:${w.pct}%`, role: 'progressbar', 'aria-label': `${w.label} Codex usage`, 'aria-valuemin': 0, 'aria-valuemax': 100, 'aria-valuenow': pct }, h('span', {}, `${pct}%`)),
+    h('div.quota-copy', {}, h('b', {}, w.label), h('span', {}, 'used'), w.resetsAt ? h('small', {}, `resets ${fmtReset(w.resetsAt, Date.now())}`) : null),
+  );
+}
+
 function windowRow(w: PlanWindow, now: number): HTMLElement[] {
   const pct = Math.round(w.pct);
   const when = w.resetsAt ? new Date(w.resetsAt).toLocaleString(undefined, { weekday: 'long', hour: 'numeric', minute: '2-digit' }) : '';
@@ -44,4 +55,25 @@ export function renderLimits() {
   const plan = s.plan ? s.plan.charAt(0).toUpperCase() + s.plan.slice(1) : '';
   el.replaceChildren(h('h3', {}, 'Claude limits', plan ? h('span.plan', {}, plan) : null, panelHide('limits')), ...s.windows.flatMap((w) => windowRow(w, now)));
   if (now - s.at > STALE_MS) el.append(h('div.row.muted', {}, `As of ${new Date(s.at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`));
+}
+
+/** Codex account plan usage from its signed-in app server, shown as compact percentage clocks. */
+export function renderCodexLimits() {
+  const state = store.codexLimits;
+  const el = $('codex-limits');
+  el.classList.remove('hidden');
+  const now = Date.now();
+  const plan = state.plan ? state.plan.charAt(0).toUpperCase() + state.plan.slice(1) : '';
+  const parts: (HTMLElement | null)[] = [h('h3', {}, 'Codex usage', plan ? h('span.plan', {}, plan) : null, panelHide('codexLimits')), h('div.row.muted', {}, 'Office host account')];
+  if (state.windows.length) {
+    parts.push(...state.windows.map(quotaClock));
+    if (state.status === 'unavailable') parts.push(h('div.row.muted', {}, state.message ?? 'Usage refresh unavailable'));
+    const lastRead = state.at || state.checkedAt;
+    if (lastRead && (now - lastRead > STALE_MS || state.status === 'unavailable')) {
+      parts.push(h('div.row.muted', {}, `Last read ${new Date(lastRead).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`));
+    }
+  } else {
+    parts.push(h('div.row.muted', {}, state.status === 'checking' ? 'Checking the signed-in Codex account…' : state.message ?? 'Codex usage is unavailable'));
+  }
+  el.replaceChildren(...parts.filter((part): part is HTMLElement => part !== null));
 }

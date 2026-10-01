@@ -84,6 +84,16 @@
 .limits .reset { margin-left: auto; font-size: 11px; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; }
 .limits .meter + .row { margin-top: 3px; }
 .limits .muted { color: var(--muted); font-weight: 600; }
+.codex-limits .codex-clock-row { display: flex; align-items: center; gap: 10px; padding: 3px 0; }
+.codex-limits .quota-dial { --quota: 0%; --dial-color: var(--good); position: relative; display: grid; flex: none; width: 48px; height: 48px; place-items: center; border: 2px solid var(--ink); border-radius: 50%; background: conic-gradient(var(--dial-color) var(--quota), var(--paper) 0); color: var(--ink); font-size: 12px; font-weight: 900; font-variant-numeric: tabular-nums; }
+.codex-limits .quota-dial::before { position: absolute; inset: 5px; border: 1px solid var(--ink); border-radius: 50%; background: var(--paper); content: ''; }
+.codex-limits .quota-dial span { position: relative; z-index: 1; }
+.codex-limits .quota-dial.near { --dial-color: var(--warn); }
+.codex-limits .quota-dial.over { --dial-color: var(--bad); }
+.codex-limits .quota-copy { display: grid; grid-template-columns: auto 1fr; align-items: baseline; column-gap: 5px; }
+.codex-limits .quota-copy b { font-size: 12px; }
+.codex-limits .quota-copy > span, .codex-limits .quota-copy small { color: var(--muted); font-size: 11px; font-weight: 600; }
+.codex-limits .quota-copy small { grid-column: 1 / -1; font-variant-numeric: tabular-nums; }
 
 /* Workers waiting on you: a count in the Workers panel (click or N to go to them) and arrows at the edge of the screen. */
 #waiting { display: flex; align-items: center; gap: 6px; width: 100%; margin: 0 0 8px; padding: 5px 8px; border: 2px solid var(--ink); border-radius: 10px; background: #ffe3ea; color: var(--ink); font: inherit; font-size: 13px; font-weight: 900; text-align: left; cursor: pointer; }

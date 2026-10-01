@@ -81,10 +81,22 @@ export interface PlanLimits {
   at: number;
 }
 
+/** The signed-in Codex account's live allowance. `at` is the last successful fetch. */
+export interface CodexPlanLimits extends PlanLimits {
+  status: 'checking' | 'ready' | 'unavailable';
+  /** Generic connection/auth hint; never includes process output or credentials. */
+  message?: string;
+  /** Most recent fetch attempt, including failed attempts. */
+  checkedAt: number;
+}
+
 export type UsageClientMsg =
   /** Read the Claude plan limits again now, instead of at the next poll. */
-  | { t: 'limits.refresh' };
+  | { t: 'limits.refresh' }
+  /** Read the Codex account allowance again now, instead of at the next poll. */
+  | { t: 'codex-limits.refresh' };
 
 export type UsageServerMsg =
   | { t: 'usage'; state: UsageState }
-  | { t: 'limits'; state: PlanLimits };
+  | { t: 'limits'; state: PlanLimits }
+  | { t: 'codex-limits'; state: CodexPlanLimits };
