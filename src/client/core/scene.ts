@@ -54,7 +54,7 @@ export function noWebGL(): Promise<never> {
 export function createScene(canvas: HTMLCanvasElement, renderer: THREE.WebGLRenderer): Stage {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFShadowMap;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   const effect = new OutlineEffect(renderer, { defaultThickness: 0.0032, defaultColor: [0.17, 0.18, 0.26] });
 
@@ -75,7 +75,9 @@ export function createScene(canvas: HTMLCanvasElement, renderer: THREE.WebGLRend
   // Wide enough for the office, the garage under it and the balcony and lot out front, from wherever the sun is.
   Object.assign(sun.shadow.camera, { left: -32, right: 32, top: 30, bottom: -30, near: 1, far: 100 });
   sun.shadow.bias = -0.0008;
-  sun.shadow.normalBias = 0.03;
+  // A texel of the shadow map is about 3 cm across (64 m over 2048): walls the sun catches side-on
+  // speckle with their own shadow unless the lookup is pushed out by a couple of them.
+  sun.shadow.normalBias = 0.06;
   scene.add(sun);
 
   const office = buildOffice();

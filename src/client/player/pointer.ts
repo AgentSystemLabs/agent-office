@@ -161,7 +161,7 @@ export abstract class PlayerInput {
       this.settleUntil = this.settleNext ? this.movedAt + SETTLE_MAX : 0;
       this.settleNext = false;
       // A lock that lands with a window open (the one yieldMouse takes, or a relock racing the next window) is let go.
-      if (!this.enabled) this.unlock();
+      if (!this.enabled && !this.keepMouse) this.unlock();
     });
     document.addEventListener('pointerlockerror', () => this.refused());
     dom.addEventListener(
@@ -173,6 +173,9 @@ export abstract class PlayerInput {
       { passive: false },
     );
   }
+
+  /** Something else looks round with the mouse while the controls are off (the telescope): it stays captured. */
+  keepMouse = false;
 
   get locked(): boolean {
     return document.pointerLockElement === this.dom;
