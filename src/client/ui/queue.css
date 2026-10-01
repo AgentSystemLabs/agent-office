@@ -1,0 +1,42 @@
+/* Task queue */
+/* The prompt gets its own row; under it, which worker (and the pickers in one line once ✏️ Edit opens them), then its notes. */
+.queue-add { display: flex; gap: 8px; align-items: flex-start; flex-wrap: wrap; }
+.queue-add textarea { flex: 1 1 100%; min-height: 60px; }
+.queue-add .provider-pick { flex: 1 1 0; min-width: 0; margin: 0; }
+.queue-add .provider-choice { gap: 6px; min-width: 0; }
+.queue-add .provider-model:not(.hidden) { display: contents; }
+.queue-add .provider-choice label { margin: 0 0 0 6px; font-size: 13px; white-space: nowrap; }
+.queue-add .provider-choice > label:first-child { margin-left: 0; }
+/* A zero basis keeps the row from wrapping: the pickers shrink first (down to a readable floor) and grow back to their natural width when there's room. */
+.queue-add .provider-select, .queue-add .provider-model.claude-model select { flex: 1 1 0; width: auto; min-width: 84px; max-width: max-content; }
+.queue-add .provider-model input[type=text] { flex: 1 1 0; width: auto; min-width: 140px; padding: 6px 9px; border-width: 2px; border-radius: 9px; font-size: 13px; }
+.queue-add .provider-note, .queue-add .provider-model-hint { order: 2; flex: 1 1 100%; }
+.queue-add button[type=submit] { margin-left: auto; }
+/* Too narrow for one line: each label and its picker take a row, so a label never ends up stranded from its picker. */
+@media (max-width: 640px) {
+  .queue-add .provider-choice label { flex: 0 0 64px; margin-left: 0; }
+  .queue-add .provider-select, .queue-add .provider-model.claude-model select, .queue-add .provider-model input[type=text] { flex: 1 1 calc(100% - 70px); max-width: none; }
+}
+.queue h4 { display: flex; align-items: center; gap: 8px; margin: 18px 0 8px; font-size: 14px; font-weight: 900; text-transform: uppercase; letter-spacing: .04em; }
+.queue h4 .count { color: var(--muted); }
+.queue h4 .btn { margin-left: auto; padding: 3px 10px; font-size: 13px; text-transform: none; letter-spacing: 0; }
+.queue .note { margin: 8px 0 0; font-size: 13px; font-weight: 600; color: var(--muted); line-height: 1.45; }
+.queue-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.queue-list li { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border: 3px solid var(--ink); border-radius: 14px; background: #fff; box-shadow: 0 3px 0 var(--ink); }
+.queue-list li.running { background: #e7f8ee; }
+.queue-list li.done { background: var(--paper-2); }
+.queue-list .pos { min-width: 24px; text-align: center; font-weight: 900; color: var(--muted); }
+.queue-main { flex: 1; min-width: 0; }
+.queue-title { font-weight: 900; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.queue-title a { color: inherit; text-decoration: none; }
+.queue-title a:hover { text-decoration: underline; }
+.queue-meta { font-size: 12px; font-weight: 700; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.queue-actions { display: flex; gap: 4px; flex: none; }
+.queue-actions .btn { padding: 3px 9px; font-size: 13px; text-decoration: none; color: inherit; }
+.queue-limit { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 800; color: var(--muted); white-space: nowrap; }
+.queue-limit .btn { padding: 1px 9px; font-size: 15px; }
+.queue-limit b { min-width: 58px; text-align: center; color: var(--ink); font-size: 15px; }
+.queue-empty { margin-top: 16px; text-align: center; padding: 18px 8px; border: 3px dashed var(--muted); border-radius: 14px; font-weight: 800; }
+@media (max-width: 640px) {
+  .queue-limit span { display: none; }
+}

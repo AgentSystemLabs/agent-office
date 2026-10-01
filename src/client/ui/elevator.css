@@ -1,0 +1,39 @@
+/* ---- The elevator: floors, one per project ---------------------------------------------------- */
+.modal.elevator { width: min(640px, 100%); }
+.elevator .intro { margin: 0 0 12px; font-weight: 700; }
+.elevator .floors { display: grid; gap: 8px; }
+.elevator .floor-btn { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; align-items: center; width: 100%; text-align: left; padding: 9px 12px; font: inherit; color: var(--ink); background: #fff; border: 3px solid var(--ink); border-radius: 14px; box-shadow: 0 3px 0 var(--ink); cursor: pointer; transition: transform .05s; }
+.elevator .floor-btn:hover:not(:disabled) { background: var(--paper-2); }
+.elevator .floor-btn:active:not(:disabled) { transform: translateY(2px); box-shadow: 0 1px 0 var(--ink); }
+.elevator .floor-btn:disabled { cursor: default; }
+.elevator .floor-btn.here { background: var(--paper-2); box-shadow: none; transform: translateY(2px); }
+.elevator .floor-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: stretch; }
+.elevator .floor-off { padding: 0 12px; font-size: 16px; }
+.elevator .floor-off:hover { background: #ffe3d6; }
+.elevator .floor-no { width: 34px; height: 34px; border-radius: 50%; border: 3px solid var(--ink); display: grid; place-items: center; font-weight: 900; font-size: 15px; color: #fff; text-shadow: 0 1px 0 rgba(0, 0, 0, .35); }
+.elevator .floor-text { display: flex; flex-direction: column; min-width: 0; }
+.elevator .floor-name { font-weight: 900; font-size: 15px; display: flex; gap: 8px; align-items: baseline; }
+.elevator .here-tag { font-size: 11px; font-weight: 800; color: var(--muted); }
+.elevator .floor-sub { font-size: 12px; font-weight: 700; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.elevator .floor-stats { font-size: 13px; font-weight: 800; white-space: nowrap; }
+.elevator .floor-stats .waiting { color: var(--bad); }
+.elevator .clone-bar { display: block; height: 7px; margin-top: 5px; border: 2px solid var(--ink); border-radius: 6px; background: var(--paper-2); overflow: hidden; }
+.elevator .clone-bar > span { display: block; height: 100%; background: var(--good); transition: width .6s ease; }
+.elevator .note + .clone-bar { margin-top: 6px; }
+.elevator .add { margin-top: 16px; }
+.elevator .add h3 { margin: 0 0 8px; font-size: 15px; font-weight: 900; }
+.elevator .repo-search { display: flex; gap: 8px; }
+.elevator .repo-search input { flex: 1; }
+.elevator .repo-list { margin-top: 8px; max-height: 280px; overflow: auto; border: 3px solid var(--ink); border-radius: 12px; background: #fff; }
+.elevator .repo { display: flex; gap: 8px; align-items: baseline; padding: 7px 10px; border-bottom: 2px solid var(--paper-2); cursor: pointer; }
+.elevator .repo:last-child { border-bottom: 0; }
+.elevator .repo:hover { background: var(--paper-2); }
+.elevator .repo.sel { background: #ffe3d6; }
+.elevator .repo .nm { font-weight: 800; white-space: nowrap; }
+.elevator .repo .desc { flex: 1; min-width: 0; font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.elevator .repo .when { font-size: 11px; color: var(--muted); white-space: nowrap; }
+.elevator .note { margin: 8px 0 0; font-size: 12px; font-weight: 700; color: var(--muted); overflow-wrap: anywhere; }
+.elevator .note.busy { color: var(--ink); }
+/* The folder's Change button: styles/base.css, after the button rules it restyles. */
+.elevator .dir-pick { margin-top: 8px; }
+.elevator .err { margin: 8px 0 0; font-size: 13px; font-weight: 800; color: var(--bad); overflow-wrap: anywhere; }

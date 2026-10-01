@@ -8,7 +8,8 @@
 #   deploy/aws.sh destroy   delete everything it created (asks first)
 #
 # The office is never exposed to the internet: it listens on the box's loopback and everyone
-# reaches it through an SSH tunnel. Run `deploy/aws.sh help` for all commands and options.
+# reaches it through an SSH tunnel, or with `up --tailscale`, on your Tailscale network at
+# https://agent-office.<your-tailnet>.ts.net. Run `deploy/aws.sh help` for all commands and options.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -31,6 +32,9 @@ TEAM_USER="office"   # teammates' keys log in as this user, which can only tunne
 OFFICE_PORT=4600     # where the office listens on the box (127.0.0.1 only)
 LOCAL_PORT=4600
 LOCAL_PORT_SET=0
+TAILSCALE=0
+TS_KEY="${TS_AUTHKEY:-}"
+TAILSCALE_ADMIN="https://login.tailscale.com/admin"
 
 usage() {
   cat <<'EOF'
@@ -39,12 +43,15 @@ Agent Office on AWS — one command up, one command down.
 Usage: deploy/aws.sh <command> [options]
 
 The office is never on the internet. It listens on the machine's loopback, the firewall only
-opens SSH, and everyone reaches the office through an SSH tunnel on http://localhost:4600.
+opens SSH, and everyone reaches the office through an SSH tunnel on http://localhost:4600 — or,
+with `up --tailscale`, on your Tailscale network at https://agent-office.<your-tailnet>.ts.net,
+with nothing to run.
 
 Commands
   up                 Create (or reuse) your office on EC2, install and start it, and open it in
                      your browser. The first page shows the office password ONCE — write it down.
-  open               Tunnel to your office and open it in the browser (Ctrl-C closes the tunnel)
+  open               Open your office in the browser: on your tailnet if it's on one and this
+                     computer is too, else through an SSH tunnel (Ctrl-C closes the tunnel)
   pause              Stop the machine to save money (asks first). The disk, the address and
                      everything on it stay; only the disk and the address are billed while paused
   resume             Start a paused office again and open it in the browser
@@ -54,7 +61,8 @@ Commands
   service <port>     Open a worker's web server from the office's 🌐 Services board on
                      http://localhost:<port> (through the office; Ctrl-C closes the tunnel)
   invite <gh-user>   Let a teammate tunnel in with the SSH keys on their GitHub account, and
-                     print the one command to send them. Or: invite <name> <public-key-file>
+                     print the one command to send them. Or: invite <name> <public-key-file>.
+                     On a Tailscale office, plain `invite` says how to share it there instead
   uninvite <name>    Remove a teammate's keys and drop open tunnels
   team               List who is invited
   status             Show the instance, whether the office is up and which IPs may SSH in
@@ -77,8 +85,9 @@ Options
   --allow <ip|cidr>         With up or invite: also allow this IP to SSH in (repeatable).
                             Your own IP is always allowed.
   --port <n>                Local port for the tunnel (default: 4600, or the next free one)
-  --project <owner/repo>    GitHub repo the office works on (default: this directory's GitHub
-                            origin; otherwise an empty project)
+  --project <owner/repo>    Also clone this GitHub repo as the office's first floor. Without it
+                            the office opens on its elevator, which lists every repo your GitHub
+                            token can see: pick one there. Projects go in ~/workspace on the box
   --app-repo <url>          agent-office repo to install (default: this checkout's GitHub origin)
   --app-ref <ref>           Branch or tag to install (default: main)
   --github-token <token>    GitHub token for private repos + the issue/PR boards
@@ -88,6 +97,13 @@ Options
                             (default: $CLAUDE_CODE_OAUTH_TOKEN). Without one, log in from the
                             first worker's terminal in the office.
   --anthropic-api-key <key> Use an Anthropic API key instead
+  --tailscale               With up: also put the office on your Tailscale network, at
+                            https://<name>.<your-tailnet>.ts.net. Everyone on the tailnet opens it
+                            there: no tunnel, no SSH keys, no IPs to allow. Needs MagicDNS and HTTPS
+                            Certificates on in Tailscale (it opens the page to turn them on)
+  --tailscale-auth-key <key>
+                            Add the machine with this Tailscale auth key (default: $TS_AUTHKEY).
+                            Without one, up opens Tailscale's page to add it. Implies --tailscale
   --no-open                 Don't open the browser (up, resume: don't open the tunnel either)
   -y, --yes                 Don't ask for confirmation
 EOF
@@ -120,6 +136,8 @@ while [[ $# -gt 0 ]]; do
     --no-github-token) NO_GH_TOKEN=1; shift ;;
     --claude-token) CLAUDE_TOKEN="$2"; shift 2 ;;
     --anthropic-api-key) ANTHROPIC_KEY="$2"; shift 2 ;;
+    --tailscale) TAILSCALE=1; shift ;;
+    --tailscale-auth-key) TS_KEY="$2"; TAILSCALE=1; shift 2 ;;
     --no-open) NO_OPEN=1; shift ;;
     -y | --yes) YES=1; shift ;;
     -h | --help) usage; exit 0 ;;
@@ -140,6 +158,8 @@ KNOWN_HOSTS="$STATE_DIR/known_hosts"
 CLAIM_FILE="$STATE_DIR/claim-token"
 
 need() { command -v "$1" >/dev/null 2>&1 || die "$1 is required (${2:-install it first})"; }
+# Its machine name on the tailnet: agent-office, or agent-office-<name>.
+ts_name() { printf '%s' "$RESOURCE" | tr '[:upper:]' '[:lower:]' | cut -c1-63; }
 aws_() { aws --output text "$@"; }
 
 preflight() {
@@ -296,6 +316,40 @@ allowed_cidrs() {
 
 office_get() { remote "curl -fs --max-time 4 http://127.0.0.1:$OFFICE_PORT$1"; }
 
+# The office's name on your tailnet (agent-office.tail1234.ts.net), if it's on one.
+tailnet_host() { remote "cat /etc/agent-office/tailscale 2>/dev/null" 2>/dev/null | tr -d '[:space:]' || true; }
+
+# Can this computer reach it there? (Tailscale on, signed in to the same tailnet.)
+tailnet_reachable() { curl -fs -o /dev/null --max-time 20 "https://$1/api/health" 2>/dev/null; }
+
+# Prints the provisioning output, and opens the pages Tailscale asks you to visit (to add the
+# machine, or to turn HTTPS certificates on) in your browser.
+open_tailscale_links() {
+  local line url opened=" "
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    printf '%s\n' "$line"
+    [[ "$line" =~ (https://login\.tailscale\.com/[^[:space:]]+) ]] || continue
+    url="${BASH_REMATCH[1]}"
+    [[ "$opened" == *" $url "* ]] && continue
+    opened+="$url "
+    open_url "$url"
+  done
+  return 0
+}
+
+tailnet_invite() {
+  local ts="$1"
+  echo "   Your office is on your Tailscale network: https://$ts"
+  echo
+  echo "   Everyone on your tailnet can open it: send them the link. For someone who isn't:"
+  echo "     - share just this machine: $TAILSCALE_ADMIN/machines -> ${ts%%.*} -> Share..."
+  echo "       They accept it in their own Tailscale, then open the link. They reach this machine"
+  echo "       and nothing else of yours."
+  echo "     - or add them to your tailnet: $TAILSCALE_ADMIN/users"
+  echo
+  echo "   Then they sign in with the office password, or an account link from 🔑 Accounts."
+}
+
 wait_healthy() {
   local i rc
   for ((i = 0; i < 30; i++)); do
@@ -372,11 +426,22 @@ service_tunnel() {
 }
 
 open_office() {
-  local claimable path="/"
+  local claimable path="/" ts
   claimable=$(office_get /api/claim 2>/dev/null || true)
   if [[ "$claimable" == *'"claimable":true'* && -f "$CLAIM_FILE" ]]; then
     path="/claim?t=$(cat "$CLAIM_FILE")"
     say "Opening the one-time password page — write the password down, it is never shown again"
+  fi
+  ts=$(tailnet_host)
+  if [[ -n "$ts" ]]; then
+    if tailnet_reachable "$ts"; then
+      ok "Your office: https://$ts$path"
+      echo "   (on your Tailscale network: nothing to keep running)"
+      open_url "https://$ts$path"
+      return
+    fi
+    warn "This computer can't reach https://$ts — is Tailscale running here, signed in to the same tailnet?"
+    warn "Opening it through an SSH tunnel instead."
   fi
   tunnel "$path"
 }
@@ -407,17 +472,14 @@ cmd_up() {
   preflight
   need ssh-keygen
 
-  # What to install, and which project the office works on.
+  # What to install. The office starts with no project (never the checkout this script is in):
+  # everyone picks theirs in its elevator, unless --project names a first one.
   if [[ -z "$APP_REPO" ]]; then
     APP_REPO=$(github_https "$(git -C "$SCRIPT_DIR/.." remote get-url origin 2>/dev/null || true)" || echo "https://github.com/AgentSystemLabs/agent-office")
   fi
-  local project_repo="" project_name="office"
-  if [[ -z "$PROJECT" ]]; then
-    PROJECT=$(git remote get-url origin 2>/dev/null || true)
-  fi
+  local project_repo=""
   if [[ -n "$PROJECT" ]]; then
     project_repo=$(github_https "$PROJECT") || die "--project must be a GitHub repo (owner/name or URL), got: $PROJECT"
-    project_name=$(basename "$project_repo")
   fi
 
   local gh_token="$GH_TOKEN_ARG"
@@ -435,8 +497,13 @@ cmd_up() {
   say "Agent Office \"$NAME\" in $AWS_REGION (account $ACCOUNT)"
   echo "   machine:  $INSTANCE_TYPE, ${DISK_GB} GiB disk, Ubuntu 24.04"
   echo "   app:      $APP_REPO @ $APP_REF"
-  echo "   project:  ${project_repo:-(empty project)}"
-  echo "   access:   SSH tunnel only (the office is never exposed); SSH from ${cidrs[*]}"
+  echo "   projects: ${project_repo:+$project_repo, then }pick them in the office's elevator (cloned into ~/workspace)"
+  if [[ $TAILSCALE -eq 1 ]]; then
+    echo "   access:   your Tailscale network, https://$(ts_name).<your-tailnet>.ts.net (the office is never"
+    echo "             exposed); SSH from ${cidrs[*]}, for this script"
+  else
+    echo "   access:   SSH tunnel only (the office is never exposed); SSH from ${cidrs[*]}"
+  fi
   if [[ -n "$gh_token" ]]; then
     echo "   github:   your GitHub token goes on the machine (private clones, issue/PR boards, pushes)"
   else
@@ -447,6 +514,8 @@ cmd_up() {
   else
     echo "   claude:   not signed in — log in from the first worker's terminal (or pass --claude-token)"
   fi
+  echo "   others:   only Claude Code is provisioned; install and sign in to OpenCode, Codex"
+  echo "             or DeepSeek Harness (dsh) on the box yourself to hire those workers"
 
   mkdir -p "$STATE_DIR"
   chmod 700 "$STATE_DIR"
@@ -527,18 +596,31 @@ cmd_up() {
   git_name=$(git config user.name 2>/dev/null || true)
   git_email=$(git config user.email 2>/dev/null || true)
   {
-    printf 'export APP_REPO=%q APP_REF=%q PROJECT_REPO=%q PROJECT_NAME=%q\n' "$APP_REPO" "$APP_REF" "$project_repo" "$project_name"
+    printf 'export APP_REPO=%q APP_REF=%q PROJECT_REPO=%q\n' "$APP_REPO" "$APP_REF" "$project_repo"
     printf 'export CLAIM_TOKEN=%q PUBLIC_HOST=%q GH_TOKEN=%q CLAUDE_CODE_OAUTH_TOKEN=%q ANTHROPIC_API_KEY=%q\n' "$(cat "$CLAIM_FILE")" "$IP" "$gh_token" "$CLAUDE_TOKEN" "$ANTHROPIC_KEY"
     printf 'export GIT_NAME=%q GIT_EMAIL=%q\n' "$git_name" "$git_email"
+    [[ $TAILSCALE -eq 1 ]] && printf 'export TAILSCALE=1 TAILSCALE_AUTH_KEY=%q TAILSCALE_HOSTNAME=%q\n' "$TS_KEY" "$(ts_name)"
     cat "$SCRIPT_DIR/provision.sh"
-  } | remote 'bash -s' || die "provisioning failed (re-run \"deploy/aws.sh up\" to retry; it picks up where it left off)"
+  } | remote 'bash -s' | open_tailscale_links || die "provisioning failed (re-run \"deploy/aws.sh up\" to retry; it picks up where it left off)"
 
   say "Waiting for the office to answer"
   wait_healthy || die "the office didn't come up — check: deploy/aws.sh logs"
-  ok "Your office is running on $IP (reachable only through SSH)"
+  local ts
+  ts=$(tailnet_host)
+  if [[ -n "$ts" ]]; then
+    ok "Your office is running on your Tailscale network: https://$ts"
+  else
+    ok "Your office is running on $IP (reachable only through SSH)"
+  fi
   echo
   echo "   Open it later:     deploy/aws.sh open$NAME_FLAG"
-  echo "   Add a teammate:    the 👥 Invite button in the office, or deploy/aws.sh invite <their-github-username>$NAME_FLAG"
+  if [[ -n "$ts" ]]; then
+    echo "   Add a teammate:    share it on Tailscale — deploy/aws.sh invite$NAME_FLAG says how"
+    echo "   Key expiry:        Tailscale expires the machine's key in 180 days. Turn that off on"
+    echo "                      $TAILSCALE_ADMIN/machines (${ts%%.*} -> Disable key expiry)"
+  else
+    echo "   Add a teammate:    the 👥 Invite button in the office, or deploy/aws.sh invite <their-github-username>$NAME_FLAG"
+  fi
   echo "   Pause / resume:    deploy/aws.sh pause$NAME_FLAG   /   deploy/aws.sh resume$NAME_FLAG"
   echo "   Tear it down:      deploy/aws.sh destroy$NAME_FLAG"
   echo
@@ -559,7 +641,16 @@ cmd_service() {
     die "usage: deploy/aws.sh service <port>   (a port from the office's 🌐 Services board)"
   [[ "${POSITIONAL[0]}" -ne $OFFICE_PORT ]] || die "$OFFICE_PORT is the office itself — use: deploy/aws.sh open"
   require_instance
-  service_tunnel "${POSITIONAL[0]}"
+  local ts port="${POSITIONAL[0]}"
+  ts=$(tailnet_host)
+  # On the tailnet, each worker's server has its own https://<office>.ts.net:<port>.
+  if [[ -n "$ts" && "$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "https://$ts:$port/" 2>/dev/null)" != 000 ]]; then
+    ok "The worker's server: https://$ts:$port"
+    echo "   (on your Tailscale network — sign in with the office password if it asks)"
+    open_url "https://$ts:$port"
+    return
+  fi
+  service_tunnel "$port"
 }
 
 cmd_status() {
@@ -580,6 +671,9 @@ cmd_status() {
     echo "office:    paused (start it with: deploy/aws.sh resume$NAME_FLAG)"
   elif [[ -n "$IP" && -f "$KEY_FILE" ]] && office_get /api/health >/dev/null 2>&1; then
     echo "office:    up"
+    local ts
+    ts=$(tailnet_host)
+    [[ -z "$ts" ]] || echo "tailnet:   https://$ts"
     local team
     team=$(team_members 2>/dev/null | awk '{printf "%s%s", sep, $1; sep=", "}')
     echo "team:      ${team:-nobody invited yet}"
@@ -617,7 +711,15 @@ cmd_revoke() {
 
 cmd_invite() {
   preflight
-  [[ ${#POSITIONAL[@]} -ge 1 && ${#POSITIONAL[@]} -le 2 ]] ||
+  if [[ ${#POSITIONAL[@]} -eq 0 ]]; then
+    require_instance
+    local ts
+    ts=$(tailnet_host)
+    [[ -n "$ts" ]] || die "usage: deploy/aws.sh invite <github-username>   or   deploy/aws.sh invite <name> <public-key-file>"
+    tailnet_invite "$ts"
+    return
+  fi
+  [[ ${#POSITIONAL[@]} -le 2 ]] ||
     die "usage: deploy/aws.sh invite <github-username>   or   deploy/aws.sh invite <name> <public-key-file>"
   local who="${POSITIONAL[0]}" src raw keys
   valid_member "$who"
@@ -744,7 +846,7 @@ cmd_resume() {
   ensure_eip "$INSTANCE_ID"
   say "Waiting for the office to answer"
   wait_healthy || die "the office didn't come back — check: deploy/aws.sh logs$NAME_FLAG"
-  ok "Your office is back (workers wake up asleep; press R at a desk to resume them)"
+  ok "Your office is back (workers pick up where they left off)"
   [[ $NO_OPEN -eq 1 ]] && return
   open_office
 }
@@ -759,9 +861,15 @@ cmd_update() {
     git -C /opt/agent-office reset --hard FETCH_HEAD -q
     echo \"   at \$(git -C /opt/agent-office log -1 --format='%h %s')\"
     cd /opt/agent-office && npm install --no-audit --no-fund --loglevel=error >/dev/null
+    # Offices provisioned before KillMode=process: without it the restart stops every worker too.
+    if [ \"\$(systemctl show --property=KillMode --value agent-office)\" != process ]; then
+      sudo mkdir -p /etc/systemd/system/agent-office.service.d
+      printf '[Service]\nKillMode=process\n' | sudo tee /etc/systemd/system/agent-office.service.d/keep-workers.conf >/dev/null
+      sudo systemctl daemon-reload
+    fi
     sudo systemctl restart agent-office" || die "update failed"
   wait_healthy || die "the office didn't come back — check: deploy/aws.sh logs"
-  ok "Updated and restarted (workers wake up asleep; press R at a desk to resume them)"
+  ok "Updated and restarted (workers carry on through it)"
 }
 
 cmd_reset_password() {
@@ -770,10 +878,11 @@ cmd_reset_password() {
   (umask 077 && random_token >"$CLAIM_FILE")
   say "Resetting the office password"
   remote "set -e
-    dir=\$(cat /etc/agent-office/dir)
+    # An office from before ~/agent-office keeps its data in its project (/etc/agent-office/dir).
+    if [ -f /etc/agent-office/dir ]; then set -- \"\$(cat /etc/agent-office/dir)\"; else set -- --home \"\$(cat /etc/agent-office/home)\"; fi
     sudo sed -i 's/^AGENT_OFFICE_CLAIM_TOKEN=.*/AGENT_OFFICE_CLAIM_TOKEN=\"$(cat "$CLAIM_FILE")\"/' /etc/agent-office/env
     sudo systemctl stop agent-office
-    node /opt/agent-office/bin/agent-office.js \"\$dir\" --reset-password >/dev/null
+    node /opt/agent-office/bin/agent-office.js \"\$@\" --reset-password >/dev/null
     sudo systemctl start agent-office" || die "reset failed"
   wait_healthy || die "the office didn't come back — check: deploy/aws.sh logs"
   ok "Everyone has been signed out"
@@ -799,6 +908,15 @@ cmd_down() {
     [[ "$answer" == "$NAME" ]] || die "cancelled"
   fi
   if [[ -n "$inst" ]]; then
+    local ts=""
+    if [[ "$(instance_field "$inst" State.Name)" == running && -f "$KEY_FILE" ]]; then
+      IP=$(instance_field "$inst" PublicIpAddress)
+      [[ -n "$IP" ]] && ts=$(tailnet_host)
+    fi
+    if [[ -n "$ts" ]]; then
+      remote "sudo tailscale logout" >/dev/null 2>&1 || true
+      ok "Signed $ts out of your tailnet (if it's still listed on $TAILSCALE_ADMIN/machines, remove it there)"
+    fi
     aws ec2 terminate-instances --instance-ids "$inst" >/dev/null
     say "Terminating $inst"
     aws ec2 wait instance-terminated --instance-ids "$inst"

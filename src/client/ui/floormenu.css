@@ -1,0 +1,18 @@
+/* ---- The floor list under the project in the corner ------------------------------------------ */
+.project.open { background: var(--paper-2); }
+.floor-menu { position: fixed; z-index: 30; width: min(380px, calc(100vw - 24px)); max-height: calc(100vh - 110px); overflow: auto; padding: 8px; display: grid; gap: 6px; animation: floor-menu-in .12s ease-out; }
+@keyframes floor-menu-in { from { opacity: 0; transform: translateY(-6px); } }
+.floor-menu-head { font-size: 12px; font-weight: 900; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; padding: 2px 6px 0; }
+.floor-item { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; width: 100%; text-align: left; padding: 7px 10px; font: inherit; color: var(--ink); background: #fff; border: 3px solid var(--ink); border-radius: 12px; box-shadow: 0 3px 0 var(--ink); cursor: pointer; transition: transform .05s; }
+.floor-item:hover:not(:disabled) { background: var(--paper-2); }
+.floor-item:active:not(:disabled) { transform: translateY(2px); box-shadow: 0 1px 0 var(--ink); }
+.floor-item:disabled { cursor: default; }
+.floor-item.here { background: var(--paper-2); box-shadow: none; transform: translateY(2px); }
+.floor-item.add { background: var(--paper); border-style: dashed; box-shadow: none; }
+.floor-item .floor-no { width: 30px; height: 30px; border-radius: 50%; border: 3px solid var(--ink); display: grid; place-items: center; font-weight: 900; font-size: 14px; color: #fff; text-shadow: 0 1px 0 rgba(0, 0, 0, .35); }
+.floor-item.add .floor-no { background: #fff; text-shadow: none; }
+.floor-item .floor-text { display: flex; flex-direction: column; min-width: 0; }
+.floor-item .floor-name { font-weight: 900; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.floor-item .floor-sub { font-size: 12px; font-weight: 700; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.floor-item .floor-stats { display: flex; gap: 6px; font-size: 12px; font-weight: 800; white-space: nowrap; }
+.floor-item .floor-stats .waiting { color: var(--bad); }

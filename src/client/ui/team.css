@@ -1,0 +1,21 @@
+/* Invite teammates */
+.team h4 { margin: 18px 0 8px; font-size: 14px; font-weight: 900; text-transform: uppercase; letter-spacing: .04em; }
+.team h4 .count { color: var(--muted); }
+.team .note { margin: 8px 0 0; font-size: 13px; font-weight: 600; color: var(--muted); line-height: 1.45; }
+.team code { font: 12px ui-monospace, Menlo, monospace; background: var(--paper-2); border-radius: 5px; padding: 1px 4px; color: var(--ink); word-break: break-all; }
+.invite-row { display: flex; gap: 8px; }
+.invite-row input { flex: 1; min-width: 0; }
+.team-status { margin: 10px 0 0; padding: 8px 12px; border: 2px solid var(--ink); border-radius: 10px; font-weight: 800; font-size: 14px; background: #e0f2fe; }
+.team-status.ok { background: #d8f5e3; }
+.team-status.error { background: #ffd6e0; }
+.team-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 18px; }
+.team-head h4 { margin: 0; }
+.os-tabs { display: flex; gap: 4px; }
+.os-tabs .btn { padding: 3px 10px; font-size: 13px; }
+.cmd { display: flex; gap: 8px; align-items: flex-start; margin-top: 8px; }
+.cmd pre { flex: 1; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 13px/1.5 ui-monospace, Menlo, monospace; background: #1e1f2e; color: #e9ecef; border: 2px solid var(--ink); border-radius: 10px; padding: 10px 12px; user-select: all; }
+.team-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.team-list li { display: flex; align-items: center; gap: 10px; font-weight: 800; }
+.team-list .name { flex: 1; }
+.team-list .keys { font-size: 12px; color: var(--muted); font-weight: 700; }
+.team-list .btn { padding: 3px 10px; font-size: 13px; }

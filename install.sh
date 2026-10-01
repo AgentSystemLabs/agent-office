@@ -3,9 +3,12 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/AgentSystemLabs/agent-office/main/install.sh | bash
 #
-# Anything after `bash -s --` goes to the office, e.g. a project directory and a port:
+# Anything after `bash -s --` goes to the office, e.g. a port:
 #
-#   curl -fsSL https://raw.githubusercontent.com/AgentSystemLabs/agent-office/main/install.sh | bash -s -- . --port 4700
+#   curl -fsSL https://raw.githubusercontent.com/AgentSystemLabs/agent-office/main/install.sh | bash -s -- --port 4700
+#
+# The first time the office starts in a terminal it asks where to clone your projects, signs the
+# GitHub CLI in if it isn't, and lets you pick your first repository to clone as a floor.
 #
 # Releases go in ~/.local/share/agent-office and an `agent-office` command in ~/.local/bin, so
 # afterwards `agent-office` starts it too. Run the curl line again to update to the newest release.
@@ -53,8 +56,8 @@ check_requirements() {
   have curl || die "this needs curl."
   have tar || die "this needs tar."
   have git || warn "git isn't installed. The office needs it for projects and worker worktrees."
-  if ! have claude && ! have opencode && ! have codex; then
-    warn "no Claude Code, OpenCode or Codex CLI found on your PATH. Workers need one of them, e.g."
+  if ! have claude && ! have opencode && ! have codex && ! have dsh; then
+    warn "no Claude Code, OpenCode, Codex or DeepSeek Harness CLI found on your PATH. Workers need one of them, e.g."
     warn "  curl -fsSL https://claude.ai/install.sh | bash"
   fi
 }
@@ -191,6 +194,10 @@ main() {
     return 0
   fi
   step "Starting Agent Office $tag"
+  # Piped into bash (curl … | bash), stdin is the rest of this script: give the office the terminal
+  # instead, so its first-run walkthrough can ask where projects go and which one to start with, and
+  # it can open itself in your browser, signed in.
+  if [ ! -t 0 ] && [ -t 1 ] && (: </dev/tty) 2>/dev/null; then exec node "$entry" "$@" </dev/tty; fi
   exec node "$entry" "$@"
 }
 

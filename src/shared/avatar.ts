@@ -29,6 +29,15 @@ export function randomLook(): Look {
   return { skin: pick(SKIN_TONES.length), hair: pick(HAIR_COLORS.length), style: pick(HAIR_STYLES.length) };
 }
 
+const NAME_ADJECTIVES = ['Sunny', 'Cosmic', 'Quiet', 'Speedy', 'Clever', 'Brave', 'Jolly', 'Mellow', 'Nimble', 'Plucky', 'Snappy', 'Witty', 'Zesty', 'Cozy', 'Lucky', 'Breezy', 'Chipper', 'Dapper', 'Fuzzy', 'Gentle', 'Groovy', 'Humble', 'Keen', 'Lively', 'Merry', 'Nifty', 'Peppy', 'Spry', 'Swift', 'Tidy', 'Zippy', 'Bold'];
+const NAME_ANIMALS = ['Otter', 'Heron', 'Panda', 'Falcon', 'Badger', 'Koala', 'Lynx', 'Marmot', 'Narwhal', 'Octopus', 'Penguin', 'Quokka', 'Raccoon', 'Sloth', 'Tapir', 'Walrus', 'Yak', 'Beaver', 'Capybara', 'Dolphin', 'Ferret', 'Gecko', 'Hedgehog', 'Ibis', 'Jaguar', 'Lemur', 'Moose', 'Newt', 'Owl', 'Puffin', 'Robin', 'Seal'];
+
+/** A made-up name like "Sunny Otter", for people who'd rather not think of one. */
+export function randomName(): string {
+  const pick = (list: string[]) => list[Math.floor(Math.random() * list.length)];
+  return `${pick(NAME_ADJECTIVES)} ${pick(NAME_ANIMALS)}`;
+}
+
 /** Coerces anything into a valid look, keeping each part of `fallback` that `x` gets wrong. */
 export function sanitizeLook(x: unknown, fallback: Look): Look {
   const o = (x && typeof x === 'object' ? x : {}) as Record<string, unknown>;

@@ -1,0 +1,78 @@
+@import './styles/base.css';
+
+/* The 2D view (lite.html): a page that scrolls, made for a phone, rather than a HUD over the 3D office. */
+html, body { height: auto; min-height: 100%; overflow: auto; }
+body.lite { min-height: 100dvh; background: var(--paper); -webkit-tap-highlight-color: transparent; }
+
+.lite-bar { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 8px; padding: 10px 12px; padding-top: max(10px, env(safe-area-inset-top)); background: var(--paper-2); border-bottom: 3px solid var(--ink); }
+.lite-bar .btn { height: 44px; flex: none; text-decoration: none; }
+.lite-floor { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; margin: 0; }
+.lite-floor-label { font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.lite-floor select {
+  width: auto; max-width: 100%; min-width: 0; padding: 0 22px 0 0; border: 0; background: none; color: var(--ink);
+  font: 900 19px/1.2 var(--font); text-overflow: ellipsis; appearance: none; -webkit-appearance: none; cursor: pointer;
+  background: no-repeat right 2px center / 12px url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%232b2d42' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+.lite-floor select:disabled { background-image: none; opacity: 1; cursor: default; }
+
+.lite-main { width: 100%; max-width: 760px; margin: 0 auto; padding: 12px 12px calc(96px + env(safe-area-inset-bottom)); }
+.lite-meta { margin: 0 0 10px; font-size: 12px; font-weight: 700; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lite-meta:empty { display: none; }
+.lite-elsewhere { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+.lite-go { justify-content: space-between; min-height: 44px; background: #ffd6e0; white-space: normal; text-align: left; }
+.lite-go:hover { background: #ffc2d1; }
+.lite-h { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; margin: 4px 0 10px; font-size: 14px; font-weight: 900; text-transform: uppercase; letter-spacing: .05em; }
+.lite-waiting { font-size: 13px; text-transform: none; letter-spacing: 0; color: #c9184a; }
+
+/* A card per worker, the ones waiting on someone first (see byUrgency). */
+.lite-workers { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.lite-worker { display: flex; align-items: stretch; background: #fff; border: 3px solid var(--ink); border-radius: var(--radius); box-shadow: 0 3px 0 var(--ink); overflow: hidden; }
+.lite-worker.waiting { box-shadow: 0 3px 0 var(--ink), inset 6px 0 0 var(--bad); }
+.lite-worker.done.waiting { box-shadow: 0 3px 0 var(--ink), inset 6px 0 0 var(--good); }
+.lite-worker.exited, .lite-worker.offline { background: #f3f1ee; }
+.lite-card { flex: 1; min-width: 0; display: flex; align-items: flex-start; gap: 10px; padding: 12px 10px 12px 14px; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.lite-card:active { background: var(--paper-2); }
+.lite-card:focus-visible { outline: none; box-shadow: inset 0 0 0 3px var(--accent); }
+.lite-card .dot { flex: none; width: 14px; height: 14px; margin-top: 4px; border-radius: 50%; border: 2px solid var(--ink); }
+.lite-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.lite-name { font-size: 16px; font-weight: 900; }
+.lite-task { font-size: 14px; font-weight: 800; overflow-wrap: anywhere; }
+.lite-now { font-size: 13px; font-weight: 700; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.lite-worker.needs_input .lite-now { color: #c9184a; }
+.lite-sub { font-size: 12px; font-weight: 700; color: var(--muted); overflow-wrap: anywhere; }
+.lite-state { flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.lite-state small { font-size: 11px; font-weight: 800; color: var(--muted); white-space: nowrap; }
+.lite-say { flex: none; align-self: center; width: 44px; height: 44px; margin-right: 10px; padding: 0; justify-content: center; font-size: 18px; }
+.lite-empty { padding: 28px 12px; text-align: center; font-weight: 800; color: var(--muted); }
+
+.lite-nav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; padding: 10px 12px; padding-bottom: max(10px, env(safe-area-inset-bottom)); background: var(--paper-2); border-top: 3px solid var(--ink); }
+.lite-nav .btn { min-height: 48px; padding: 6px; justify-content: center; flex-wrap: wrap; gap: 4px; white-space: normal; text-align: center; line-height: 1.15; font-size: 14px; }
+.lite-nav .n:empty { display: none; }
+.lite-nav .n { min-width: 20px; padding: 0 5px; border-radius: 999px; background: var(--ink); color: #fff; font-size: 12px; line-height: 20px; font-variant-numeric: tabular-nums; }
+.lite-nav .btn.primary .n { background: #fff; color: var(--ink); }
+/* A wide window: the bars line up with the list. */
+@media (min-width: 761px) { .lite-bar, .lite-nav { padding-left: calc(50% - 368px); padding-right: calc(50% - 368px); } }
+
+/* The page scrolls here, so what floats over it stays put on the screen. */
+#toasts { position: fixed; top: 84px; z-index: 60; width: calc(100% - 24px); }
+.toast { text-align: center; }
+.conn { position: fixed; top: 84px; z-index: 60; }
+.backdrop { z-index: 50; }
+
+/* No zooming in on a box as you tap it (iOS does, for text under 16px). */
+.modal textarea, .modal input[type=text], .modal input[type=password], .modal select { font-size: 16px; }
+.lite-name .body p { margin: 0 0 12px; font-weight: 700; }
+
+/* On a phone, the big windows take the whole screen; the small ones stay dialogs. */
+@media (max-width: 640px) {
+  .backdrop { padding: 8px; }
+  .backdrop:has(> .modal.term, > .modal.board, > .modal.gh-window, > .modal.desk-changes, > .modal.meeting-window, > .modal[aria-label="Task queue"]) { padding: 0; }
+  /* body.lite outranks the windows' own sizes and padding, whatever order the sheets load in. */
+  body.lite .modal.term, body.lite .modal.board, body.lite .modal.gh-window, body.lite .modal.desk-changes, body.lite .modal.meeting-window,
+  body.lite .modal[aria-label="Task queue"] { width: 100%; height: 100dvh; max-height: 100dvh; border: 0; border-radius: 0; box-shadow: none; }
+  .modal { max-height: calc(100dvh - 16px); }
+  body.lite .modal.term .term-host { padding: 6px 2px 2px 6px; }
+  body.lite .modal.board .body { padding: 10px; overflow-x: auto; }
+  .modal.board .column { min-width: 78vw; }
+  .modal.board header .board-status { display: none; }
+}

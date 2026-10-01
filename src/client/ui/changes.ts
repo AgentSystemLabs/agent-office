@@ -1,4 +1,5 @@
-import type { ChangedFile, ChangesState, ServerMsg } from '../../shared/protocol';
+import './changes.css';
+import { changedImageType, type ChangedFile, type ChangesState, type ServerMsg } from '../../shared/protocol';
 import type { Net } from '../net';
 import { store } from '../state';
 import { h, openModal, type Modal } from './dom';
@@ -7,7 +8,7 @@ import { confirmDialog, openPrompt } from './prompt';
 // The Changes window at a desk: the files a worker changed and their diff against the branch the
 // office was opened on, refreshed while the worker works, with commit / discard / open-a-PR.
 
-let current: { workerId: string; modal: Modal } | null = null;
+let current: { workerId: string; repo(): string | undefined; show(repo?: string): void; modal: Modal } | null = null;
 const listeners = new Set<(msg: ServerMsg) => void>();
 
 /** Main feeds every server message through here so the open window can pick its own. */
@@ -15,9 +16,9 @@ export function routeChangesMessage(msg: ServerMsg) {
   listeners.forEach((fn) => fn(msg));
 }
 
-/** Whose changes are on screen, so a reconnect can watch them again. */
-export function openChangesFor(): string | null {
-  return current?.workerId ?? null;
+/** Whose changes are on screen (and which of its repositories), so a reconnect can watch them again. */
+export function openChangesFor(): { workerId: string; repo?: string } | null {
+  return current ? { workerId: current.workerId, repo: current.repo() } : null;
 }
 
 const STATUS_WORD: Record<ChangedFile['status'], string> = { M: 'modified', A: 'added', D: 'deleted', R: 'renamed', T: 'type changed', '?': 'new file' };
@@ -79,8 +80,37 @@ function renderDiff(text: string, truncated: boolean): HTMLElement {
   return out;
 }
 
-export function openChanges(net: Net, workerId: string, onTerminal?: () => void) {
-  if (current?.workerId === workerId) return;
+/** Where one side of a changed picture loads from. The file's signature makes a new URL whenever it changes. */
+function imageUrl(workerId: string, repo: string | undefined, f: ChangedFile, side: 'old' | 'new'): string {
+  const q = new URLSearchParams({ floor: store.floor ?? '', worker: workerId, path: f.path, side, v: f.sig, ...(repo ? { repo } : {}) });
+  return `/api/changes/file?${q}`;
+}
+
+/** A changed picture, before and after; new and deleted files only have the one side. */
+function renderPreview(workerId: string, repo: string | undefined, f: ChangedFile): HTMLElement {
+  const sides: ('old' | 'new')[] = f.status === '?' || f.status === 'A' ? ['new'] : f.status === 'D' ? ['old'] : ['old', 'new'];
+  return h(
+    'div.img-preview',
+    {},
+    ...sides.map((side) => {
+      const label = side === 'old' ? 'Before' : 'After';
+      const size = h('span.size');
+      const frame = h('div.img-frame');
+      const img = h('img', { src: imageUrl(workerId, repo, f, side), alt: `${side === 'old' ? f.from ?? f.path : f.path} (${label.toLowerCase()})` });
+      img.addEventListener('load', () => (size.textContent = `${img.naturalWidth} × ${img.naturalHeight}`));
+      img.addEventListener('error', () => frame.replaceChildren(h('p', {}, `Couldn't load the picture ${side === 'old' ? 'from before' : 'as it is now'}.`)));
+      frame.append(img);
+      return h('figure', {}, h('figcaption', {}, h('b', {}, label), size), frame);
+    }),
+  );
+}
+
+/**
+ * The Changes window for a worker. A worker across repositories (see WorkerInfo.repos) gets a tab per
+ * repository, its own floor's first; `repo` opens on another floor's one.
+ */
+export function openChanges(net: Net, workerId: string, onTerminal?: () => void, repo?: string) {
+  if (current?.workerId === workerId) return current.show(repo);
   const info = store.workers.get(workerId);
   if (!info) return;
   const previous = current;
@@ -107,10 +137,12 @@ export function openChanges(net: Net, workerId: string, onTerminal?: () => void)
   const discardBtn = h('button.btn', { type: 'button', title: 'Throw away every uncommitted change in this checkout' }, '🗑️ Discard all');
   const commitBtn = h('button.btn', { type: 'button', title: 'git add -A && git commit' }, '✅ Commit…');
   const prSlot = h('span.pr-slot');
+  const tabs = h('nav.changes-tabs', { role: 'tablist', 'aria-label': 'Repositories' });
   const el = h(
     'div.modal.desk-changes',
     { role: 'dialog', 'aria-label': `${info.name}'s changes`, tabindex: -1 },
     h('header', {}, dot, title, branch, onTerminal ? terminalBtn : null, closeBtn),
+    tabs,
     h('div.changes-body', {}, files, diff),
     h('footer', {}, summary, discardBtn, commitBtn, prSlot),
   );
@@ -122,7 +154,7 @@ export function openChanges(net: Net, workerId: string, onTerminal?: () => void)
     if (!selected || !f) return;
     loading = true;
     requestedSig = f.sig;
-    net.send({ t: 'changes.diff', workerId, path: selected });
+    net.send({ t: 'changes.diff', workerId, path: selected, repo });
   };
 
   const select = (p: string | null) => {
@@ -178,7 +210,7 @@ export function openChanges(net: Net, workerId: string, onTerminal?: () => void)
     const discardOne = h('button.btn', { type: 'button', title: 'Throw away the uncommitted changes to this file' }, '↩︎ Discard');
     discardOne.addEventListener('click', () =>
       confirmDialog(`Discard the changes to ${f.path.split('/').pop()}?`, `This puts ${f.path} back to the last commit in ${where()}. ${f.status === '?' ? 'The file is deleted.' : 'Committed changes stay.'}`, 'Discard', () =>
-        net.send({ t: 'changes.discard', workerId, path: f.path }),
+        net.send({ t: 'changes.discard', workerId, path: f.path, repo }),
       ),
     );
     diffHead.replaceChildren(
@@ -226,7 +258,7 @@ export function openChanges(net: Net, workerId: string, onTerminal?: () => void)
           submitLabel: 'Open PR ↗',
           onSubmit: (text) => {
             const [first, ...rest] = text.split('\n');
-            net.send({ t: 'changes.pr', workerId, title: first.trim(), body: rest.join('\n').trim() });
+            net.send({ t: 'changes.pr', workerId, title: first.trim(), body: rest.join('\n').trim(), repo });
           },
         }),
       );
@@ -261,13 +293,17 @@ export function openChanges(net: Net, workerId: string, onTerminal?: () => void)
   };
 
   const onMsg = (msg: ServerMsg) => {
-    if (msg.t === 'changes' && msg.state.workerId === workerId) onState(msg.state);
-    else if (msg.t === 'changes.diff' && msg.workerId === workerId && msg.path === selected) {
+    if (msg.t === 'changes' && msg.state.workerId === workerId && msg.state.repo === repo) onState(msg.state);
+    else if (msg.t === 'changes.diff' && msg.workerId === workerId && msg.repo === repo && msg.path === selected) {
       loading = false;
       shownSig = requestedSig;
-      diffBody.replaceChildren(msg.error ? h('div.changes-empty', {}, h('p', {}, msg.error)) : renderDiff(msg.diff, msg.truncated));
-      // The file changed again while the diff was on its way: fetch the fresh one.
       const f = state?.files.find((x) => x.path === selected);
+      const text = msg.error ? h('div.changes-empty', {}, h('p', {}, msg.error)) : renderDiff(msg.diff, msg.truncated);
+      const type = f ? changedImageType(f.path) : undefined;
+      // A picture's diff only says it differs, so show the picture instead. An SVG is text too: its diff stays below.
+      if (f && type) diffBody.replaceChildren(renderPreview(workerId, repo, f), ...(type === 'image/svg+xml' ? [text] : []));
+      else diffBody.replaceChildren(text);
+      // The file changed again while the diff was on its way: fetch the fresh one.
       if (f && f.sig !== shownSig) requestDiff();
     }
   };
@@ -291,7 +327,7 @@ export function openChanges(net: Net, workerId: string, onTerminal?: () => void)
       `Discard all uncommitted changes at ${info.name}'s desk?`,
       `This puts ${n} file${n === 1 ? '' : 's'} in ${where()} back to the last commit and deletes new files. Commits stay.${state?.dir ? '' : " That folder is shared: anyone's uncommitted edits there go too."}`,
       'Discard everything',
-      () => net.send({ t: 'changes.discard', workerId }),
+      () => net.send({ t: 'changes.discard', workerId, repo }),
     );
   });
   commitBtn.addEventListener('click', () => {
@@ -301,7 +337,7 @@ export function openChanges(net: Net, workerId: string, onTerminal?: () => void)
       subtitle: `Stages everything in ${where()} and commits it${state?.branch ? ` on ${state.branch}` : ''}.`,
       placeholder: 'What changed, and why',
       submitLabel: 'Commit',
-      onSubmit: (text) => net.send({ t: 'changes.commit', workerId, message: text }),
+      onSubmit: (text) => net.send({ t: 'changes.commit', workerId, message: text, repo }),
     });
   });
   terminalBtn.addEventListener('click', () => {
@@ -309,26 +345,67 @@ export function openChanges(net: Net, workerId: string, onTerminal?: () => void)
     modal.close();
   });
 
+  /** Across repositories: a tab per repository, its own floor's first (no repo), each followed on its own. */
+  const renderTabs = () => {
+    const w = store.workers.get(workerId) ?? info;
+    const repos = w.repos ?? [];
+    tabs.classList.toggle('hidden', !repos.length);
+    if (!repos.length) return tabs.replaceChildren();
+    const own = w.worktree?.path.split(/[\\/]/).pop() ?? 'this project';
+    tabs.replaceChildren(
+      ...[{ id: undefined as string | undefined, name: own, pr: w.pr }, ...repos.map((r) => ({ id: r.floor as string | undefined, name: r.name, pr: r.pr }))].map((t) =>
+        h(
+          'button.btn',
+          { type: 'button', role: 'tab', class: t.id === repo ? 'on' : '', 'aria-selected': t.id === repo ? 'true' : 'false', title: t.id ? `Its worktree of ${t.name}` : `Its worktree of this floor's project, ${t.name}`, onclick: () => show(t.id) },
+          `📁 ${t.name}`,
+          t.pr ? h('small', {}, ` · #${t.pr.number}`) : null,
+        ),
+      ),
+    );
+  };
+
+  /** Switches to another of its repositories: stops following the one on screen and follows that one. */
+  const show = (next?: string) => {
+    if (next === repo || (next && !store.workers.get(workerId)?.repos?.some((r) => r.floor === next))) return;
+    net.send({ t: 'changes.unwatch', workerId, repo });
+    repo = next;
+    state = null;
+    selected = null;
+    shownSig = null;
+    loading = false;
+    renderTabs();
+    renderHeader();
+    renderList();
+    renderFooter();
+    renderEmpty();
+    net.send({ t: 'changes.watch', workerId, repo });
+  };
+
   listeners.add(onMsg);
   const unsub = store.on('workers', () => {
     if (!store.workers.has(workerId)) modal.close();
-    else renderHeader();
+    else {
+      renderHeader();
+      renderTabs();
+    }
   });
   const modal = openModal(el, {
     doing: `🌿 looking over ${info.name}'s changes`,
     onClose: () => {
       listeners.delete(onMsg);
       unsub();
-      net.send({ t: 'changes.unwatch', workerId });
+      net.send({ t: 'changes.unwatch', workerId, repo });
       if (current?.modal === modal) current = null;
     },
   });
-  current = { workerId, modal };
+  current = { workerId, repo: () => repo, show, modal };
   previous?.modal.close();
   closeBtn.addEventListener('click', () => modal.close());
+  if (repo && !info.repos?.some((r) => r.floor === repo)) repo = undefined;
+  renderTabs();
   renderHeader();
   renderFooter();
   renderEmpty();
-  net.send({ t: 'changes.watch', workerId });
+  net.send({ t: 'changes.watch', workerId, repo });
   setTimeout(() => el.focus(), 30);
 }

@@ -1,10 +1,11 @@
+import './queue.css';
 import type { AgentProvider, QueueTask, Usage } from '../../shared/protocol';
 import type { Net } from '../net';
 import { store } from '../state';
 import { h, openModal, timeAgo, STATUS_LABEL } from './dom';
 import { confirmDialog } from './prompt';
-import { providerPicker, providerLabel, providerUsageState, resolvedProvider, modelBadge } from './provider';
-import { officeFull } from '../world/machine';
+import { providerPicker, providerLabel, providerUsageState, providerWaitingLabel, resolvedProvider, modelBadge } from './provider';
+import { officeFull } from '../../shared/machine';
 
 export interface QueueActions {
   openTerminal(workerId: string): void;
@@ -51,7 +52,7 @@ export function openQueue(net: Net, actions: QueueActions) {
   );
 
   const ta = h('textarea', { rows: 2, placeholder: 'Describe a task for the next free worker…', 'aria-label': 'New task' }) as HTMLTextAreaElement;
-  const provider = providerPicker(store.project, 'queue-provider', 'Queue provider', 'queue');
+  const provider = providerPicker(store.project, 'queue-provider');
   const addBtn = h('button.btn.primary', { type: 'submit' }, 'Add to queue');
   const form = h('form.queue-add', {}, ta, provider.element, addBtn) as HTMLFormElement;
   form.noValidate = true;
@@ -89,7 +90,10 @@ export function openQueue(net: Net, actions: QueueActions) {
     const model = badge ? ` · initial: ${badge}` : '';
     const usageSuffix = (provider: AgentProvider | undefined, usage?: Usage) => {
       const state = providerUsageState(provider, store.project, usage);
-      return state === 'untracked' ? ' · usage untracked' : state === 'waiting' && resolvedProvider(provider, store.project) === 'opencode' ? ' · waiting for metrics' : state === 'waiting' && resolvedProvider(provider, store.project) === 'codex' ? ' · waiting for first report' : '';
+      if (state === 'untracked') return ' · usage untracked';
+      if (state !== 'waiting') return '';
+      const waiting = providerWaitingLabel(provider, store.project);
+      return waiting ? ` · ${waiting}` : '';
     };
     let pos: string | null = null;
     if (t.status === 'running') {
@@ -158,7 +162,7 @@ export function openQueue(net: Net, actions: QueueActions) {
         h('b', {}, 'Add to queue'),
         ' on an issue. Whenever a desk is free and fewer than ',
         h('b', {}, q.maxWorkers === 0 ? '0' : String(q.maxWorkers)),
-        ' workers are busy, the next task gets a fresh worker in its own git worktree. Issues are assigned on GitHub when they start, and the pull request is linked when it shows up.',
+        " of its tasks are running, the next task gets a fresh worker in its own git worktree (workers you hire yourself don't count). Issues are assigned on GitHub when they start, and the pull request is linked when it shows up.",
       ),
       queued.length && officeFull(m)
         ? h('p.note', {}, `⏸ The office is at its limit of ${m.limit} worker${m.limit === 1 ? '' : 's'}, so the next task waits until one goes home. A queue worker that's finished goes home by itself to make room.`)

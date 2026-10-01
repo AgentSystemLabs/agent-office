@@ -123,6 +123,8 @@ export interface CardOpts {
   title: string;
   body?: string;
   bg: string;
+  /** The outline's color, when it isn't the usual ink. */
+  border?: string;
   /** Widest a line of text may get, in textSprite `size` pixels. */
   maxWidth?: number;
 }
@@ -188,7 +190,7 @@ export function cardSprite(o: CardOpts): THREE.Sprite {
   ctx.fill();
   ctx.lineWidth = lw;
   ctx.lineJoin = 'round';
-  ctx.strokeStyle = INK;
+  ctx.strokeStyle = o.border ?? INK;
   ctx.stroke();
 
   ctx.textAlign = 'center';
@@ -280,6 +282,54 @@ export function mergeByMaterial(root: THREE.Object3D): THREE.Group {
   for (const { mat, cast, geos } of byKey.values()) {
     out.add(mesh(mergeGeometries(geos)!, mat, 0, 0, 0, cast));
     for (const geo of geos) geo.dispose();
+  }
+  return out;
+}
+
+let painted: THREE.MeshToonMaterial | null = null;
+
+/**
+ * Like mergeByMaterial, but every plain toon mesh under `root` (one color, no texture, no glow, not
+ * see-through) goes into one mesh whatever its color, the colors kept in its vertices: one draw call
+ * for a whole wood of trees in a dozen greens. Anything else is merged by its material as usual.
+ */
+export function mergeByColor(root: THREE.Object3D): THREE.Group {
+  root.updateMatrixWorld(true);
+  const inv = root.matrixWorld.clone().invert();
+  const geos = { cast: [] as THREE.BufferGeometry[], still: [] as THREE.BufferGeometry[] };
+  const other = new THREE.Group();
+  root.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh) return;
+    const rel = new THREE.Matrix4().multiplyMatrices(inv, m.matrixWorld);
+    const mat = m.material as THREE.Material;
+    const plain = mat instanceof THREE.MeshToonMaterial && !mat.map && !mat.transparent && !mat.vertexColors && mat.emissive.getHex() === 0 && mat.side === THREE.FrontSide;
+    if (!plain) {
+      const copy = new THREE.Mesh(m.geometry, mat);
+      copy.applyMatrix4(rel);
+      copy.castShadow = m.castShadow;
+      other.add(copy);
+      return;
+    }
+    const geo = m.geometry.index ? m.geometry.toNonIndexed() : m.geometry.clone();
+    for (const k of Object.keys(geo.attributes)) if (k !== 'position' && k !== 'normal') geo.deleteAttribute(k);
+    geo.applyMatrix4(rel);
+    const n = geo.attributes.position.count;
+    const c = mat.color;
+    const col = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) col.set([c.r, c.g, c.b], i * 3);
+    geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    (m.castShadow ? geos.cast : geos.still).push(geo);
+  });
+  const out = other.children.length ? mergeByMaterial(other) : new THREE.Group();
+  painted ??= new THREE.MeshToonMaterial({ vertexColors: true, gradientMap: gradientMap() });
+  for (const [list, cast] of [
+    [geos.cast, true],
+    [geos.still, false],
+  ] as const) {
+    if (!list.length) continue;
+    out.add(mesh(mergeGeometries(list)!, painted, 0, 0, 0, cast));
+    for (const geo of list) geo.dispose();
   }
   return out;
 }

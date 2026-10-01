@@ -1,0 +1,413 @@
+{
+  "id": "my-castle",
+  "name": "My castle",
+  "icon": "🏰",
+  "description": "A copy of the castle, to make your own.",
+  "style": "castle",
+  "hall": {
+    "width": 26,
+    "length": 60,
+    "height": 13
+  },
+  "spawn": {
+    "x": -2.6,
+    "z": -21,
+    "rotY": 3.1416
+  },
+  "door": {
+    "x": 0,
+    "z": 28.6
+  },
+  "throne": {
+    "x": 0,
+    "z": -27.4,
+    "rotY": 0,
+    "dais": {
+      "width": 12,
+      "depth": 5,
+      "height": 0.9,
+      "steps": 3
+    }
+  },
+  "herald": {
+    "x": 3.3,
+    "z": -26.3,
+    "rotY": -0.35,
+    "name": "Hand of the King",
+    "says": "Speak to me to send out a new worker",
+    "ask": "What shall they toil on, my liege?",
+    "button": "Send them out ⚔️"
+  },
+  "lineup": {
+    "x": 0,
+    "z": -25.6,
+    "rotY": 3.1416,
+    "step": [
+      0,
+      1.3
+    ],
+    "count": 8
+  },
+  "stations": {
+    "issues": {
+      "x": -11.3,
+      "z": -15,
+      "rotY": -1.5708
+    },
+    "queue": {
+      "x": -11.3,
+      "z": -3,
+      "rotY": -1.5708
+    },
+    "pulls": {
+      "x": 11.3,
+      "z": -15,
+      "rotY": 1.5708
+    }
+  },
+  "council": {
+    "x": 7.2,
+    "z": -18.8,
+    "rotY": 0
+  },
+  "boards": {
+    "issues": {
+      "x": -12.92,
+      "y": 3.5,
+      "z": -15,
+      "rotY": 1.5708,
+      "width": 4.4,
+      "height": 2.6,
+      "label": "📜 Petitions"
+    },
+    "queue": {
+      "x": -12.92,
+      "y": 3.5,
+      "z": -3,
+      "rotY": 1.5708,
+      "width": 4.4,
+      "height": 2.6,
+      "label": "📋 Orders of the day"
+    },
+    "pulls": {
+      "x": 12.92,
+      "y": 3.5,
+      "z": -15,
+      "rotY": -1.5708,
+      "width": 4.4,
+      "height": 2.6,
+      "label": "🔀 Decrees for the seal"
+    },
+    "services": {
+      "x": 12.92,
+      "y": 3.5,
+      "z": -3,
+      "rotY": -1.5708,
+      "width": 4.4,
+      "height": 2.6,
+      "label": "🌐 Services"
+    }
+  },
+  "agents": {
+    "outfit": "peasant",
+    "ageMinutes": 30
+  },
+  "palette": {
+    "stone": "#8c847a",
+    "floor": "#6f685f",
+    "carpet": "#8e1b1b",
+    "wood": "#6b4526",
+    "trim": "#d9ab2e"
+  },
+  "dungeon": {
+    "x": -1,
+    "z": 21.5,
+    "width": 20.8,
+    "length": 15.8,
+    "depth": 4.6,
+    "stairs": {
+      "x": 8.3,
+      "z": 13.6,
+      "rotY": 0,
+      "width": 2.2
+    },
+    "cells": [
+      {
+        "x": -9.1,
+        "z": 17.6,
+        "rotY": 0,
+        "width": 4.6,
+        "depth": 4
+      },
+      {
+        "x": -4.5,
+        "z": 17.6,
+        "rotY": 0,
+        "width": 4.6,
+        "depth": 4
+      },
+      {
+        "x": 0.1,
+        "z": 17.6,
+        "rotY": 0,
+        "width": 4.6,
+        "depth": 4
+      },
+      {
+        "x": 4.7,
+        "z": 17.6,
+        "rotY": 0,
+        "width": 4.6,
+        "depth": 4
+      },
+      {
+        "x": -9.32,
+        "z": 25.4,
+        "rotY": 3.1416,
+        "width": 4.16,
+        "depth": 4
+      },
+      {
+        "x": -5.16,
+        "z": 25.4,
+        "rotY": 3.1416,
+        "width": 4.16,
+        "depth": 4
+      },
+      {
+        "x": -1,
+        "z": 25.4,
+        "rotY": 3.1416,
+        "width": 4.16,
+        "depth": 4
+      },
+      {
+        "x": 3.16,
+        "z": 25.4,
+        "rotY": 3.1416,
+        "width": 4.16,
+        "depth": 4
+      },
+      {
+        "x": 7.32,
+        "z": 25.4,
+        "rotY": 3.1416,
+        "width": 4.16,
+        "depth": 4
+      }
+    ],
+    "pillars": [
+      {
+        "x": -7.2,
+        "z": 21.5
+      },
+      {
+        "x": -2.7,
+        "z": 21.5
+      },
+      {
+        "x": 1.8,
+        "z": 21.5
+      }
+    ],
+    "torches": [
+      {
+        "x": -7.2,
+        "z": 21.05,
+        "rotY": 3.1416
+      },
+      {
+        "x": -7.2,
+        "z": 21.95,
+        "rotY": 0
+      },
+      {
+        "x": -2.7,
+        "z": 21.05,
+        "rotY": 3.1416
+      },
+      {
+        "x": -2.7,
+        "z": 21.95,
+        "rotY": 0
+      },
+      {
+        "x": 1.8,
+        "z": 21.05,
+        "rotY": 3.1416
+      },
+      {
+        "x": 1.8,
+        "z": 21.95,
+        "rotY": 0
+      },
+      {
+        "x": -11.4,
+        "z": 21.5,
+        "rotY": 1.5708
+      },
+      {
+        "x": 9.4,
+        "z": 23.5,
+        "rotY": -1.5708
+      }
+    ],
+    "ossuary": {
+      "x": -10.1,
+      "z": 21.5
+    }
+  },
+  "sendHome": {
+    "escort": {
+      "name": "Kingsguard",
+      "post": {
+        "x": 6.3,
+        "z": 21.8,
+        "rotY": -1.5708,
+        "below": true
+      },
+      "color": "#8e1b1b"
+    },
+    "steps": [
+      {
+        "do": "fetch"
+      },
+      {
+        "do": "say",
+        "who": "escort",
+        "text": [
+          "By order of the crown, you’re coming with me.",
+          "On your feet. The king’s done with you.",
+          "You’re dismissed. Come quietly.",
+          "Up. The dungeon’s waiting."
+        ]
+      },
+      {
+        "do": "pack"
+      },
+      {
+        "do": "say",
+        "text": [
+          "🙏 Mercy, my liege!",
+          "😰 But my pull request…",
+          "😭 I was nearly done!",
+          "🥺 Just one more commit!",
+          "😱 Not the dungeon!",
+          "😶 …"
+        ]
+      },
+      {
+        "do": "walk",
+        "to": "cell"
+      },
+      {
+        "do": "jail"
+      },
+      {
+        "do": "say",
+        "who": "escort",
+        "text": [
+          "🔒 Rot in there.",
+          "🔒 Enjoy your stay.",
+          "🔒 Nobody leaves.",
+          "🔒 Should have shipped it."
+        ]
+      },
+      {
+        "do": "return"
+      }
+    ],
+    "starveHours": 24,
+    "rotHours": 12
+  },
+  "tables": [
+    {"name":"North-west table","x":-6.8,"z":-8,"length":10,"seats":4},
+    {"name":"North-east table","x":6.8,"z":-8,"length":10,"seats":4},
+    {"name":"South-west table","x":-6.8,"z":6,"length":10,"seats":4},
+    {"name":"South-east table","x":6.8,"z":6,"length":10,"seats":4}
+  ],
+  "props": [
+    {"kind":"pillar","x":-10.4,"z":-24},
+    {"kind":"pillar","x":10.4,"z":-24},
+    {"kind":"pillar","x":-10.4,"z":-18},
+    {"kind":"pillar","x":10.4,"z":-18},
+    {"kind":"pillar","x":-10.4,"z":-12},
+    {"kind":"pillar","x":10.4,"z":-12},
+    {"kind":"pillar","x":-10.4,"z":-6},
+    {"kind":"pillar","x":10.4,"z":-6},
+    {"kind":"pillar","x":-10.4,"z":0},
+    {"kind":"pillar","x":10.4,"z":0},
+    {"kind":"pillar","x":-10.4,"z":6},
+    {"kind":"pillar","x":10.4,"z":6},
+    {"kind":"pillar","x":-10.4,"z":12},
+    {"kind":"pillar","x":10.4,"z":12},
+    {"kind":"pillar","x":-10.4,"z":18},
+    {"kind":"pillar","x":10.4,"z":18},
+    {"kind":"pillar","x":-10.4,"z":24},
+    {"kind":"pillar","x":10.4,"z":24},
+    {"kind":"torch","x":-9.72,"z":-24,"y":2.7,"rotY":1.5708,"light":false},
+    {"kind":"torch","x":9.72,"z":-24,"y":2.7,"rotY":-1.5708,"light":false},
+    {"kind":"torch","x":-9.72,"z":-12,"y":2.7,"rotY":1.5708,"light":true},
+    {"kind":"torch","x":9.72,"z":-12,"y":2.7,"rotY":-1.5708,"light":true},
+    {"kind":"torch","x":-9.72,"z":0,"y":2.7,"rotY":1.5708,"light":false},
+    {"kind":"torch","x":9.72,"z":0,"y":2.7,"rotY":-1.5708,"light":false},
+    {"kind":"torch","x":-9.72,"z":12,"y":2.7,"rotY":1.5708,"light":true},
+    {"kind":"torch","x":9.72,"z":12,"y":2.7,"rotY":-1.5708,"light":true},
+    {"kind":"torch","x":-9.72,"z":24,"y":2.7,"rotY":1.5708,"light":false},
+    {"kind":"torch","x":9.72,"z":24,"y":2.7,"rotY":-1.5708,"light":false},
+    {"kind":"banner","x":-9.73,"z":-18,"y":11.2,"width":1.25,"height":5,"rotY":1.5708},
+    {"kind":"banner","x":9.73,"z":-18,"y":11.2,"width":1.25,"height":5,"rotY":-1.5708},
+    {"kind":"banner","x":-9.73,"z":-6,"y":11.2,"width":1.25,"height":5,"rotY":1.5708},
+    {"kind":"banner","x":9.73,"z":-6,"y":11.2,"width":1.25,"height":5,"rotY":-1.5708},
+    {"kind":"banner","x":-9.73,"z":6,"y":11.2,"width":1.25,"height":5,"rotY":1.5708},
+    {"kind":"banner","x":9.73,"z":6,"y":11.2,"width":1.25,"height":5,"rotY":-1.5708},
+    {"kind":"banner","x":-9.73,"z":18,"y":11.2,"width":1.25,"height":5,"rotY":1.5708},
+    {"kind":"banner","x":9.73,"z":18,"y":11.2,"width":1.25,"height":5,"rotY":-1.5708},
+    {"kind":"window","x":-12.92,"z":-21,"y":6.4,"width":2.3,"height":5.2,"rotY":1.5708},
+    {"kind":"window","x":12.92,"z":-21,"y":6.4,"width":2.3,"height":5.2,"rotY":-1.5708},
+    {"kind":"window","x":-12.92,"z":-15,"y":6.4,"width":2.3,"height":5.2,"rotY":1.5708},
+    {"kind":"window","x":12.92,"z":-15,"y":6.4,"width":2.3,"height":5.2,"rotY":-1.5708},
+    {"kind":"window","x":-12.92,"z":-9,"y":6.4,"width":2.3,"height":5.2,"rotY":1.5708},
+    {"kind":"window","x":12.92,"z":-9,"y":6.4,"width":2.3,"height":5.2,"rotY":-1.5708},
+    {"kind":"window","x":-12.92,"z":-3,"y":6.4,"width":2.3,"height":5.2,"rotY":1.5708},
+    {"kind":"window","x":12.92,"z":-3,"y":6.4,"width":2.3,"height":5.2,"rotY":-1.5708},
+    {"kind":"window","x":-12.92,"z":3,"y":6.4,"width":2.3,"height":5.2,"rotY":1.5708},
+    {"kind":"window","x":12.92,"z":3,"y":6.4,"width":2.3,"height":5.2,"rotY":-1.5708},
+    {"kind":"window","x":-12.92,"z":9,"y":6.4,"width":2.3,"height":5.2,"rotY":1.5708},
+    {"kind":"window","x":12.92,"z":9,"y":6.4,"width":2.3,"height":5.2,"rotY":-1.5708},
+    {"kind":"window","x":12.92,"z":15,"y":6.4,"width":2.3,"height":5.2,"rotY":-1.5708},
+    {"kind":"window","x":-12.92,"z":21,"y":6.4,"width":2.3,"height":5.2,"rotY":1.5708},
+    {"kind":"window","x":12.92,"z":21,"y":6.4,"width":2.3,"height":5.2,"rotY":-1.5708},
+    {"kind":"rose","x":0,"z":-29.92,"y":10.4,"width":4.6,"rotY":0},
+    {"kind":"rose","x":0,"z":29.92,"y":10.3,"width":4.2,"rotY":3.1416},
+    {"kind":"banner","x":0,"z":-29.9,"y":7.7,"width":3.4,"height":6,"rotY":0},
+    {"kind":"shield","x":-12.92,"z":-21,"y":3.6,"rotY":1.5708},
+    {"kind":"shield","x":12.92,"z":-21,"y":3.6,"rotY":-1.5708},
+    {"kind":"shield","x":-12.92,"z":-9,"y":3.6,"rotY":1.5708},
+    {"kind":"shield","x":12.92,"z":-9,"y":3.6,"rotY":-1.5708},
+    {"kind":"shield","x":-12.92,"z":9,"y":3.6,"rotY":1.5708},
+    {"kind":"shield","x":12.92,"z":9,"y":3.6,"rotY":-1.5708},
+    {"kind":"shield","x":-12.92,"z":21,"y":3.6,"rotY":1.5708},
+    {"kind":"shield","x":12.92,"z":21,"y":3.6,"rotY":-1.5708},
+    {"kind":"carpet","x":0,"z":3.35,"width":3.6,"length":52.5},
+    {"kind":"brazier","x":-3.7,"z":-21.4,"light":true},
+    {"kind":"brazier","x":3.7,"z":-21.4,"light":true},
+    {"kind":"brazier","x":-3.7,"z":17},
+    {"kind":"brazier","x":3.7,"z":17},
+    {"kind":"hearth","x":-12.45,"z":15,"rotY":1.5708,"light":true},
+    {"kind":"candles","x":-2.1,"z":-28.9},
+    {"kind":"candles","x":2.1,"z":-28.9},
+    {"kind":"chandelier","x":0,"z":-15,"y":9.2},
+    {"kind":"chandelier","x":0,"z":-3,"y":9.2},
+    {"kind":"chandelier","x":0,"z":9,"y":9.2},
+    {"kind":"chandelier","x":0,"z":21,"y":9.2},
+    {"kind":"statue","x":-5,"z":-28.6},
+    {"kind":"statue","x":5,"z":-28.6},
+    {"kind":"armor","x":-4.2,"z":28.4,"rotY":3.1416},
+    {"kind":"armor","x":4.2,"z":28.4,"rotY":3.1416},
+    {"kind":"armor","x":-12.1,"z":24.5,"rotY":1.5708},
+    {"kind":"armor","x":12.1,"z":24.5,"rotY":-1.5708},
+    {"kind":"gong","x":-7.6,"z":-19.6,"rotY":1.5708},
+    {"kind":"cask","x":12.35,"z":15,"rotY":-1.5708}
+  ]
+}

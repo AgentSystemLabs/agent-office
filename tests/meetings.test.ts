@@ -6,11 +6,12 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { MeetingRoom, type MeetingWorkers } from '../src/server/meetings.js';
 import { Worktrees } from '../src/server/worktrees.js';
-import type { MeetingRequest, WorkerInfo } from '../src/shared/protocol.js';
+import type { AgentChoice, MeetingRequest, WorkerInfo } from '../src/shared/protocol.js';
 import { MEETING_PATTERN_IDS, isMeetingPattern } from '../src/shared/meetings.js';
+import { PROMPTS, type PromptId } from '../src/shared/prompts.js';
 import type { ReviewFinding } from '../src/shared/review.js';
 
-function fixture(opts: { git?: boolean } = {}) {
+function fixture(opts: { git?: boolean; rewritten?: Partial<Record<PromptId, string>>; officeDefault?: AgentChoice } = {}) {
   const dir = mkdtempSync(path.join(tmpdir(), 'office-meeting-'));
   const dataDir = path.join(dir, '.agent-office');
   mkdirSync(dataDir, { recursive: true });
@@ -30,8 +31,11 @@ function fixture(opts: { git?: boolean } = {}) {
   const toasts: string[] = [];
   const reviews: { pr: number; summary: string; findings: ReviewFinding[]; lenses: string[] }[] = [];
   let ids = 0;
+  /** While set, prompts don't get through to the workers. */
+  let refuse = false;
   const manager: MeetingWorkers = {
     defaultProvider: 'claude',
+    officeDefault: opts.officeDefault,
     list: () => workers,
     seat(deskId, by, prompt, provider, model, effort, meeting) {
       if (workers.some((w) => w.deskId === deskId)) return 'taken';
@@ -45,6 +49,7 @@ function fixture(opts: { git?: boolean } = {}) {
       return worker;
     },
     prompt(id, text) {
+      if (refuse) return 'The worker is gone';
       prompts.push({ id, text });
       return undefined;
     },
@@ -66,6 +71,7 @@ function fixture(opts: { git?: boolean } = {}) {
       reviews.push({ pr, summary, findings, lenses });
       return `https://github.com/o/r/pull/${pr}#pullrequestreview-1`;
     },
+    prompt: (id) => opts.rewritten?.[id] ?? PROMPTS[id].text,
   });
   const cwd = () => {
     const wt = room.state().current?.worktree;
@@ -96,7 +102,7 @@ function fixture(opts: { git?: boolean } = {}) {
     }
   };
   const start = (req: Partial<MeetingRequest>) => room.start({ pattern: 'debate', prompt: 'Which cache should we use?', roles: [], ...req } as MeetingRequest, 'Ada');
-  return { dir, room, workers, prompts, typed, toasts, reviews, take, settle, start, cwd, kill: (id: string) => manager.kill(id), close() { room.shutdown(); rmSync(dir, { recursive: true, force: true }); } };
+  return { dir, room, workers, prompts, typed, toasts, reviews, take, settle, start, cwd, kill: (id: string) => manager.kill(id), refusePrompts: (v: boolean) => (refuse = v), close() { room.shutdown(); rmSync(dir, { recursive: true, force: true }); } };
 }
 
 test('a debate runs its rounds and ends when the chair writes the decision', (t) => {
@@ -147,7 +153,7 @@ test('a worker that ends its part without writing the file is reminded once, the
   assert.equal(f.start({ rounds: 2, output: 'decision.md' }), undefined);
   for (const i of [0, 1, 2]) f.take(i);
   f.take(0, '', true);
-  assert.match(f.prompts.at(-1)!.text, /without writing \S*\/decision\.md,/);
+  assert.match(f.prompts.at(-1)!.text, /without writing \S*[\\/]decision\.md,/);
   assert.equal(f.room.state().current!.status, 'running');
   f.take(0, '', true);
   const m = f.room.state().current!;
@@ -229,6 +235,36 @@ test('a reviewer whose findings are not JSON is asked once to write them again',
   assert.equal(f.room.state().current!.turns.find((x) => x.seat === 1)?.state, 'done');
 });
 
+test('being asked to rewrite unreadable findings leaves a reviewer the usual reminder before the meeting stops', (t) => {
+  const f = fixture(); t.after(() => f.close());
+  assert.equal(f.start({ pattern: 'review', prompt: 'Review it', pr: 7 }), undefined);
+  f.take(1, 'not JSON');
+  assert.match(f.prompts.at(-1)!.text, /couldn't read your findings/);
+  // It ends its turn without writing them again: reminded, not stopped.
+  f.take(1, '', true);
+  assert.equal(f.room.state().current!.status, 'running');
+  assert.match(f.prompts.at(-1)!.text, /without writing/);
+  f.take(1, '[]');
+  assert.equal(f.room.state().current!.turns.find((x) => x.seat === 1)?.state, 'done');
+});
+
+test('a reviewer that can\'t be asked to rewrite its unreadable findings is left out, and the panel goes on', (t) => {
+  const f = fixture(); t.after(() => f.close());
+  assert.equal(f.start({ pattern: 'review', prompt: 'Review it', pr: 7 }), undefined);
+  f.take(0, '[{"file": "a.ts", "line": 1, "comment": "Off by one in the loop bound"}]');
+  f.refusePrompts(true);
+  f.take(1, 'not JSON');
+  f.refusePrompts(false);
+  assert.equal(f.room.state().current!.turns.find((x) => x.seat === 1)?.state, 'done');
+  f.take(2, '[]');
+  const m = f.room.state().current!;
+  assert.equal(m.status, 'running');
+  assert.equal(m.round, 2);
+  assert.ok(f.toasts.some((x) => /Left out the Security reviewer's findings/.test(x)));
+  const merged = JSON.parse(readFileSync(path.join(f.cwd(), m.notes, 'findings.json'), 'utf8'));
+  assert.deepEqual(merged.map((x: ReviewFinding) => x.lenses), [['Correctness']]);
+});
+
 test('a held review panel waits for its findings to be trimmed, then posts the rest', async (t) => {
   const f = fixture(); t.after(() => f.close());
   assert.equal(f.start({ pattern: 'review', prompt: 'Review it', pr: 9, hold: true }), undefined);
@@ -301,7 +337,43 @@ test('in a git project the output is committed on the meeting branch, which outl
   assert.match(f.room.state().past[0].summary, /Debate · 2 rounds · 0 tokens · \$0\.00 · ✅ docs\/decision\.md on office\/meeting-pick-a-cache-/);
 });
 
+test('Pi meetings retain the chosen model and thinking level for every seat', (t) => {
+  const f = fixture({ officeDefault: { provider: 'claude', model: 'sonnet' } });
+  t.after(() => f.close());
+  assert.equal(f.start({ provider: 'pi', model: 'openai/gpt-4.1', effort: 'high' }), undefined);
+  assert.deepEqual(f.workers.map((w) => [w.provider, w.model, w.effort]), Array(3).fill(['pi', 'openai/gpt-4.1', 'high']));
+  const meeting = f.room.state().current!;
+  assert.deepEqual([meeting.provider, meeting.model, meeting.effort], ['pi', 'openai/gpt-4.1', 'high']);
+});
+
 test('only the real meeting patterns pass, not what every object inherits', () => {
   for (const id of MEETING_PATTERN_IDS) assert.equal(isMeetingPattern(id), true);
   for (const v of ['constructor', '__proto__', 'toString', 'hasOwnProperty', 'valueOf', '', 'nope', 1, null, undefined]) assert.equal(isMeetingPattern(v), false, String(v));
+});
+
+test('a meeting says what the office’s rewritten prompts say, and seats the default worker when nobody picked one', (t) => {
+  const f = fixture({
+    rewritten: {
+      'meeting.brief': 'You are the {{role}}. Topic: {{about}}{{nothing}}',
+      'meeting.debate.propose': 'Pitch it as the {{role}}, into {{file}}.',
+      'meeting.nudge': 'Still waiting on {{file}}!',
+    },
+    officeDefault: { provider: 'claude', model: 'sonnet', effort: 'medium' },
+  });
+  t.after(() => f.close());
+  assert.equal(f.start({ rounds: 3, provider: undefined }), undefined);
+  assert.equal(f.prompts[0].text, `You are the Chair. Topic: Which cache should we use?{{nothing}}\n\nRound 1 of 3, proposing. Pitch it as the Chair, into ${path.join(f.cwd(), '.agent-office', 'meetings', f.room.state().current!.id, 'r1-1-chair.md')}.`);
+  assert.deepEqual(f.workers.map((w) => [w.provider, w.model, w.effort]), Array(3).fill(['claude', 'sonnet', 'medium']));
+  // A worker that ends its turn without its part is nudged in the office's words.
+  const w = f.workers[0];
+  w.status = 'working';
+  f.room.onWorker(w);
+  w.status = 'done';
+  f.room.onWorker(w);
+  assert.match(f.prompts.at(-1)!.text, /^Still waiting on \S+r1-1-chair\.md!$/);
+  // Picked, the meeting's own choice wins.
+  const g = fixture({ officeDefault: { provider: 'claude', model: 'sonnet' } });
+  t.after(() => g.close());
+  assert.equal(g.start({ provider: 'claude', model: 'haiku' }), undefined);
+  assert.deepEqual(g.workers.map((x) => x.model), ['haiku', 'haiku', 'haiku']);
 });

@@ -28,6 +28,10 @@ export class Voice {
   private audioCtx: AudioContext | null = null;
   private localAnalyser: AnalyserNode | null = null;
   private listeners = new Set<() => void>();
+  /** Asking for the mic, so a second join waits for the first instead of asking again. */
+  private joining: Promise<string | null> | null = null;
+  /** Push to talk is held down: letting go mutes you. */
+  private talking = false;
   muted = false;
   localLevel = 0;
 
@@ -71,15 +75,23 @@ export class Voice {
     return peerId === store.you ? this.localLevel : (this.conns.get(peerId)?.level ?? 0);
   }
 
-  async joinVoice(): Promise<string | null> {
-    if (this.mic) return null;
+  /** `muted` joins with the mic off, for push to talk. */
+  joinVoice(muted = false): Promise<string | null> {
+    if (this.mic) return Promise.resolve(null);
+    this.joining ??= this.join(muted).finally(() => (this.joining = null));
+    return this.joining;
+  }
+
+  private async join(muted: boolean): Promise<string | null> {
     if (!window.isSecureContext) return 'Voice needs HTTPS (or localhost). Ask whoever runs the office to enable TLS.';
     try {
       this.mic = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
     } catch (err) {
       return `Microphone unavailable: ${(err as Error).message}`;
     }
-    this.muted = false;
+    this.muted = muted;
+    this.talking = false;
+    this.mic.getAudioTracks().forEach((t) => (t.enabled = !muted));
     this.ensureAudioCtx();
     if (this.audioCtx) {
       const src = this.audioCtx.createMediaStreamSource(this.mic);
@@ -109,14 +121,32 @@ export class Voice {
     this.mic = null;
     this.localAnalyser = null;
     this.localLevel = 0;
+    this.talking = false;
     this.changed();
   }
 
   toggleMute() {
+    this.setMuted(!this.muted);
+  }
+
+  setMuted(muted: boolean) {
     if (!this.mic) return;
-    this.muted = !this.muted;
-    this.mic.getAudioTracks().forEach((t) => (t.enabled = !this.muted));
+    this.talking = false;
+    if (muted === this.muted) return;
+    this.muted = muted;
+    this.mic.getAudioTracks().forEach((t) => (t.enabled = !muted));
     this.changed();
+  }
+
+  /** Push to talk: the mic is on while it's held down, and muted once you let go (see stopTalking). */
+  startTalking() {
+    if (!this.mic || this.talking) return;
+    this.setMuted(false);
+    this.talking = true;
+  }
+
+  stopTalking() {
+    if (this.talking) this.setMuted(true);
   }
 
   async startShare(): Promise<string | null> {
@@ -154,8 +184,9 @@ export class Voice {
 
   /** Called whenever the set of peers changes. */
   syncPeers() {
-    for (const id of store.peers.keys()) if (id !== store.you && !this.conns.has(id)) this.connect(id);
-    for (const id of [...this.conns.keys()]) if (!store.peers.has(id)) this.drop(id);
+    // Nobody on the 2D view has voice (see PeerInfo.lite), so there's nothing to connect to.
+    for (const [id, p] of store.peers) if (id !== store.you && !p.lite && !this.conns.has(id)) this.connect(id);
+    for (const id of [...this.conns.keys()]) if (!store.peers.has(id) || store.peers.get(id)!.lite) this.drop(id);
   }
 
   reset() {

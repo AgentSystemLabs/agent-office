@@ -1,3 +1,4 @@
+import './accounts.css';
 import type { AccountInvite, AccountRole, ServerMsg } from '../../shared/protocol';
 import type { Net } from '../net';
 import { store } from '../state';
@@ -62,7 +63,7 @@ export function openAccounts(net: Net) {
       const v = fresh;
       body.append(h('div.cmd', {}, h('pre', {}, inviteLink(v)), copyButton('Copy', () => inviteLink(v))));
     }
-    if (store.invites) body.append(h('p.note', {}, 'On this office they also need a way in: add their GitHub keys under 👥 Invite.'));
+    if (store.invites) body.append(h('p.note', {}, 'On this office they also need a way in first: see 👥 Invite teammates.'));
 
     const list = h('ul.team-list');
     for (const a of s.accounts) {

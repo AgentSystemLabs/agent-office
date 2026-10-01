@@ -16,6 +16,12 @@ export function usageLabel(u: Usage, provider: AgentProvider = 'claude'): string
     : u.costKnown === false
       ? 'cost unavailable'
       : `${fmtCost(u.cost)}${provider === 'opencode' ? ' reported' : ''}`;
+  // DeepSeek Harness reports what is in the context window, not a token split.
+  if (provider === 'dsh') {
+    const window = u.contextSize !== undefined ? ` / ${fmtTokens(u.contextSize)}` : '';
+    const spend = u.costKnown === true ? `${fmtCost(u.cost)} · ` : '';
+    return `${u.incomplete ? 'Partial: ' : ''}${spend}${fmtTokens(tokensOf(u))}${window} context`;
+  }
   return `${u.incomplete ? "Partial: " : ""}${money} · ${fmtTokens(tokensOf(u))} tokens`;
 }
 
@@ -27,13 +33,16 @@ export function usageTitle(u: Usage, provider: AgentProvider = 'claude'): string
     : provider === 'opencode'
       ? `${u.calls} reported call${u.calls === 1 ? '' : 's'}`
       : `${u.calls} API call${u.calls === 1 ? '' : 's'}`;
+  const dshContext = u.contextSize !== undefined ? `${fmtTokens(tokensOf(u))} of ${fmtTokens(u.contextSize)} context tokens` : `${fmtTokens(tokensOf(u))} context tokens`;
   return [
     ...(u.incomplete ? ['Partial metrics: some session history is still loading or unavailable.'] : []),
     provider === 'codex'
       ? `Codex root-session metrics; subagent usage is not included; ${money}; ${calls}`
       : provider === 'opencode'
         ? `OpenCode reported estimate ${money}; model/provider estimate, not billing; ${calls}`
-        : `${money} over ${calls}`,
+        : provider === 'dsh'
+          ? `DeepSeek Harness context usage from ACP: ${dshContext}; session cost ${u.costKnown === true ? money : 'unavailable'}; ${calls}`
+          : `${money} over ${calls}`,
     `input ${fmtTokens(u.input)} · output ${fmtTokens(u.output)}`,
     `reasoning ${fmtTokens(u.reasoning ?? 0)}`,
     `cache write ${fmtTokens(u.cacheWrite)} · cache read ${fmtTokens(u.cacheRead)}`,
@@ -74,6 +83,12 @@ export function renderUsage() {
   let currentCodexCostUnknown = false;
   let currentCodexIncomplete = false;
   let codexWaiting = false;
+  let currentDshTokens = 0;
+  let currentDshContext = 0;
+  let currentDshReports = 0;
+  let currentDshCost = 0;
+  let currentDshCostKnown = false;
+  let dshWaiting = false;
   let untracked = false;
   for (const w of store.workers.values()) {
     if (w.kind !== 'agent') continue;
@@ -112,14 +127,27 @@ export function renderUsage() {
       if (w.usage.costKnown !== true) currentCodexCostUnknown = true;
       else currentCodexCost += w.usage.cost;
     }
+    if (provider === 'dsh') {
+      if (!w.usage) {
+        dshWaiting = true;
+        continue;
+      }
+      currentDshReports++;
+      currentDshTokens += tokensOf(w.usage);
+      if (w.usage.contextSize !== undefined) currentDshContext = Math.max(currentDshContext, w.usage.contextSize);
+      if (w.usage.costKnown === true) {
+        currentDshCost += w.usage.cost;
+        currentDshCostKnown = true;
+      }
+    }
     if (providerUsageTracked(provider, store.project, w.usage) && w.usage?.costKnown !== false && !w.usage?.incomplete) now += w.usage?.cost ?? 0;
   }
   const head = $('workers-cost');
   head.textContent = now > 0 ? fmtCost(now) : '';
-  head.title = 'Current desks: tracked Claude Code costs plus reported OpenCode estimates; Codex root-session tokens appear below; sessions with unavailable cost or partial history are excluded.';
+  head.title = 'Current desks: tracked Claude Code costs plus reported OpenCode and DeepSeek Harness estimates; Codex root-session tokens appear below; sessions with unavailable cost or partial history are excluded.';
 
   const el = $('usage');
-  const any = s.total.calls > 0 || s.budget !== undefined || untracked || currentOpenCodeReports > 0 || openCodeWaiting || currentCodexReports > 0 || codexWaiting;
+  const any = s.total.calls > 0 || s.budget !== undefined || untracked || currentOpenCodeReports > 0 || openCodeWaiting || currentCodexReports > 0 || codexWaiting || currentDshReports > 0 || dshWaiting;
   el.classList.toggle('hidden', !any);
   if (!any) return;
   const over = overBudget();
@@ -178,6 +206,23 @@ export function renderUsage() {
     );
   }
   if (codexWaiting) rows.push(h('div.row.muted', { title: 'Codex usage appears after its first root-session metrics report; subagent usage is not included.' }, 'Codex metrics waiting for first report'));
+  if (currentDshReports > 0) {
+    const context = currentDshContext > 0 ? ` / ${fmtTokens(currentDshContext)}` : '';
+    const spend = currentDshCostKnown ? `${fmtCost(currentDshCost)} · ` : '';
+    rows.push(
+      h(
+        'div.row.muted',
+        {
+          title: [
+            'DeepSeek Harness reports what is in each session\u2019s context window over ACP after a turn; cost appears only when the harness supplies it, and is never billing.',
+            `${currentDshReports} worker${currentDshReports === 1 ? '' : 's'} · ${fmtTokens(currentDshTokens)}${context} context tokens`,
+          ].join('\n'),
+        },
+        `DeepSeek Harness current desks ${spend}${fmtTokens(currentDshTokens)}${context} context`,
+      ),
+    );
+  }
+  if (dshWaiting) rows.push(h('div.row.muted', { title: 'DeepSeek Harness usage appears after its first ACP usage update.' }, 'DeepSeek Harness metrics waiting for first report'));
   if (untracked) {
     rows.push(h('div.row.muted', { title: 'Custom provider usage is not reported by the office.' }, 'Custom usage untracked · budget and totals cover Claude Code only'));
   }

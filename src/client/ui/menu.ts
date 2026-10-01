@@ -1,5 +1,7 @@
+import './menu.css';
 import { store, type HudPanel, type Settings, type Topic } from '../state';
 import { waitingOnSomeone } from '../notify';
+import { DESK_BY_ID } from '../../shared/layout';
 import { $, h, openModal, type Modal } from './dom';
 
 /** One thing the ☰ menu does. Any of them can be pinned to the top bar. */
@@ -9,8 +11,8 @@ export interface HudAction {
   icon: string | (() => string);
   label: string | (() => string);
   section: 'Open' | 'Together' | 'Office';
-  /** Its keyboard shortcut, if it has one. */
-  key?: string;
+  /** Its keyboard shortcut, if it has one (now). */
+  key?: string | (() => string | undefined);
   /** A number worth knowing before you open it: open issues, tasks waiting… */
   count?: () => number;
   /** Pressed, like voice while you're in it. */
@@ -62,6 +64,7 @@ export function mountHud(actions: HudAction[], settings: Settings, save: () => v
   const dock = $('dock');
   const labelOf = (a: HudAction) => (typeof a.label === 'string' ? a.label : a.label());
   const iconOf = (a: HudAction) => (typeof a.icon === 'string' ? a.icon : a.icon());
+  const keyOf = (a: HudAction) => (typeof a.key === 'function' ? a.key() : a.key);
   const classOf = (a: HudAction, blocked?: string) => [a.on?.() && 'on', a.tone?.(), blocked && 'dim'].filter(Boolean).join(' ');
   const offered = (a: HudAction) => a.shown?.() ?? true;
   const pinned = (a: HudAction) => settings.pins.includes(a.id);
@@ -99,7 +102,7 @@ export function mountHud(actions: HudAction[], settings: Settings, save: () => v
         type: 'button',
         class: classOf(a, blocked),
         'aria-label': labelOf(a),
-        title: blocked ?? a.title?.() ?? `${labelOf(a)}${a.key ? ` (${a.key})` : ''}`,
+        title: blocked ?? a.title?.() ?? `${labelOf(a)}${keyOf(a) ? ` (${keyOf(a)})` : ''}`,
         onclick: () => a.run(),
       },
       iconOf(a),
@@ -125,10 +128,12 @@ export function mountHud(actions: HudAction[], settings: Settings, save: () => v
     const people = store.peers.size;
     if (people > 1 || settings.hud.people) items.push(panelChip('people', '👥', 'People', people, `${people} in the office`));
     const workers = [...store.workers.values()];
+    // Hired onto desks, bean bags and the meeting room's table; the board agents at their kiosks don't count.
+    const hired = workers.filter((w) => !DESK_BY_ID.get(w.deskId)?.station).length;
     const waiting = workers.filter(waitingOnSomeone).length;
-    const workersTitle = workers.length ? `${workers.length} worker${workers.length === 1 ? '' : 's'} on this floor${waiting ? `, ${waiting} waiting on someone` : ''}` : 'No workers on this floor yet';
+    const workersTitle = hired || waiting ? `${hired} worker${hired === 1 ? '' : 's'} on this floor${waiting ? `, ${waiting} waiting on someone` : ''}` : 'No workers on this floor yet';
     // Who's waiting has its own button on the bar (the 'waiting' action), so this just counts them.
-    items.push(panelChip('workers', '🤖', 'Workers', workers.length, workersTitle));
+    items.push(panelChip('workers', '🤖', 'Workers', hired, workersTitle));
     // Redrawn only when it looks different, so a busy worker's updates don't swap a button out from under a click.
     const next = h('div', {}, ...items);
     if (next.innerHTML !== [...dock.children].filter((c) => c !== menuBtn).map((c) => c.outerHTML).join('')) dock.replaceChildren(...items, menuBtn);
@@ -158,7 +163,7 @@ export function mountHud(actions: HudAction[], settings: Settings, save: () => v
         h('span.mi-icon', {}, iconOf(a)),
         h('span.mi-label', {}, labelOf(a)),
         badge(a.count?.()),
-        a.key ? h('kbd.mi-key', {}, a.key) : null,
+        keyOf(a) ? h('kbd.mi-key', {}, keyOf(a)!) : null,
       );
       const pin = h('button.menu-pin', { type: 'button' });
       pin.innerHTML = PIN_SVG;
@@ -202,6 +207,8 @@ export function mountHud(actions: HudAction[], settings: Settings, save: () => v
     // On the window, so the keys work wherever focus is while the menu is up.
     const onKey = (e: KeyboardEvent) => menuKey(el, e);
     menu = openModal(el, {
+      // A dropdown under ☰, which closes it again, like a click anywhere else.
+      closeButton: false,
       onClose: () => {
         menu = null;
         menuBtn.setAttribute('aria-expanded', 'false');
@@ -270,7 +277,7 @@ export function mountHud(actions: HudAction[], settings: Settings, save: () => v
     },
     true,
   );
-  for (const t of ['workers', 'peers', 'issues', 'pulls', 'services', 'queue', 'meeting', 'upgrade', 'me', 'floors'] as Topic[]) store.on(t, render);
+  for (const t of ['workers', 'peers', 'issues', 'pulls', 'services', 'queue', 'meeting', 'upgrade', 'me', 'floors', 'signins'] as Topic[]) store.on(t, render);
   applyPanels();
   render();
   return { refresh: render, toggleMenu };

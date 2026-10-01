@@ -2,8 +2,10 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { BALCONY, DESKS, DESK_SIZE, EXIT_STAIRS, FLOOR, PLANTS, STREET_Y, WALL_HEIGHT, WINDOWS } from '../../shared/layout';
 import type { Theme } from '../../shared/protocol';
+import { mulberry32 } from '../../shared/rng';
 import { batWingGeometry, glowTexture } from './costumes';
-import type { Collider, Office } from './office';
+import { plantLeaves } from './office';
+import type { Collider, Office } from './types';
 import { SPOOKY_MOON } from './sky';
 import { mergeByMaterial, mesh, textPlane, toon, toonUnique } from './toon';
 
@@ -13,7 +15,8 @@ import { mergeByMaterial, mesh, textPlane, toon, toonUnique } from './toon';
  * the street, with gravestones on the lawn, cobwebs in the corners and bats circling the building
  * and crossing the moon. Christmas turns the potted plants into little decorated trees with presents
  * under them, puts a present on every desk, a big lit tree out front and snowmen in the snow (the
- * sky makes it snow, see Sky.setTheme). Everything's built once and shown for its holiday.
+ * sky makes it snow, see Sky.setTheme). Everything's built once and shown for its holiday. What's
+ * down on the street goes further down the higher your floor is, as the street does (Office.setLevel).
  */
 
 const G = STREET_Y;
@@ -362,7 +365,8 @@ function christmasTree(h: number, lights: THREE.MeshToonMaterial[], lit?: THREE.
   if (trunk) g.add(mesh(new THREE.CylinderGeometry(h * 0.035, h * 0.045, base + 0.1, 10), toon('#6b4226'), 0, (base + 0.1) / 2, 0));
   const tierH = ((h - base) * 0.92) / (tiers * 0.72);
   const baubles = ['#e63946', '#ffd166', '#4cc9f0', '#f1faee', '#c77dff'].map((c) => toon(c));
-  const rand = mulberry(Math.round(h * 1000));
+  // Seeded, so the trees look the same every time.
+  const rand = mulberry32(Math.round(h * 1000));
   for (let i = 0; i < tiers; i++) {
     const r = (h * 0.34 * (tiers - i)) / tiers + h * 0.05;
     const y0 = base + i * tierH * 0.72;
@@ -458,18 +462,6 @@ function snowman(): THREE.Group {
   return g;
 }
 
-/** A small seeded random, so the trees look the same every time. */
-function mulberry(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
 // -----------------------------------------------------------------------------------------------
 
 export class Holiday {
@@ -485,6 +477,13 @@ export class Holiday {
   private moonBats = new THREE.Group();
   private lights: THREE.MeshToonMaterial[];
   private colliders: Record<Theme, Collider[]> = { halloween: [], christmas: [] };
+  /**
+   * Each holiday's things down on the street (and on the landing outside the bottom floor's exit),
+   * how far down the street is from the floor you're on, and where their colliders are from the bottom floor.
+   */
+  private street: Record<Theme, THREE.Group> = { halloween: new THREE.Group(), christmas: new THREE.Group() };
+  private drop = 0;
+  private base = new Map<Collider, { top: number; bottom: number }>();
   /** The plants' leaves, and the tree each becomes at Christmas. */
   private plants: { leaves: THREE.Object3D[]; tree: THREE.Object3D }[] = [];
   private readonly camPos = new THREE.Vector3();
@@ -492,25 +491,36 @@ export class Holiday {
   constructor(private office: Office) {
     this.halloween.visible = this.christmas.visible = false;
     this.group.add(this.halloween, this.christmas);
+    this.halloween.add(this.street.halloween);
+    this.christmas.add(this.street.christmas);
 
     // ---- Halloween ----
-    const spots = pumpkinSpots();
     const [skin, glow] = pumpkinTextures();
     const gradientMap = (toon('#fff') as THREE.MeshToonMaterial).gradientMap;
     this.pumpkin = new THREE.MeshToonMaterial({ map: skin, emissive: '#ffffff', emissiveMap: glow, emissiveIntensity: 0.5, gradientMap });
-    this.halloween.add(mesh(scatter(pumpkinGeometry(), spots), this.pumpkin));
     const stem = new THREE.CylinderGeometry(0.09, 0.15, 0.4, 7).rotateZ(0.12).translate(0, 1.6, 0);
-    this.halloween.add(mesh(scatter(stem, spots), toon('#5b6e2a')));
-    // Candlelight spilling out of each face at night.
-    const face = new THREE.Vector3();
-    this.pumpkinGlow = halos(
-      spots.map(([x, y, z, r, rotY]) => ({
-        p: face.set(x + Math.sin(rotY) * r * 1.35, y + r * 0.8, z + Math.cos(rotY) * r * 1.35).clone(),
-        size: r * 5,
-        color: '#ffa640',
-      })),
-    );
-    this.halloween.add(...this.pumpkinGlow);
+    // In the office and out on its balcony, which every floor has; and down on the street, or out
+    // past the west wall on the bottom floor's landing.
+    const all = pumpkinSpots();
+    const down = (s: Spot) => s[1] < 0 || s[0] < FLOOR.minX;
+    for (const [spots, into] of [
+      [all.filter((s) => !down(s)), this.halloween],
+      [all.filter(down), this.street.halloween],
+    ] as const) {
+      into.add(mesh(scatter(pumpkinGeometry(), spots), this.pumpkin));
+      into.add(mesh(scatter(stem, spots), toon('#5b6e2a')));
+      // Candlelight spilling out of each face at night.
+      const face = new THREE.Vector3();
+      const glows = halos(
+        spots.map(([x, y, z, r, rotY]) => ({
+          p: face.set(x + Math.sin(rotY) * r * 1.35, y + r * 0.8, z + Math.cos(rotY) * r * 1.35).clone(),
+          size: r * 5,
+          color: '#ffa640',
+        })),
+      );
+      into.add(...glows);
+      this.pumpkinGlow.push(...glows);
+    }
 
     const graves = new THREE.Group();
     const rip: THREE.Mesh[] = [];
@@ -528,7 +538,7 @@ export class Holiday {
         rip.push(label);
       }
     }
-    this.halloween.add(mergeByMaterial(graves), ...rip);
+    this.street.halloween.add(mergeByMaterial(graves), ...rip);
 
     const web = webTexture();
     for (const [x, z] of [
@@ -540,7 +550,7 @@ export class Holiday {
     }
 
     const batMat = new THREE.MeshBasicMaterial({ color: '#150b1f', side: THREE.DoubleSide });
-    const rand = mulberry(31);
+    const rand = mulberry32(31);
     for (let i = 0; i < 12; i++) {
       const b = bat(batMat, 1.2 + rand() * 0.8);
       this.halloween.add(b.root);
@@ -564,8 +574,10 @@ export class Holiday {
       m.userData.outlineParameters = { visible: false };
       return m;
     });
-    // The potted plants become little trees, with presents round the pot.
+    // The potted plants become little trees standing in their pots, with presents round them: the
+    // leaves are hidden and the tree shown instead.
     office.plants.forEach((p, i) => {
+      const leaves = plantLeaves(p);
       const tree = new THREE.Group();
       const t = christmasTree(1.25, this.lights);
       t.position.y = 0.45;
@@ -586,7 +598,7 @@ export class Holiday {
       const merged = mergeByMaterial(tree);
       merged.visible = false;
       p.add(merged);
-      this.plants.push({ leaves: p.children.slice(1, 4), tree: merged });
+      this.plants.push({ leaves, tree: merged });
     });
     // A present on every desk.
     const deskGifts = new THREE.Group();
@@ -615,10 +627,10 @@ export class Holiday {
     // Merging keeps only what's inside the group, so it's placed after.
     const tree = mergeByMaterial(out);
     tree.position.set(BIG_TREE.x, G, BIG_TREE.z);
-    this.christmas.add(tree);
+    this.street.christmas.add(tree);
     this.colliders.christmas.push({ minX: BIG_TREE.x - 1.5, maxX: BIG_TREE.x + 1.5, minZ: BIG_TREE.z - 1.5, maxZ: BIG_TREE.z + 1.5, bottom: G, top: G + BIG_TREE.height });
     this.treeGlow = halos(lit.map((p, i) => ({ p: p.clone().add(new THREE.Vector3(BIG_TREE.x, G, BIG_TREE.z)), size: 0.9, color: ['#ffe28a', '#ff5a5a', '#6ec3ff', '#7dff8a'][i % 4] })));
-    this.christmas.add(...this.treeGlow);
+    this.street.christmas.add(...this.treeGlow);
     const men = new THREE.Group();
     for (const [x, z, rotY] of SNOWMEN) {
       const s = snowman();
@@ -627,7 +639,9 @@ export class Holiday {
       men.add(s);
       this.colliders.christmas.push({ minX: x - 0.55, maxX: x + 0.55, minZ: z - 0.55, maxZ: z + 0.55, bottom: G, top: G + 2.5 });
     }
-    this.christmas.add(mergeByMaterial(men));
+    this.street.christmas.add(mergeByMaterial(men));
+    // Every collider here is down on the street.
+    for (const c of [...this.colliders.halloween, ...this.colliders.christmas]) this.base.set(c, { top: c.top, bottom: c.bottom ?? 0 });
   }
 
   /** Puts up a holiday's decorations (taking down the other's), or none. */
@@ -647,6 +661,15 @@ export class Holiday {
 
   /** `lampsOn` is how far the lamps are on (see Sky), 0 by day and 1 at night: the candles and the tree lights glow brighter. */
   update(t: number, lampsOn: number, camera: THREE.Camera) {
+    const drop = STREET_Y - this.office.night.street;
+    if (drop !== this.drop) {
+      this.drop = drop;
+      for (const g of Object.values(this.street)) g.position.y = -drop;
+      for (const [c, b] of this.base) {
+        c.top = b.top - drop;
+        c.bottom = b.bottom - drop;
+      }
+    }
     if (this.theme === 'halloween') {
       // Candlelight: a slow flicker, and now and then a gutter.
       const flicker = 0.88 + 0.08 * Math.sin(t * 7.3) + 0.05 * Math.sin(t * 17.1) + 0.04 * Math.sin(t * 29.7);

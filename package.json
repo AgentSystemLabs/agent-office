@@ -6,13 +6,16 @@
   "bin": {
     "agent-office": "bin/agent-office.js"
   },
+  "imports": {
+    "#tests/css": "./tests/support/css.mjs"
+  },
   "files": [
     "bin",
     "dist"
   ],
   "scripts": {
-    "test": "node --import tsx --test tests/*.test.ts",
-    "dev": "concurrently -k \"vite\" \"tsx watch src/server/cli.ts --port 4600 --password dev\"",
+    "test": "node --import tsx --import=#tests/css --test tests/*.test.ts",
+    "dev": "concurrently -k \"vite\" \"tsx watch src/server/cli.ts --port 4600 --password dev --no-open\"",
     "build": "npm run build:client && npm run build:server",
     "build:client": "vite build",
     "build:server": "tsc -p tsconfig.server.json",

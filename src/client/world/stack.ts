@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { FLOOR, LADDER, POLE, POLES, SLAB, WALL_HEIGHT, WALL_T, WINDOWS, type PoleSpot } from '../../shared/layout';
-import type { Collider, Interactable } from './office';
+import type { Collider, Interactable } from './types';
+import type { Fixture } from './office/fixture';
 import { mesh, textPlane, toon } from './toon';
 
 // The floors above and below this one: the ceiling (and the hatches and holes in it and in the floor),
@@ -181,7 +182,7 @@ function trapdoor(down: boolean): Trapdoor {
   return { pivot, open: 0, down };
 }
 
-/** One of the two spots a pole can be: what's there on this floor. */
+/** A spot a pole can be (see POLES): what's there on this floor. */
 interface PoleView {
   spot: PoleSpot;
   index: number;
@@ -216,6 +217,8 @@ export interface StackState {
 export interface Stack {
   group: THREE.Group;
   interactables: Interactable[];
+  /** The ceiling's tiles, for the back office's ceiling to match (its uvs are meters, like a ShapeGeometry's). */
+  ceiling: THREE.Material;
   /** The floor you're on: the ladder, the hatches and the poles go where there are floors to go to. */
   set(s: StackState): void;
   state: StackState;
@@ -535,6 +538,7 @@ export function buildStack(colliders: Collider[], planks: THREE.Material): Stack
   const stack: Stack = {
     group,
     interactables,
+    ceiling: ceilingMat,
     set,
     state,
     poles: () => (state.count > 1 ? POLES : []),
@@ -573,3 +577,19 @@ export function buildStack(colliders: Collider[], planks: THREE.Material): Stack
   };
   return stack;
 }
+
+declare module './types' {
+  interface OfficeHandles {
+    /** The ceiling, the floor, and the ladder and fire poles between the floors of the building. */
+    stack: Stack;
+  }
+}
+
+/** The office floor's floor and ceiling, with the ways up and down to the other floors through them. */
+export const stack: Fixture<'stack'> = (site) => {
+  const built = buildStack(site.colliders, site.planks);
+  built.set({ index: 0, count: 1 });
+  // The ladder and its sign, up the west wall.
+  site.wall('west', LADDER.z + 0.6, WALL_HEIGHT / 2, LADDER.width + 2.4, WALL_HEIGHT);
+  return { group: built.group, interactables: built.interactables, handle: { stack: built } };
+};

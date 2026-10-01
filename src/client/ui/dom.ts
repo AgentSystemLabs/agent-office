@@ -31,11 +31,14 @@ export interface Modal {
   backdrop: HTMLElement;
   /** What having it open says you're doing, under your name tag (see PeerInfo.doing). */
   doing?: string;
+  /** You're reading while it's open: your character holds an open book (see PeerInfo.reading). */
+  reading?: boolean;
   close(): void;
 }
 
 const stack: Modal[] = [];
 const listeners = new Set<(open: boolean) => void>();
+const doingListeners = new Set<() => void>();
 
 export function onModalChange(fn: (open: boolean) => void) {
   listeners.add(fn);
@@ -51,21 +54,42 @@ export function doingNow(): string | undefined {
   return undefined;
 }
 
+/** Whether a window you're reading in is open (see Modal.reading). */
+export function readingNow(): boolean {
+  return stack.some((m) => m.reading);
+}
+
+/** Hears when an open window changes what it says you're doing (see setDoing). */
+export function onDoingChange(fn: () => void) {
+  doingListeners.add(fn);
+}
+
+/** Changes what an open window says you're doing, like the doc you turned to on the bookshelf. */
+export function setDoing(modal: Modal, doing: string | undefined) {
+  if (modal.doing === doing) return;
+  modal.doing = doing;
+  doingListeners.forEach((fn) => fn());
+}
+
 /**
- * Opens a modal. Esc closes it unless `escCloses` is false (for dialogs you mustn't skip). `doing`
- * is what teammates see under your name tag while it's open, like "reading PR #12".
+ * Opens a modal. Esc closes it unless `escCloses` is false (for dialogs you mustn't skip), and so
+ * does a ✕ in its top right corner unless `closeButton` is false (it follows `escCloses`). `doing`
+ * is what teammates see under your name tag while it's open, like "reading PR #12", and `reading`
+ * puts an open book in your character's hands. `onClose` hears whether it was the Esc key.
  */
-export function openModal(content: HTMLElement, opts: { escCloses?: boolean; onClose?: () => void; backdropCloses?: boolean; doing?: string } = {}): Modal {
+export function openModal(content: HTMLElement, opts: { escCloses?: boolean; onClose?: (byEsc: boolean) => void; backdropCloses?: boolean; closeButton?: boolean; doing?: string; reading?: boolean } = {}): Modal {
   const backdrop = h('div.backdrop', {}, content);
   const root = document.getElementById('modal-root')!;
   root.append(backdrop);
   let closed = false;
+  let byEsc = false;
   const onKey = (e: KeyboardEvent) => {
     if (stack[stack.length - 1] !== modal) return;
     if (e.key === 'Escape' && opts.escCloses !== false) {
       // Stop it here so the Esc that closes a terminal isn't also typed into it.
       e.preventDefault();
       e.stopPropagation();
+      byEsc = true;
       modal.close();
     }
   };
@@ -73,6 +97,7 @@ export function openModal(content: HTMLElement, opts: { escCloses?: boolean; onC
     el: content,
     backdrop,
     doing: opts.doing,
+    reading: opts.reading,
     close() {
       if (closed) return;
       closed = true;
@@ -80,17 +105,28 @@ export function openModal(content: HTMLElement, opts: { escCloses?: boolean; onC
       window.removeEventListener('keydown', onKey, true);
       const i = stack.indexOf(modal);
       if (i >= 0) stack.splice(i, 1);
-      opts.onClose?.();
+      opts.onClose?.(byEsc);
       listeners.forEach((fn) => fn(stack.length > 0));
     },
   };
   backdrop.addEventListener('mousedown', (e) => {
     if (e.target === backdrop && opts.backdropCloses !== false) modal.close();
   });
+  if (opts.closeButton ?? opts.escCloses !== false) addCloseButton(content, () => modal.close());
   window.addEventListener('keydown', onKey, true);
   stack.push(modal);
   listeners.forEach((fn) => fn(true));
   return modal;
+}
+
+/** The ✕ for a window that didn't bring its own: at the end of its header, or else on its top right corner. */
+function addCloseButton(content: HTMLElement, close: () => void) {
+  if (content.querySelector('.close')) return;
+  const x = h('button.btn.close', { type: 'button', 'aria-label': 'Close', title: 'Close (Esc)', onclick: close }, '✕');
+  const header = content.querySelector(':scope > header');
+  if (header) return header.append(x);
+  x.classList.add('corner');
+  content.append(x);
 }
 
 export function closeAllModals() {

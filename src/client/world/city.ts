@@ -1,18 +1,21 @@
 import * as THREE from 'three';
-import { FLOOR, ROOF_DROP, WALL_T } from '../../shared/layout';
+import { FLOOR, SLAB, STREET_Y, WALL_T, roofDrop } from '../../shared/layout';
+import { mulberry32 } from '../../shared/rng';
 import type { NightParts } from './outside';
+import { tilingCanvasTexture } from './texture';
 import { mergeByMaterial, mesh, toon } from './toon';
+import { buildTower } from './tower';
 
-// The city around the rooftop bar: the building's own walls going down to the street, a grid of
-// streets with cars running along them, parks, and blocks of buildings out to the haze, most of them
-// lower than the roof so you look out over them, with a skyline of towers further off. At night
-// their windows light up, the street lamps come on and the cars' lights show.
+// The city around the rooftop bar: the building's own floors going down to the street (as the tower
+// looks from outside, world/tower.ts), a grid of streets with cars running along them, parks, and
+// blocks of buildings out to the haze, most of them lower than the roof so you look out over them,
+// with a skyline of towers further off. At night their windows light up, the street lamps come on
+// and the cars' lights show. The building is as tall as there are floors, so the street is that far
+// down (see setFloors), and the buildings round about are only as tall as leaves the view over them.
 //
 // Everything is built from a handful of shared materials (a window texture per paint, repeated a
 // window at a time), merged into a few meshes, so the whole city is a few dozen draw calls.
 
-/** The street, this far below the roof. */
-const G = -ROOF_DROP;
 /** The building, walls included. */
 const B = { minX: FLOOR.minX - WALL_T, maxX: FLOOR.maxX + WALL_T, minZ: FLOOR.minZ - WALL_T, maxZ: FLOOR.maxZ + WALL_T } as const;
 /** A block and the street beside it; streets run down x = 28 + 56k and z = 27 + 56k. */
@@ -27,35 +30,18 @@ const RADIUS = 330;
 /** One storey, and one bay of windows, in meters. */
 const STOREY = 3.3;
 const BAY = 2.8;
+/** How far down the street was from the roof the neighbours' heights were picked for: six floors. */
+const LAID_OUT = roofDrop(6);
 
 export interface City {
   group: THREE.Group;
+  /**
+   * The building has `floors` floors under the roof: the street goes as far down as that is tall,
+   * and the buildings nearby come down to stay under the roof.
+   */
+  setFloors(floors: number, wings?: readonly number[]): void;
   /** The cars along the streets, the blinking lights on the towers: `night` is how dark it is (0–1). */
   update(t: number, dt: number, night: number): void;
-}
-
-/** The same numbers every time, so everyone sees the same city. */
-function rng(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-function canvasTexture(w: number, h: number, draw: (g: CanvasRenderingContext2D) => void): THREE.CanvasTexture {
-  const c = document.createElement('canvas');
-  c.width = w;
-  c.height = h;
-  draw(c.getContext('2d')!);
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.anisotropy = 8;
-  return t;
 }
 
 /** How a building's walls look: its paint, and the windows in it (glass towers are nearly all window). */
@@ -80,13 +66,11 @@ const PAINTS: Paint[] = [
   { wall: '#3e7c7c', glass: '#8fd3d0', wide: 0.9, tall: 0.82 },
 ];
 const GLASS_TOWERS = [7, 8];
-/** The building under the roof, in the office's outside paint. */
-const TOWER_PAINT: Paint = { wall: '#e07a5f', glass: '#bfe3ff', wide: 0.62, tall: 0.6 };
 
 /** One bay of one storey: the wall with a window in it. */
 function bayTexture(p: Paint): THREE.CanvasTexture {
   const S = 64;
-  return canvasTexture(S, S, (g) => {
+  return tilingCanvasTexture(S, S, (g) => {
     g.fillStyle = p.wall;
     g.fillRect(0, 0, S, S);
     const w = S * p.wide;
@@ -107,8 +91,8 @@ function bayTexture(p: Paint): THREE.CanvasTexture {
 function litTexture(p: Paint, seed: number): THREE.CanvasTexture {
   const N = 16;
   const C = 16;
-  const r = rng(seed);
-  return canvasTexture(N * C, N * C, (g) => {
+  const r = mulberry32(seed);
+  return tilingCanvasTexture(N * C, N * C, (g) => {
     g.fillStyle = '#000000';
     g.fillRect(0, 0, N * C, N * C);
     for (let j = 0; j < N; j++) {
@@ -144,10 +128,10 @@ class Walls {
   }
 
   /** The four walls of a box from y0 to y1, windows a bay across and a storey up, lit windows from (ou, ov) of the pattern. */
-  box(cx: number, cz: number, w: number, d: number, y0: number, y1: number, ou: number, ov: number, storey = STOREY) {
+  box(cx: number, cz: number, w: number, d: number, y0: number, y1: number, ou: number, ov: number) {
     const hw = w / 2;
     const hd = d / 2;
-    const floors = Math.max(1, Math.round((y1 - y0) / storey));
+    const floors = Math.max(1, Math.round((y1 - y0) / STOREY));
     const h = y1 - y0;
     const across = (span: number) => Math.max(1, Math.round(span / BAY));
     const cw = across(w);
@@ -178,7 +162,7 @@ class Walls {
 function groundTexture(): THREE.CanvasTexture {
   const S = 512;
   const px = S / PERIOD;
-  return canvasTexture(S, S, (g) => {
+  return tilingCanvasTexture(S, S, (g) => {
     g.fillStyle = '#b3aea4';
     g.fillRect(0, 0, S, S);
     const mid = S / 2;
@@ -218,7 +202,7 @@ function tree(r: () => number): THREE.Group {
 
 /** Soft round blob, for lamps seen from far off. */
 function glowTexture(): THREE.CanvasTexture {
-  return canvasTexture(64, 64, (g) => {
+  return tilingCanvasTexture(64, 64, (g) => {
     const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
     grad.addColorStop(0, 'rgba(255,255,255,1)');
     grad.addColorStop(0.25, 'rgba(255,255,255,0.7)');
@@ -226,6 +210,38 @@ function glowTexture(): THREE.CanvasTexture {
     g.fillStyle = grad;
     g.fillRect(0, 0, 64, 64);
   });
+}
+
+/**
+ * A building on a lot, as it was laid out round a roof LAID_OUT up. How much of that height it
+ * stands depends on how far out it is (`ring`: close by, further out, or on the skyline) and on how
+ * tall the office's building is (see rise).
+ */
+interface Lot {
+  x: number;
+  z: number;
+  w: number;
+  d: number;
+  h: number;
+  paint: number;
+  /** Where its lit windows start in the pattern. */
+  ou: number;
+  ov: number;
+  ring: 0 | 1 | 2;
+  /** Tall ones step back on the way up: the top part's footprint, and how much taller it goes. */
+  step?: { w: number; d: number; up: number };
+  /** On its roof: a mast with a red light, a water tower, or a box of air conditioning. */
+  top?: { kind: 'mast' } | { kind: 'tank'; x: number; z: number } | { kind: 'plant'; x: number; z: number; w: number; d: number };
+}
+
+/**
+ * How much of its laid-out height a building in `ring` stands with the street `drop` below the roof.
+ * Close by they come down with the roof, to stay under it; further out a bit less, and the skyline
+ * stays the skyline. Up to six floors, where they were laid out; no taller past that.
+ */
+function rise(ring: number, drop: number): number {
+  const k = Math.min(1, drop / LAID_OUT);
+  return ring === 0 ? k : ring === 1 ? Math.sqrt(k) : 1;
 }
 
 interface Car {
@@ -240,7 +256,11 @@ interface Car {
 
 export function buildCity(night: NightParts): City {
   const group = new THREE.Group();
-  const r = rng(20260927);
+  /** Everything down on the street, which is as far below the roof as the building is tall. */
+  const street = new THREE.Group();
+  group.add(street);
+  // The same numbers every time, so everyone sees the same city.
+  const r = mulberry32(20260927);
 
   // The ground: every block and street, repeated out to the haze.
   const size = PERIOD * 24;
@@ -251,16 +271,13 @@ export function buildCity(night: NightParts): City {
   // Line the texture up with the streets: a road down its middle falls on x = STREET_X, z = STREET_Z.
   for (let i = 0; i < uv.count; i++) uv.setXY(i, (gp.getX(i) - STREET_X) / PERIOD + 0.5, (gp.getZ(i) - STREET_Z) / PERIOD + 0.5);
   const ground = new THREE.Mesh(groundGeo, new THREE.MeshToonMaterial({ map: groundTexture(), gradientMap: (toon('#fff') as THREE.MeshToonMaterial).gradientMap }));
-  ground.position.y = G;
   ground.receiveShadow = false;
-  group.add(ground);
+  street.add(ground);
 
-  // Buildings, a bucket of walls for each paint.
-  const walls = PAINTS.map(() => new Walls());
-  const tops = new Walls();
-  const extras = new THREE.Group();
+  // The blocks: parks now and then, and lots with a building on each, laid out once. How tall the
+  // buildings stand depends on the roof (see raise, below).
+  const lots: Lot[] = [];
   const parks = new THREE.Group();
-  const beacons: number[] = [];
   const blockAt = (i: number, j: number) => ({ x: STREET_X - PERIOD / 2 + i * PERIOD, z: STREET_Z - PERIOD / 2 + j * PERIOD });
   const inner = PERIOD - ROAD - WALK * 2;
   const n = Math.ceil(RADIUS / PERIOD) + 1;
@@ -273,35 +290,35 @@ export function buildCity(night: NightParts): City {
       if (i === 0 && j === 0) continue;
       // Now and then a park, with trees.
       if (r() < 0.1 && dist > 60) {
-        const park = mesh(new THREE.PlaneGeometry(inner, inner).rotateX(-Math.PI / 2), toon('#8fcf7a'), bx, G + 0.03, bz, false);
+        const park = mesh(new THREE.PlaneGeometry(inner, inner).rotateX(-Math.PI / 2), toon('#8fcf7a'), bx, 0.03, bz, false);
         parks.add(park);
         for (let k = 0; k < 7; k++) {
           const t = tree(r);
-          t.position.set(bx + (r() - 0.5) * (inner - 6), G, bz + (r() - 0.5) * (inner - 6));
+          t.position.set(bx + (r() - 0.5) * (inner - 6), 0, bz + (r() - 0.5) * (inner - 6));
           parks.add(t);
         }
         continue;
       }
       // The block split into lots: one big one, two halves or four quarters.
       const split = r();
-      const lots: [number, number, number, number][] = [];
+      const plots: [number, number, number, number][] = [];
       const gap = 2;
-      if (split < 0.25) lots.push([bx, bz, inner, inner]);
+      if (split < 0.25) plots.push([bx, bz, inner, inner]);
       else if (split < 0.6) {
         const w = (inner - gap) / 2;
         const alongX = r() < 0.5;
-        for (const s of [-1, 1]) lots.push(alongX ? [bx + (s * (w + gap)) / 2, bz, w, inner] : [bx, bz + (s * (w + gap)) / 2, inner, w]);
+        for (const s of [-1, 1]) plots.push(alongX ? [bx + (s * (w + gap)) / 2, bz, w, inner] : [bx, bz + (s * (w + gap)) / 2, inner, w]);
       } else {
         const w = (inner - gap) / 2;
-        for (const sx of [-1, 1]) for (const sz of [-1, 1]) lots.push([bx + (sx * (w + gap)) / 2, bz + (sz * (w + gap)) / 2, w, w]);
+        for (const sx of [-1, 1]) for (const sz of [-1, 1]) plots.push([bx + (sx * (w + gap)) / 2, bz + (sz * (w + gap)) / 2, w, w]);
       }
       // Lower than the roof round about, so you see out over them; taller further out, and tallest
       // downtown, off to the north-east, where the skyline is.
       const downtown = Math.max(0, 1 - Math.hypot(bx - 210, bz + 220) / 150);
-      for (const [lx, lz, lw, ld] of lots) {
-        const set = 1 + r() * 3;
-        const w = lw - set * 2;
-        const d = ld - set * 2;
+      for (const [lx, lz, lw, ld] of plots) {
+        const back = 1 + r() * 3;
+        const w = lw - back * 2;
+        const d = ld - back * 2;
         if (w < 6 || d < 6) continue;
         let h: number;
         if (dist < 100) h = 9 + r() * 24 + (r() < 0.1 ? 8 : 0);
@@ -310,89 +327,150 @@ export function buildCity(night: NightParts): City {
         h *= 1 + downtown * 1.3;
         const glassy = h > 70 && r() < 0.6;
         const paint = glassy ? GLASS_TOWERS[Math.floor(r() * GLASS_TOWERS.length)] : Math.floor(r() * 7);
-        const ou = Math.floor(r() * 16);
-        const ov = Math.floor(r() * 16);
-        const bucket = walls[paint];
-        bucket.box(lx, lz, w, d, G, G + h, ou, ov);
-        let topY = G + h;
+        const lot: Lot = { x: lx, z: lz, w, d, h, paint, ou: Math.floor(r() * 16), ov: Math.floor(r() * 16), ring: dist < 100 ? 0 : dist < 190 ? 1 : 2 };
+        let tall = h;
         let tw = w;
         let td = d;
-        // Tall ones step back once or twice on the way up.
+        // Tall ones step back once on the way up.
         if (h > 55 && r() < 0.6) {
           tw = w * (0.55 + r() * 0.25);
           td = d * (0.55 + r() * 0.25);
-          const up = 12 + r() * h * 0.5;
-          tops.top(lx, lz, w, d, topY);
-          bucket.box(lx, lz, tw, td, topY, topY + up, ou + 5, ov + 3);
-          topY += up;
+          lot.step = { w: tw, d: td, up: 12 + r() * h * 0.5 };
+          tall += lot.step.up;
         }
-        tops.top(lx, lz, tw, td, topY);
         // On the roof: a water tower, a box of air conditioning, or a mast with a red light.
         const what = r();
-        if (topY - G > 90) {
-          const mast = mesh(new THREE.CylinderGeometry(0.2, 0.35, 12, 6), toon('#8d99ae'), lx, topY + 6, lz, false);
-          extras.add(mast);
-          beacons.push(lx, topY + 12.3, lz);
-        } else if (what < 0.3) {
-          const wt = new THREE.Group();
-          for (const [sx, sz] of [
-            [-1, -1],
-            [1, -1],
-            [-1, 1],
-            [1, 1],
-          ])
-            wt.add(mesh(new THREE.CylinderGeometry(0.12, 0.12, 2.4, 5), toon('#5b3a29'), sx * 1.1, 1.2, sz * 1.1, false));
-          wt.add(mesh(new THREE.CylinderGeometry(1.6, 1.6, 3.2, 12), toon('#9c6b4a'), 0, 4, 0, false));
-          wt.add(mesh(new THREE.ConeGeometry(1.8, 1.3, 12), toon('#6b4a35'), 0, 6.25, 0, false));
-          wt.position.set(lx + (r() - 0.5) * tw * 0.4, topY, lz + (r() - 0.5) * td * 0.4);
-          extras.add(wt);
-        } else if (what < 0.65) {
-          extras.add(mesh(new THREE.BoxGeometry(3 + r() * 3, 1.6, 2 + r() * 2), toon('#c9ccd4'), lx + (r() - 0.5) * tw * 0.4, topY + 0.8, lz + (r() - 0.5) * td * 0.4, false));
+        if (tall > 90) lot.top = { kind: 'mast' };
+        else if (what < 0.3) lot.top = { kind: 'tank', x: lx + (r() - 0.5) * tw * 0.4, z: lz + (r() - 0.5) * td * 0.4 };
+        else if (what < 0.65) {
+          const pw = 3 + r() * 3;
+          const pd = 2 + r() * 2;
+          lot.top = { kind: 'plant', w: pw, d: pd, x: lx + (r() - 0.5) * tw * 0.4, z: lz + (r() - 0.5) * td * 0.4 };
         }
+        lots.push(lot);
       }
     }
   }
 
-  // The office's own building, from the street up to the roof, in its outside paint.
-  const tower = new Walls();
-  tower.box((B.minX + B.maxX) / 2, (B.minZ + B.maxZ) / 2, B.maxX - B.minX, B.maxZ - B.minZ, G, -0.3, 0, 0, 4.5);
+  // The office's own building, a floor per project, from the street up to the roof, and the open
+  // garage at the bottom: walled at the back and on the west side, columns along the other two.
+  const building = buildTower([], night);
+  group.add(building.group);
+  const garage = new THREE.Group();
+  const garageH = -STREET_Y - SLAB;
+  const concrete = toon('#d3d6dd');
+  garage.add(mesh(new THREE.BoxGeometry(B.maxX - B.minX, garageH, WALL_T), concrete, (B.minX + B.maxX) / 2, garageH / 2, B.minZ + WALL_T / 2, false));
+  garage.add(mesh(new THREE.BoxGeometry(WALL_T, garageH, B.maxZ - B.minZ), concrete, B.minX + WALL_T / 2, garageH / 2, (B.minZ + B.maxZ) / 2, false));
+  const column = new THREE.BoxGeometry(0.5, garageH, 0.5);
+  for (const x of [B.maxX - 0.25, -9.6, 0, 9.6]) garage.add(mesh(column, toon('#e6e8ee'), x, garageH / 2, B.maxZ - 0.25, false));
+  for (const z of [-6.5, 6.5, B.minZ + 0.25]) garage.add(mesh(column, toon('#e6e8ee'), B.maxX - 0.25, garageH / 2, z, false));
+  garage.add(mesh(new THREE.PlaneGeometry(B.maxX - B.minX, B.maxZ - B.minZ).rotateX(-Math.PI / 2), toon('#9a9ea8'), (B.minX + B.maxX) / 2, 0.03, (B.minZ + B.maxZ) / 2, false));
+  street.add(mergeByMaterial(garage));
   // Its plaza, with a few trees in front.
-  parks.add(mesh(new THREE.PlaneGeometry(inner, inner).rotateX(-Math.PI / 2), toon('#cfc8b8'), blockAt(0, 0).x, G + 0.02, blockAt(0, 0).z, false));
+  parks.add(mesh(new THREE.PlaneGeometry(inner, inner).rotateX(-Math.PI / 2), toon('#cfc8b8'), blockAt(0, 0).x, 0.02, blockAt(0, 0).z, false));
   for (const [x, z] of [
     [-16, 18],
     [-6, 18],
     [6, 18],
     [16, 18],
     [-20, -18],
-    [20, -18],
+    // Clear of the back office, when a floor's built out into one (see WING).
+    [21, -20],
   ]) {
     const t = tree(r);
-    t.position.set(x, G, z);
+    t.position.set(x, 0, z);
     parks.add(t);
   }
+  street.add(mergeByMaterial(parks));
 
+  // The buildings' walls (a material for each paint), their roofs, and what's on them.
   const gradient = (toon('#fff') as THREE.MeshToonMaterial).gradientMap;
-  const material = (p: Paint, seed: number) => {
-    const lit = litTexture(p, seed);
-    lit.repeat.set(1 / 16, 1 / 16);
-    const m = new THREE.MeshToonMaterial({ map: bayTexture(p), emissive: '#ffffff', emissiveMap: lit, emissiveIntensity: 0, gradientMap: gradient });
-    night.windows.push(m);
+  const paintMats = new Map<number, THREE.MeshToonMaterial>();
+  const paintOf = (i: number) => {
+    let m = paintMats.get(i);
+    if (!m) {
+      const p = PAINTS[i];
+      const lit = litTexture(p, i + 1);
+      lit.repeat.set(1 / 16, 1 / 16);
+      m = new THREE.MeshToonMaterial({ map: bayTexture(p), emissive: '#ffffff', emissiveMap: lit, emissiveIntensity: 0, gradientMap: gradient });
+      night.windows.push(m);
+      paintMats.set(i, m);
+    }
     return m;
   };
-  walls.forEach((w, i) => {
-    if (!w.pos.length) return;
-    const m = new THREE.Mesh(w.geometry(), material(PAINTS[i], i + 1));
-    group.add(m);
-  });
-  const towerMesh = new THREE.Mesh(tower.geometry(), material(TOWER_PAINT, 99));
-  towerMesh.receiveShadow = true;
-  group.add(towerMesh);
-  group.add(new THREE.Mesh(tops.geometry(), toon('#a19d97')));
-  group.add(mergeByMaterial(extras));
-  group.add(mergeByMaterial(parks));
+  const roofs = toon('#a19d97');
+  const mastGeo = new THREE.CylinderGeometry(0.2, 0.35, 12, 6);
+  const legGeo = new THREE.CylinderGeometry(0.12, 0.12, 2.4, 5);
+  const tankGeo = new THREE.CylinderGeometry(1.6, 1.6, 3.2, 12);
+  const capGeo = new THREE.ConeGeometry(1.8, 1.3, 12);
+  const unitGeo = new THREE.BoxGeometry(1, 1.6, 1);
+  const glow = glowTexture();
+  const beaconMat = new THREE.PointsMaterial({ size: 5, map: glow, color: '#ff3b30', transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
+  const beaconPoints = new THREE.Points(new THREE.BufferGeometry(), beaconMat);
+  street.add(beaconPoints);
+  let raised: THREE.Object3D[] = [];
+
+  /** Puts up the buildings, each as tall as `rise` says with the street `drop` below the roof. */
+  const raise = (drop: number) => {
+    for (const o of raised) {
+      o.removeFromParent();
+      o.traverse((m) => {
+        if ((m as THREE.Mesh).isMesh) (m as THREE.Mesh).geometry.dispose();
+      });
+    }
+    raised = [];
+    const walls = new Map<number, Walls>();
+    const tops = new Walls();
+    const extras = new THREE.Group();
+    const beacons: number[] = [];
+    for (const lot of lots) {
+      const k = rise(lot.ring, drop);
+      let bucket = walls.get(lot.paint);
+      if (!bucket) walls.set(lot.paint, (bucket = new Walls()));
+      let topY = lot.h * k;
+      bucket.box(lot.x, lot.z, lot.w, lot.d, 0, topY, lot.ou, lot.ov);
+      let tw = lot.w;
+      let td = lot.d;
+      if (lot.step) {
+        tops.top(lot.x, lot.z, lot.w, lot.d, topY);
+        tw = lot.step.w;
+        td = lot.step.d;
+        bucket.box(lot.x, lot.z, tw, td, topY, topY + lot.step.up * k, lot.ou + 5, lot.ov + 3);
+        topY += lot.step.up * k;
+      }
+      tops.top(lot.x, lot.z, tw, td, topY);
+      const top = lot.top;
+      if (top?.kind === 'mast') {
+        extras.add(mesh(mastGeo, toon('#8d99ae'), lot.x, topY + 6, lot.z, false));
+        beacons.push(lot.x, topY + 12.3, lot.z);
+      } else if (top?.kind === 'tank') {
+        const wt = new THREE.Group();
+        for (const [sx, sz] of [
+          [-1, -1],
+          [1, -1],
+          [-1, 1],
+          [1, 1],
+        ])
+          wt.add(mesh(legGeo, toon('#5b3a29'), sx * 1.1, 1.2, sz * 1.1, false));
+        wt.add(mesh(tankGeo, toon('#9c6b4a'), 0, 4, 0, false));
+        wt.add(mesh(capGeo, toon('#6b4a35'), 0, 6.25, 0, false));
+        wt.position.set(top.x, topY, top.z);
+        extras.add(wt);
+      } else if (top?.kind === 'plant') {
+        const unit = mesh(unitGeo, toon('#c9ccd4'), top.x, topY + 0.8, top.z, false);
+        unit.scale.set(top.w, 1, top.d);
+        extras.add(unit);
+      }
+    }
+    for (const [paint, w] of walls) raised.push(new THREE.Mesh(w.geometry(), paintOf(paint)));
+    raised.push(new THREE.Mesh(tops.geometry(), roofs), mergeByMaterial(extras));
+    street.add(...raised);
+    beaconPoints.geometry.dispose();
+    beaconPoints.geometry = new THREE.BufferGeometry();
+    beaconPoints.geometry.setAttribute('position', new THREE.Float32BufferAttribute(beacons, 3));
+  };
 
   // Street lamps down both sides of every street, and red lights blinking on the masts.
-  const glow = glowTexture();
   const lampPos: number[] = [];
   for (let k = -n; k <= n; k++) {
     for (let a = -RADIUS; a <= RADIUS; a += 28) {
@@ -400,8 +478,8 @@ export function buildCity(night: NightParts): City {
         const off = s * (ROAD / 2 + 0.6);
         const sx = STREET_X + k * PERIOD;
         const sz = STREET_Z + k * PERIOD;
-        if (Math.hypot(sx, a) < RADIUS) lampPos.push(sx + off, G + 5, a);
-        if (Math.hypot(a, sz) < RADIUS) lampPos.push(a, G + 5, sz + off);
+        if (Math.hypot(sx, a) < RADIUS) lampPos.push(sx + off, 5, a);
+        if (Math.hypot(a, sz) < RADIUS) lampPos.push(a, 5, sz + off);
       }
     }
   }
@@ -409,12 +487,7 @@ export function buildCity(night: NightParts): City {
   lampGeo.setAttribute('position', new THREE.Float32BufferAttribute(lampPos, 3));
   const lamps = new THREE.Points(lampGeo, new THREE.PointsMaterial({ size: 4, map: glow, color: '#ffcf8a', transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }));
   lamps.visible = false;
-  group.add(lamps);
-  const beaconGeo = new THREE.BufferGeometry();
-  beaconGeo.setAttribute('position', new THREE.Float32BufferAttribute(beacons, 3));
-  const beaconMat = new THREE.PointsMaterial({ size: 5, map: glow, color: '#ff3b30', transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
-  const beaconPoints = new THREE.Points(beaconGeo, beaconMat);
-  group.add(beaconPoints);
+  street.add(lamps);
 
   // Cars, up and down the streets round the office's block.
   const cars: Car[] = [];
@@ -444,7 +517,7 @@ export function buildCity(night: NightParts): City {
   const tails = new THREE.InstancedMesh(new THREE.BoxGeometry(0.12, 0.25, 1.6).translate(-2.12, 0.95, 0), tailMat, cars.length);
   for (const m of [carMesh, heads, tails]) {
     m.frustumCulled = false;
-    group.add(m);
+    street.add(m);
   }
   const place = new THREE.Matrix4();
   const q = new THREE.Quaternion();
@@ -456,8 +529,8 @@ export function buildCity(night: NightParts): City {
       c.at += c.dir * c.speed * dt;
       if (c.at > RADIUS) c.at -= RADIUS * 2;
       if (c.at < -RADIUS) c.at += RADIUS * 2;
-      if (c.alongX) at.set(c.at, G, c.lane);
-      else at.set(c.lane, G, c.at);
+      if (c.alongX) at.set(c.at, 0, c.lane);
+      else at.set(c.lane, 0, c.at);
       // The car's nose is +x: turned to face the way it's going.
       const yaw = c.alongX ? (c.dir > 0 ? 0 : Math.PI) : c.dir > 0 ? -Math.PI / 2 : Math.PI / 2;
       q.setFromAxisAngle(up, yaw);
@@ -493,8 +566,26 @@ export function buildCity(night: NightParts): City {
   }
   group.add(mergeByMaterial(sky));
 
+  let floorsNow = 0;
+  let wingsNow = '';
+  let riseNow = -1;
   return {
     group,
+    setFloors(floors, wings = []) {
+      floors = Math.max(1, floors);
+      if (floors === floorsNow && wings.join() === wingsNow) return;
+      floorsNow = floors;
+      wingsNow = wings.join();
+      const drop = roofDrop(floors);
+      street.position.y = -drop;
+      building.set(floors, floors, wings);
+      // The buildings only change height up to six floors (see rise).
+      const k = Math.min(1, drop / LAID_OUT);
+      if (k !== riseNow) {
+        riseNow = k;
+        raise(drop);
+      }
+    },
     update(t, dt, dark) {
       moveCars(dt);
       lamps.visible = dark > 0.02;

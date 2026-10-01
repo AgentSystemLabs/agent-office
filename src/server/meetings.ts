@@ -1,23 +1,28 @@
 import { execFile } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { closeSync, cpSync, existsSync, mkdirSync, openSync, readFileSync, readSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { MEETING_SEATS } from '../shared/layout.js';
 import { MAX_MEETING_BUDGET, MEETING_NOTES_DIR, MEETING_PATTERNS, TOKENS_PER_SEAT, isMeetingPattern, meetingRecord, outputProblem, slugify } from '../shared/meetings.js';
-import { fmtTokens, isAgentEffort, isAgentProvider, tokensOf, type AgentEffort, type AgentProvider, type Meeting, type MeetingRecord, type MeetingRequest, type MeetingState, type MeetingTurn, type WorkerInfo, type WorkerStatus } from '../shared/protocol.js';
+import { fmtTokens, isAgentEffort, isAgentProvider, tokensOf, type AgentChoice, type AgentEffort, type AgentProvider, type Meeting, type MeetingRecord, type MeetingRequest, type MeetingState, type MeetingTurn, type WorkerInfo, type WorkerStatus } from '../shared/protocol.js';
 import { validateWorkerEffort, validateWorkerModel } from './agents.js';
-import { mergeFindings, normalize, parseFindings, type ReviewFinding } from '../shared/review.js';
+import { providerMeta, takesEffort, takesModel } from '../shared/providers.js';
+import type { ReviewFinding } from '../shared/review.js';
+import { FINDINGS, ReviewPanel, findingsNote, readStart } from './meeting-review.js';
 import { gitError, type WorktreeRef, type WorktreeState } from './worktrees.js';
+import { PROMPTS, fillPrompt, type PromptId, type PromptVars } from '../shared/prompts.js';
 
 const execFileP = promisify(execFile);
 
 /** What the meeting room needs from the worker manager. Narrow on purpose, so a test can fake it. */
 export interface MeetingWorkers {
   readonly defaultProvider: AgentProvider;
+  /** What a meeting seats when whoever calls it doesn't pick (⚙️ Settings); the default provider without it. */
+  readonly officeDefault?: AgentChoice;
   list(): WorkerInfo[];
   /** Seats an agent at a chair of the meeting table, for meeting `meeting`, in its worktree when it has one. */
-  seat(deskId: string, by: string, prompt: string, provider: AgentProvider, model: string | undefined, effort: AgentEffort | undefined, meeting: { id: string; worktree?: Meeting['worktree'] }): WorkerInfo | string;
+  seat(deskId: string, by: string, prompt: string, provider: AgentProvider, model: string | undefined, effort: AgentEffort | undefined, meeting: { id: string; worktree?: Meeting['worktree'] }, owner?: string): WorkerInfo | string;
   prompt(id: string, text: string, by?: string): string | undefined;
   /** Keys into its terminal: Esc, to stop what it's doing. */
   write(id: string, data: string, by: string): void;
@@ -26,7 +31,8 @@ export interface MeetingWorkers {
 
 /** Git for the meeting's own worktree: made when it starts, tidied away once everyone has gone home. */
 export interface MeetingTrees {
-  create(slug: string): (Required<WorktreeRef> & { from?: string }) | string;
+  /** `note` says when commits the project has were left out of it (see Worktrees.create). */
+  create(slug: string): (Required<Omit<WorktreeRef, 'made'>> & { from?: string; note?: string }) | string;
   inspect(wt: WorktreeRef): Promise<WorktreeState>;
   remove(wt: WorktreeRef, cleanup: 'worktree' | 'all'): Promise<string | undefined>;
 }
@@ -40,7 +46,9 @@ export interface MeetingEvents {
    * Posts the review panel's review on its pull request: the head of the table's summary, and the
    * findings as line comments tagged by lens. Resolves to the review's URL.
    */
-  postReview(pr: number, summary: string, findings: ReviewFinding[], lenses: string[]): Promise<string>;
+  postReview(pr: number, summary: string, findings: ReviewFinding[], lenses: string[], owner?: string): Promise<string>;
+  /** One of the office's prompts as it has it now (rewritten in ⚙️ Settings, or the default). */
+  prompt?(id: PromptId): string;
 }
 
 const PUMP_MS = 3000;
@@ -54,10 +62,6 @@ const ROLE_MAX = 40;
 const PARTS_MAX = 100;
 /** Who the office types a meeting's prompts as. */
 const BY = 'the meeting room';
-/** The review panel's merged findings, in the notes, for the head of the table to go through. */
-const FINDINGS = 'findings.json';
-/** How much of the head of the table's summary goes on the pull request. */
-const SUMMARY_MAX = 20_000;
 /** What a red team writes when it has nothing to report. */
 const NOTHING = /^\W*no findings\b/i;
 
@@ -97,6 +101,8 @@ export class MeetingRoom {
   private closing = false;
   /** When each handed-over part's worker was first seen ready without having started on it. */
   private readySince = new Map<MeetingTurn, number>();
+  /** The review panel's findings: read, merged, and posted on the pull request. */
+  private review: ReviewPanel;
 
   constructor(
     /** The project's checkout. */
@@ -107,6 +113,13 @@ export class MeetingRoom {
     private trees: MeetingTrees | undefined,
     private events: MeetingEvents,
   ) {
+    this.review = new ReviewPanel({
+      cwd: (m) => this.cwd(m),
+      toast: (text, level) => events.toast(text, level),
+      changed: () => this.changed(),
+      prompt: (id, text) => workers.prompt(id, text, BY),
+      postReview: (...args) => events.postReview(...args),
+    });
     this.statePath = path.join(dataDir, 'meetings.json');
     this.restore();
     this.timer = setInterval(() => this.tick(), PUMP_MS);
@@ -117,7 +130,8 @@ export class MeetingRoom {
   }
 
   /** Calls a meeting. Returns why it couldn't, or undefined once everyone is sitting down. */
-  start(req: MeetingRequest, by: string): string | undefined {
+  /** `owner` is the account calling it: the workers run on its sign-ins, and a review panel's review is posted as it. */
+  start(req: MeetingRequest, by: string, owner?: string): string | undefined {
     if (this.current?.status === 'running') return `The meeting room is busy with “${this.current.title}”: stop that meeting first`;
     if (!isMeetingPattern(req.pattern)) return 'Unknown meeting pattern';
     const pattern = MEETING_PATTERNS[req.pattern];
@@ -125,10 +139,12 @@ export class MeetingRoom {
     if (paused) return paused;
     const prompt = String(req.prompt ?? '').replace(/\r\n?/g, '\n').trim().slice(0, PROMPT_MAX);
     if (!prompt) return 'Say what the meeting is about';
-    const provider = req.provider ?? this.workers.defaultProvider;
+    // Nobody picked: the office's default worker, model and effort included.
+    const picked = req.provider !== undefined ? { provider: req.provider, model: req.model, effort: req.effort } : (this.workers.officeDefault ?? { provider: this.workers.defaultProvider });
+    const provider = picked.provider;
     if (!isAgentProvider(provider) || (provider === 'custom' && this.workers.defaultProvider !== 'custom')) return 'Unknown agent provider';
-    const model = provider === 'claude' || provider === 'opencode' ? req.model || undefined : undefined;
-    const effort = provider === 'claude' && isAgentEffort(req.effort) ? req.effort : undefined;
+    const model = takesModel(provider) ? picked.model || undefined : undefined;
+    const effort = takesEffort(provider) && isAgentEffort(picked.effort) ? picked.effort : undefined;
     const bad = validateWorkerModel('agent', provider, model) ?? validateWorkerEffort('agent', provider, effort);
     if (bad) return bad;
 
@@ -163,7 +179,9 @@ export class MeetingRoom {
     if (this.trees) {
       const made = this.trees.create(`meeting-${slug}-${id.slice(0, 4)}`);
       if (typeof made === 'string') return made;
-      worktree = made;
+      const { note, ...ref } = made;
+      worktree = ref;
+      if (note) this.events.toast(`🌿 The meeting's worktree ${note}`, 'info');
     }
     const m: Meeting = {
       id,
@@ -188,6 +206,7 @@ export class MeetingRoom {
       costKnown: true,
       status: 'running',
       calledBy: by,
+      ...(owner ? { owner } : {}),
       startedAt: Date.now(),
       hold: req.pattern === 'review' && req.hold === true ? true : undefined,
       worktree,
@@ -198,8 +217,8 @@ export class MeetingRoom {
     const first = this.plan(m, 1, 1) ?? [];
     for (let i = 0; i < m.seats.length; i++) {
       const part = first.find((p) => p.seat === i);
-      const text = `${this.brief(m, i)}\n\n${part ? this.ask(m, part) : `Round 1 has no part for you. Reply in one line that you're ready and end your turn; your part comes in a later message.`}`;
-      const w = this.workers.seat(m.seats[i].deskId, `${by} (meeting)`, text, provider, model, effort, { id, worktree });
+      const text = `${this.brief(m, i)}\n\n${part ? this.ask(m, part) : this.say('meeting.wait')}`;
+      const w = this.workers.seat(m.seats[i].deskId, `${by} (meeting)`, text, provider, model, effort, { id, worktree }, owner);
       if (typeof w === 'string') {
         for (const s of m.seats) if (s.workerId) void this.workers.kill(s.workerId);
         if (worktree && this.trees) void this.trees.remove(worktree, 'all');
@@ -238,18 +257,9 @@ export class MeetingRoom {
     return undefined;
   }
 
-  /**
-   * Posts a held review panel's findings on its pull request, leaving out those at the indexes in
-   * `drop` (the ones someone trimmed in the meeting room).
-   */
+  /** Posts a held review panel's findings, leaving out those at the indexes in `drop`. */
   post(drop: number[], by: string): string | undefined {
-    const m = this.current;
-    if (!m || m.pattern !== 'review' || m.status !== 'done' || !m.findings) return 'No review panel has findings waiting';
-    if (m.review?.url || m.review?.posting) return 'The panel’s review is already on the pull request';
-    const gone = new Set(drop.filter((i) => Number.isInteger(i)));
-    this.events.toast(`🔍 ${by} is posting the panel's review on PR #${m.pr}${gone.size ? ` (${gone.size} finding${gone.size === 1 ? '' : 's'} trimmed)` : ''}`, 'info');
-    this.publish(m, m.findings.filter((_, i) => !gone.has(i)));
-    return undefined;
+    return this.review.post(this.current, drop, by);
   }
 
   /** A worker changed: cheap unless it's at the table. */
@@ -329,7 +339,7 @@ export class MeetingRoom {
     const retry = () => {
       t.retried = true;
       this.readySince.delete(t);
-      return this.workers.prompt(w.id, `You ended your turn without writing ${path.join(this.cwd(m), t.file)}, which the meeting is waiting on. Write it now, then end your turn.`, BY);
+      return this.workers.prompt(w.id, this.say('meeting.nudge', { file: path.join(this.cwd(m), t.file) }), BY);
     };
     switch (t.state) {
       case 'waiting': {
@@ -371,22 +381,7 @@ export class MeetingRoom {
       case 'working': {
         if (!ready(w.status)) return false;
         if (this.written(m, t)) {
-          // A reviewer's findings the office can't read get one more go; after that they're left out.
-          const bad = t.retried ? undefined : this.unreadable(m, t);
-          if (bad) {
-            // Moved aside, so the part only counts as done once it's written again.
-            const file = path.join(this.cwd(m), t.file);
-            try {
-              renameSync(file, `${file}.unreadable`);
-            } catch {
-              // then it's taken as it is next time round
-            }
-            t.retried = true;
-            t.state = 'sent';
-            t.sentAt = now;
-            this.workers.prompt(w.id, `The office couldn't read your findings (${bad}); they're in ${file}.unreadable now. Write them again to ${file} as nothing but a JSON array, like [{"file": "src/a.ts", "line": 12, "severity": "high", "comment": "…"}] (or [] when there are none), then end your turn.`, BY);
-            return true;
-          }
+          if (this.review.sendBack(m, t, w.id)) return true;
           t.state = 'done';
           return true;
         }
@@ -408,7 +403,7 @@ export class MeetingRoom {
   private next(m: Meeting) {
     // Red / blue: the red team found nothing more to fix, so blue writes it up this round.
     if (m.pattern === 'redblue' && m.step === 1 && NOTHING.test(this.head(m, m.turns[0]?.file))) m.lastRound = m.round;
-    if (m.pattern === 'review' && m.round === 1 && !this.isLast(m, 1)) this.gather(m);
+    if (m.pattern === 'review' && m.round === 1 && !this.isLast(m, 1)) this.review.gather(m);
     const more = this.plan(m, m.round, m.step + 1);
     if (more) {
       m.step++;
@@ -436,9 +431,7 @@ export class MeetingRoom {
     this.events.toast(`🤝 The ${p.label} meeting on “${m.title}” is done: it wrote ${m.output}`, 'info');
     const cwd = this.cwd(m);
     if (m.pattern === 'review' && m.pr !== undefined) {
-      m.findings = this.finalFindings(m);
-      if (m.hold) this.events.toast(`🔍 The panel's ${m.findings.length} finding${m.findings.length === 1 ? '' : 's'} on PR #${m.pr} are waiting in the meeting room: trim them, then post the review`, 'info');
-      else this.publish(m, m.findings);
+      this.review.finish(m);
     } else if (m.worktree) {
       void commitAll(cwd, `${m.title}\n\n${p.label} meeting in Agent Office, called by ${m.calledBy}. Output: ${m.output}`, m.notes).then(
         (sha) => {
@@ -451,31 +444,6 @@ export class MeetingRoom {
         },
       );
     }
-  }
-
-  /** Posts the review panel's review: the summary the head of the table wrote, and these findings. */
-  private publish(m: Meeting, findings: ReviewFinding[]) {
-    const pr = m.pr!;
-    let summary = '';
-    try {
-      summary = readStart(path.join(this.cwd(m), m.output), SUMMARY_MAX * 2).slice(0, SUMMARY_MAX);
-    } catch {
-      // posted without a summary: the findings are the review
-    }
-    m.review = { posting: true };
-    this.changed();
-    void this.events.postReview(pr, summary, findings, m.seats.map((s) => s.role)).then(
-      (url) => {
-        m.review = { url };
-        this.events.toast(`🔍 Posted the panel's review on PR #${pr}: ${findings.length} finding${findings.length === 1 ? '' : 's'}`, 'info');
-        this.changed();
-      },
-      (err) => {
-        m.review = { error: (err as Error).message };
-        this.events.toast(`Couldn't post the panel's review on PR #${pr}: ${m.review.error}`, 'warn');
-        this.changed();
-      },
-    );
   }
 
   /** Stops the meeting short, saying why. Whoever is still busy is told to stop (Esc). */
@@ -536,7 +504,7 @@ export class MeetingRoom {
       // A worker sent home took its figures with it: keep the last ones seen.
       if (w?.usage) {
         s.tokens = tokensOf(w.usage);
-        s.cost = w.usage.costKnown === false || (w.provider === 'codex' && w.usage.costKnown !== true) ? undefined : w.usage.cost;
+        s.cost = w.usage.costKnown === false || (!!providerMeta(w.provider)?.usage.noCost && w.usage.costKnown !== true) ? undefined : w.usage.cost;
       }
       tokens += s.tokens ?? 0;
       if (s.tokens && s.cost === undefined) known = false;
@@ -571,17 +539,28 @@ export class MeetingRoom {
         : `You all share one git worktree, on the branch ${m.worktree.branch}. Don't commit, push or switch branches: when the meeting is over, the office commits ${m.output}, with whatever else was changed, there.`;
     // The worktree sits inside the project's own folder, where a search can wander off to.
     const inside = m.worktree ? ` The whole project is checked out in your working directory: read and write files there, by paths inside it, and never in a folder above it.` : '';
-    return [
-      m.title,
-      `You're the ${role} in a ${p.label} meeting in Agent Office's meeting room, round the table with ${list(others)}. ${how[m.pattern]}`,
-      `What the meeting is about:\n${m.prompt}`,
-      m.pr !== undefined ? `The pull request is #${m.pr}: read it with gh pr view ${m.pr} and gh pr diff ${m.pr}.` : '',
-      m.issue !== undefined ? `It comes from GitHub issue #${m.issue}: gh issue view ${m.issue} --comments.` : '',
-      `How it runs: the office hands each of you your part of every round in a message like this one. Do just that part, write it to the file it names, and end your turn; the next round starts once every part of this one is written. Your working directory is ${this.cwd(m)}, and every file of the meeting is in it: the notes go in ${path.join(this.cwd(m), m.notes)}/, which is where you read what the others wrote. The meeting ends when ${m.output} (${path.join(this.cwd(m), m.output)}) is written, and only the part that says so writes it. It has ${m.rounds} round${m.rounds === 1 ? '' : 's'} at most and ${fmtTokens(m.budget)} tokens between all of you, so keep your notes short: bullets over prose.`,
-      where + inside,
-    ]
-      .filter(Boolean)
-      .join('\n\n');
+    return this.say('meeting.brief', {
+      title: m.title,
+      role,
+      pattern: p.label,
+      others: list(others),
+      how: how[m.pattern],
+      about: m.prompt,
+      pullRequest: m.pr !== undefined ? `The pull request is #${m.pr}: read it with gh pr view ${m.pr} and gh pr diff ${m.pr}.` : '',
+      issue: m.issue !== undefined ? `It comes from GitHub issue #${m.issue}: gh issue view ${m.issue} --comments.` : '',
+      cwd: this.cwd(m),
+      notes: path.join(this.cwd(m), m.notes),
+      output: m.output,
+      outputPath: path.join(this.cwd(m), m.output),
+      rounds: `${m.rounds} round${m.rounds === 1 ? '' : 's'}`,
+      budget: fmtTokens(m.budget),
+      where: where + inside,
+    });
+  }
+
+  /** One of the office's prompts, filled in. */
+  private say(id: PromptId, vars: PromptVars = {}): string {
+    return fillPrompt(this.events.prompt?.(id) ?? PROMPTS[id].text, vars);
   }
 
   /** A part, as the prompt that hands it over. */
@@ -599,19 +578,18 @@ export class MeetingRoom {
     const notes = (r: number, seats: number[]) => seats.map((i) => A(note(r, i))).join(', ');
     const all = m.seats.map((_, i) => i);
     const last = this.isLast(m, round);
-    const out = `That file is the meeting's output.`;
     switch (m.pattern) {
       case 'debate': {
         if (step > 1) return null;
         if (last) {
-          return [{ seat: 0, doing: 'writing the decision', file: m.output, ask: `Read every note in ${A(m.notes)}/ (the last round's are ${notes(round - 1, all)}). Weigh the proposals and critiques, and write the decision to ${A(m.output)}: what was decided and why, the options that lost and why, and what's still open. ${out}` }];
+          return [{ seat: 0, doing: 'writing the decision', file: m.output, ask: this.say('meeting.debate.decide', { notes: A(m.notes), lastNotes: notes(round - 1, all), output: A(m.output) }) }];
         }
-        if (round === 1) return all.map((i) => ({ seat: i, doing: 'proposing', file: note(1, i), ask: `Propose your answer, from where you stand as the ${m.seats[i].role}: what you'd do, why, and what it costs. Write it to ${A(note(1, i))}, then end your turn.` }));
+        if (round === 1) return all.map((i) => ({ seat: i, doing: 'proposing', file: note(1, i), ask: this.say('meeting.debate.propose', { role: m.seats[i].role, file: A(note(1, i)) }) }));
         return all.map((i) => ({
           seat: i,
           doing: 'critiquing',
           file: note(round, i),
-          ask: `Read the others' notes from round ${round - 1}: ${notes(round - 1, all.filter((j) => j !== i))}. Say where they're wrong or miss something, then give your revised proposal. Write it to ${A(note(round, i))}, then end your turn.`,
+          ask: this.say('meeting.debate.critique', { previousRound: round - 1, theirNotes: notes(round - 1, all.filter((j) => j !== i)), file: A(note(round, i)) }),
         }));
       }
       case 'lead': {
@@ -619,12 +597,13 @@ export class MeetingRoom {
         if (step > 1) return null;
         const plan = `${m.notes}/plan.md`;
         if (round === 1) {
-          return [{ seat: 0, doing: 'planning', file: plan, ask: `Read the task and the code it touches, and split the work into ${team.length} part${team.length === 1 ? '' : 's'}, one each for ${list(team.map((i) => `the ${m.seats[i].role}`))}. Write the plan to ${A(plan)}: a section for each of them headed with their role (like "## ${m.seats[team[0]].role}"), saying what to do and which files they own, so that no two of them touch the same file. Don't make the changes yourself. Then end your turn.` }];
+          const parts = `${team.length} part${team.length === 1 ? '' : 's'}`;
+          return [{ seat: 0, doing: 'planning', file: plan, ask: this.say('meeting.lead.plan', { parts, team: list(team.map((i) => `the ${m.seats[i].role}`)), exampleRole: m.seats[team[0]].role, file: A(plan) }) }];
         }
         if (round === 2) {
-          return team.map((i) => ({ seat: i, doing: 'doing their part', file: note(2, i), ask: `Read ${A(plan)} and do your part, the section headed "## ${m.seats[i].role}". Change only the files it gives you, and don't commit. When you're done, write what you did and what the ${m.seats[0].role} should know (what you couldn't do, how you checked it) to ${A(note(2, i))}, then end your turn.` }));
+          return team.map((i) => ({ seat: i, doing: 'doing their part', file: note(2, i), ask: this.say('meeting.lead.part', { plan: A(plan), role: m.seats[i].role, lead: m.seats[0].role, file: A(note(2, i)) }) }));
         }
-        return [{ seat: 0, doing: 'merging the work', file: m.output, ask: `Read the team's reports (${notes(2, team)}) and look at their changes (git status, git diff). Fix whatever doesn't fit together and check that it works (build it, run the tests). Then write ${A(m.output)}: what was done, by whom, and how it was checked. ${out} Don't commit.` }];
+        return [{ seat: 0, doing: 'merging the work', file: m.output, ask: this.say('meeting.lead.merge', { reports: notes(2, team), output: A(m.output) }) }];
       }
       case 'mapreduce': {
         if (step > 1) return null;
@@ -632,10 +611,10 @@ export class MeetingRoom {
         if (round === 1) {
           return mappers.map((i, k) => {
             const mine = (m.parts ?? []).filter((_, j) => j % mappers.length === k);
-            return { seat: i, doing: 'mapping', file: note(1, i), ask: `Do the task for your parts, and only those:\n${mine.map((x) => `- ${x}`).join('\n')}\nWrite what you found or did to ${A(note(1, i))}, a section per part, then end your turn.` };
+            return { seat: i, doing: 'mapping', file: note(1, i), ask: this.say('meeting.mapreduce.map', { parts: mine.map((x) => `- ${x}`).join('\n'), file: A(note(1, i)) }) };
           });
         }
-        return [{ seat: 0, doing: 'reducing', file: m.output, ask: `Read the mappers' results (${notes(1, mappers)}) and combine them into ${A(m.output)}: one result that reads as a whole, not a pile of sections. ${out}` }];
+        return [{ seat: 0, doing: 'reducing', file: m.output, ask: this.say('meeting.mapreduce.reduce', { results: notes(1, mappers), output: A(m.output) }) }];
       }
       case 'redblue': {
         const [blue, red] = [0, 1];
@@ -643,14 +622,14 @@ export class MeetingRoom {
         const blueNote = `${m.notes}/r${round}-blue.md`;
         if (step === 1) {
           const before = round > 1 ? ` The Blue team's fixes from round ${round - 1} are in ${A(`${m.notes}/r${round - 1}-blue.md`)}: check them first, then keep looking.` : '';
-          return [{ seat: red, doing: 'attacking', file: redNote, ask: `Attack the change the meeting is about like an adversary would: bugs, security holes, unhandled edge cases, broken error handling. Read the code; don't change it.${before} List each finding in ${A(redNote)} with its file:line, what goes wrong and how to make it happen, the most serious first. If you find nothing worth fixing, write just NO FINDINGS. Then end your turn.` }];
+          return [{ seat: red, doing: 'attacking', file: redNote, ask: this.say('meeting.redblue.attack', { previousFixes: before, file: A(redNote) }) }];
         }
         if (step > 2) return null;
         if (m.lastRound === round) {
-          return [{ seat: blue, doing: 'writing it up', file: m.output, ask: `The Red team found nothing more in ${A(redNote)}. Write ${A(m.output)}: every finding from every round (${A(m.notes)}/), what was fixed and how, and what's still open. ${out} Don't commit.` }];
+          return [{ seat: blue, doing: 'writing it up', file: m.output, ask: this.say('meeting.redblue.writeup', { findings: A(redNote), notes: A(m.notes), output: A(m.output) }) }];
         }
-        const wrap = last ? ` This is the last round: once you've fixed things, also write ${A(m.output)}: every finding from every round (${A(m.notes)}/), what was fixed and how, and what's still open. ${out}` : '';
-        return [{ seat: blue, doing: last ? 'fixing and writing it up' : 'fixing', file: last ? m.output : blueNote, ask: `Read the Red team's findings in ${A(redNote)} and fix each one that's real, in the checkout (don't commit). For each, say in ${A(blueNote)} what you did, or why it isn't a problem.${wrap} Then end your turn.` }];
+        const wrap = last ? ` This is the last round: once you've fixed things, also write ${A(m.output)}: every finding from every round (${A(m.notes)}/), what was fixed and how, and what's still open. That file is the meeting's output.` : '';
+        return [{ seat: blue, doing: last ? 'fixing and writing it up' : 'fixing', file: last ? m.output : blueNote, ask: this.say('meeting.redblue.fix', { findings: A(redNote), file: A(blueNote), lastRound: wrap, output: A(m.output) }) }];
       }
       case 'review': {
         if (step > 1) return null;
@@ -659,59 +638,12 @@ export class MeetingRoom {
             seat: i,
             doing: 'reviewing',
             file: findingsNote(m, i),
-            ask: `Review pull request #${m.pr} through your lens, ${m.seats[i].role}, and nothing else. Read it with gh pr view ${m.pr} and gh pr diff ${m.pr}; don't check it out or change any files. Write your findings to ${A(findingsNote(m, i))} as nothing but a JSON array, the most serious first, one object per problem: {"file": "path/from/the/repo/root.ts", "line": 12, "severity": "high" | "medium" | "low", "comment": "what's wrong and what to do about it"}. The line is in the new version of the file, on a line the diff shows; leave it out for a finding about a whole file. Write [] if you find nothing. Then end your turn.`,
+            ask: this.say('meeting.review.review', { pr: m.pr, role: m.seats[i].role, file: A(findingsNote(m, i)) }),
           }));
         }
-        const merged = A(`${m.notes}/${FINDINGS}`);
-        return [{ seat: 0, doing: 'writing the review', file: m.output, ask: `The office merged every reviewer's findings into ${merged}, one per problem, each with the lenses that found it. Check them against the diff and delete from that file the ones that don't hold up, keeping it a JSON array of the same objects. Then write the review's summary to ${A(m.output)} in Markdown: your verdict first, then a few lines on what matters most. Don't list the findings: the office posts them on the lines they're about, tagged by lens. Don't post anything yourself. ${out}` }];
+        return [{ seat: 0, doing: 'writing the review', file: m.output, ask: this.say('meeting.review.combine', { findings: A(`${m.notes}/${FINDINGS}`), output: A(m.output) }) }];
       }
     }
-  }
-
-  // --- The review panel's findings --------------------------------------------
-
-  /** Why a reviewer's findings file can't be read, or undefined when it can (or isn't one). */
-  private unreadable(m: Meeting, t: MeetingTurn): string | undefined {
-    if (m.pattern !== 'review' || !t.file.endsWith('.json')) return undefined;
-    try {
-      parseFindings(readFileSync(path.join(this.cwd(m), t.file), 'utf8'), m.seats[t.seat].role);
-      return undefined;
-    } catch (err) {
-      return (err as Error).message;
-    }
-  }
-
-  /** Every reviewer's findings, merged: those the office can't read are left out, saying so. */
-  private merged(m: Meeting): ReviewFinding[] {
-    const lists: ReviewFinding[][] = [];
-    m.seats.forEach((s, i) => {
-      try {
-        lists.push(parseFindings(readFileSync(path.join(this.cwd(m), findingsNote(m, i)), 'utf8'), s.role));
-      } catch {
-        this.events.toast(`🔍 Left out the ${s.role} reviewer's findings: the office couldn't read them`, 'warn');
-      }
-    });
-    return mergeFindings(lists);
-  }
-
-  /** Round 1 is written: merge the findings into the notes for the head of the table to go through. */
-  private gather(m: Meeting) {
-    try {
-      writeFileSync(path.join(this.cwd(m), m.notes, FINDINGS), `${JSON.stringify(this.merged(m), null, 2)}\n`);
-    } catch {
-      // finalFindings merges them again
-    }
-  }
-
-  /** The findings to post: the merged file as the head of the table left it, or merged afresh. */
-  private finalFindings(m: Meeting): ReviewFinding[] {
-    try {
-      const raw: unknown = JSON.parse(readFileSync(path.join(this.cwd(m), m.notes, FINDINGS), 'utf8'));
-      if (Array.isArray(raw)) return mergeFindings([raw.map((x) => normalize(x)).filter((f): f is ReviewFinding => f !== null)]);
-    } catch {
-      // no merged file, or the head of the table broke it
-    }
-    return this.merged(m);
   }
 
   // --- Files -----------------------------------------------------------------
@@ -804,23 +736,6 @@ async function commitAll(cwd: string, message: string, leaveOut: string): Promis
   if (!(await git(['diff', '--cached', '--name-only']))) return undefined;
   await git(['commit', '-q', '-m', message]);
   return git(['rev-parse', '--short', 'HEAD']);
-}
-
-/** The start of a file, at most `bytes` of it. */
-function readStart(file: string, bytes: number): string {
-  const fd = openSync(file, 'r');
-  try {
-    const buf = Buffer.alloc(bytes);
-    const n = readSync(fd, buf, 0, bytes, 0);
-    return buf.subarray(0, n).toString('utf8').replace(/�+$/, '');
-  } finally {
-    closeSync(fd);
-  }
-}
-
-/** Where the reviewer at seat `i` writes its findings. */
-function findingsNote(m: Meeting, i: number): string {
-  return `${m.notes}/r1-${i + 1}-${slugify(m.seats[i].role, 24)}.json`;
 }
 
 /** Roles that repeat get numbered, so each worker at the table has one of its own: Engineer 1, Engineer 2. */

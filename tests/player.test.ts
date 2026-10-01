@@ -1,8 +1,9 @@
 import test, { type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { PlayerController } from '../src/client/player.js';
-import type { Collider } from '../src/client/world/office.js';
+import { PlayerController } from '../src/client/player/index.js';
+import { Effects } from '../src/client/player/effects.js';
+import type { Collider } from '../src/client/world/types.js';
 import { BALCONY, FLOOR, LOFT, SEATING_BY_ID, SLAB, STAIRS, seatAt, seatPlace } from '../src/shared/layout.js';
 
 /** The office floor: upstairs, over the garage, so off it you'd drop to the street. */
@@ -135,7 +136,7 @@ function overlaps(c: Collider, x: number, z: number) {
 }
 
 test('sits on the lounge couch until you walk off, then gets up clear of it', (t) => {
-  const couch: Collider = { minX: 10, maxX: 11, minZ: -2.2, maxZ: 2.2, top: 0.55 };
+  const couch: Collider = { minX: 10, maxX: 11, minZ: -2.2, maxZ: 2.2, top: 0.47 };
   const table: Collider = { minX: 12.2, maxX: 13.8, minZ: -0.8, maxZ: 0.8, top: 0.46 };
   const { player, keys, frames } = controller(t, [officeFloor, couch, table]);
   let gotUp = 0;
@@ -173,7 +174,7 @@ test("gets up from the boss's chair behind it, away from the desk", (t) => {
 
 test('gets up off a beanbag to the side when something stands in front of it', (t) => {
   const bag = SEATING_BY_ID.get('lounge-beanbag-1')!;
-  const bean: Collider = { minX: bag.x - 0.5, maxX: bag.x + 0.5, minZ: bag.z - 0.5, maxZ: bag.z + 0.5, top: 0.6 };
+  const bean: Collider = { minX: bag.x - 0.5, maxX: bag.x + 0.5, minZ: bag.z - 0.5, maxZ: bag.z + 0.5, top: 0.42 };
   const place = seatPlace(bag, 0);
   const ax = place.x + Math.sin(bag.rotY) * bag.out;
   const az = place.z + Math.cos(bag.rotY) * bag.out;
@@ -204,4 +205,46 @@ test('seat places are only the ones the office has', () => {
   assert.equal(seatAt('couch:2')?.seatId, 'couch');
   assert.equal(seatAt('loft-couch:1')?.y, LOFT.y);
   for (const bad of ['couch:3', 'couch:', 'couch', 'sofa:0', 'couch:-1', 'couch:1.5', '']) assert.equal(seatAt(bad), undefined, bad);
+});
+
+test('effects on you combine: speeds and jumps multiply, the hardest tremble shows, sways add up', () => {
+  const effects = new Effects();
+  assert.deepEqual([effects.speed, effects.jump, effects.jitter, effects.sway], [1, 1, 0, 0]);
+  const tipsy = effects.add();
+  const buzz = effects.add();
+  assert.deepEqual([effects.speed, effects.jump, effects.jitter, effects.sway], [1, 1, 0, 0], 'a new one is steady');
+  Object.assign(buzz, { speed: 1.4, jump: 1.2, jitter: 0.3 });
+  tipsy.sway = 0.8;
+  assert.deepEqual([effects.speed, effects.jump, effects.jitter, effects.sway], [1.4, 1.2, 0.3, 0.8]);
+  Object.assign(tipsy, { speed: 0.5, jump: 0.5, jitter: 0.6, sway: 0.8 });
+  assert.deepEqual([effects.speed, effects.jump, effects.jitter, effects.sway], [0.7, 0.6, 0.6, 0.8]);
+  const more = effects.add();
+  more.sway = 0.2;
+  assert.equal(effects.sway, 1);
+  effects.remove(tipsy);
+  assert.deepEqual([effects.speed, effects.jump, effects.jitter, effects.sway], [1.4, 1.2, 0.3, 0.2]);
+});
+
+test('a buzz on you walks you further and jumps you higher', (t) => {
+  const plain = controller(t, []);
+  const buzzed = controller(t, []);
+  Object.assign(buzzed.player.effects.add(), { speed: 1.4, jump: 1.2 });
+  for (const { player, keys, frames } of [plain, buzzed]) {
+    player.pos.set(0, 0, 5);
+    keys('KeyW');
+    frames(30);
+  }
+  const walked = (p: PlayerController) => 5 - p.pos.z;
+  assert.ok(Math.abs(walked(buzzed.player) - 1.4 * walked(plain.player)) < 1e-9, `walked ${walked(buzzed.player)} against ${walked(plain.player)}`);
+  const highest = [0, 0];
+  for (const [i, { player, keys, frames }] of [plain, buzzed].entries()) {
+    keys('Space');
+    frames(1);
+    keys();
+    for (let f = 0; f < 60; f++) {
+      frames(1);
+      highest[i] = Math.max(highest[i], player.pos.y);
+    }
+  }
+  assert.ok(highest[1] > highest[0] * 1.4, `jumped ${highest[1]} against ${highest[0]}`);
 });
