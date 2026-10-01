@@ -133,8 +133,8 @@ export class Person {
     const ink = toon('#1d1d1d');
 
     this.root.add(this.body);
-    // Torso
-    this.body.add(mesh(new THREE.CapsuleGeometry(0.26, 0.28, 6, 12), this.shirt, 0, 0.72, 0));
+    const torso = mesh(new THREE.CapsuleGeometry(0.26, 0.28, 6, 12), this.shirt, 0, 0.72, 0);
+    this.body.add(torso);
     // Head
     const head = (this.head = new THREE.Group());
     head.position.y = 1.32;
@@ -213,7 +213,7 @@ export class Person {
     this.mic.visible = false;
     this.root.add(this.mic);
 
-    this.rig = { root: this.root, body: this.body, head: this.head, armL: this.armL, armR: this.armR, legL: this.legL, legR: this.legR };
+    this.rig = { root: this.root, body: this.body, torso, head: this.head, armL: this.armL, armR: this.armR, legL: this.legL, legR: this.legR };
     this.setLabel(name, false);
   }
 

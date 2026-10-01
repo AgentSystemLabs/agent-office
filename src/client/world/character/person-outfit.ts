@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { Theme } from '../../../shared/protocol';
 import { santaHat, warlockHat } from '../costumes';
-import { mesh, toon } from '../toon';
+import { mesh, toon, toonUnique } from '../toon';
 import { undress } from './props';
 import type { PersonRig } from './rig';
 
@@ -69,13 +69,14 @@ export class HolidayOutfit {
 
   /** The torso's own mesh, which slims in first person: what goes round it goes on it. */
   private get torso(): THREE.Object3D {
-    return this.rig.body.children[0];
+    return this.rig.torso;
   }
 
   private warlock() {
     const { head, armL, armR, legL, legR } = this.rig;
     const robe = toon('#3b1d5a');
-    const rags = toon('#24123a');
+    // Its own material: double-sided, which toon's shared one for this colour mustn't become.
+    const rags = toonUnique('#24123a');
     rags.side = THREE.DoubleSide;
     this.put(head, warlockHat());
     this.put(this.torso, mesh(new THREE.CapsuleGeometry(0.272, 0.28, 6, 14), robe));
