@@ -17,6 +17,7 @@ import {
   takesEffort,
 } from '../../shared/providers';
 import { store } from '../state';
+import { cursorModelField } from './cursor-model';
 import { h } from './dom';
 
 export const PROVIDER_LABEL = Object.fromEntries(AGENT_PROVIDERS.map((p) => [p, PROVIDER_META[p].label])) as Record<AgentProvider, string>;
@@ -36,7 +37,7 @@ export const EFFORT_LABEL: Record<AgentEffort, string> = {
   max: 'Max',
 };
 
-/** A short badge for the task card / sidebar: "Opus", "Opus · High", or the raw OpenCode/Grok/Muse/DeepSeek Harness/Pi model id. */
+/** A short badge for the task card / sidebar: "Opus", "Opus · High", or the raw OpenCode/Grok/Muse/DeepSeek Harness/Pi/Cursor model id. */
 export function modelBadge(provider: AgentProvider | undefined, model: string | undefined, effort: AgentEffort | undefined): string | undefined {
   if (!model && !effort) return undefined;
   if (takesEffort(provider)) {
@@ -289,7 +290,9 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
     h('small.provider-model-hint', {}, 'Optional model name or provider/model; leave Default to use Pi settings.'),
   );
 
-  const element = h('div.provider-choice', {}, h('label', { for: id }, label), select, note, modelChoice, claudeChoice, grokChoice, museChoice, dshChoice, piChoice);
+  const cursorChoice = cursorModelField(id);
+
+  const element = h('div.provider-choice', {}, h('label', { for: id }, label), select, note, modelChoice, claudeChoice, grokChoice, museChoice, dshChoice, piChoice, cursorChoice.element);
   const fillGrokModels = (models: string[], selected?: string) => {
     const keep = selected && validGrokModel(selected) ? selected : '';
     grokModelSelect.replaceChildren(h('option', { value: '' }, 'Default (Grok settings)'));
@@ -317,6 +320,7 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
         });
       return;
     }
+    if (select.value === 'cursor') return cursorChoice.load();
     if (select.value !== 'opencode' || !element.isConnected || element.closest('.hidden')) return;
     modelHint.textContent = modelList ? 'Optional provider/model override; choose a suggestion or enter one manually.' : 'Loading OpenCode models… You can enter a provider/model manually.';
     void fetchOpenCodeModels()
@@ -338,6 +342,7 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
     museChoice.classList.toggle('hidden', provider !== 'muse');
     dshChoice.classList.toggle('hidden', provider !== 'dsh');
     piChoice.classList.toggle('hidden', provider !== 'pi');
+    cursorChoice.element.classList.toggle('hidden', provider !== 'cursor');
     loadModels();
   };
   const set = (c: AgentChoice) => {
@@ -357,6 +362,8 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
     dshEffortSelect.value = dsh && c.effort ? c.effort : '';
     piModelInput.value = pi && c.model ? c.model : '';
     piEffortSelect.value = pi && c.effort ? c.effort : '';
+    cursorChoice.input.value = select.value === 'cursor' && c.model ? c.model : '';
+    cursorChoice.input.setCustomValidity('');
     modelInput.value = select.value === 'opencode' && c.model ? c.model : '';
     modelInput.setCustomValidity('');
     museModelInput.setCustomValidity('');
@@ -395,6 +402,7 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
       const v = piModelInput.value;
       return validPiModel(v) ? v : undefined;
     }
+    if (select.value === 'cursor') return cursorChoice.model();
     if (select.value !== 'opencode') return undefined;
     const v = modelInput.value;
     return validModel(v) ? v : undefined;
@@ -427,6 +435,7 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
         if (!okay) dshModelInput.reportValidity();
         return okay;
       }
+      if (select.value === 'cursor') return cursorChoice.valid();
       if (select.value === 'pi') {
         const okay = !piModelInput.value || validPiModel(piModelInput.value);
         piModelInput.setCustomValidity(okay ? '' : 'Use a Pi model name or provider/model: letters, digits and . _ : / @ + - (up to 256 characters).');

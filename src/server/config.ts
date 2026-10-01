@@ -46,7 +46,7 @@ export interface Config {
   publicHost?: string;
   /** The office's name on a Tailscale network, e.g. agent-office.tail1234.ts.net (set by deploy/provision.sh --tailscale). */
   tailnet?: string;
-  /** Daily tracked Claude Code spend budget, USD. OpenCode/Codex/Grok/Muse spend is excluded. */
+  /** Daily tracked Claude Code spend budget, USD. Other agents' spend is excluded. */
 
   budget?: number;
   /** Refuse new hires for the rest of the day once the budget is spent. */
@@ -121,7 +121,7 @@ Options:
       --agent <cmd>       Default agent command (default "claude", env AGENT_OFFICE_AGENT)
       --agent-args <str>  Extra args for the configured agent, e.g. "--model opus"
                           Workers can also select Claude Code, OpenCode, Codex, Grok,
-                          Muse or DeepSeek Harness in the UI
+                          Muse, DeepSeek Harness, Pi or Cursor in the UI
       --dsh-profile <n>   DeepSeek Harness profile for its workers, over the ACP
                           server (default "acp", env AGENT_OFFICE_DSH_PROFILE)
       --tls-cert <file>   Serve HTTPS with this certificate (PEM)
@@ -132,7 +132,7 @@ Options:
                           turn:user:pass@turn.example.com:3478
       --budget <usd>      Daily budget for tracked Claude Code spend (env
                           AGENT_OFFICE_BUDGET). Everyone is warned when the
-                          day's spend passes it. OpenCode/Codex/Grok/Muse spend is excluded
+                          day's spend passes it. Other agents' spend is excluded
       --budget-pause      ...and no new workers can be hired until the next
                           day (env AGENT_OFFICE_BUDGET_PAUSE=1)
       --max-workers <n>   Run at most this many workers at once, across every

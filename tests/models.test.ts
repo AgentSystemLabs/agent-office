@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { isValidGrokModel, isValidMuseModel, isValidOpenCodeModel } from '../src/shared/providers.js';
-import { createGrokModelCatalogue, createOpenCodeModelCatalogue, fetchGrokModels, fetchOpenCodeModels, type ModelCommandRunner } from '../src/server/models.js';
+import { createCursorModelCatalogue, createGrokModelCatalogue, createOpenCodeModelCatalogue, fetchCursorModels, fetchGrokModels, fetchOpenCodeModels, type ModelCommandRunner } from '../src/server/models.js';
 
 test('OpenCode model ids require provider/model and reject whitespace or control characters', () => {
   assert.equal(isValidOpenCodeModel('openai/gpt-5'), true);
@@ -107,4 +107,34 @@ test('OpenCode catalogue errors do not expose command output', async () => {
   await assert.rejects(createOpenCodeModelCatalogue('opencode', '/project', runner).get(), (error: unknown) => {
     return error instanceof Error && /unavailable/i.test(error.message) && !error.message.includes('secret-token');
   });
+});
+
+test('Cursor catalogue takes each line\'s model id and skips headings, tips and duplicates', async () => {
+  let call: { file: string; args: string[]; options: Record<string, unknown> } | undefined;
+  const runner: ModelCommandRunner = async (file, args, options) => {
+    call = { file, args, options };
+    return {
+      stdout: '\x1b[1mAvailable models\x1b[0m\n\nauto - Auto\ngpt-5 - GPT-5 (current, default)\nsonnet-4.5-thinking - Claude 4.5 Sonnet (Thinking)\nclaude-opus-4-8[context=1m,effort=high] - Opus 4.8 (1M, High)\n  - composer-1\ngpt-5 - again\n\nTip: use --model <id> to switch.\nCurrent model: gpt-5\n',
+      stderr: 'private detail',
+    };
+  };
+  assert.deepEqual(await fetchCursorModels('/custom/cursor-agent', '/project', runner), ['auto', 'gpt-5', 'sonnet-4.5-thinking', 'claude-opus-4-8[context=1m,effort=high]', 'composer-1']);
+  assert.deepEqual(call, { file: '/custom/cursor-agent', args: ['models'], options: { cwd: '/project', timeout: 10_000, maxBuffer: 1024 * 1024 } });
+  await assert.rejects(fetchCursorModels('/x', '/project', async () => { throw new Error('not signed in'); }), /Cursor model catalogue unavailable/);
+});
+
+test('Cursor catalogue coalesces requests and caches successful results briefly', async () => {
+  let calls = 0;
+  let now = 1000;
+  const catalogue = createCursorModelCatalogue('/cursor-agent', '/project', async () => {
+    calls++;
+    return { stdout: 'gpt-5 - GPT-5\n', stderr: '' };
+  }, () => now);
+  const [a, b] = await Promise.all([catalogue.get(), catalogue.get()]);
+  assert.deepEqual(a, ['gpt-5']);
+  assert.deepEqual(b, a);
+  assert.equal(calls, 1);
+  now += 60_001;
+  await catalogue.get();
+  assert.equal(calls, 2);
 });

@@ -1,5 +1,5 @@
 import { execFile as nodeExecFile } from 'node:child_process';
-import { isValidGrokModel, isValidOpenCodeModel } from '../shared/providers.js';
+import { isValidCursorModel, isValidGrokModel, isValidOpenCodeModel } from '../shared/providers.js';
 
 export const MODEL_COMMAND_TIMEOUT_MS = 10_000;
 export const MODEL_COMMAND_MAX_BUFFER = 1024 * 1024;
@@ -116,6 +116,60 @@ export function createOpenCodeModelCatalogue(
       if (cached && current < cached.expiresAt) return Promise.resolve([...cached.models]);
       if (pending) return pending;
       pending = fetchOpenCodeModels(command, cwd, runner).then((models) => {
+        cached = { models, expiresAt: now() + MODEL_CACHE_TTL_MS };
+        return [...models];
+      }).finally(() => {
+        pending = undefined;
+      });
+      return pending;
+    },
+  };
+}
+
+/**
+ * Run `cursor-agent models` without a shell and return only safe model ids. Each model is a line of
+ * its own, its id first (`gpt-5 - GPT-5 (current)`); headings and tips aren't one id alone.
+ */
+export async function fetchCursorModels(command: string, cwd: string, runner: ModelCommandRunner = runModelCommand): Promise<string[]> {
+  try {
+    const result = await runner(command, ['models'], {
+      cwd,
+      timeout: MODEL_COMMAND_TIMEOUT_MS,
+      maxBuffer: MODEL_COMMAND_MAX_BUFFER,
+    });
+    const models: string[] = [];
+    const seen = new Set<string>();
+    for (const raw of result.stdout.replace(/\x1b\[[0-?]*[ -\/]*[@-~]/g, '').split(/\r?\n/)) {
+      const id = /^\s*(?:[-*]\s+)?(\S+)(?:\s+-\s+.*|\s+\(.*\))?\s*$/.exec(raw)?.[1];
+      if (id && isValidCursorModel(id) && !seen.has(id)) {
+        seen.add(id);
+        models.push(id);
+      }
+    }
+    return models;
+  } catch {
+    throw new Error('Cursor model catalogue unavailable');
+  }
+}
+
+export interface CursorModelCatalogue {
+  get(): Promise<string[]>;
+}
+
+export function createCursorModelCatalogue(
+  command: string,
+  cwd: string,
+  runner: ModelCommandRunner = runModelCommand,
+  now: () => number = Date.now,
+): CursorModelCatalogue {
+  let cached: { models: string[]; expiresAt: number } | undefined;
+  let pending: Promise<string[]> | undefined;
+  return {
+    get() {
+      const current = now();
+      if (cached && current < cached.expiresAt) return Promise.resolve([...cached.models]);
+      if (pending) return pending;
+      pending = fetchCursorModels(command, cwd, runner).then((models) => {
         cached = { models, expiresAt: now() + MODEL_CACHE_TTL_MS };
         return [...models];
       }).finally(() => {

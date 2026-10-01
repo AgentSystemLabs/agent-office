@@ -10,7 +10,7 @@ import type { GhAs } from '../signins.js';
 import type { ServiceOwner } from '../services.js';
 import { addUsage, newTracker, scanTracker, trackerUsage, zeroUsage, type Ledger } from '../usage.js';
 import { PtyHost, SCROLLBACK, type Adopted, type Pty } from '../ptys.js';
-import { configuredProvider, validateWorkerEffort, validateWorkerModel } from '../agents.js';
+import { configuredProvider, providerCommand, validateWorkerEffort, validateWorkerModel } from '../agents.js';
 import { ScrollbackStore, searchTerminal, terminalTail } from '../history.js';
 import { DSH_PROFILE_DEFAULT } from '../dsh.js';
 import { DropStore } from '../drops.js';
@@ -857,7 +857,7 @@ export class WorkerManager {
   /** What a worker's terminal runs: the shell, the configured agent command, or another provider's CLI. */
   private command(info: WorkerInfo): string {
     if (info.kind === 'shell') return defaultShell();
-    return info.provider === this.defaultProvider ? this.agentCmd : info.provider ?? this.agentCmd;
+    return info.provider === this.defaultProvider || !info.provider ? this.agentCmd : providerCommand(info.provider, this.agentCmd);
   }
 
   /** Where a worker works: its worktree, a workspace for a worker across repositories, or the project itself. */

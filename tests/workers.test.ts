@@ -38,6 +38,7 @@ type Fixture = {
   codex: string;
   grok: string;
   muse: string;
+  cursor: string;
   custom: string;
   read(): Invocation[];
   close(): void;
@@ -140,6 +141,7 @@ function fixture(): Fixture {
   const codex = path.join(bin, 'codex');
   const grok = path.join(bin, 'grok');
   const muse = path.join(bin, 'muse');
+  const cursor = path.join(bin, 'cursor-agent');
   mkdirSync(data, { recursive: true });
   mkdirSync(bin, { recursive: true });
   writeFileSync(claude, fakeAgent, { mode: 0o700 });
@@ -148,6 +150,7 @@ function fixture(): Fixture {
   writeFileSync(codex, fakeAgent, { mode: 0o700 });
   writeFileSync(grok, fakeAgent, { mode: 0o700 });
   writeFileSync(muse, fakeAgent, { mode: 0o700 });
+  writeFileSync(cursor, fakeAgent, { mode: 0o700 });
   chmodSync(claude, 0o700);
   chmodSync(opencode, 0o700);
   chmodSync(custom, 0o700);
@@ -163,6 +166,7 @@ function fixture(): Fixture {
     codex,
     grok,
     muse,
+    cursor,
     custom,
     read() {
       if (!existsSync(log)) return [];
@@ -1519,4 +1523,72 @@ test("a worker whose worktree was deleted outside the office waits, marked lost,
   assert.equal(git(path.join(f.root, gone.worktree!.path), 'rev-parse', 'HEAD'), gone.worktree!.base);
   assert.equal(after.get(gone.id)?.lost, undefined);
   assert.deepEqual(toasts, []);
+});
+
+test('Cursor workers run cursor-agent with the office plugin\'s hooks, follow them, and resume the conversation', async (t) => {
+  const f = fixture();
+  isolateProviderEnvironment(f, t);
+  const oldLog = process.env.FAKE_AGENT_LOG;
+  process.env.FAKE_AGENT_LOG = f.log;
+  t.after(() => {
+    if (oldLog === undefined) delete process.env.FAKE_AGENT_LOG; else process.env.FAKE_AGENT_LOG = oldLog;
+    f.close();
+  });
+  const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', ...args], { cwd, encoding: 'utf8' }).trim();
+  git(f.root, 'init', '-q', '-b', 'main');
+  writeFileSync(path.join(f.root, 'a.txt'), 'a');
+  git(f.root, 'add', 'a.txt');
+  git(f.root, 'commit', '-qm', 'init');
+  const book = ledger(f.data);
+  const workers = new WorkerManager(f.root, f.data, f.claude, ['--claude-only'], { url: 'http://127.0.0.1:1', token: '' }, events([]), book);
+  t.after(() => workers.shutdown());
+  assert.match(String(workers.spawn('desk-2', 'test', 'x', false, 'agent', 'cursor', 'gpt 5')), /model/i);
+  assert.match(String(workers.spawn('desk-2', 'test', 'x', false, 'agent', 'cursor', 'gpt-5', 'high')), /effort/i);
+  const worker = workers.spawn('desk-1', 'test', '- fix the login', true, 'agent', 'cursor', 'gpt-5');
+  assert.notEqual(typeof worker, 'string'); if (typeof worker === 'string') return;
+  const calls = await waitFor(f.read, x => x.some(r => r.kind === 'cursor-agent'));
+  const first = calls.find(r => r.kind === 'cursor-agent')!;
+  const token = first.env.hookToken!;
+  assert.equal(worker.model, 'gpt-5');
+  assert.deepEqual(first.args, ['--trust', '--plugin-dir', path.join(f.data, 'cursor-plugin'), '--model', 'gpt-5', '--', '- fix the login']);
+  assert.equal(calls.some(r => r.kind === 'claude' && !r.args.includes('--output-format')), false);
+  // The hooks come in the office's own plugin: neither the worktree, the project nor ~/.cursor is written.
+  const hooks = JSON.parse(readFileSync(path.join(f.data, 'cursor-plugin', 'hooks', 'hooks.json'), 'utf8')) as { hooks: Record<string, unknown> };
+  assert.ok(hooks.hooks.stop && hooks.hooks.beforeSubmitPrompt);
+  const cwd = path.join(f.root, worker.worktree!.path);
+  assert.equal(git(cwd, 'status', '--porcelain'), '');
+  assert.equal(existsSync(path.join(cwd, '.cursor')), false);
+  assert.equal(existsSync(path.join(f.root, '.cursor')), false);
+  assert.equal(existsSync(path.join(f.root, 'home', '.cursor')), false);
+
+  const conversation = 'c0ffee00-0000-4000-8000-000000000001';
+  const hook = (event: string, extra = {}) => workers.handleProviderHook('cursor', worker.id, token, event, { conversation_id: conversation, ...extra });
+  assert.equal(workers.handleProviderHook('cursor', worker.id, 'wrong', 'sessionStart', { conversation_id: conversation }), false);
+  assert.equal(hook('sessionStart'), true);
+  assert.equal(worker.sessionId, conversation);
+  assert.equal(worker.status, 'idle');
+  assert.equal(hook('beforeSubmitPrompt', { prompt: 'Implement the actual task' }), true);
+  assert.equal(worker.status, 'working');
+  assert.equal(hook('postToolUse', { tool_name: 'Read' }), true);
+  assert.equal(worker.activity, 'Read');
+  assert.equal(hook('stop', { parent_conversation_id: conversation }), false);
+  assert.equal(worker.status, 'working');
+  assert.equal(hook('stop', { status: 'completed' }), true);
+  assert.equal(worker.status, 'done');
+  assert.equal(workers.handleHook(worker.id, token, 'Stop', { session_id: 'claude' }), false);
+  assert.equal(worker.usage, undefined);
+  assert.equal(book.state().total.calls, 0);
+
+  workers.shutdown();
+  const restored = manager(f, f.claude, [], []);
+  t.after(() => restored.shutdown());
+  await restored.start();
+  const nextCalls = await waitFor(f.read, x => x.filter(r => r.kind === 'cursor-agent' && !r.stdin).length >= 2);
+  const next = nextCalls.filter(r => r.kind === 'cursor-agent' && !r.stdin).at(-1)!;
+  assert.deepEqual(next.args.slice(3, 5), ['--resume', conversation]);
+  assert.equal(next.args.includes('--model'), false);
+  assert.notEqual(next.env.hookToken, token);
+  assert.equal(restored.get(worker.id)?.provider, 'cursor');
+  assert.equal(restored.get(worker.id)?.model, 'gpt-5');
+  assert.equal(restored.handleProviderHook('cursor', worker.id, next.env.hookToken!, 'sessionStart', { conversation_id: conversation }), true);
 });

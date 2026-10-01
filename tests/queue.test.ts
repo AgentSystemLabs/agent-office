@@ -194,6 +194,28 @@ test('queue preserves a Muse model and effort through seating, retry, and restar
   assert.equal(f.workers[2].effort, 'low');
 });
 
+test('queue preserves a Cursor model through seating, retry, and restart, and rejects an effort or a bad model', (t) => {
+  const f = fixture(); t.after(() => f.close());
+  const q = f.open();
+  assert.match(q.add('Task', 'Tester', undefined, undefined, 'cursor', '--yolo') ?? '', /model/i);
+  assert.match(q.add('Task', 'Tester', undefined, undefined, 'cursor', 'gpt-5', 'high') ?? '', /effort/i);
+  assert.equal(q.add('Fix login', 'Tester', undefined, undefined, 'cursor', 'gpt-5'), undefined);
+  assert.equal(f.workers[0].provider, 'cursor');
+  assert.equal(f.workers[0].model, 'gpt-5');
+  assert.equal(q.state().tasks[0].model, 'gpt-5');
+  f.workers[0].status = 'done'; q.onWorker(f.workers[0]);
+  q.retry(q.state().tasks[0].id);
+  assert.equal(f.workers[1].model, 'gpt-5');
+
+  q.setLimit(0);
+  q.add('Queued', 'Tester', undefined, undefined, 'cursor', 'sonnet-4.5-thinking');
+  q.shutdown();
+  const restored = f.open();
+  restored.setLimit(2);
+  assert.equal(f.workers[2].provider, 'cursor');
+  assert.equal(f.workers[2].model, 'sonnet-4.5-thinking');
+});
+
 test('queue rejects reasoning effort unless the task is Claude, Grok or Muse and the level is known', (t) => {
   const f = fixture(); t.after(() => f.close());
   const q = f.open();

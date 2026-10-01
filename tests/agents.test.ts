@@ -21,6 +21,9 @@ test('detects the configured provider from Unix and Windows command paths', () =
   assert.equal(configuredProvider('pi'), 'pi');
   assert.equal(configuredProvider('C:\\Users\\me\\AppData\\Roaming\\npm\\pi.cmd'), 'pi');
   assert.equal(configuredProvider('/usr/local/bin/pi'), 'pi');
+  assert.equal(configuredProvider('cursor-agent'), 'cursor');
+  assert.equal(configuredProvider('/home/me/.local/bin/cursor-agent'), 'cursor');
+  assert.equal(configuredProvider('CURSOR-AGENT.EXE'), 'cursor');
   assert.equal(configuredProvider('my-agent'), 'custom');
 });
 
@@ -67,7 +70,7 @@ test('model validation follows the provider', () => {
   assert.equal(validateWorkerModel('agent', 'opencode', 'vendor/model'), undefined);
   assert.match(validateWorkerModel('agent', 'opencode', 'gpt-5') ?? '', /OpenCode/);
   // Custom still takes none.
-  assert.match(validateWorkerModel('agent', 'custom', 'anything') ?? '', /Claude Code, OpenCode, Grok, Muse, DeepSeek Harness or Pi/);
+  assert.match(validateWorkerModel('agent', 'custom', 'anything') ?? '', /Claude Code, OpenCode, Grok, Muse, DeepSeek Harness, Pi or Cursor/);
 });
 
 test('reasoning effort joins Claude for DeepSeek Harness', () => {
