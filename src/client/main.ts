@@ -62,6 +62,7 @@ import { openPrompt, confirmDialog, sendHomeDialog, lostWorktreeDialog, routeWor
 import { issuePrompt, openBoard } from './ui/boards';
 import { openIssue, openPull, routePullMessage } from './ui/pull';
 import { onMaintenanceAnswer, openLaptop, openStack } from './ui/maintenance';
+import { mountApprovals } from './ui/approvals';
 import { openAsk } from './ui/ask';
 import { openTeam, routeTeamMessage } from './ui/team';
 import { openAccounts, routeAccountsMessage } from './ui/accounts';
@@ -273,6 +274,12 @@ const showStack = () => {
 };
 store.on('maintenance', showStack);
 showStack();
+// Requests the lever left to a person: cards with a way to the worker's terminal.
+mountApprovals((id) => openWorkerTerminal(id));
+// …and the lever's up or down as everyone left it.
+const showLever = () => office.closet.setLever(store.approvals.easy);
+store.on('approvals', showLever);
+showLever();
 mountBoard(office.machineScreen, machineTex.texture, () => machineTex.render(store.machine), ['machine']);
 // The meeting room: its output as it's written on the back wall, and how it's going on the door.
 const meetingBoardTex = new MeetingBoardTexture();
@@ -2930,6 +2937,10 @@ function interact(target: Interactable | null, key: DeskKey, note = aimedNote) {
     if (key === 'E') openLaptop((m) => net.send(m));
     return;
   }
+  if (target.kind === 'lever') {
+    if (key === 'E') net.send({ t: 'approvals.set', easy: !store.approvals.easy });
+    return;
+  }
   if (target.kind === 'ship') {
     if (key === 'E') openStack((m) => net.send(m));
     return;
@@ -3703,6 +3714,10 @@ function hintFor(it: Interactable): Hint {
     }
     case 'maintenance':
       return { k: '', parts: [title('💻 Office laptop'), aside('ask a small model about how the office works'), key('E', 'Ask')] };
+    case 'lever': {
+      const on = store.approvals.easy;
+      return { k: String(on), parts: [title('⚡ Easy approvals'), aside(on ? 'up: workers aren’t asked about the obvious' : 'down: workers ask about everything'), key('E', on ? 'Put the lever back down' : 'Pull the lever up')] };
+    }
     case 'ship': {
       const s = store.maintenance;
       const n = s.changes.length + (s.dirty ? 1 : 0);
@@ -4341,7 +4356,7 @@ document.addEventListener('pointerlockchange', () => {
 const raycaster = new THREE.Raycaster();
 const CROSSHAIR = new THREE.Vector2(0, 0);
 /** How close (meters from your eyes) you must be to use each kind of thing. */
-const REACH: Record<InteractKind, number> = { desk: 4.5, station: 4.5, coffee: 3, issues: 9, pulls: 9, services: 9, queue: 9, tv: 10, decor: 9, smoke: 3, elevator: 4.5, gong: 3.5, dog: 3.2, jukebox: 4, seat: 3, whiteboard: 7, cabinet: 4, ladder: 3, pole: 4, meeting: 7, bar: 3.5, dj: 6, golf: 3.5, ball: 3.2, bookshelf: 4, darts: 4, axe: 5.5, telescope: 3.5, car: 4, expand: 8, herald: 5, maintenance: 3.5, ship: 3.5 };
+const REACH: Record<InteractKind, number> = { desk: 4.5, station: 4.5, coffee: 3, issues: 9, pulls: 9, services: 9, queue: 9, tv: 10, decor: 9, smoke: 3, elevator: 4.5, gong: 3.5, dog: 3.2, jukebox: 4, seat: 3, whiteboard: 7, cabinet: 4, ladder: 3, pole: 4, meeting: 7, bar: 3.5, dj: 6, golf: 3.5, ball: 3.2, bookshelf: 4, darts: 4, axe: 5.5, telescope: 3.5, car: 4, expand: 8, herald: 5, maintenance: 3.5, ship: 3.5, lever: 3.5 };
 const eye = new THREE.Vector3();
 
 /** What the ray through `ndc` lands on first, whether it is within reach (plus `slack` meters), and where it hit. */

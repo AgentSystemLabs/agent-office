@@ -1031,6 +1031,33 @@ export interface MaintenanceStack {
   note?: string;
 }
 
+/**
+ * A request the lever (easy approvals, see server/approvals.ts) didn't answer by itself: a worker is
+ * waiting in its terminal for a yes or no on something that isn't obviously fine, and this says what and why.
+ */
+export interface ApprovalCard {
+  workerId: string;
+  worker: string;
+  floor?: string;
+  tool: string;
+  /** The command it wants to run, when it is one. */
+  command?: string;
+  /** What the worker said it was for. */
+  description?: string;
+  /** Why the office didn't wave it through, in plain words. */
+  reasons: string[];
+  at: number;
+}
+
+/** The lever in the maintenance closet, and the requests waiting on a person. */
+export interface ApprovalsState {
+  /** Up: workers aren't asked about the obvious. */
+  easy: boolean;
+  by?: string;
+  at?: number;
+  cards: ApprovalCard[];
+}
+
 export type Weather = 'clear' | 'cloudy' | 'rain' | 'storm' | 'snow' | 'fog';
 export const WEATHERS: readonly Weather[] = ['clear', 'cloudy', 'rain', 'storm', 'snow', 'fog'];
 
@@ -1169,6 +1196,8 @@ export type ClientMsg =
   | { t: 'maintenance.ask'; id: string; question: string }
   /** The big button in the maintenance closet: commit what's stacked, check it, push, rebuild and restart the office. */
   | { t: 'maintenance.ship' }
+  /** The lever in the maintenance closet. */
+  | { t: 'approvals.set'; easy: boolean }
   /** Asks for the stack as it is now; answered with a `maintenance.stack`. */
   | { t: 'maintenance.stack' }
   /** Push a worktree worker's branch and open a pull request for it, drafted from its task. */
@@ -1353,6 +1382,8 @@ export type ServerMsg =
       machine: MachineState;
       /** The Maintenance agent's stack of changes. */
       maintenance: MaintenanceStack;
+      /** The easy approvals lever, and what's waiting on a person. */
+      approvals: ApprovalsState;
       /** Outside the windows: the same on every floor. */
       sky: SkyState;
       /** Halloween or Christmas decorations, all over the building, or none. */
@@ -1388,6 +1419,7 @@ export type ServerMsg =
   | { t: 'worker.worktree'; workerId: string; state: WorktreeState }
   /** The Maintenance agent's stack of changes moved (a commit, a shipment, a step of one). */
   | { t: 'maintenance.stack'; state: MaintenanceStack }
+  | { t: 'approvals'; state: ApprovalsState }
   /** The laptop's answer to your `maintenance.ask`: what the model said, or why it couldn't, and which model it was. */
   | { t: 'maintenance.answer'; id: string; model: string; answer?: string; error?: string }
   | { t: 'screen'; workerId: string; cols: number; rows: number; lines: Record<number, Run[]>; full: boolean; cursor: [number, number] }

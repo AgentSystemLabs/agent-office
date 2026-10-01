@@ -847,6 +847,20 @@ a.when:hover { text-decoration: underline; }
 .laptop-answer > :first-child { margin-top: 0; }
 .laptop-answer > :last-child { margin-bottom: 0; }
 .laptop-model { margin: 6px 0 0; font-size: 12px; font-weight: 800; color: var(--muted); text-align: right; }
+/* Requests the easy approvals lever left to a person (ui/approvals.ts) */
+#approvals { position: fixed; left: 12px; top: 76px; z-index: 40; display: flex; flex-direction: column; gap: 10px; width: min(380px, calc(100vw - 24px)); max-height: calc(100vh - 160px); overflow: auto; pointer-events: none; }
+#approvals:empty { display: none; }
+.approval { pointer-events: auto; background: #fff6e0; border: 3px solid var(--ink); border-left: 10px solid #e63946; border-radius: 14px; box-shadow: var(--shadow); padding: 10px 12px 12px; font-weight: 700; font-size: 13px; }
+.approval-head { display: flex; align-items: center; gap: 8px; }
+.approval-head strong { flex: 1; font-size: 14px; }
+.approval-head small { color: var(--muted); font-weight: 800; }
+.approval-head .btn.close { padding: 2px 8px; }
+.approval-why { margin: 6px 0 0; color: var(--muted); }
+.approval-reasons { margin: 8px 0 0; padding-left: 18px; }
+.approval-reasons li { margin: 2px 0; overflow-wrap: anywhere; }
+.approval-command { margin: 8px 0 0; max-height: 7.5em; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.45 ui-monospace, Menlo, monospace; background: var(--ink); color: #f1f1f8; border-radius: 10px; padding: 8px 10px; }
+.approval-actions { margin-top: 10px; display: flex; }
+.approval-actions .btn { flex: 1; }
 /* The Maintenance agent's change stack (ui/maintenance.ts) */
 .modal.stack { width: min(600px, 100%); }
 .stack-list { margin: 0 0 12px; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; max-height: 40vh; overflow: auto; }

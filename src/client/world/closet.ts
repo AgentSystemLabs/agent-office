@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { MAINTENANCE, MAINTENANCE_LAPTOP, MAINTENANCE_MODEL } from '../../shared/layout';
 import type { Collider, Interactable } from './office';
-import { mesh, roundedBox, textPlane, toon } from './toon';
+import { mesh, roundedBox, textPlane, toon, toonUnique } from './toon';
 
 // The maintenance closet (see MAINTENANCE in shared/layout.ts): a tiny room in the west wall where a
 // window was, with the Maintenance agent at his counter (a kiosk, built with the other board agents'),
@@ -197,11 +197,59 @@ function stackConsole(): { group: THREE.Group; set(v: StackView): void } {
   return { group: g, set: draw };
 }
 
+/**
+ * The easy approvals lever, on the south wall: a throw lever in a slot, with a lamp over it that's green
+ * when it's up. It swings between up (workers aren't asked about the obvious) and down; set() says where
+ * it should be and update() moves it there.
+ */
+function wallLever(): { group: THREE.Group; set(on: boolean): void; update(dt: number): void } {
+  const g = new THREE.Group();
+  g.add(mesh(new THREE.BoxGeometry(0.4, 0.78, 0.04), toon('#3d405b'), 0, 0, 0.02));
+  g.add(mesh(new THREE.BoxGeometry(0.1, 0.5, 0.012), toon('#1e2030'), 0, -0.02, 0.046, false));
+  const label = textPlane('⚡ Easy approvals', { bg: '#ffd166', color: '#2b2d42', size: 30, border: INK });
+  label.scale.multiplyScalar(0.5);
+  label.position.set(0, 0.5, 0.01);
+  g.add(label);
+  const lampOn = toonUnique('#7ee787');
+  lampOn.emissive.set('#2f9e44');
+  const lamp = mesh(new THREE.SphereGeometry(0.04, 12, 8), lampOn, 0.15, 0.3, 0.05, false);
+  g.add(lamp);
+  // The arm swings about the plate's x axis, from the middle of the slot.
+  const pivot = new THREE.Group();
+  pivot.position.set(0, -0.02, 0.06);
+  pivot.add(mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.32, 8).translate(0, 0.16, 0), toon('#aab4be'), 0, 0, 0, false));
+  pivot.add(mesh(new THREE.SphereGeometry(0.055, 14, 10), toon('#e63946', { emissive: '#7a1020' }), 0, 0.34, 0, false));
+  pivot.add(mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.05, 12).rotateZ(Math.PI / 2), toon('#ffd166'), 0, 0, 0, false));
+  g.add(pivot);
+  const UP = Math.PI / 3;
+  const DOWN = (2 * Math.PI) / 3;
+  let target = DOWN;
+  pivot.rotation.x = DOWN;
+  const paint = (on: boolean) => {
+    lampOn.color.set(on ? '#7ee787' : '#6b2d35');
+    lampOn.emissive.set(on ? '#2f9e44' : '#000000');
+  };
+  paint(false);
+  return {
+    group: g,
+    set: (on) => {
+      target = on ? UP : DOWN;
+      paint(on);
+    },
+    update: (dt) => {
+      pivot.rotation.x += (target - pivot.rotation.x) * Math.min(1, dt * 9);
+    },
+  };
+}
+
 export interface Closet {
   /** The laptop's interactable: E there asks the office's small model something. */
   laptop: Interactable;
   /** Shows the Maintenance agent's stack on the console's screen. */
   setStack(v: StackView): void;
+  /** Puts the easy approvals lever up or down. */
+  setLever(on: boolean): void;
+  update(dt: number): void;
 }
 
 /**
@@ -305,5 +353,13 @@ export function buildMaintenanceCloset(
   const laptopAt: Interactable = { kind: 'maintenance', x: MAINTENANCE_LAPTOP.x, z: MAINTENANCE_LAPTOP.z, radius: 1 };
   interactables.push(laptopAt);
   bench.userData.interact = laptopAt;
-  return { laptop: laptopAt, setStack: console_.set };
+  // The lever on the south wall, by the door, over the toolbox.
+  const lever = wallLever();
+  lever.group.position.set(-15.05, 1.4, M.maxZ - T / 2);
+  lever.group.rotation.y = Math.PI;
+  group.add(lever.group);
+  const leverAt: Interactable = { kind: 'lever', x: -15.05, z: M.maxZ - 0.9, radius: 1.1 };
+  interactables.push(leverAt);
+  lever.group.userData.interact = leverAt;
+  return { laptop: laptopAt, setStack: console_.set, setLever: lever.set, update: lever.update };
 }

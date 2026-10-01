@@ -2121,7 +2121,13 @@ process.stdin.on('end', () => {
   url.searchParams.set('worker', process.env.AGENT_OFFICE_WORKER_ID);
   url.searchParams.set('event', event);
   const send = (tries) => {
-    const req = http.request(url, { method: 'POST', timeout: 3000, headers: { authorization: 'Bearer ' + process.env.AGENT_OFFICE_HOOK_TOKEN, 'content-type': 'application/json' } }, (res) => res.resume());
+    // A permission request's answer (the lever, see server/approvals.ts) goes back to Claude Code on stdout.
+    const req = http.request(url, { method: 'POST', timeout: 3000, headers: { authorization: 'Bearer ' + process.env.AGENT_OFFICE_HOOK_TOKEN, 'content-type': 'application/json' } }, (res) => {
+      if (event !== 'PermissionRequest') return res.resume();
+      let out = '';
+      res.on('data', (c) => (out += c));
+      res.on('end', () => process.stdout.write(out));
+    });
     req.on('error', (err) => {
       if (err.code === 'ECONNREFUSED' && tries > 1) setTimeout(() => send(tries - 1), 1000);
     });
@@ -2138,10 +2144,12 @@ process.stdin.on('end', () => {
       const curl =
         `curl -sS -m 3 --retry ${HOOK_TRIES - 1} --retry-delay 1 --retry-connrefused -X POST -H "Authorization: Bearer $AGENT_OFFICE_HOOK_TOKEN" -H "Content-Type: application/json" ` +
         `--data-binary @- "$AGENT_OFFICE_HOOK_URL/hooks/claude?worker=$AGENT_OFFICE_WORKER_ID&event=${event}"`;
+      // The answer to a permission request is what the hook prints; every other event's is dropped.
+      const out = event === 'PermissionRequest' ? '2>/dev/null' : '>/dev/null 2>&1';
       const command =
         `if [ -z "$AGENT_OFFICE_WORKER_ID" ] || [ -z "$AGENT_OFFICE_HOOK_URL" ]; then exit 0; fi; ` +
-        `if command -v curl >/dev/null 2>&1; then ${curl} >/dev/null 2>&1; ` +
-        `else ${shq(process.execPath)} ${shq(nodeHook)} ${event} >/dev/null 2>&1; fi; true`;
+        `if command -v curl >/dev/null 2>&1; then ${curl} ${out}; ` +
+        `else ${shq(process.execPath)} ${shq(nodeHook)} ${event} ${out}; fi; true`;
       hooks[event] = [{ ...(matcher ? { matcher } : {}), hooks: [{ type: 'command', command }] }];
     }
     // Looking at the office's workers doesn't need anyone's say-so; hiring and sending home still asks.
