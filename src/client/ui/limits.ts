@@ -35,13 +35,15 @@ function windowRow(w: PlanWindow, now: number): HTMLElement[] {
   ];
 }
 
-/** Account plan meters. Codex snapshots stay separate because workers may use different accounts. */
+/** Account plan meters: one shared Codex snapshot across the building. */
 export function renderLimits() {
   const s = store.limits;
-  const codex = [...store.workers.values()].filter(w => w.kind === 'agent' && resolvedProvider(w.provider, store.project) === 'codex');
+  const codexWorkers = [...store.workers.values()].filter(w => w.kind === 'agent' && resolvedProvider(w.provider, store.project) === 'codex');
+  const codex = store.codexLimits;
+  const showCodex = codex.windows.length > 0 || codexWorkers.length > 0;
   const el = $('limits');
-  el.classList.toggle('hidden', !s.windows.length && !codex.length);
-  if (!s.windows.length && !codex.length) return;
+  el.classList.toggle('hidden', !s.windows.length && !showCodex);
+  if (!s.windows.length && !showCodex) return;
   const now = Date.now();
   const rows: HTMLElement[] = [h('h3', {}, 'Limits', panelHide('limits'))];
   const append = (label: string, limits: typeof s) => {
@@ -50,12 +52,8 @@ export function renderLimits() {
     if (now - limits.at > STALE_MS) rows.push(h('div.row.muted', {}, `As of ${new Date(limits.at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`));
   };
   if (s.windows.length) append('Claude', s);
-  for (const worker of codex) {
-    const limits = worker.usage?.planLimits;
-    const label = `Codex · ${worker.name}`;
-    if (limits?.windows.length) append(label, limits);
-    else rows.push(h('div.row.muted', {}, `${label}: limits unavailable`));
-  }
-  el.title = 'Click to refresh Claude limits. Codex limits update when each worker reports usage; workers may use different accounts.';
+  if (codex.windows.length) append('Codex', codex);
+  else if (showCodex) rows.push(h('div.row.muted', {}, 'Codex: limits unavailable'));
+  el.title = 'Click to refresh Claude limits. Codex account usage is shared across the office; the latest worker report supplies the snapshot.';
   el.replaceChildren(...rows);
 }

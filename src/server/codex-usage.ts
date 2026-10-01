@@ -101,3 +101,14 @@ export class CodexUsageReader {
     return undefined;
   }
 }
+
+/** Account percentages are shared: keep the newest report, never add worker percentages. */
+export class CodexPlanSnapshot {
+  state: PlanLimits = { windows: [], at: 0 };
+
+  update(limits: PlanLimits | undefined): boolean {
+    if (!limits?.windows.length || limits.at <= this.state.at) return false;
+    this.state = limits;
+    return true;
+  }
+}

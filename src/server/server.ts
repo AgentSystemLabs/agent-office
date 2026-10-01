@@ -20,6 +20,7 @@ import { Services } from './services.js';
 import { ImageProxy } from './decor.js';
 import { Ledger } from './usage.js';
 import { PlanLimitsReader } from './limits.js';
+import { CodexPlanSnapshot } from './codex-usage.js';
 import { Webhook } from './webhook.js';
 import { MAX_WORKER_LIMIT, Machine, parseWorkerLimit } from './machine.js';
 import { Building, type FloorDef } from './building.js';
@@ -262,6 +263,7 @@ export async function startServer(cfg: Config) {
     if (err) console.error(`agent-office: --projects: ${err}`);
   }
   const floors = new Map<string, Floor>();
+  const codexLimits = new CodexPlanSnapshot();
   const floorOf = (c: Client): Floor | undefined => (c.peer.floor ? floors.get(c.peer.floor) : undefined);
   /** The floor a worker sits on. Worker ids are unique across the building. */
   const workerFloor = (workerId: string): Floor | undefined => {
@@ -702,7 +704,12 @@ export async function startServer(cfg: Config) {
       if (typeof w === 'string') {
         webhook.onWorkerGone(w);
         pumpQueues(floor);
-      } else webhook.onWorker(w);
+      } else {
+        webhook.onWorker(w);
+        if (w.provider === 'codex' && codexLimits.update(w.usage?.planLimits)) {
+          broadcast({ t: 'codex.limits', state: codexLimits.state });
+        }
+      }
       machine.workersChanged();
       floorsChanged();
     },
@@ -1373,6 +1380,10 @@ export async function startServer(cfg: Config) {
     if (account) accounts.seen(account.id);
     ws.on('pong', () => (client.isAlive = true));
 
+    // Include restored snapshots from every floor, even before their next usage report.
+    for (const f of floors.values()) for (const w of f.workers.list()) {
+      if (w.provider === 'codex') codexLimits.update(w.usage?.planLimits);
+    }
     sendTo(client, {
       t: 'welcome',
       you: id,
@@ -1386,6 +1397,7 @@ export async function startServer(cfg: Config) {
       upgrade: upgrader.state,
       usage: ledger.state(),
       limits: limitsOf(client).state,
+      codexLimits: codexLimits.state,
       me,
       notify: webhook.state(),
       machine: machine.state(),

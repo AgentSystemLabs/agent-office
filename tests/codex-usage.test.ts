@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { appendFileSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { CodexUsageReader, codexTokenUsage, codexPlanLimits } from '../src/server/codex-usage.js';
+import { CodexUsageReader, CodexPlanSnapshot, codexTokenUsage, codexPlanLimits } from '../src/server/codex-usage.js';
 
 const totals = (input = 120, output = 30) => ({ input_tokens: input, cached_input_tokens: 20, cache_write_input_tokens: 5, output_tokens: output, reasoning_output_tokens: 10, total_tokens: input + output });
 const event = (value = totals()) => JSON.stringify({ type: 'event_msg', payload: { type: 'token_count', info: { total_token_usage: value } } });
@@ -84,4 +84,17 @@ test('rejects malformed Codex limits and clamps percentages', () => {
   assert.equal(codexPlanLimits({ primary: { used_percent: 50, window_minutes: -1 } }, Date.now()), undefined);
   assert.equal(codexPlanLimits({ primary: { used_percent: 50, window_minutes: 300 } }, NaN), undefined);
   assert.equal(codexPlanLimits({ primary: { used_percent: 120, window_minutes: 300 } }, Date.now())?.windows[0].pct, 100);
+});
+
+test('shared Codex plan snapshot uses the newest report without summing workers', () => {
+  const shared = new CodexPlanSnapshot();
+  const older = { windows: [{ label: 'Week', pct: 20 }], at: 1000 };
+  const newer = { windows: [{ label: 'Week', pct: 35 }], at: 2000 };
+  assert.equal(shared.update(older), true);
+  assert.equal(shared.update(newer), true);
+  assert.equal(shared.update(older), false);
+  assert.equal(shared.update({ windows: [{ label: 'Week', pct: 99 }], at: 2000 }), false);
+  assert.equal(shared.update(undefined), false);
+  assert.equal(shared.update({ windows: [], at: 3000 }), false);
+  assert.deepEqual(shared.state, newer);
 });

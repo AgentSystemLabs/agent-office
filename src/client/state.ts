@@ -213,6 +213,7 @@ class Store {
   usage: UsageState = { total: zeroUsage(), today: zeroUsage(), day: '', pauseHiring: false };
   /** The Claude plan's 5-hour and weekly limits. */
   limits: PlanLimits = { windows: [], at: 0 };
+  codexLimits: PlanLimits = { windows: [], at: 0 };
   queue: QueueState = { tasks: [], maxWorkers: 0 };
   /** The meeting room: the meeting at the table, and the ones before. */
   meeting: MeetingState = { current: null, past: [] };
@@ -374,6 +375,7 @@ class Store {
         this.upgrade = msg.upgrade;
         this.usage = msg.usage;
         this.limits = msg.limits;
+        this.codexLimits = msg.codexLimits ?? { windows: [], at: 0 };
         this.me = msg.me;
         this.notify = msg.notify;
         this.machine = msg.machine;
@@ -523,6 +525,10 @@ class Store {
       case 'usage':
         this.usage = msg.state;
         this.emit('usage');
+        break;
+      case 'codex.limits':
+        this.codexLimits = msg.state;
+        this.emit('limits');
         break;
       case 'limits':
         this.limits = msg.state;

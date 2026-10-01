@@ -1415,6 +1415,7 @@ export type ServerMsg =
       upgrade: UpgradeState;
       usage: UsageState;
       limits: PlanLimits;
+      codexLimits?: PlanLimits;
       me: Me;
       notify: NotifyState;
       machine: MachineState;
@@ -1518,6 +1519,7 @@ export type ServerMsg =
   | ({ t: 'wb.pointer'; id: string; selected?: string[] } & WbPointer)
   | { t: 'usage'; state: UsageState }
   | { t: 'limits'; state: PlanLimits }
+  | { t: 'codex.limits'; state: PlanLimits }
   | { t: 'queue'; state: QueueState }
   | { t: 'meeting'; state: MeetingState }
   | { t: 'notify'; state: NotifyState }
