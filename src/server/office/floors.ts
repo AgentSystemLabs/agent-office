@@ -3,6 +3,7 @@ import { WebSocket } from 'ws';
 import type { FloorDef } from '../building.js';
 import { Floor, type FloorContext } from '../floor.js';
 import { ROOF } from '../../shared/rooftop.js';
+import { queueChanged } from '../queue-watch.js';
 import type { FloorInfo, ServerMsg } from '../../shared/protocol.js';
 import type { Ctx, FloorHelpers, FloorsOpen } from './context.js';
 import { SLOW_CLIENT_BYTES, type Client } from './client.js';
@@ -117,6 +118,7 @@ export async function openFloors(ctx: Ctx, hookPort: number): Promise<FloorsOpen
     },
     lent: (floor) => [...floors.values()].some((f) => f !== floor && worksIn(f, floor)),
     locksUp: () => !!ctx.maps.plan().sendHome?.keeps,
+    queueChanged: (floor, state) => queueChanged(ctx, floor, state),
     runAs: ctx.signins,
     ghAs: (owner) => (owner ? ctx.signins.ghAs(owner) : undefined),
   };

@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
-import type { ChangesState, FloorInfo, PeerInfo, ProjectInfo, ServerMsg, WorkerInfo } from '../shared/protocol.js';
+import type { ChangesState, FloorInfo, PeerInfo, ProjectInfo, QueueState, ServerMsg, WorkerInfo } from '../shared/protocol.js';
 import { isBusy } from '../shared/status.js';
 import { DESK_BY_ID } from '../shared/layout.js';
 import type { FloorDef } from './building.js';
@@ -70,6 +70,8 @@ export interface FloorContext {
   lent(floor: Floor): boolean;
   /** Whether the building's map locks up workers sent home (see MapPlan.sendHome), instead of letting them go. */
   locksUp(): boolean;
+  /** This floor's queue changed: for whoever follows every floor's queue (see queue-watch.ts). */
+  queueChanged(floor: Floor, state: QueueState): void;
 }
 
 /** The open pull request on a floor's board whose head is `branch`. */
@@ -227,6 +229,7 @@ export class Floor {
     this.queue = new TaskQueue(dataDir, this.workers, !!this.project.branch, {
       update: (state) => {
         ctx.emit(this, { t: 'queue', state });
+        ctx.queueChanged(this, state);
         // A task's pull request may just have been linked (or merged).
         this.sendLandedHome();
       },

@@ -40,3 +40,13 @@
 @media (max-width: 640px) {
   .queue-limit span { display: none; }
 }
+/* This floor / 🏢 All floors, and the floor a new task goes to. */
+.queue-scope { display: flex; gap: 4px; margin-left: auto; }
+.queue-scope .btn { padding: 3px 10px; font-size: 13px; }
+.queue-target-pick { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 13px; font-weight: 800; white-space: nowrap; }
+.queue-target-pick select { max-width: 220px; }
+.queue-floor { margin-top: 18px; padding-top: 4px; border-top: 3px dashed var(--paper-2); }
+.queue-floor h3 { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin: 10px 0 0; font-size: 16px; font-weight: 900; }
+.queue-floor h3 .here { padding: 1px 8px; border-radius: 999px; background: #e7f8ee; font-size: 12px; }
+.queue-floor h3 .stats { margin-left: auto; font-size: 12px; font-weight: 700; color: var(--muted); }
+.queue-floor-empty { margin-top: 6px; font-size: 13px; font-weight: 700; color: var(--muted); }

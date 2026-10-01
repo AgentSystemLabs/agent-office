@@ -472,6 +472,37 @@ test('settings, accounts, sign-ins and the boards answer as before', async () =>
   await a.close();
 });
 
+test('the queue takes tasks for any floor by name, and follows every floor for whoever asks', async () => {
+  const a = await Browser.open('?name=Gus');
+  await a.take('welcome');
+  const floor = office.floors()[0].id;
+  a.send({ t: 'queue.watch', on: true });
+  const all = await a.take('queues');
+  assert.deepEqual(all.floors.map((f) => f.floor), [floor]);
+  const was = all.floors[0].state.maxWorkers;
+
+  // Paused, so the task waits on the queue instead of hiring a worker.
+  a.send({ t: 'queue.limit', maxWorkers: 0, floor });
+  await a.take('queue.floor', (m) => m.floor === floor && m.state.maxWorkers === 0);
+  a.send({ t: 'queue.add', prompt: 'Tidy the README', floor });
+  const added = await a.take('queue.floor', (m) => m.state.tasks.length === 1);
+  assert.equal(added.state.tasks[0].title, 'Tidy the README');
+  await a.take('queue', (m) => m.state.tasks.length === 1);
+  a.send({ t: 'queue.add', prompt: 'x', floor: 'nope' });
+  assert.equal((await a.take('toast', (m) => m.level === 'warn')).text, 'That project is no longer in the building');
+  a.send({ t: 'queue.remove', taskId: added.state.tasks[0].id, floor });
+  await a.take('queue.floor', (m) => m.state.tasks.length === 0);
+
+  // Stopped following: only the floor's own queue message comes now.
+  a.send({ t: 'queue.watch', on: false });
+  a.send({ t: 'queue.limit', maxWorkers: was, floor });
+  await a.take('queue', (m) => m.state.maxWorkers === was);
+  a.send({ t: 'ping', at: 45 });
+  await a.take('pong');
+  assert.deepEqual(a.pending('queue.floor'), []);
+  await a.close();
+});
+
 test('the hook server answers only workers, with their own token', async () => {
   const hook = (p: string, init: RequestInit = {}) => fetch(hooks + p, init);
   assert.equal((await hook('/hooks/claude?worker=nobody', { method: 'POST', body: '{}' })).status, 401);

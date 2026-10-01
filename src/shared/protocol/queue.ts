@@ -41,16 +41,32 @@ export interface QueueState {
   maxWorkers: number;
 }
 
+/** One floor's queue, for the building-wide view of every floor's tasks. */
+export interface FloorQueue {
+  floor: string;
+  state: QueueState;
+}
+
+/**
+ * Every queue message works on your own floor's queue, or on another floor's with `floor`: from any
+ * floor's queue you can hand tasks to every project in the building and look after them.
+ */
 export type QueueClientMsg =
-  | { t: 'queue.add'; prompt: string; title?: string; issue?: number; provider?: AgentProvider; model?: string; effort?: AgentEffort }
-  | { t: 'queue.remove'; taskId: string }
+  | { t: 'queue.add'; prompt: string; title?: string; issue?: number; provider?: AgentProvider; model?: string; effort?: AgentEffort; floor?: string }
+  | { t: 'queue.remove'; taskId: string; floor?: string }
   /** Move a queued task up (-1) or down (+1) the queue. */
-  | { t: 'queue.move'; taskId: string; delta: number }
+  | { t: 'queue.move'; taskId: string; delta: number; floor?: string }
   /** Put a finished task back on the queue. */
-  | { t: 'queue.retry'; taskId: string }
+  | { t: 'queue.retry'; taskId: string; floor?: string }
   /** Forget the finished tasks. */
-  | { t: 'queue.clear' }
-  | { t: 'queue.limit'; maxWorkers: number };
+  | { t: 'queue.clear'; floor?: string }
+  | { t: 'queue.limit'; maxWorkers: number; floor?: string }
+  /** Follow every floor's queue (answered with `queues`, then `queue.floor` as each one changes), or stop. */
+  | { t: 'queue.watch'; on: boolean };
 
 export type QueueServerMsg =
-  | { t: 'queue'; state: QueueState };
+  | { t: 'queue'; state: QueueState }
+  /** Every floor's queue, for whoever just started watching them all. */
+  | { t: 'queues'; floors: FloorQueue[] }
+  /** One floor's queue changed, for whoever watches them all. */
+  | { t: 'queue.floor'; floor: string; state: QueueState };
