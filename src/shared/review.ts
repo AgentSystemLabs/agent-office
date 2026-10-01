@@ -33,6 +33,8 @@ export interface ReviewPayload {
 
 export const MAX_FINDINGS = 60;
 const COMMENT_MAX = 2000;
+/** How long a review's body may be: GitHub turns down one over 65,536 characters. */
+export const BODY_MAX = 60_000;
 const RANK: Record<Severity, number> = { high: 0, medium: 1, low: 2 };
 const ICON: Record<Severity, string> = { high: '🔴', medium: '🟠', low: '🟡' };
 
@@ -192,7 +194,21 @@ export function buildReview(findings: ReviewFinding[], summary: string, lines: M
   const parts = [summary.trim()];
   if (!findings.length) parts.push('The panel found nothing to flag.');
   else parts.push(`**${findings.length} finding${findings.length === 1 ? '' : 's'}**${comments.length ? `, ${comments.length} on the lines they're about` : ''}.`);
-  if (loose.length) parts.push(['**Elsewhere**', ...loose.map((f) => `- ${ICON[f.severity]} ${lensTag(f)} \`${where(f)}\`: ${f.comment.replace(/\s*\n\s*/g, ' ')}`)].join('\n'));
-  parts.push(`<sub>🔍 Review panel in Agent Office${lensNames.length ? `: ${lensNames.join(', ')}` : ''}.</sub>`);
+  const foot = `<sub>🔍 Review panel in Agent Office${lensNames.length ? `: ${lensNames.join(', ')}` : ''}.</sub>`;
+  if (loose.length) {
+    // The most serious come first, so what doesn't fit under GitHub's limit is the least of it.
+    let room = BODY_MAX - [...parts, foot].join('\n\n').length - 100;
+    const listed = ['**Elsewhere**'];
+    for (const f of loose) {
+      const item = `- ${ICON[f.severity]} ${lensTag(f)} \`${where(f)}\`: ${f.comment.replace(/\s*\n\s*/g, ' ')}`;
+      if (item.length + 1 > room) break;
+      listed.push(item);
+      room -= item.length + 1;
+    }
+    const left = loose.length - (listed.length - 1);
+    if (left) listed.push(`- …and ${left} more that don't fit in one review.`);
+    parts.push(listed.join('\n'));
+  }
+  parts.push(foot);
   return { body: parts.filter(Boolean).join('\n\n'), event: 'COMMENT', comments };
 }

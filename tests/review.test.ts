@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildReview, diffLines, mergeFindings, normalize, parseFindings, sameProblem, similarity, type ReviewFinding } from '../src/shared/review.js';
+import { BODY_MAX, buildReview, diffLines, mergeFindings, normalize, parseFindings, sameProblem, similarity, type ReviewFinding } from '../src/shared/review.js';
 
 const f = (x: Partial<ReviewFinding> & { comment: string }): ReviewFinding => ({ file: 'src/a.ts', line: 10, severity: 'medium', lenses: ['Correctness'], ...x });
 
@@ -109,4 +109,14 @@ test('buildReview puts findings on their lines, tagged by lens, and the rest in 
   assert.match(review.body, /\*\*\[Performance\]\*\* `src\/new\.ts`: Whole file/);
   assert.match(review.body, /Correctness, Security, Performance/);
   assert.match(buildReview([], 'LGTM', new Map()).body, /found nothing/);
+});
+
+test('buildReview keeps the body under GitHub\'s limit, saying how many findings did not fit', () => {
+  const findings: ReviewFinding[] = Array.from({ length: 60 }, (_, i) => ({ file: `src/f${i}.ts`, line: 1, severity: 'medium', lenses: ['Correctness'], comment: `Finding ${i} ` + 'x'.repeat(1990) }));
+  const { body, comments } = buildReview(findings, 'S'.repeat(20_000), new Map());
+  assert.equal(comments.length, 0);
+  assert.ok(body.length <= BODY_MAX, `${body.length} > ${BODY_MAX}`);
+  assert.match(body, /…and \d+ more that don't fit in one review\./);
+  assert.ok(body.includes('Finding 0 '));
+  assert.match(body, /Review panel in Agent Office/);
 });
