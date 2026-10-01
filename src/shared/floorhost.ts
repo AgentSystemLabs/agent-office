@@ -7,7 +7,7 @@
  *
  * Two shapes travel over the socket, and both are already JSON in the office:
  *
- *   office → host   the 50 messages `handleMessage` acts on a `Floor` (FLOOR_CASES), plus the three
+ *   office → host   the 54 messages `handleMessage` acts on a `Floor` (FLOOR_CASES), plus the three
  *                   it reaches another way (HOST_CALLS)
  *   host → office   whatever the floor's `FloorContext.emit` would have delivered locally
  *
@@ -126,6 +126,7 @@ export const FLOOR_CASES = [
   'term.resize',
   'worker.attach',
   'worker.detach',
+  'worker.helper',
   'worker.kill',
   'worker.prompt',
   'worker.pr',

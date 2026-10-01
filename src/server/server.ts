@@ -460,7 +460,7 @@ export async function startServer(cfg: Config) {
         workers: list.map((w) => workerRow(w, view, me.id)),
       });
     }
-    if (req.method !== 'POST' || !['', '/home', '/tell'].includes(action)) return send(res, 405, { error: 'GET /office/workers, or POST to /office/workers, /office/workers/home or /office/workers/tell' });
+    if (req.method !== 'POST' || !['', '/home', '/tell', '/helper'].includes(action)) return send(res, 405, { error: 'GET /office/workers, or POST to /office/workers, /office/workers/home, /office/workers/tell or /office/workers/helper' });
     let body: unknown;
     try {
       body = JSON.parse((await readBody(req)) || '{}');
@@ -520,6 +520,27 @@ export async function startServer(cfg: Config) {
       if (err === 'Worker is not running') err = floor.workers.resume(w.id, text);
       if (err) return send(res, 400, { error: err });
       return send(res, 200, { ok: true, worker: row(w.id) });
+    }
+
+    // A helper over to a worker, asked for by another agent. Whoever asks, the finding still goes to
+    // the worker it is for, and the helper still owns nothing: the same rules as from the office.
+    if (action === '/helper') {
+      const b = (body ?? {}) as { worker?: unknown; provider?: unknown; model?: unknown; effort?: unknown };
+      const host = findWorker(floor.workers.list(), str(b.worker, 64));
+      if (typeof host === 'string') return send(res, 404, { error: host });
+      if (host.id === me.id) return send(res, 400, { error: "That's you: a helper goes to another worker" });
+      if (b.provider !== undefined && (!isAgentProvider(b.provider) || !floor.project.agentProviders.includes(b.provider))) {
+        return send(res, 400, { error: 'Unknown agent provider' });
+      }
+      const provider = b.provider === undefined ? undefined : b.provider;
+      const model = b.model === undefined ? undefined : str(b.model, OPEN_CODE_MODEL_MAX + 1);
+      const effort = isAgentEffort(b.effort) ? b.effort : undefined;
+      // It runs as whoever asked for it, like a worker they hired.
+      const owner = floor.workers.ownerOf(me.id);
+      const r = await floor.workers.sendHelper(host.id, who, provider, model, effort, owner);
+      if (typeof r === 'string') return send(res, 400, { error: r });
+      toastFloor(floor, `🆘 ${who} brought ${r.name} over to help ${host.name}`);
+      return send(res, 200, { ok: true, worker: row(r.id) });
     }
 
     const ask = readHireRequest(body, floor.project.agentProviders);
@@ -1900,6 +1921,31 @@ const handleMessage = async (c: Client, msg: ClientMsg) => {
         // Every project it gets a worktree of starts from what's on GitHub.
         const fresh = [floor, ...repos.map((x) => floors.get(x.floor)!)];
         withSignIn(c, kind === 'agent' ? claudeFor(msg.provider ?? floor.workers.officeDefault.provider) : undefined, () => (msg.worktree === true ? withFreshBase(c, fresh, hire) : hire()));
+        break;
+      }
+      case 'worker.helper': {
+        const floor = here();
+        if (!floor) break;
+        const host = worker(msg.hostId);
+        if (!host || host.floor !== floor) {
+          warn(c, 'No such worker on this floor');
+          break;
+        }
+        if (msg.provider !== undefined && (!isAgentProvider(msg.provider) || !floor.project?.agentProviders.includes(msg.provider))) {
+          warn(c, 'Unknown agent provider');
+          break;
+        }
+        const model = msg.model === undefined ? undefined : str(msg.model, OPEN_CODE_MODEL_MAX + 1);
+        const effort = isAgentEffort(msg.effort) ? msg.effort : undefined;
+        // It runs as whoever sent it, like any worker they start.
+        const owner = c.accountId ? floor.workers.ownerOf(c.accountId) : undefined;
+        withSignIn(c, claudeFor(msg.provider ?? floor.workers.officeDefault.provider), () => {
+          const r = floor.workers.sendHelper(host.wid, who, msg.provider, model, effort, owner);
+          void Promise.resolve(r).then((done) => {
+            if (typeof done === 'string') return warn(c, done);
+            toastFloor(floor, `🆘 ${who} brought ${done.name} over to help ${host.info.name}`);
+          });
+        });
         break;
       }
       case 'worker.resume': {

@@ -8,6 +8,7 @@ import type { DecorPlacement, Decoration } from './decor.js';
 import type { DogState } from './dog.js';
 import type { FloorPlan } from './floorplan.js';
 import type { EmoteId } from './emotes.js';
+import type { HelperState } from './helper.js';
 import type { CarSeat, CarState } from './garage.js';
 import type { BallState } from './hoop.js';
 import type { JukeboxSpot, JukeboxState } from './jukebox.js';
@@ -154,6 +155,13 @@ export interface WorkerInfo {
   workingSince?: number;
   /** Sent out by a map's herald (the castle's Hand of the King), so every browser has it run to its seat from beside them. */
   via?: 'herald';
+  /**
+   * Set when this worker is a helper someone walked over to another worker's desk (see
+   * shared/helper.ts). It has no seat of its own, works in its host's checkout, tells the host what
+   * it found and goes home, and never owns the work. What it's doing right now is in the floor's
+   * `helper` message, whose path every browser walks identically.
+   */
+  helper?: { hostId: string; hostName: string };
 }
 
 /** Where the branch of a worker whose worktree was deleted still is (see WorkerInfo.lost). */
@@ -1200,6 +1208,12 @@ export type ClientMsg =
   /** With `issue`, the worker is there for that GitHub issue: it's assigned on GitHub (so it moves to In progress) and taken off the queue. */
   /** With `repos` (other floors' ids), the worker works in their repositories too, each in a worktree of its own (see WorkerInfo.repos). */
   | { t: 'worker.spawn'; deskId: string; prompt?: string; worktree?: boolean; kind?: WorkerKind; provider?: AgentProvider; model?: string; effort?: AgentEffort; issue?: number; repos?: string[]; via?: 'herald' }
+  /**
+   * Walk a helper over to the worker at `hostId`, to be sent to its host with what it finds and then
+   * go home. It works in its host's checkout, so unlike worker.spawn it never cuts a worktree, and it
+   * gets no seat of its own (see shared/helper.ts).
+   */
+  | { t: 'worker.helper'; hostId: string; provider?: AgentProvider; model?: string; effort?: AgentEffort }
   | { t: 'worker.resume'; workerId: string }
   | { t: 'worker.kill'; workerId: string; cleanup?: WorktreeCleanup }
   /** Asks what the worker's worktree holds; answered with a `worker.worktree` message. */
@@ -1480,6 +1494,11 @@ export type ServerMsg =
   | { t: 'plan'; plan: FloorPlan }
   /** What the dog on your floor is up to now: sent at the start of each leg of its day. */
   | { t: 'dog'; dog: DogState }
+  /**
+   * Where the helpers on your floor are: one per helper, sent as it sets off and as it changes what
+   * it's doing. The worker itself arrives in the ordinary worker list (see WorkerInfo.helper).
+   */
+  | { t: 'helper'; helpers: HelperState[] }
   /** The basketball on your floor was picked up, thrown, or put back under the hoop. */
   | { t: 'ball'; ball: BallState }
   /** Someone got into one of your floor's cars, or out of one; `answer` to each car.enter and car.leave of yours, whether you got in or not. */

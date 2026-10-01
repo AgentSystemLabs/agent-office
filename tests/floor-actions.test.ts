@@ -84,13 +84,13 @@ test('the three kinds of call are split by what the office does with the answer'
   assert.doesNotMatch(source, /^\s+readonly (whiteboard|dog|docs)\b/m);
 });
 
-test('the 50 floor cases map onto the interface, not onto the class', () => {
+test('the 54 floor cases map onto the interface, not onto the class', () => {
   // A guard on the shape of the design rather than a type check: the cases travel as frames, so the
   // surface they need is what RemoteFloor implements. Nothing here should name a Floor member that
   // only exists on the class.
-  assert.equal(FLOOR_CASES.length, 53);
+  assert.equal(FLOOR_CASES.length, 54);
   const actions = readFileSync(path.join(root, 'src/server/floor-actions.ts'), 'utf8');
-  for (const m of ['spawn', 'station', 'resume', 'prompt', 'kill', 'attach', 'detach', 'write', 'resize', 'openPr', 'rebuild', 'inspectWorktree']) {
+  for (const m of ['spawn', 'station', 'sendHelper', 'resume', 'prompt', 'kill', 'attach', 'detach', 'write', 'resize', 'openPr', 'rebuild', 'inspectWorktree']) {
     assert.match(actions, new RegExp(`\\b${m}\\(`), `workers.${m} must be on the surface`);
   }
   for (const m of ['add', 'remove', 'move', 'retry', 'clear', 'setLimit']) {

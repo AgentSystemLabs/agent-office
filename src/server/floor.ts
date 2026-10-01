@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
-import type { ChangesState, FloorInfo, ForgeKind, GhIssue, GhPull, GhState, PeerInfo, ProjectInfo, ServerMsg, WorkerInfo } from '../shared/protocol.js';
+import type { AgentEffort, AgentProvider, ChangesState, FloorInfo, ForgeKind, GhIssue, GhPull, GhState, PeerInfo, ProjectInfo, ServerMsg, WorkerInfo } from '../shared/protocol.js';
 import { isBusy } from '../shared/status.js';
 import { DESK_BY_ID } from '../shared/layout.js';
 import { caption } from '../shared/chairs.js';
@@ -11,6 +11,7 @@ import { excludeFromGit } from './config.js';
 import { agentProviders, configuredProvider } from './agents.js';
 import { WorkerManager, workedMs, type HookEnv, type RunAs } from './workers.js';
 import { Bitbucket } from './bitbucket.js';
+import { Helpers } from './helpers.js';
 import { forgeOf, MergeWatch, type Forge } from './forge.js';
 import { GitHub } from './github.js';
 import type { ForgeAs } from './signins.js';
@@ -133,6 +134,8 @@ export class Floor {
   readonly whiteboard: Whiteboard;
   /** The meeting room, where workers work through a question together (see meetings.ts). */
   readonly meetings: MeetingRoom;
+  /** The helpers standing at workers' desks, and which way each is walking (see helpers.ts). */
+  readonly helpers: Helpers;
   /** The bookshelf: the project's Markdown files (see docs.ts). */
   readonly docs: Docs;
   /** Settles once the workers whose terminals outlived the last office are picked back up, and the rest woken. */
@@ -177,6 +180,14 @@ export class Floor {
       wing: () => this.plan.wing,
     });
 
+    // Before the workers too, so it hears a helper's first updates as it reads.
+    this.helpers = new Helpers({
+      workers: () => this.workers?.list() ?? [],
+      send: (helpers) => ctx.emit(this, { t: 'helper', helpers }),
+      wing: () => this.plan.wing,
+      sendHome: (workerId) => void this.sendHome(workerId),
+    });
+
     this.workers = new WorkerManager(
       def.dir,
       dataDir,
@@ -190,6 +201,7 @@ export class Floor {
           this.queue?.onWorker(worker);
           this.meetings?.onWorker(worker);
           this.dog.onWorker(worker);
+          this.onHelperUpdate(worker);
           ctx.workerChanged(this, worker);
           // Its turn ended, or whoever had its terminal open closed it: it may be free to go now.
           this.sendLandedHome();
@@ -198,11 +210,12 @@ export class Floor {
           this.changes?.forget(workerId);
           // Sent home on a map that locks workers up: into the dungeon with it, for good (a meeting's
           // workers aren't sent home when it's over, just let go).
-          const jail = info && !info.meeting && ctx.locksUp() ? this.jail.add({ ...info, workedMs: workedMs(info) }) : undefined;
+          const jail = info && !info.meeting && !info.helper && ctx.locksUp() ? this.jail.add({ ...info, workedMs: workedMs(info) }) : undefined;
           ctx.emit(this, { t: 'worker.remove', workerId, ...(jail ? { jail } : {}) });
           this.queue?.onWorkerGone(workerId);
           this.meetings?.onWorkerGone(workerId);
           this.dog.onWorkerGone(workerId);
+          this.helpers?.forget(workerId);
           ctx.workerChanged(this, workerId);
         },
         data: (workerId, data, viewers) => ctx.termData(workerId, data, viewers),
@@ -395,11 +408,66 @@ export class Floor {
    * Sends a worker home as someone asked (not by itself, see sendLandedHome): with no `cleanup`, its
    * worktree and branch go unless they hold work, where what its merged pull requests delivered
    * doesn't count. Resolves with the line about its worktree.
+   *
+   * A helper's worktree is its host's, so it is never touched however it is sent home: the host is
+   * working in it, and the helper only ever read from it.
    */
   sendHome(workerId: string, cleanup?: WorktreeCleanup): Promise<{ note?: string; error?: string }> {
     const info = this.workers.get(workerId);
+    if (info?.helper) return this.workers.kill(workerId);
     const landed = info && this.landed(info);
     return this.workers.kill(workerId, cleanup, landed?.head, landed?.heads);
+  }
+
+  /**
+   * A helper's own life, from the office's point of view: it walks to its host's desk, reads, tells
+   * the host what it found, and its visit is then over. The finding goes to the worker rather than to
+   * whoever sent the helper, because the worker is the one who owns the work and has to decide what
+   * to do about it (see docs/helper-plan.md).
+   */
+  private onHelperUpdate(worker: WorkerInfo): void {
+    if (!worker.helper || worker.status === 'exited') return;
+    // Reading: it's got to its desk and is working through the problem.
+    if (worker.status === 'working') this.helpers.reading(worker.id);
+    // Done and nothing asked of it is how a helper reports. Once only, whichever way it got there:
+    // a helper's own acked flag is not the office's to read, since opening its terminal shouldn't
+    // count as being answered (see Helpers.reported, which ignores a second call).
+    if (worker.status !== 'done' || this.reportedHelpers.has(worker.id)) return;
+    this.reportedHelpers.add(worker.id);
+    this.helpers.reporting(worker.id);
+    const host = this.workers.get(worker.helper.hostId);
+    if (!host) {
+      this.helpers.reported(worker.id);
+      return;
+    }
+    // What it found is what it said in its last answer, which is the tail of its own terminal.
+    const finding = this.workers.finding(worker.id);
+    const report = officePrompt(this.ctx.prompts, 'helper.report', { helper: worker.name, finding });
+    const err = this.workers.prompt(host.id, report || finding, worker.name);
+    if (err) this.ctx.toast(this, `🆘 ${worker.name} couldn't reach ${host.name}: ${err}`, 'warn');
+    this.helpers.reported(worker.id);
+  }
+
+  /** The helpers that have already reported, so a finding is sent to a host once and once only. */
+  private readonly reportedHelpers = new Set<string>();
+
+  /**
+   * Walks a helper over to `hostId`'s desk. It works in that worker's checkout, so it needs a prompt
+   * of its own brief and then nothing: no worktree, no queue task, and no say over the work. One per
+   * host at a time, because a second helper at a desk that one hasn't unstuck is a sign the task is
+   * wrong rather than that the help was thin.
+   */
+  sendHelper(hostId: string, by: string, provider?: AgentProvider, model?: string, effort?: AgentEffort, owner?: string): WorkerInfo | string {
+    const host = this.workers.get(hostId);
+    if (!host) return 'No such worker';
+    // One at a time, because a second helper at a desk the first hasn't unstuck is a sign the task is
+    // wrong rather than that the help was thin. Not a technical limit, so it says so.
+    if (this.helpers.has(hostId)) return `${host.name} already has a helper at its desk`;
+    const r = this.workers.sendHelper(hostId, by, provider, model, effort, owner);
+    if (typeof r === 'string') return r;
+    // It's hired; now walk it over. The office owns the route and every browser follows the same one.
+    this.helpers.send(host, r);
+    return r;
   }
 
   private goHome(worker: WorkerInfo, why: string, head?: string, heads?: Record<string, string | undefined>) {

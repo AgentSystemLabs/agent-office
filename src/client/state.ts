@@ -5,6 +5,7 @@ import type { Decoration } from '../shared/decor';
 import { EMPTY_PLAN, type FloorPlan } from '../shared/floorplan';
 import { newer, type WbElement } from '../shared/whiteboard';
 import type { DogState } from '../shared/dog';
+import type { HelperState } from '../shared/helper';
 import { JUKEBOX_HOME, JUKEBOX_TUNES, type JukeboxState } from '../shared/jukebox';
 import { TV_OFF, type TvState } from '../shared/tv';
 import type { CabinetFrame, CabinetState } from '../shared/cabinet';
@@ -13,7 +14,7 @@ import { NO_CHAIRS, type ChairsState } from '../shared/chairs';
 import { parked, type CarSeat, type CarState } from '../shared/garage';
 import { OFFICE_MAP, planOf, type MapPlan } from '../shared/maps';
 
-export type Topic = 'peers' | 'workers' | 'issues' | 'pulls' | 'chat' | 'project' | 'screens' | 'team' | 'upgrade' | 'services' | 'decor' | 'floorPlan' | 'usage' | 'limits' | 'queue' | 'me' | 'accounts' | 'signins' | 'notify' | 'machine' | 'floors' | 'floor' | 'projectsDir' | 'repos' | 'dog' | 'jukebox' | 'tv' | 'sky' | 'theme' | 'map' | 'leaveOnMerge' | 'whiteboard' | 'drawing' | 'cabinet' | 'cabinetFrame' | 'meeting' | 'prompts' | 'ball' | 'cars' | 'jail' | 'chairs';
+export type Topic = 'peers' | 'workers' | 'issues' | 'pulls' | 'chat' | 'project' | 'screens' | 'team' | 'upgrade' | 'services' | 'decor' | 'floorPlan' | 'usage' | 'limits' | 'queue' | 'me' | 'accounts' | 'signins' | 'notify' | 'machine' | 'floors' | 'floor' | 'projectsDir' | 'repos' | 'dog' | 'jukebox' | 'tv' | 'sky' | 'theme' | 'map' | 'leaveOnMerge' | 'whiteboard' | 'drawing' | 'cabinet' | 'cabinetFrame' | 'meeting' | 'prompts' | 'ball' | 'cars' | 'jail' | 'chairs' | 'helper';
 
 const zeroUsage = (): Usage => ({ input: 0, output: 0, cacheWrite: 0, cacheRead: 0, cost: 0, calls: 0 });
 
@@ -236,6 +237,12 @@ jukebox: JukeboxState & { since: number } = { on: false, track: JUKEBOX_TUNES[0]
   /** The dog on your floor, and when (performance.now()) the leg it's on began. */
   dog: DogState | null = null;
   dogStart = 0;
+  /**
+   * The helpers on this floor and where each is walking (see shared/helper.ts), and when
+   * (performance.now()) this batch of them was said, which is when the walks began.
+   */
+  helpers: HelperState[] = [];
+  helperStart = 0;
   /** The basketball on this floor, as the office last said (see world/hoop.ts). */
   ball: BallState = {};
   /** Workers sent home and locked up in this floor's dungeon, on a map that has one. */
@@ -338,7 +345,7 @@ jukebox: JukeboxState & { since: number } = { on: false, track: JUKEBOX_TUNES[0]
     this.setCars(v.cars ?? parked());
     this.jail = v.jail ?? { prisoners: [], bones: 0 };
     this.chairs = v.chairs ?? NO_CHAIRS;
-    for (const t of ['floor', 'project', 'workers', 'issues', 'pulls', 'queue', 'meeting', 'decor', 'floorPlan', 'services', 'dog', 'jukebox', 'tv', 'whiteboard', 'drawing', 'cabinet', 'cabinetFrame', 'ball', 'cars', 'jail', 'chairs'] as Topic[]) this.emit(t);
+    for (const t of ['floor', 'project', 'workers', 'issues', 'pulls', 'queue', 'meeting', 'decor', 'floorPlan', 'services', 'dog', 'helper', 'jukebox', 'tv', 'whiteboard', 'drawing', 'cabinet', 'cabinetFrame', 'ball', 'cars', 'jail', 'chairs'] as Topic[]) this.emit(t);
   }
 
   private setCars(cars: CarState[]) {
@@ -550,6 +557,11 @@ jukebox: JukeboxState & { since: number } = { on: false, track: JUKEBOX_TUNES[0]
       case 'dog':
         this.setDog(msg.dog);
         this.emit('dog');
+        break;
+      case 'helper':
+        this.helpers = msg.helpers;
+        this.helperStart = performance.now();
+        this.emit('helper');
         break;
       case 'ball':
         this.ball = msg.ball;

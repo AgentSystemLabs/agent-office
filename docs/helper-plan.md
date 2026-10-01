@@ -2,9 +2,10 @@
 
 Bringing a second agent to a worker who is stuck, so you don't have to.
 
-Status: **proposal.** Nothing built. Most of the design is settled; the open questions are at the
-bottom, and the first one — what the helper is *for* — is the only thing between this and a first
-commit.
+Status: **built.** Press **U** at a worker to bring one; see
+[Features](features.md#bring-a-helper-to-a-worker) for what it does and `src/shared/helper.ts` for
+the shape of it. Kept below as the design record: what each slice turned out to need, and the
+questions that were settled along the way.
 
 Back to the [README](../README.md) · [Ideas](ideas.md) · [Features](features.md)
 
@@ -251,44 +252,63 @@ New tests, matching the existing ones:
 
 ## Open questions
 
-Answered and folded in above: **the worker is told** (toast, an introduction in the helper's first
-prompt, a chip on the task card), and **which agent** (any provider, any model, office default
-preselected).
+Answered and folded in above: **the worker is told** (a toast, an introduction in the helper's own
+first prompt, a card saying whose desk it is at), and **which agent** (any provider, any model,
+office default preselected).
 
 **When it goes home** is settled by the plan rather than by discussion: it leaves as soon as it has
 reported. That was the original design and it is the better one — bounded cost, nothing to forget,
 one condition instead of a policy. `X` remains available throughout as the escape hatch. See
 [Slice 5](#slice-5--sending-it-home-s).
 
-Still open:
+Decided while building, and worth writing down because they are the ones that shaped the code:
 
-1. **What is the helper for, when you press the key?** One role (diagnose only) or a small picker
-   (diagnose / verify / second opinion)? This is the first prompt in slice 1, so it wants an answer
-   before that. It is the only thing standing between this plan and a first commit.
-2. **Does the helper count against `--max-workers`?** It's a live agent, so arithmetically yes. But
-   the ceiling is a safety valve, and a helper that refuses to spawn because the floor is full is
-   useless exactly when you need it.
-3. **Can you have two at once, at two different desks?** Deferred on the grounds that one is enough
-   to test the idea, but it's a fair question.
-4. **Should the helper's own terminal be visible while it stands there?** In 3D, the laptop is small
-   and unreadable from a doorway, so seeing its thinking means pressing `E` at the desk. The Workers
-   panel and search already reach it. Worth deciding whether the desk card shows a live one-line
-   "what it's doing", which is what the worker's own card does.
+- **The key is U**, at a worker in a worktree of its own. H was taken by Controls and G is the emote
+  wheel; U reads as "unstuck", which is what you are asking for.
+- **A helper counts against `--max-workers`**, like any live agent. A helper that would not spawn
+  because the floor is full would be useless exactly when you want one.
+- **Only a worker in a worktree of its own can be helped**, and the office says why when you try
+  otherwise. A helper reads the checkout it is pointed at, and that is the floor's shared one if the
+  worker has no worktree of its own.
+- **The first role is diagnose only**, chosen here rather than asked for, because it is the one where
+  being wrong costs a paragraph. The prompt is in ⚙️ Settings, so widening it to a picker later is a
+  prompt, not a feature.
+- **Agents can ask for helpers too**, with `office-workers helper <worker>` and the `get_helper` MCP
+  tool, so a worker that spots one can bring a second opinion without a human in the loop. The rules
+  are identical and the finding still goes to the worker being helped, never to the asker.
+
+Still open, and none of them blocking:
+
+1. **Can one worker have helpers at two desks at once?** Deferred: one is enough to test the idea.
+2. **Should the helper's desk card show a live one-liner?** It says whose desk it is at and what it is
+   doing, which covers the common case. A second line of live output would need the worker's own card
+   machinery and is not obviously worth it.
 
 ---
 
 ## Slices at a glance
 
-| # | Slice | Size | Needs |
+| # | Slice | Size | Where it landed |
 | --- | --- | --- | --- |
-| 1 | The prompt alone | S | **question 1** — the role |
-| 2 | The standing station (`helper:desk-N`) | S | |
-| 3 | The walk, on the dog's path model | S | |
-| 4 | Delivering the finding to the worker | S | |
-| 5 | Sending it home — on reporting | S | |
-| 6 | The worker is told | S | |
-| | 3D, seat identity, walk, prompt plumbing | | questions 2–4 |
+| 1 | The prompt alone | S | `helper.brief` and `helper.report` in `src/shared/prompts.ts` |
+| 2 | The standing station (`helper:desk-N`) | S | `helperDesk` in `src/shared/helper.ts`, `helperDesk()` in `workers.ts` |
+| 3 | The walk, on the dog's path model | S | `route()` in `nav.ts`, `HelperState`, `client/world/helper.ts` |
+| 4 | Delivering the finding to the worker | S | `onHelperUpdate` in `server/floor.ts` |
+| 5 | Sending it home — on reporting | S | `Helpers.reported` in `server/helpers.ts` |
+| 6 | The worker is told | S | the toast, and the report prompt, in `server/floor.ts` |
 
-Slice 1 is first on purpose: it needs no 3D, no walking and no new state, and it answers the only
-question that can kill the idea — whether a helper's finding is actually worth the tokens. If that
-works, everything after it is plumbing in code that already exists.
+Slice 1 came first as planned, and it turned out to be the whole risk: everything after it is wiring
+in code that already existed.
+
+### What the build changed about the design
+
+Two things turned out differently than planned, both from reading the code rather than imagining it:
+
+**The helper is a first-class worker, not a special case.** It gets a real `WorkerInfo`, so its
+terminal, status, hooks, cost, search and resume all come for free — which is what makes "you can
+read its thinking and type into it" true without a line of extra work.
+
+**The floor, not the worker manager, owns the walk.** `Floor` holds the `Helpers` and calls
+`workers.sendHelper`, so `sendHome` can refuse to touch a helper's worktree — which is the host's —
+and a hosted floor keeps the route to itself. That is why `sendHelper` takes a worker id like `spawn`
+does, and why `Helpers` is injected rather than constructed inside the manager.

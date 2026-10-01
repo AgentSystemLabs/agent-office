@@ -47,6 +47,8 @@ import { Laptop } from './world/laptop';
 import { BoardTexture, QueueBoardTexture, ServicesBoardTexture } from './world/boards';
 import { Gallery } from './world/gallery';
 import { Dog } from './world/dog';
+import { HelperWalk } from './world/helper';
+import { helperHost, helperSpot, type HelperPhase } from '../shared/helper';
 import { Holiday } from './world/holiday';
 import { Arrivals, Departures } from './world/leaving';
 import { Jail } from './world/jail';
@@ -503,6 +505,14 @@ store.on('dog', () => {
   dog.sync(store.dog, store.dogStart);
   // The dog lives in the office: on a map of its own it stays home.
   if (!inOffice()) dog.root.visible = false;
+});
+// The helpers standing at workers' desks, and the walks that put them there. The office sends the way;
+// this flies each model along it, so everyone on the floor sees the same walk.
+const helperWalk = new HelperWalk(scene, (x, z, y) => Math.max(groundAt(world.colliders, x, z, y), player.street));
+store.on('helper', () => {
+  helperWalk.sync(store.helpers, store.helperStart);
+  // On a map of its own a helper has no desks to stand at, so it keeps to the office.
+  if (!inOffice()) for (const v of workerViews.values()) if (v.laptop === null) v.model.root.visible = false;
 });
 sound.setMusicVolume(settings.music, settings.musicMuted);
 sound.onMusicError = (text) => toast(text, 'warn');
@@ -1093,12 +1103,15 @@ const remotes = new Map<string, RemotePeer>();
 
 interface WorkerView {
   model: Worker;
-  laptop: Laptop;
+  /** A helper stands at somebody else's desk and has none of its own, so it has no laptop in here. */
+  laptop: Laptop | null;
   deskId: string;
   status: string;
   acked: boolean;
 }
 const workerViews = new Map<string, WorkerView>();
+/** Just the helpers' models, for the doors: they are the workers on their feet, not the seated ones. */
+const helperModels = new Map<string, Worker>();
 /** Workers a `worker.remove` is taking out of the store right now. They walk out of the building; a worker that's gone because you changed floors just vanishes. */
 const sentHome = new Set<string>();
 /** The top of whatever's underfoot at (x, z) for feet at `y`, in the world you're in: its floor, a step, the street. */
@@ -1848,9 +1861,10 @@ function applyMap() {
   for (const [id, v] of workerViews) {
     court?.release(id);
     v.model.root.removeFromParent();
-    v.laptop.root.removeFromParent();
+    v.laptop?.root.removeFromParent();
     v.model.dispose();
-    v.laptop.dispose();
+    v.laptop?.dispose();
+    helperModels.delete(id);
     sound.removeTypist(id);
   }
   workerViews.clear();
@@ -2167,7 +2181,32 @@ function syncWorkers() {
   for (const w of store.workers.values()) {
     let v = workerViews.get(w.id);
     const desk = world.desks.get(w.deskId);
-    if (!desk) continue;
+    // A helper stands at somebody else's desk: it has no seat of its own, so there is no desk group to
+    // sit it in. It gets a model on its own and the walk puts it where the office says it is.
+    if (!desk) {
+      if (!w.helper) continue;
+      if (!v) {
+        const model = new Worker(w.name, w.color);
+        model.setCostume(store.theme.active);
+        model.setAge(ageOf(w));
+        // Into the world itself, since it belongs to no desk group.
+        scene.add(model.root);
+        // Pointing at the helper opens its own terminal, the way pointing at a seated worker opens
+        // theirs: it has no desk of its own to be aimed at instead.
+        const spot = helperSpot(plan().byId.get(helperHost(w.deskId) ?? '') ?? DESKS[0]);
+        model.root.userData.interact = { kind: 'desk', deskId: w.deskId, x: spot.at[0], z: spot.at[1], radius: 1.1 } satisfies Interactable;
+        helperModels.set(w.id, model);
+        v = { model, laptop: null, deskId: w.deskId, status: '', acked: true };
+        workerViews.set(w.id, v);
+        helperWalk.sync(store.helpers, store.helperStart);
+      }
+      if (v.status !== w.status || v.acked !== w.acked) {
+        if (waitingOnSomeone(w) && v.status !== '') sound.ding(w.status);
+        v.status = w.status;
+        v.acked = w.acked;
+      }
+      continue;
+    }
     if (!v) {
       departures.vacate(w.deskId);
       sendoffs.vacate(w.deskId);
@@ -2213,12 +2252,12 @@ function syncWorkers() {
     v.model.setPr(workerPr(w, store.pulls.items, store.queue.tasks));
     v.model.setLost(!!w.lost);
     const engineBadge = w.kind === 'agent' ? modelBadge(w.provider, w.model, w.effort) : undefined;
-    v.model.setTask(meetingCard(w) ?? (w.task && w.kind === 'agent' ? { ...w.task, name: `${providerLabel(w.provider, store.project)}${engineBadge ? ` · ${engineBadge}` : ''} · ${w.task.name}` } : w.task));
+    v.model.setTask(helperCard(w) ?? meetingCard(w) ?? (w.task && w.kind === 'agent' ? { ...w.task, name: `${providerLabel(w.provider, store.project)}${engineBadge ? ` · ${engineBadge}` : ''} · ${w.task.name}` } : w.task));
     const deskDef = plan().byId.get(w.deskId);
     // Keys clack while it types, not while it reads, watches its tests or browses.
     if (deskDef) sound.setTyping(w.id, deskDef.x, deskDef.z, w.status === 'working' && (!w.action || w.action === 'edit'));
     const again = w.kind === 'shell' ? 'restart' : 'resume';
-    v.laptop.setPlaceholder(w.lost ? `🌿 ${w.name}'s worktree was deleted — press E to fix it` : w.status === 'offline' ? `💤 ${w.name} is asleep — press R to ${again}` : w.status === 'exited' ? `${w.name} exited` : 'booting…');
+    v.laptop?.setPlaceholder(w.lost ? `🌿 ${w.name}'s worktree was deleted — press E to fix it` : w.status === 'offline' ? `💤 ${w.name} is asleep — press R to ${again}` : w.status === 'exited' ? `${w.name} exited` : 'booting…');
   }
   for (const [id, v] of workerViews) {
     if (store.workers.has(id)) continue;
@@ -2229,14 +2268,18 @@ function syncWorkers() {
     // Sent home: it packs up and walks out, and the seat shows as free once it's up (see departures), or
     // on a map with its own way of seeing workers off, that (the castle's dungeon, for one it locks up).
     const send = plan().sendHome;
-    if (desk && sentHome.has(id) && send && (!send.keeps || store.jail.prisoners.some((p) => p.id === id))) sendoffs.add(id, v.model, v.laptop, desk, up);
-    else if (desk && sentHome.has(id)) departures.add(v.model, v.laptop, desk, up);
+    // A helper has no desk and no laptop, so it is simply taken off the floor: its own walk out is
+    // its legs walking, and it has already said what it came to say.
+    if (v.laptop && desk && sentHome.has(id) && send && (!send.keeps || store.jail.prisoners.some((p) => p.id === id))) sendoffs.add(id, v.model, v.laptop, desk, up);
+    else if (v.laptop && desk && sentHome.has(id)) departures.add(v.model, v.laptop, desk, up);
     else {
       v.model.root.removeFromParent();
-      v.laptop.root.removeFromParent();
+      v.laptop?.root.removeFromParent();
       v.model.dispose();
-      v.laptop.dispose();
+      v.laptop?.dispose();
     }
+    helperModels.delete(id);
+    helperWalk.forget(id);
     sound.removeTypist(id);
     workerViews.delete(id);
   }
@@ -2510,6 +2553,70 @@ function promptAtDesk(deskId: string) {
       onSubmit: (text) => net.send({ t: 'worker.prompt', workerId: w.id, prompt: text }),
     });
   }
+}
+
+/**
+ * Walking a helper over to a worker that looks stuck (U). It works in that worker's own checkout, so
+ * it reads what the worker is doing and tells the worker what it found, and then goes home. It never
+ * edits anything, never commits, and never opens a pull request: the work stays the host's.
+ */
+function helperFor(w: WorkerInfo) {
+  if (officeIsFull()) return;
+  if (w.kind !== 'agent') return toast(`${w.name} is a shell, not an agent`, 'warn');
+  if (w.helper) return toast(`${w.name} is itself a helper`, 'warn');
+  if (w.lost) return fixLostWorktree(w);
+  if (store.helpers.some((h) => h.hostId === w.id)) return toast(`${w.name} already has a helper at its desk`, 'warn');
+  if (!w.worktree) return toast(`${w.name} isn't in a worktree of its own — a helper needs one to read`, 'warn');
+  openPrompt({
+    title: `🆘 Bring a helper to ${w.name}`,
+    subtitle: 'It walks over, reads what they are stuck on, tells them what it found, and goes home. It cannot edit, commit or open a pull request.',
+    submitLabel: 'Bring them over',
+    allowEmpty: true,
+    providerOption: true,
+    onSubmit: (_text, o) => {
+      net.send({ t: 'worker.helper', hostId: w.id, provider: o.provider, model: o.model, effort: o.effort });
+    },
+  });
+}
+
+/**
+ * The U in a worker's desk hint: a helper over to it, when there is one to bring. Only for a worker
+ * in a worktree of its own, since that is the only place a helper can read without disturbing anyone.
+ */
+function helperKey(w: WorkerInfo) {
+  if (w.kind !== 'agent' || w.helper || !w.worktree || w.lost) return '';
+  if (store.helpers.some((h) => h.hostId === w.id)) return aside('🆘 a helper is on its way');
+  return key('U', 'Bring a helper');
+}
+
+/**
+ * The worker a helper could be brought to, from where you're standing: the one at the desk in reach
+ * that could actually use one. Undefined when there's none, so the menu says so rather than guessing.
+ */
+function helperTarget(): WorkerInfo | undefined {
+  const it = target?.kind === 'desk' ? target.deskId : undefined;
+  const w = it ? store.workerAtDesk(it) : undefined;
+  return w && w.kind === 'agent' && !w.helper && w.worktree && !w.lost ? w : undefined;
+}
+
+const HELPER_DOING: Record<HelperPhase, string> = {
+  walking: 'walking over to their desk',
+  reading: 'reading over their shoulder',
+  reporting: 'telling them what it found',
+  leaving: 'heading home',
+};
+
+/**
+ * The card over a helper's head, so it is never mistaken for a colleague: it says whose desk it is at
+ * and what it is doing there, and it keeps the provider badge like any other worker.
+ */
+function helperCard(w: WorkerInfo): WorkerTask | undefined {
+  if (!w.helper) return undefined;
+  const h = store.helpers.find((x) => x.workerId === w.id);
+  const badge = modelBadge(w.provider, w.model, w.effort);
+  const name = `🆘 Helping ${w.helper.hostName}${badge ? ` · ${badge}` : ''}`;
+  const doing = h ? HELPER_DOING[h.phase] : 'on its way';
+  return { name, summary: w.status === 'done' ? '✅ It has told them; going home' : `${doing} · press E to read its terminal` };
 }
 
 /** Direct hire from an empty desk, with an optional first prompt and provider choice. */
@@ -3068,6 +3175,7 @@ function interact(target: Interactable | null, key: DeskKey, note = aimedNote) {
     if (key === 'R' && w && isAsleep(w.status)) return resumeWorker(w);
     if (key === 'X' && w) return killWorker(w.id);
     if (key === 'O' && w) return pullRequestFor(w);
+    if (key === 'U' && w) return helperFor(w);
     return;
   }
   if (target.kind === 'station' && target.deskId) {
@@ -4307,6 +4415,7 @@ function deskHint(deskId: string): Hint {
       key('C', 'Changes'),
       isAsleep(w.status) ? key('R', shell ? 'Restart' : 'Resume') : key('P', shell ? 'Run command' : 'Prompt'),
       w.repos?.length ? reposKey(w) : w.pr ? key('O', `PR #${w.pr.number}`) : w.prOpening ? aside('⏳ Opening PR…') : prReady(w) ? key('O', 'Open PR') : '',
+      helperKey(w),
       key('X', 'Send home'),
       labelKey,
     ],
@@ -4957,6 +5066,23 @@ const hud = mountHud(
     { id: 'queue', icon: '📋', label: 'Task queue', section: 'Open', count: () => store.queue.tasks.filter((t) => t.status !== 'done').length, title: () => 'Issues and tasks waiting for a worker', run: showQueue },
     { id: 'services', icon: '🌐', label: 'Services', section: 'Open', count: () => store.services.items.length, title: () => 'Web servers the workers are running', run: () => openServices() },
     { id: 'whiteboard', icon: '📝', label: 'Whiteboard', section: 'Open', title: () => 'Draw together, live', run: () => openWhiteboard(net) },
+    {
+      id: 'helper',
+      icon: '🆘',
+      label: () => (helperTarget() ? `Bring a helper to ${helperTarget()!.name}` : 'Bring a helper to a worker'),
+      section: 'Open',
+      key: 'U',
+      shown: () => inOffice(),
+      title: () => 'Walk a second agent over to a worker that is stuck: it reads what they are doing, tells them what it found, and goes home',
+      on: () => store.helpers.length > 0,
+      status: () => store.helpers.length > 0,
+      chip: () => `${store.helpers.length} out`,
+      run: () => {
+        const w = helperTarget();
+        if (w) helperFor(w);
+        else toast('Stand at a worker in a worktree of its own to bring a helper over', 'warn');
+      },
+    },
     // Up on the top bar while a meeting is on: what's being worked through in the meeting room.
     {
       id: 'meeting',
@@ -5321,6 +5447,17 @@ function frame(ts?: number) {
   if (aging) agedAt = now;
   for (const [id, v] of workerViews) {
     const desk = plan().byId.get(v.deskId)!;
+    // A helper has no desk: the walk owns where it is, and its card says whose desk it is at.
+    if (v.laptop === null) {
+      if (aging) {
+        const w = store.workers.get(id);
+        if (w) v.model.setAge(ageOf(w));
+      }
+      if (inOffice()) helperWalk.place(id, v.model);
+      else v.model.root.visible = false;
+      v.model.update(dt, t);
+      continue;
+    }
     if (aging) {
       const w = store.workers.get(id);
       if (w) v.model.setAge(ageOf(w));
@@ -5344,7 +5481,7 @@ function frame(ts?: number) {
   if (inOffice()) dog.update(dt);
   if (!upTop && inOffice()) updateBall(now, dt);
   if (!upTop) {
-    world.update(t, dt, [player.pos, ...[...remotes.values()].map((r) => r.person.root.position), ...departures.positions(), ...sendoffs.positions(), ...arrivals.positions(), ...(court?.positions() ?? []), ...chairGame.positions()]);
+    world.update(t, dt, [player.pos, ...[...remotes.values()].map((r) => r.person.root.position), ...departures.positions(), ...sendoffs.positions(), ...arrivals.positions(), ...(court?.positions() ?? []), ...chairGame.positions(), ...helperWalk.positions(helperModels)]);
     if (inOffice()) {
       office.stack.update(dt, [{ x: player.pos.x, y: player.pos.y, z: player.pos.z, grip }, ...[...remotes.values()].map((r) => ({ x: r.person.root.position.x, y: r.person.root.position.y, z: r.person.root.position.z, grip: r.grip }))], camera.position);
       office.jukebox.update(t, dt, sound.beat());
