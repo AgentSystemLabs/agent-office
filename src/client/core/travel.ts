@@ -16,6 +16,7 @@ import { aside, hintTitle, key, onE } from './hint';
 import type { Parts } from './parts';
 import { FAR } from './scene';
 import { streetOf } from './worlds';
+import { partyOn } from '../features/party';
 
 // The kinds of thing you can use that this defines (see InteractKinds in world/types.ts).
 declare module '../world/types' {
@@ -279,7 +280,7 @@ export function installTravel(ctx: Ctx, core: CoreState, parts: TravelParts) {
     player.colliders = up ? r!.colliders : world.colliders;
     sky.setRoof(up, roofDrop(rooftop.roofFloors()));
     sound.setOutdoors(up);
-    sound.setDj(up ? rooftop.djAt : null);
+    sound.setDj(up || partyOn() ? rooftop.djAt : null);
     // You can see the whole city from up there (and its clouds); from the top floors, as far as the haze.
     camera.far = up ? 700 : FAR;
     camera.updateProjectionMatrix();
