@@ -27,13 +27,20 @@ test('maintenance APIs authenticate screenshots, create fork issues and retain q
   writeFileSync(cli, `#!${process.execPath}
 const fs = require('node:fs');
 const a = process.argv.slice(2);
+const labelsFile = ${JSON.stringify(path.join(root, 'labels.json'))};
+let labels = fs.existsSync(labelsFile) ? JSON.parse(fs.readFileSync(labelsFile, 'utf8')) : [];
+if (a[0] === 'api' && a.some(arg => arg.startsWith('repos/fork/agent-office/issues/7/labels'))) {
+ if (a.includes('POST')) labels = [{name:'maintenance:queued',color:'f08c00'}];
+ if (a.includes('DELETE')) labels = [];
+ fs.writeFileSync(labelsFile, JSON.stringify(labels)); console.log(JSON.stringify(labels));
+} else
 if (a[0] === 'repo') console.log(JSON.stringify({ nameWithOwner: 'fork/agent-office' }));
 else if (a[0] === 'issue' && a[1] === 'create') {
  const title = a[a.indexOf('--title') + 1];
  fs.writeFileSync(${JSON.stringify(path.join(root, 'created.json'))}, JSON.stringify({ title, args: a }));
  console.log('https://github.com/fork/agent-office/issues/7');
 } else if (a[0] === 'issue' && a[1] === 'view') console.log(JSON.stringify({ number: 7, state: 'OPEN', body: 'A captured idea', comments: [] }));
-else if(a[0] === 'issue' && a[1] === 'list' && a.includes('open') && fs.existsSync(${JSON.stringify(path.join(root, 'created.json'))})) console.log(JSON.stringify([{number:7,title:'Capture this idea',state:'OPEN',url:'https://github.com/fork/agent-office/issues/7',labels:[],assignees:[]} ]));
+else if(a[0] === 'issue' && a[1] === 'list' && a.includes('open') && fs.existsSync(${JSON.stringify(path.join(root, 'created.json'))})) console.log(JSON.stringify([{number:7,title:'Capture this idea',state:'OPEN',url:'https://github.com/fork/agent-office/issues/7',labels,assignees:[]} ]));
 else console.log('[]');
 `); chmodSync(cli, 0o755);
   const before = { PATH: process.env.PATH, AGENT_OFFICE_SOURCE: process.env.AGENT_OFFICE_SOURCE };
@@ -114,6 +121,28 @@ else console.log('[]');
   live!.status = 'done';
   const review = await (await fetch(`${base}/api/maintenance/chat`, { headers: { cookie } })).json();
   assert.equal(review.work[0].status, 'review');
+  // Maintenance can manage the same backlog through its authenticated tool endpoint.
+  const authenticate = floor.workers.authenticate.bind(floor.workers);
+  floor.workers.authenticate = (id, token) => id === live!.id && token === 'test-token' ? live : undefined;
+  t.after(() => { floor.workers.authenticate = authenticate; });
+  const toolUrl = `http://127.0.0.1:${office.hookPort}/office/workers/maintenance?worker=${live!.id}`;
+  const tool = (body: unknown, token = 'test-token') => fetch(toolUrl, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  assert.equal((await tool({ action: 'list' }, 'wrong-token')).status, 401);
+  live!.deskId = 'desk-1';
+  assert.equal((await tool({ action: 'list' })).status, 403);
+  live!.deskId = 'station-maintenance';
+  const listed = await tool({ action: 'list' });
+  assert.equal(listed.status, 200);
+  assert.equal((await listed.json()).issues[0].number, 7);
+  const captured = await tool({ action: 'create', title: 'Capture through conversation', body: 'A plan for later', queue: false });
+  assert.equal(captured.status, 200);
+  assert.equal((await captured.json()).number, 7);
+  assert.equal(starts.length, 1, 'Backlog tools must not dispatch or interrupt work');
+  assert.equal((await tool({ action: 'queue', number: 7 })).status, 200);
+  const toolQueued = await (await fetch(`${base}/api/maintenance/chat`, { headers: { cookie } })).json();
+  assert.equal(toolQueued.work[0].status, 'queued');
+  assert.deepEqual(toolQueued.work[0].attachments, [image], 'Requeue through the agent preserves evidence');
+  assert.equal((await tool({ action: 'remove', number: 7 })).status, 200);
   ws.close();
   const removed = await fetch(`${base}/api/maintenance/queue`, { method: 'POST', headers, body: JSON.stringify({ number: 7, remove: true }) });
   assert.equal(removed.status, 200);

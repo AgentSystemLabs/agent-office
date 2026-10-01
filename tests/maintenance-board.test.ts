@@ -42,6 +42,7 @@ else console.log('[]');
   writeFileSync(path.join(source, 'title.txt'), 'Updated issue title');
   assert.match(await board.request(42), /Updated issue title/);
   assert.equal(board.state.items[0].title, 'Updated issue title');
+  await assert.rejects(board.request(42, true), /no longer queued on GitHub/);
   assert.equal(await board.claim(42), undefined);
   assert.equal((await board.create('Improve Maintenance', 'Keep ideas while it works', { env: { ...process.env, CREATE_AS: 'requester' } } as any)).number, 43);
   const created = JSON.parse(readFileSync(path.join(source, 'created.json'), 'utf8'));

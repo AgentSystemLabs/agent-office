@@ -87,6 +87,7 @@ export interface MaintenanceAttachment { id: string; name: string; type: string;
 export interface MaintenanceWorkItem {
   repo: string; number: number; title: string; url: string;
   status: 'queued' | 'running' | 'review' | 'paused' | 'done';
+  issueState?: 'OPEN' | 'CLOSED';
   by: string; at: number; workerId?: string; baseline?: string[];
   attachments: MaintenanceAttachment[]; commits: { sha: string; subject: string }[];
 }

@@ -73,3 +73,26 @@ test('issue queue is durable, serial, fork scoped, and links only commits added 
   assert.equal(restored.get('fork/office', 2)?.status, 'queued');
   assert.equal(restored.get('other/office', 1)?.status, 'queued');
 });
+
+test('GitHub owns queue membership, issue titles and closure while the office retains execution evidence', t => {
+  const dir = fixture(t), work = new MaintenanceWork(dir), images = new MaintenanceImages(dir);
+  const image = images.save('evidence.png', 'image/png', screenshot);
+  const github = (number: number, queued = true, state = 'OPEN') => ({ ...issue(number), title: 'Current GitHub title', state, author: 'GitHub user', labels: queued ? [{ name: 'maintenance:queued', color: '#f08c00' }] : [], assignees: [] }) as any;
+  work.queue('fork/office', issue(1), 'Alex', [image]);
+  work.syncIssues('fork/office', [github(1), github(2)]);
+  assert.equal(work.list('fork/office').length, 2, 'GitHub queued issues appear without local queue writes');
+  assert.equal(work.get('fork/office', 1)?.title, 'Current GitHub title');
+  assert.deepEqual(work.get('fork/office', 1)?.attachments, [image]);
+  work.syncIssues('fork/office', [github(1), github(2, false)]);
+  assert.equal(work.get('fork/office', 2)?.status, 'paused', 'Removing the label on GitHub removes waiting work');
+  work.start('fork/office', 1, worker(), []);
+  work.syncIssues('fork/office', [github(1, false)]);
+  assert.equal(work.get('fork/office', 1)?.status, 'running', 'Dequeue at dispatch preserves the active session');
+  work.syncIssues('fork/office', [github(1, false, 'CLOSED')]);
+  work.reconcile(worker('working'), []);
+  assert.equal(work.get('fork/office', 1)?.status, 'done', 'A running session cannot reopen a GitHub issue');
+  assert.equal(work.get('fork/office', 1)?.workerId, 'worker');
+  work.queue('fork/office', issue(3), 'Old cache');
+  work.syncIssues('fork/office', [github(1, false, 'CLOSED')]);
+  assert.equal(work.get('fork/office', 3)?.status, 'paused', 'Missing issues never remain dispatchable');
+});

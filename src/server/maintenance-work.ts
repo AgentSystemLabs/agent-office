@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import type { MaintenanceAttachment, MaintenanceWorkItem, WorkerInfo } from '../shared/protocol.js';
+import type { GhIssue, MaintenanceAttachment, MaintenanceWorkItem, WorkerInfo } from '../shared/protocol.js';
+import { maintenanceQueued } from '../shared/maintenance-issues.js';
 import { dropName } from './drops.js';
 
 export const MAINTENANCE_IMAGE_MAX = 10 * 1024 * 1024;
@@ -50,10 +51,34 @@ export class MaintenanceWork {
   }
   list(repo?: string) { return this.items.filter(i => !repo || i.repo.toLowerCase() === repo.toLowerCase()); }
   get(repo: string, number: number) { return this.list(repo).find(i => i.number === number); }
+  /** Reconcile only successful GitHub snapshots; a failed refresh must not erase the queue. */
+  syncIssues(repo: string, issues: GhIssue[]) {
+    const before = JSON.stringify(this.items);
+    for (const issue of issues) {
+      let item = this.get(repo, issue.number);
+      if (!item && maintenanceQueued(issue)) {
+        item = this.queue(repo, issue, issue.author || 'GitHub');
+      }
+      if (!item) continue;
+      Object.assign(item, { title: issue.title, url: issue.url, issueState: issue.state });
+      if (issue.state !== 'OPEN') item.status = 'done';
+      else if (maintenanceQueued(issue) && item.status !== 'running') item.status = 'queued';
+      else if (!maintenanceQueued(issue) && item.status === 'queued') {
+        item.status = 'paused';
+      }
+    }
+    // Waiting issues absent from the open snapshot cannot be dispatched from a stale local cache.
+    for (const item of this.list(repo)) {
+      if (item.status === 'queued' && !issues.some(issue => issue.number === item.number && maintenanceQueued(issue))) item.status = 'paused';
+    }
+    if (before !== JSON.stringify(this.items)) this.save();
+  }
   queue(repo: string, issue: { number: number; title: string; url: string }, by: string, attachments: MaintenanceAttachment[] = []) {
     const old = this.get(repo, issue.number);
-    if (old && ['queued', 'running'].includes(old.status)) return old;
-    const item: MaintenanceWorkItem = { number: issue.number, title: issue.title, url: issue.url, repo, status: 'queued', by, at: Date.now(), attachments, commits: [] };
+    if (old && ['queued', 'running'].includes(old.status)) {
+      Object.assign(old, { title: issue.title, url: issue.url, ...(attachments.length ? { attachments } : {}) }); this.save(); return old;
+    }
+    const item: MaintenanceWorkItem = { number: issue.number, title: issue.title, url: issue.url, repo, status: 'queued', by, at: Date.now(), attachments: attachments.length ? attachments : old?.attachments ?? [], commits: [] };
     this.items = [...this.items.filter(i => i !== old), item];
     this.save(); return item;
   }
@@ -76,6 +101,7 @@ export class MaintenanceWork {
   reconcile(worker: WorkerInfo | undefined, commits: { sha: string; subject: string }[]) {
     let changed = false;
     for (const item of this.items) {
+      if (item.issueState === 'CLOSED') continue;
       if (item.status !== 'running' && !(['review', 'paused'].includes(item.status) && worker?.id === item.workerId)) continue;
       const added = commits.filter(c => !item.baseline?.includes(c.sha));
       if (JSON.stringify(item.commits) !== JSON.stringify(added)) { item.commits = added; changed = true; }

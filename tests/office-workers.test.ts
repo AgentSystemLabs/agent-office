@@ -142,7 +142,7 @@ test('answers MCP: the handshake, its tools, and a call', async () => {
   assert.equal((await handleMcp({ jsonrpc: '2.0', id: 2, method: 'initialize', params: { protocolVersion: '1999-01-01' } }, io))?.result.protocolVersion, '2025-11-25');
   assert.equal(await handleMcp({ jsonrpc: '2.0', method: 'notifications/initialized' }, io), undefined);
   const tools = await handleMcp({ jsonrpc: '2.0', id: 3, method: 'tools/list' }, io);
-  assert.deepEqual(tools?.result.tools.map((t: { name: string }) => t.name), ['list_workers', 'hire_worker', 'send_home', 'tell_worker']);
+  assert.deepEqual(tools?.result.tools.map((t: { name: string }) => t.name), ['maintenance_backlog', 'list_workers', 'hire_worker', 'send_home', 'tell_worker']);
   const call = await handleMcp({ jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'send_home', arguments: { merged: true } } }, io);
   assert.deepEqual(call?.result, { content: [{ type: 'text', text: '✓ Bolt went home — Deleted it' }] });
   // Nobody it named went: the call failed, as far as the model is concerned.
@@ -246,4 +246,20 @@ test("Codex is told to pass the office's variables on to the MCP server", () => 
     'mcp_servers.agent-office.args=["/opt/app/bin/office-workers.js","mcp"]',
     'mcp_servers.agent-office.env_vars=["AGENT_OFFICE_HOOK_URL","AGENT_OFFICE_WORKER_ID","AGENT_OFFICE_HOOK_TOKEN"]',
   ]);
+});
+
+
+test('Maintenance backlog tool and shell command use the authenticated office endpoint', async () => {
+  const requests: { url: string; body: any }[] = [];
+  const io = { env: { AGENT_OFFICE_HOOK_URL: 'http://127.0.0.1:1234', AGENT_OFFICE_WORKER_ID: 'maintenance', AGENT_OFFICE_HOOK_TOKEN: 'token' }, fetch: async (url: string, options: any) => {
+    requests.push({ url, body: JSON.parse(options.body) });
+    assert.equal(options.headers.authorization, 'Bearer token');
+    return new Response(JSON.stringify({ number: 42, url: 'https://github.com/fork/office/issues/42' }));
+  } };
+  const result = await handleMcp({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'maintenance_backlog', arguments: { action: 'create', title: 'Add a screen', body: 'By the closet' } } }, io);
+  assert.equal(result?.result.isError, undefined);
+  assert.match(requests[0].url, /office\/workers\/maintenance\?worker=maintenance/);
+  assert.equal(requests[0].body.action, 'create');
+  assert.equal(await main(['maintenance', '{"action":"queue","number":42}'], { ...io, out() {}, err() {} }), 0);
+  assert.deepEqual(requests[1].body, { action: 'queue', number: 42 });
 });

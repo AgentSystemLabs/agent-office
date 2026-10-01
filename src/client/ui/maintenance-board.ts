@@ -12,14 +12,8 @@ export async function maintenanceJson<T>(url: string): Promise<T> {
   return data as T;
 }
 
-export function maintenanceIssueColumns(items: GhIssue[]) {
-  const progressing = (i: GhIssue) => i.assignees.length > 0 || i.labels.some((l) => /progress|doing|wip|started/i.test(l.name));
-  return [
-    { title: '📥 Open', items: items.filter((i) => i.state === 'OPEN' && !progressing(i)) },
-    { title: '🚧 In progress', items: items.filter((i) => i.state === 'OPEN' && progressing(i)) },
-    { title: '✅ Closed', items: items.filter((i) => i.state !== 'OPEN') },
-  ];
-}
+export { maintenanceIssueColumns } from '../../shared/maintenance-issues';
+import { maintenanceIssueColumns } from '../../shared/maintenance-issues';
 
 /** Office source issues have no floor queue, carried cards or floor-worker actions. */
 export function openMaintenanceIssue(issue: GhIssue, correct: (context?: string) => void, send?: (msg: ClientMsg) => void) {

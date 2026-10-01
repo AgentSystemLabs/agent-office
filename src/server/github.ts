@@ -102,6 +102,7 @@ export class GitHub {
   issues: GhState<GhIssue> = { items: [], fetchedAt: 0, loading: false };
   pulls: GhState<GhPull> = { items: [], fetchedAt: 0, loading: false };
   private timer?: NodeJS.Timeout;
+  private issuesRefresh?: Promise<void>;
   private repo?: Promise<GhRepoInfo>;
   private login?: Promise<string>;
   private labelList?: { at: number; list: Promise<GhLabel[]> };
@@ -371,8 +372,15 @@ export class GitHub {
     return undefined;
   }
 
-  private async refreshIssues() {
-    if (this.issues.loading) return;
+  private refreshIssues(): Promise<void> {
+    if (this.issuesRefresh) return this.issuesRefresh;
+    const refresh = this.fetchIssues();
+    this.issuesRefresh = refresh;
+    void refresh.finally(() => { if (this.issuesRefresh === refresh) this.issuesRefresh = undefined; });
+    return refresh;
+  }
+
+  private async fetchIssues() {
     this.issues = { ...this.issues, loading: true };
     this.onIssues(this.issues);
     const asked = Date.now();

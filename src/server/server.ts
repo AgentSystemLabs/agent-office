@@ -408,12 +408,39 @@ export async function startServer(cfg: Config) {
         workers: list.map((w) => workerRow(w, view, me.id)),
       });
     }
-    if (req.method !== 'POST' || !['', '/home', '/tell'].includes(action)) return send(res, 405, { error: 'GET /office/workers, or POST to /office/workers, /office/workers/home or /office/workers/tell' });
+    if (req.method !== 'POST' || !['', '/home', '/tell', '/maintenance'].includes(action)) return send(res, 405, { error: 'GET /office/workers, or POST to /office/workers, /office/workers/home or /office/workers/tell' });
     let body: unknown;
     try {
       body = JSON.parse((await readBody(req)) || '{}');
     } catch {
       return send(res, 400, { error: 'Send JSON' });
+    }
+
+    if (action === '/maintenance') {
+      if (me.deskId !== MAINTENANCE_DESK) return send(res, 403, { error: 'Only Maintenance can manage the office backlog' });
+      try {
+        const b = (body ?? {}) as Record<string, unknown>;
+        const owner = floor.workers.ownerOf(me.id);
+        const as = owner ? signins.ghAs(owner) : undefined;
+        if (typeof as === 'string') throw new Error(as);
+        if (b.action === 'create') {
+          const issue = await maintenanceBoard.create(str(b.title, 201), str(b.body, 20001), as);
+          if (b.queue !== false) {
+            try { await maintenanceBoard.queue(issue.number, true, as); }
+            catch (err) { throw new Error(`Created ${issue.url}, but queuing failed: ${(err as Error).message}. Queue that issue again instead of creating another.`); }
+          }
+          return send(res, 200, issue);
+        }
+        if (b.action === 'queue' || b.action === 'remove') {
+          maintenanceWork.reconcile(maintenanceAgent()?.info, stack.state.changes);
+          if (maintenanceBoard.state.repo && maintenanceWork.get(maintenanceBoard.state.repo, Number(b.number))?.status === 'running') throw new Error('Finish or end the active session before changing its queue membership.');
+          await maintenanceBoard.queue(Number(b.number), b.action === 'queue', as);
+        }
+        else if (b.action !== 'list') throw new Error('action is list, create, queue or remove');
+        await maintenanceBoard.refresh();
+        if (maintenanceBoard.state.error) throw new Error(maintenanceBoard.state.error);
+        return send(res, 200, { repo: maintenanceBoard.state.repo, issues: maintenanceBoard.state.items, work: maintenanceWork.list(maintenanceBoard.state.repo) });
+      } catch (err) { return send(res, 400, { error: (err as Error).message }); }
     }
 
     if (action === '/home') {
@@ -826,7 +853,10 @@ export async function startServer(cfg: Config) {
     },
   });
   stack.start(() => clients.size > 0);
-  const maintenanceBoard = new MaintenanceBoard((state) => broadcast({ t: 'maintenance.issues', state }));
+  const maintenanceBoard = new MaintenanceBoard((state) => {
+    if (state.repo && !state.loading && !state.error) maintenanceWork.syncIssues(state.repo, state.items);
+    broadcast({ t: 'maintenance.issues', state });
+  });
   maintenanceBoard.start();
 
   // --- HTTP ------------------------------------------------------------------------------------
@@ -1132,19 +1162,30 @@ export async function startServer(cfg: Config) {
             if (typeof as === 'string') throw new Error(as);
             const images = maintenanceImages.resolve(body.attachments ?? []);
             const issue = await maintenanceBoard.create(str(body.title, 201), str(body.body, 20001), as);
-            if (body.queue === true) maintenanceWork.queue(repo, issue, by, images);
+            if (body.queue === true) {
+              await maintenanceBoard.queue(issue.number, true, as);
+              maintenanceWork.queue(repo, issue, by, images);
+            }
             return send(res, 200, issue);
           }
           const number = Number(body.number);
           if (!Number.isSafeInteger(number) || number <= 0) throw new Error('Bad issue number');
           if (body.reviewed === true) maintenanceWork.reviewed(repo, number);
-          else if (body.remove === true) maintenanceWork.remove(repo, number);
+          else if (body.remove === true) {
+            if (maintenanceWork.get(repo, number)?.status === 'running') throw new Error('Finish or end the active session before removing it.');
+            const as = session.account ? signins.ghAs(session.account.id) : undefined;
+            if (typeof as === 'string') throw new Error(as);
+            await maintenanceBoard.queue(number, false, as);
+            maintenanceWork.remove(repo, number);
+          }
           else {
-            const detail = await maintenanceBoard.issue(number);
-            if (detail.state !== 'OPEN') throw new Error('Reopen this issue before queuing it');
+            const as = session.account ? signins.ghAs(session.account.id) : undefined;
+            if (typeof as === 'string') throw new Error(as);
+            const images = maintenanceImages.resolve(body.attachments ?? []);
+            await maintenanceBoard.queue(number, true, as);
             const issue = maintenanceBoard.state.items.find(i => i.number === number);
             if (!issue) throw new Error('Refresh the issue list before queuing this issue');
-            maintenanceWork.queue(repo, issue, by, maintenanceImages.resolve(body.attachments ?? []));
+            maintenanceWork.queue(repo, issue, by, images);
           }
           return send(res, 200, { ok: true });
         } catch (err) { return send(res, 400, { error: (err as Error).message }); }
@@ -1947,7 +1988,11 @@ export async function startServer(cfg: Config) {
           try {
             let prompt = str(msg.prompt, 20000);
             try {
-              if (maintenanceIssue) prompt = await maintenanceBoard.request(maintenanceIssue);
+              if (maintenanceIssue) {
+                const active = maintenanceAgent()?.info;
+                if (active && !['idle', 'done', 'exited'].includes(active.status)) { reply('Maintenance is busy. Queue the issue and start it after current work finishes.'); return; }
+                prompt = await maintenanceBoard.request(maintenanceIssue, msg.t === 'maintenance.chat.send');
+              }
             } catch (err) { reply((err as Error).message); return; }
             if (deskId === MAINTENANCE_DESK && (stack.state.phase === 'shipping' || stack.state.validation?.phase === 'running')) { reply('The stack is being shipped or checked: wait for it to finish'); return; }
             const target = deskId === MAINTENANCE_DESK ? maintenanceAgent()?.floor ?? floor : floor;
@@ -1981,9 +2026,11 @@ export async function startServer(cfg: Config) {
                   maintenanceWork.start(maintenanceBoard.state.repo, maintenanceIssue, r.info, stack.state.changes.map(c => c.sha));
                 }
                 reply(undefined, r.info.id);
-                if (maintenanceIssue) withGitHub(c, (as) => void maintenanceBoard.claim(maintenanceIssue, as).then((error) => {
-                  if (error) warn(c, `Maintenance started, but assigning the issue failed: ${error}`);
-                }).catch((err) => warn(c, (err as Error).message)));
+                if (maintenanceIssue) withGitHub(c, (as) => void (async () => {
+                  const error = await maintenanceBoard.claim(maintenanceIssue, as);
+                  if (error) throw new Error(error);
+                  await maintenanceBoard.queue(maintenanceIssue, false, as);
+                })().catch((err) => warn(c, `Maintenance started, but updating GitHub failed: ${(err as Error).message}`)));
                 if (r.hired) toastFloor(floor, `${who} asked the ${r.info.name} something`);
               }
             }

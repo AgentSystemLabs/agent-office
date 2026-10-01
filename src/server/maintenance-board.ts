@@ -2,6 +2,7 @@ import type { MaintenanceIssues } from '../shared/protocol.js';
 import { GitHub, gh } from './github.js';
 import { originRepo } from './building.js';
 import type { GhAs } from './signins.js';
+import { MAINTENANCE_QUEUE_LABEL, maintenanceQueued } from '../shared/maintenance-issues.js';
 import { officeSourceDir } from './maintenance.js';
 
 /** A separate GitHub feed, rooted in the office source rather than a floor's project. */
@@ -56,18 +57,30 @@ export class MaintenanceBoard {
     return { number, title: title.trim(), url };
   }
 
+  /** Queue membership lives on GitHub; the office stores only execution evidence. */
+  async queue(number: number, queued: boolean, as?: GhAs) {
+    const detail = await this.issue(number);
+    if (queued && detail.state !== 'OPEN') throw new Error('Reopen this issue before queuing it');
+    if (!this.github || !this.source || !this.state.repo) throw new Error('No maintenance repository');
+    if (queued) await gh(['label', 'create', MAINTENANCE_QUEUE_LABEL, '--repo', this.state.repo, '--color', 'f08c00', '--description', 'Waiting for Agent Office Maintenance', '--force'], this.source, undefined, as?.env);
+    const result = await this.github.setLabels('issue', number, queued ? [MAINTENANCE_QUEUE_LABEL] : [], queued ? [] : [MAINTENANCE_QUEUE_LABEL], as);
+    if (result.error) throw new Error(result.error);
+    await this.refresh();
+  }
+
   async claim(number: number, as?: GhAs) {
     await this.issue(number);
     return this.github!.claim(number, as);
   }
 
-  async request(number: number) {
+  async request(number: number, requireQueued = false) {
     await this.refresh();
     if (this.state.error) throw new Error(this.state.error);
     const detail = await this.issue(number);
     if (detail.state !== 'OPEN') throw new Error('Reopen this issue before starting Maintenance');
     const issue = this.state.items.find((item) => item.number === number);
     if (!issue) throw new Error('Refresh the maintenance board before starting this issue');
+    if (requireQueued && !maintenanceQueued(issue)) throw new Error('This issue is no longer queued on GitHub. Refresh Work & issues before starting another issue.');
     return `Implement Agent Office issue #${number}: ${issue.title}\nhttps://github.com/${this.state.repo}/issues/${number}\n\n${detail.body}`;
   }
 

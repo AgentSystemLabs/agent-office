@@ -24,6 +24,7 @@ const USAGE = `Usage:
                                                 that isn't on GitHub, and says what it kept
   office-workers home --merged                  send home everyone whose pull request merged
   office-workers tell <name|id> <<'EOF'         type a prompt to a worker (or --prompt "…")
+  office-workers maintenance '{"action":"list"}'  Maintenance backlog (list/create/queue/remove)
   office-workers mcp                            serve these as MCP tools on stdio`;
 
 /** A mistake in how the command was called: the usage is shown with it. */
@@ -35,7 +36,7 @@ export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 /** How long the office may take to come back when it's restarting (a dev reload, an upgrade). */
 const RETRY_MS = 6000;
 /** Sending several workers home waits on git for each; hiring may fetch from GitHub first. */
-const TIMEOUT_MS = { list: 15_000, tell: 15_000, hire: 90_000, home: 300_000 };
+const TIMEOUT_MS = { list: 15_000, tell: 15_000, hire: 90_000, home: 300_000, maintenance: 90_000 };
 
 /**
  * Reads `--flag value` and `--flag=value` options, and the words that aren't options.
@@ -76,6 +77,7 @@ export function parseArgs(argv) {
   const [cmd, ...rest] = argv;
   const help = (a) => a === '-h' || a === '--help';
   if (cmd === undefined || cmd === 'help' || help(cmd) || rest.some(help)) return { cmd: 'help' };
+  if (cmd === 'maintenance') return { cmd: 'maintenance', body: JSON.parse(rest.join(' ') || '{}') };
   if (cmd === 'mcp') {
     if (rest.length) throw new UsageError(`mcp takes no arguments (got ${rest.join(' ')})`);
     return { cmd: 'mcp' };
@@ -147,7 +149,7 @@ export function officeEnv(env) {
  * @returns {{ method: string, url: string, headers: Record<string, string>, body?: string, timeout: number }}
  */
 export function buildRequest(what, office, body) {
-  const url = new URL(`${office.url}/office/workers${what === 'home' ? '/home' : what === 'tell' ? '/tell' : ''}`);
+  const url = new URL(`${office.url}/office/workers${what === 'home' ? '/home' : what === 'tell' ? '/tell' : what === 'maintenance' ? '/maintenance' : ''}`);
   url.searchParams.set('worker', office.worker);
   const headers = { authorization: `Bearer ${office.token}` };
   if (what === 'list') return { method: 'GET', url: url.href, headers, timeout: TIMEOUT_MS.list };
@@ -244,6 +246,17 @@ const WORKER_NOTE = 'A worker is named by its name (e.g. "Mochi") or its id, as 
 
 export const TOOLS = [
   {
+    name: 'maintenance_backlog',
+    title: 'Manage Maintenance issues',
+    description: 'Maintenance only: list Agent Office GitHub issues, create an issue (queued by default), queue an existing open issue, or remove it from the queue. Queue membership is a GitHub label shared with the office boards. Does not start or interrupt an agent. Use this when someone asks you to capture ideas or queue work.',
+    inputSchema: { type: 'object', properties: {
+      action: { type: 'string', enum: ['list', 'create', 'queue', 'remove'] },
+      number: { type: 'integer', minimum: 1 }, title: { type: 'string', maxLength: 200 }, body: { type: 'string', maxLength: 20000 }, queue: { type: 'boolean' },
+    }, required: ['action'], additionalProperties: false },
+    annotations: { destructiveHint: false, openWorldHint: true },
+  },
+
+  {
     name: 'list_workers',
     title: 'List workers',
     description:
@@ -324,6 +337,7 @@ const INSTRUCTIONS =
 /** Runs a tool; resolves to its text, and whether nothing it was asked came off, or throws with why it failed. */
 async function runTool(name, args, io) {
   const a = args && typeof args === 'object' ? args : {};
+  if (name === 'maintenance_backlog') return { text: JSON.stringify(await call('maintenance', a, io), null, 1) };
   if (name === 'list_workers') return { text: JSON.stringify(await call('list', undefined, io), null, 1) };
   if (name === 'hire_worker') {
     const answer = await call('hire', a, io);
@@ -447,6 +461,10 @@ export async function main(argv, io = {}) {
       if (stdin.isTTY) throw new UsageError(`Give the prompt on stdin (office-workers ${cmd.cmd} … <<'EOF' … EOF) or with --prompt "…"`);
       return readStdin(stdin);
     };
+    if (cmd.cmd === 'maintenance') {
+      out(JSON.stringify(await call('maintenance', cmd.body, ctx), null, 2));
+      return 0;
+    }
     if (cmd.cmd === 'list') {
       const view = await call('list', undefined, ctx);
       out(cmd.json ? JSON.stringify(view, null, 2) : formatWorkers(view));
