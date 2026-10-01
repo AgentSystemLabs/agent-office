@@ -42,5 +42,6 @@ export const HELP_ROWS: readonly (readonly [string, string])[] = [
   ['Tab', 'The ☰ menu, top right: every window, and what shows on screen. Pin what you use most to the top bar'],
   ['Esc', 'Close any window and get back to looking around'],
   ['Ctrl + [', 'Send Esc to a terminal instead, to close a menu like Claude’s /skills or interrupt Claude. ⎋ Esc in the terminal’s header does the same'],
-  ['⚙️', 'Settings (in the ☰ menu): switch between first and third person'],
+  ['🥽', 'Enter VR (Quest / WebXR): the button appears bottom-right when the browser supports immersive VR. Left stick walks, stick click runs, right stick snap-turns. A is E (interact), B is Esc, X jumps, Y opens the ☰ menu, left grip is N (next waiting worker). Opening a window leaves VR so you can type'],
+  ['⚙️', 'Settings (in the ☰ menu): switch between first and third person, and VR rendering quality'],
 ];

@@ -1,7 +1,7 @@
 import './settings.css';
 import type { Net } from '../net';
 import type { OfficeSound } from '../sound';
-import { store, type NeedsYouSound, type Settings, type ViewMode } from '../state';
+import { store, type NeedsYouSound, type Settings } from '../state';
 import { askNotifyPermission, notifyPermission, type DesktopNotifier } from '../notify';
 import type { ThemePick, WebhookKind } from '../../shared/protocol';
 import { THEME_PICKS } from '../../shared/theme';
@@ -12,11 +12,8 @@ import { agentFields, choiceLabel, officeChoice } from './provider';
 import { openPromptEditor, rewrittenPrompts } from './prompts';
 import { outsideSetting } from './settings-sky';
 import { choiceRow } from './settings-rows';
-
-const VIEWS: [ViewMode, string, string][] = [
-  ['first', '👀 First person', 'See through your own eyes. Click the office to look around with the mouse and click things to use them. Esc frees the mouse.'],
-  ['third', '🎥 Third person', 'Follow your character from behind. Drag to orbit the camera, scroll to zoom, and click things to use them.'],
-];
+import { cameraViewSetting } from './view-settings';
+import { xrOutlineSetting } from './xr-settings';
 
 const THEME_LABEL: Record<ThemePick, string> = { auto: '📅 By the calendar', halloween: '🎃 Halloween', christmas: '🎄 Christmas', off: 'Off' };
 
@@ -50,32 +47,12 @@ let lastPane: SettingsPane = 'you';
 
 /** `outside` describes the sky over the office (see describeSky), once the server has said. `first` opens on that category instead of the last one. */
 export function openSettings(net: Net, settings: Settings, onChange: (s: Settings) => void, onCharacter: () => void, sound: Pick<OfficeSound, 'ding' | 'needsYou'>, notifier: DesktopNotifier, onSignOut: () => void, outside?: { now: string; live: boolean }, first?: SettingsPane) {
-  const seg = h('div.seg', { role: 'radiogroup', 'aria-label': 'Camera view' });
-  const note = h('p.setting-note');
-  const paint = () => {
-    seg.replaceChildren(
-      ...VIEWS.map(([view, label]) =>
-        h(
-          'button.btn',
-          {
-            type: 'button',
-            role: 'radio',
-            'aria-checked': String(settings.view === view),
-            class: settings.view === view ? 'on' : '',
-            onclick: () => {
-              if (settings.view === view) return;
-              settings = { ...settings, view };
-              onChange(settings);
-              paint();
-            },
-          },
-          label,
-        ),
-      ),
-    );
-    note.textContent = VIEWS.find(([v]) => v === settings.view)![2];
+  const apply = (s: Settings) => {
+    settings = s;
+    onChange(settings);
   };
-  paint();
+  const view = cameraViewSetting(() => settings, apply);
+  const xrOutline = xrOutlineSetting(() => settings, apply);
 
   /** A volume slider with its mute button. Dragging it turns the sound back on; letting go plays `preview`. */
   const volumeRow = (label: string, level: 'volume' | 'music', muted: 'muted' | 'musicMuted', preview?: () => void) => {
@@ -445,7 +422,8 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
   const panes: Record<SettingsPane, Node[]> = {
     you: [
       setting('Your character', null, character),
-      setting('Camera view', 'you', seg, note),
+      setting('Camera view', 'you', view.row, view.note),
+      setting('VR rendering', 'you', xrOutline.row, xrOutline.note),
       setting('Signed in', null, h('div.volume', {}, signOut), h('p.setting-note', {}, account ? `As ${account.name}, with your own account (${account.role}).` : 'With the shared office password.')),
     ],
     sound: [

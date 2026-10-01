@@ -150,9 +150,14 @@ export class PlayerController extends PlayerInput {
     return this.seat ? this.seat.hips - HIPS : 0;
   }
 
+  /**
+   * While WebXR owns the camera pose (see features/xr), skip aimCamera so the headset
+   * and the locomotion rig aren't fighting each other.
+   */
+  xrCamera = false;
+
   update(dt: number) {
     dt = Math.min(dt, 0.05);
-    const k = this.keys;
     if (this.rig) {
       this.rig(dt);
       this.vy = 0;
@@ -164,7 +169,7 @@ export class PlayerController extends PlayerInput {
       return;
     }
     if (this.seat) {
-      if (!this.enabled || !GET_UP.some((c) => k.has(c))) {
+      if (!this.enabled || !GET_UP.some((c) => this.pressed(c))) {
         this.moving = false;
         this.facing = this.seat.rotY;
         this.jitterT += dt;
@@ -177,15 +182,15 @@ export class PlayerController extends PlayerInput {
     let ix = 0;
     let iz = 0;
     if (this.enabled) {
-      if (k.has('KeyW') || k.has('ArrowUp')) iz -= 1;
-      if (k.has('KeyS') || k.has('ArrowDown')) iz += 1;
-      if (k.has('KeyA') || k.has('ArrowLeft')) ix -= 1;
-      if (k.has('KeyD') || k.has('ArrowRight')) ix += 1;
+      if (this.pressed('KeyW') || this.pressed('ArrowUp')) iz -= 1;
+      if (this.pressed('KeyS') || this.pressed('ArrowDown')) iz += 1;
+      if (this.pressed('KeyA') || this.pressed('ArrowLeft')) ix -= 1;
+      if (this.pressed('KeyD') || this.pressed('ArrowRight')) ix += 1;
     }
     const steering = ix !== 0 || iz !== 0;
     this.moving = steering;
-    this.running = steering && (k.has('ShiftLeft') || k.has('ShiftRight'));
-    if (this.path && (steering || (this.enabled && k.has('Space')))) {
+    this.running = steering && (this.pressed('ShiftLeft') || this.pressed('ShiftRight'));
+    if (this.path && (steering || (this.enabled && this.pressed('Space')))) {
       this.path = null;
       this.onPathEnd?.('cancelled');
     }
@@ -216,7 +221,7 @@ export class PlayerController extends PlayerInput {
 
     // Never below the street: past the edge of the grass there's nothing else to stand on.
     const ground = Math.max(groundAt(this.colliders, this.pos.x, this.pos.z, this.pos.y), this.street);
-    const jump = this.enabled && k.has('Space') && this.grounded;
+    const jump = this.enabled && this.pressed('Space') && this.grounded;
     if (jump) {
       this.vy = JUMP_V * this.effects.jump;
       this.grounded = false;
@@ -286,6 +291,7 @@ export class PlayerController extends PlayerInput {
   }
 
   updateCamera(snap = false) {
+    if (this.xrCamera) return;
     aimCamera(this.camera, this, this.bob, this.lift, snap);
     this.shake();
   }

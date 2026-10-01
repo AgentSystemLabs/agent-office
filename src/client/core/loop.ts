@@ -23,7 +23,7 @@ export interface LoopDeps {
 }
 
 /** Registers the office's own ticks: install it before anything else registers one. */
-export function installLoop(ctx: Ctx, core: CoreState, parts: Pick<Parts, 'stage' | 'coffee' | 'peers' | 'views' | 'worlds' | 'place'>, deps: LoopDeps) {
+export function installLoop(ctx: Ctx, core: CoreState, parts: Pick<Parts, 'stage' | 'coffee' | 'peers' | 'views' | 'worlds' | 'place' | 'xr'>, deps: LoopDeps) {
   // Registered before anything else's, so within a phase they come first.
   ctx.ticks.add('pre', watchFrameRate);
   ctx.ticks.add('pre', feelTheCoffee);
@@ -50,6 +50,8 @@ export function installLoop(ctx: Ctx, core: CoreState, parts: Pick<Parts, 'stage
 
   /** Frames coming too slowly for the 3D to be any fun: the 2D view is offered. */
   function watchFrameRate({ now, delta }: Frame) {
+    // Immersive VR: don't kick them out to /lite mid-session.
+    if (parts.xr?.active()) return;
     if (slowFrames.frame(now, delta * 1000)) deps.offer2d('slow');
   }
 
@@ -190,6 +192,14 @@ export function installLoop(ctx: Ctx, core: CoreState, parts: Pick<Parts, 'stage
   function drawScene() {
     const { player, hands, sky, camera, renderer } = ctx;
     const { effect, scene } = parts.stage;
+    const inXr = parts.xr?.active() ?? false;
+    // WebXR: one stereo pass, no flat-screen hand overlay (controllers are real), and skip the
+    // toon outline when the headset is struggling or Settings asks for plain rendering.
+    if (inXr) {
+      if (parts.xr!.preferPlain()) renderer.render(scene, camera);
+      else effect.render(scene, camera);
+      return;
+    }
     const firstPerson = player.view === 'first';
     const unhide = firstBody?.hideExtras();
     effect.render(scene, camera);
@@ -208,17 +218,17 @@ export function installLoop(ctx: Ctx, core: CoreState, parts: Pick<Parts, 'stage
 }
 
 /**
- * The frame loop: each frame, every phase's ticks, in order (see TICK_PHASES, and installLoop). Its
- * clock starts now; hand what it returns to requestAnimationFrame to start it.
+ * The frame loop: each frame, every phase's ticks, in order (see TICK_PHASES, and installLoop).
+ * Driven by `renderer.setAnimationLoop` so it keeps running through a WebXR session (the window's
+ * requestAnimationFrame stops while the headset is presenting).
  */
-export function frameLoop(ctx: Ctx, loading: { drew(): void }): (ts?: number) => void {
+export function frameLoop(ctx: Ctx, loading: { drew(): void }): (time?: DOMHighResTimeStamp, frame?: XRFrame) => void {
   const timer = new THREE.Timer();
   function frame(ts?: number) {
     timer.update(ts);
     const delta = timer.getDelta();
     ctx.ticks.run({ delta, dt: Math.min(delta, 0.1), t: timer.getElapsed(), now: performance.now() });
     loading.drew();
-    requestAnimationFrame(frame);
   }
   return frame;
 }

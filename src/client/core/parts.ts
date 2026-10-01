@@ -43,6 +43,7 @@ import type { installTv } from '../features/tv';
 import type { installVoice } from '../features/voice';
 import type { installWaiting } from '../features/waiting';
 import type { installWalking } from '../features/walking';
+import type { installXR } from '../features/xr';
 import type { installWorkerActions } from '../features/workers/actions';
 import type { installWorkerViews } from '../features/workers/views';
 import type { installFocus } from '../input/focus';
@@ -124,4 +125,6 @@ export interface Parts {
   emotes: Made<typeof installEmotes>;
   talk: Made<typeof installVoice>;
   hud: Made<typeof installHud>;
+  /** Immersive WebXR (Quest): Enter VR, locomotion rig, controllers. */
+  xr: Made<typeof installXR>;
 }

@@ -32,6 +32,8 @@ export abstract class PlayerInput {
    */
   onClick: ((ndc: THREE.Vector2) => void) | null = null;
   protected keys = new Set<string>();
+  /** Keys held by WebXR controllers (or other synthetic input), separate from the keyboard. */
+  private virtual = new Set<string>();
   private drag: { x: number; y: number; moved: number } | null = null;
   /** Set when this browser won't lock the pointer; first person falls back to drag-to-look. */
   private lockFailed = false;
@@ -212,9 +214,29 @@ export abstract class PlayerInput {
     this.keys.clear();
   }
 
+  /** Hold a synthetic key (WebXR thumbstick / buttons mapped to WASD, etc.). */
+  holdVirtual(code: string) {
+    this.virtual.add(code);
+  }
+
+  /** Release a synthetic key held with holdVirtual. */
+  releaseVirtual(code: string) {
+    this.virtual.delete(code);
+  }
+
+  /** Clear only synthetic keys (leave the keyboard alone). */
+  clearVirtual() {
+    this.virtual.clear();
+  }
+
+  /** Whether this key is held on the keyboard or as a synthetic (XR) key. */
+  pressed(code: string): boolean {
+    return this.keys.has(code) || this.virtual.has(code);
+  }
+
   /** Whether any of these keys is held down (and you have the controls). */
   holding(...codes: string[]): boolean {
-    return this.enabled && codes.some((c) => this.keys.has(c));
+    return this.enabled && codes.some((c) => this.pressed(c));
   }
 
   /**

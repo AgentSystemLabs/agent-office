@@ -1,0 +1,52 @@
+/* Enter / Exit VR control — always on screen so a missing headset isn't silent. */
+
+.xr-enter {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 80;
+  pointer-events: auto;
+  border: 3px solid var(--ink, #2b2d42);
+  border-radius: 14px;
+  padding: 12px 18px;
+  font: inherit;
+  font-weight: 800;
+  font-size: 16px;
+  line-height: 1.2;
+  background: #ffd166;
+  color: var(--ink, #2b2d42);
+  box-shadow: 0 4px 0 var(--ink, #2b2d42);
+  cursor: pointer;
+  max-width: min(240px, calc(100vw - 32px));
+}
+
+.xr-enter:hover:not(:disabled) {
+  filter: brightness(1.05);
+}
+
+.xr-enter:disabled {
+  cursor: not-allowed;
+  opacity: 0.85;
+  background: #c8c4bc;
+}
+
+.xr-enter.on {
+  background: #ff8a5b;
+}
+
+.xr-enter:focus-visible {
+  outline: 3px solid var(--accent, #3d5a80);
+  outline-offset: 2px;
+}
+
+/* Immersive: hide flat-screen chrome that doesn't project into the headset. */
+body.xr-active #hud,
+body.xr-active .crosshair,
+body.xr-active .hint {
+  visibility: hidden;
+}
+
+body.xr-active .xr-enter {
+  /* Exit stays reachable if the session drops back to the browser overlay. */
+  visibility: visible;
+}

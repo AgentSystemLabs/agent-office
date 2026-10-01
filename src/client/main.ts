@@ -62,6 +62,7 @@ import { installVoice } from './features/voice';
 import { installWaiting } from './features/waiting';
 import { installWalking } from './features/walking';
 import { installWhiteboard } from './features/whiteboard';
+import { installXR } from './features/xr';
 import { installWorkerActions } from './features/workers/actions';
 import { installWorkerViews } from './features/workers/views';
 
@@ -178,6 +179,7 @@ parts.pointer = installPointer(ctx, core, parts);
 installChat(ctx);
 parts.talk = installVoice(ctx, { tv: parts.tv });
 installDictation(ctx);
+parts.xr = installXR(ctx, parts);
 parts.hud = installHud(ctx, core, parts);
 
 // ---- Main loop ---------------------------------------------------------------------------------------
@@ -187,7 +189,7 @@ const frame = frameLoop(ctx, loading);
 // ---- Boot ------------------------------------------------------------------------------------------
 function boot() {
   parts.net.connect();
-  requestAnimationFrame(frame);
+  ctx.renderer.setAnimationLoop(frame);
 }
 
 /** Who you're signed in as. With an account of your own, your name is that account's. */
@@ -226,7 +228,7 @@ void whoami().then(() => {
     // Pick a character first (people from before there was a choice keep their name and color).
     if (saved) Object.assign(store.profile, { name: saved.name, color: saved.color });
     // Render the office behind the character select screen.
-    requestAnimationFrame(frame);
+    ctx.renderer.setAnimationLoop(frame);
     openCharacter(true, (p) => {
       parts.you.showMyProfile(p);
       parts.net.connect();
