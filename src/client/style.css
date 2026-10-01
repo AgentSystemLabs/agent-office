@@ -1340,7 +1340,7 @@ a.when:hover { text-decoration: underline; }
 .maintenance-note span { display: block; margin-top: 8px; }
 .maintenance-note:hover { outline: 3px solid #2b2d42; }
 
-/* Worker showcase uses the office paper palette, with room around controls and content. */
+/* The TV demo viewer uses the office paper palette, with room around controls and content. */
 .modal.tv-remote { width: min(1400px, 100%); color: var(--ink); }
 .tv-remote-body { display: flex; flex-direction: column; gap: 16px; min-height: 0; }
 .tv-remote-controls, .tv-remote-channels, .tv-remote-navigation { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }

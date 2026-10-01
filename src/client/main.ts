@@ -4566,7 +4566,7 @@ function refreshPresentations() {
     const g = artifactCanvas.getContext('2d')!;
     g.fillStyle = '#1b1d2e'; g.fillRect(0, 0, 1280, 720);
     g.fillStyle = '#4cc9f0'; g.font = 'bold 36px system-ui';
-    g.fillText(`WORKER SHOWCASE · ${presentationIndex + 1}/${items.length}`, 60, 85);
+    g.fillText(`DEMOS · ${presentationIndex + 1}/${items.length}`, 60, 85);
     g.fillStyle = '#fff'; g.font = 'bold 52px system-ui';
     const wrap = (text: string, y: number, width: number, line: number) => {
       let row = ''; for (const word of text.split(/\s+/)) {
@@ -4576,7 +4576,7 @@ function refreshPresentations() {
     };
     const y = wrap(w.presentation!.title, 175, 1160, 65);
     g.font = '30px system-ui'; wrap(w.presentation!.summary.slice(0, 400), y + 30, 1160, 42);
-    g.fillStyle = '#4cc9f0'; g.fillText(`${w.name} · Use the remote to explore the interactive artifact`, 60, 655);
+    g.fillStyle = '#4cc9f0'; g.fillText(`${w.name} · Use the remote to explore the interactive demo`, 60, 655);
     artifactTexture.needsUpdate = true; tvMat.map = artifactTexture;
   }
   tvMat.needsUpdate = true;
@@ -4587,7 +4587,7 @@ function openTVRemote() {
   const el = h('div.modal.tv-remote', { role: 'dialog', 'aria-label': 'TV remote' },
     h('header', {}, h('h2', {}, '📺 TV remote'), close), content);
   let refreshTimer: ReturnType<typeof setInterval>;
-  const modal = openModal(el, { doing: '📺 browsing presentations', onClose: () => {
+  const modal = openModal(el, { doing: '📺 browsing demos', onClose: () => {
     clearInterval(refreshTimer);
     if (document.fullscreenElement && el.contains(document.fullscreenElement)) void document.exitFullscreen().catch(() => {});
   } });
@@ -4596,17 +4596,17 @@ function openTVRemote() {
   const render = () => {
     const items = presentations(); const w = items[presentationIndex];
     const screen = h('button.btn', { onclick: () => { tvChannel = 'screen'; refreshPresentations(); modal.close(); watchScreenShare(); } }, '🖥 Screen sharing');
-    const channel = h('button.btn', { 'aria-pressed': String(tvChannel === 'artifacts'), onclick: () => { tvChannel = 'artifacts'; refreshPresentations(); render(); } }, '🗂 Artifact archive');
+    const channel = h('button.btn', { 'aria-pressed': String(tvChannel === 'artifacts'), onclick: () => { tvChannel = 'artifacts'; refreshPresentations(); render(); } }, '🗂 Demos');
     const previous = h('button.btn', { onclick: () => { presentationIndex = (presentationIndex - 1 + items.length) % items.length; refreshPresentations(); render(); } }, '◀ Previous');
     const next = h('button.btn', { onclick: () => { presentationIndex = (presentationIndex + 1) % items.length; refreshPresentations(); render(); } }, 'Next ▶');
     previous.disabled = next.disabled = items.length < 2;
     content.replaceChildren(h('div.tv-remote-controls', {},
       h('div.tv-remote-channels', {}, screen, channel),
       h('div.tv-remote-navigation', {}, previous, h('span.tv-remote-count', {}, items.length ? `${presentationIndex + 1} / ${items.length}` : '0 / 0'), next)));
-    if (!w) { content.append(h('p', {}, 'Completed worker presentations will appear here automatically.')); return; }
+    if (!w) { content.append(h('p', {}, 'Demos of big, completed changes will appear here automatically.')); return; }
     const layout = h('div.tv-archive-layout');
-    const sidebar = h('aside.tv-archive-sidebar', { 'aria-label': 'Archived artifacts' });
-    const search = h('input', { type: 'search', placeholder: 'Search artifacts…', value: query, 'aria-label': 'Search artifacts' }) as HTMLInputElement;
+    const sidebar = h('aside.tv-archive-sidebar', { 'aria-label': 'Archived demos' });
+    const search = h('input', { type: 'search', placeholder: 'Search demos…', value: query, 'aria-label': 'Search demos' }) as HTMLInputElement;
     const list = h('div.tv-archive-list');
     const populate = () => {
       list.replaceChildren();
@@ -4615,7 +4615,7 @@ function openTVRemote() {
         list.append(h('button.tv-archive-item', { 'aria-pressed': String(index === presentationIndex), onclick: () => { presentationIndex = index; tvChannel = 'artifacts'; refreshPresentations(); render(); } },
           h('strong', {}, item.presentation!.title), h('small', {}, item.name + ' · ' + new Date(item.presentation!.at).toLocaleString())));
       });
-      if (!list.childElementCount) list.append(h('p', {}, 'No matching artifacts.'));
+      if (!list.childElementCount) list.append(h('p', {}, 'No matching demos.'));
     };
     search.oninput = () => { query = search.value; populate(); };
     populate(); sidebar.append(search, list);
