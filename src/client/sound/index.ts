@@ -27,6 +27,7 @@ import { bark, yip } from '../features/dog/sound';
 import { cellDoor, thud } from '../features/workers/sound';
 import { golf, type GolfSound } from '../features/golf/sound';
 import { gong } from '../features/gong/sound';
+import { safe } from '../features/vault/sound';
 import { Jukebox, type JukeboxPlay } from '../features/jukebox/sound';
 import type { Pos } from './places';
 import { pageTurn, paper, step, stepAt } from './steps';
@@ -250,6 +251,11 @@ export class OfficeSound {
 
   gong(why: GongWhy) {
     gong(this.a, why);
+  }
+
+  /** The vault's safe opening (the dial and the bolts) or shutting. */
+  safe(at: Pos, open: boolean) {
+    safe(this.a, at, open);
   }
 
   ding(kind: 'done' | 'needs_input') {

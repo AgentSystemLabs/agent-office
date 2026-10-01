@@ -7,6 +7,7 @@ import { scenic } from '../scenic';
 import { toon, toonUnique } from '../toon';
 import { elevator, garageLift } from '../elevator';
 import { gong } from '../../features/gong/world';
+import { safe } from '../../features/vault/world';
 import { jukebox } from '../../features/jukebox/world';
 import { bookshelf } from '../../features/bookshelf/world';
 import { cabinet } from '../../features/cabinet/world';
@@ -69,6 +70,7 @@ function floorPlan() {
     elevator,
     garageLift,
     gong,
+    safe,
     hoop,
     whiteboard,
     clearOfStairs,

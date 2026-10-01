@@ -321,6 +321,7 @@ export function planMap(input: unknown): MapPlan {
     if (f?.circle) circles.push(f.circle);
   });
   if (props.filter((p) => p.kind === 'gong').length > 1) throw new MapError('it has more than one gong');
+  if (props.filter((p) => p.kind === 'safe').length > 1) throw new MapError('it has more than one safe');
 
   // The dungeon under the hall: the hole in the floor over its stairs, with rails round it, has to be clear.
   const dungeon = c.dungeon == null ? undefined : planDungeon(c.dungeon, bounds);

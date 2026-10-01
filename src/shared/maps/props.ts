@@ -34,6 +34,8 @@ export const PROP_KINDS = {
   hearth: 'A fireplace',
   /** The gong a merged pull request rings (one per map). */
   gong: 'The merge gong',
+  /** The vault's safe, where the floor's secrets for its workers are kept (one per map). */
+  safe: 'The vault (a safe)',
   /** Casks of ale on a rack: a drink perks you up, like the office's coffee. */
   cask: 'Casks of ale (the coffee)',
   /** A table with nothing to sit at, `width` by `length`. */
@@ -64,6 +66,7 @@ export const PROP_SIZE = {
   armor: 0.42,
   hearth: { width: 3.6, depth: 1.1 },
   gong: { width: 2.1, depth: 0.7 },
+  safe: { width: 0.95, depth: 0.75 },
   cask: { width: 1.7, depth: 1.0 },
   candles: 0.3,
 } as const;
@@ -87,6 +90,8 @@ export function propFootprint(p: PropConfig): { rect?: Rect; circle?: Circle } |
       return { rect: boxFootprint(p.x, p.z, (p.width ?? PROP_SIZE.hearth.width) * s, PROP_SIZE.hearth.depth * s, r) };
     case 'gong':
       return { rect: boxFootprint(p.x, p.z, PROP_SIZE.gong.width, PROP_SIZE.gong.depth, r) };
+    case 'safe':
+      return { rect: boxFootprint(p.x, p.z, PROP_SIZE.safe.width, PROP_SIZE.safe.depth, r) };
     case 'cask':
       return { rect: boxFootprint(p.x, p.z, PROP_SIZE.cask.width * s, PROP_SIZE.cask.depth * s, r) };
     case 'table':

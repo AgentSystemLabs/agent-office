@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { PropConfig } from '../../../shared/maps';
 import { PROP_SIZE, type PropKind } from '../../../shared/maps/props';
 import { buildGong } from '../../features/gong/world';
+import { buildSafe } from '../../features/vault/world';
 import type { Interactable } from '../types';
 import { canvasTexture } from '../texture';
 import { mesh, roundedBox, textPlane, toon, toonUnique } from '../toon';
@@ -426,6 +427,12 @@ export const PROPS: Record<PropKind, (kit: Kit, p: PropConfig) => void> = {
     kit.colliders.push(...gong.colliders);
     kit.interactables.push(gong.interactable);
     kit.gong = gong;
+  },
+  safe: (kit, p) => {
+    const safe = buildSafe({ x: p.x, y: kit.floorAt(p.x, p.z), z: p.z, rotY: p.rotY ?? 0 });
+    kit.group.add(safe.group);
+    kit.colliders.push(...safe.colliders);
+    kit.interactables.push(safe.interactable);
   },
   cask: (kit, p) => kit.interactables.push(cask(kit, p)),
   table: plainTable,

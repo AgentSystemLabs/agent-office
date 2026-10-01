@@ -11,10 +11,14 @@ let open: Modal | null = null;
  * 🗝️ The vault: environment variables every worker on this floor starts with, so the services they
  * run (and the previews teammates open) have their API keys in any worktree (see server/vault.ts).
  * Values go in and never come back out: it lists names. Admins change it; everyone can look.
+ * `onClose` hears when it shuts (the safe's door does too); false when it didn't open.
  */
-export function openVault(net: Net) {
-  if (open) return;
-  if (!store.floor) return toast('Take the elevator to a floor first', 'warn');
+export function openVault(net: Net, onClose?: () => void): boolean {
+  if (open) return false;
+  if (!store.floor) {
+    toast('Take the elevator to a floor first', 'warn');
+    return false;
+  }
   const close = h('button.btn.close', { type: 'button', 'aria-label': 'Close', title: 'Close (Esc)' }, '✕');
   const list = h('ul.vault-list');
   const editor = h('div.vault-edit');
@@ -107,6 +111,7 @@ export function openVault(net: Net) {
     onClose: () => {
       offs.forEach((off) => off());
       open = null;
+      onClose?.();
     },
   });
   close.addEventListener('click', () => modal.close());
@@ -114,4 +119,5 @@ export function openVault(net: Net) {
   render();
   net.send({ t: 'vault.get' });
   if (store.me.admin) name.focus();
+  return true;
 }

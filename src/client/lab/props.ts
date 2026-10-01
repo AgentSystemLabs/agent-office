@@ -16,6 +16,7 @@ import { buildCabinet } from '../features/cabinet/world';
 import { supercar } from '../features/cars/world';
 import { buildGong } from '../features/gong/world';
 import { buildJukebox } from '../features/jukebox/world';
+import { buildSafe } from '../features/vault/world';
 import { buildKitchen } from '../world/kitchen';
 import { preloadModels } from '../world/models';
 import { DESK_BOOKS, FLOOR_PLANTS, buildDesk, coffeeTable, deskBooks, deskMug, loungeCouch, plant, pouf } from '../world/office';
@@ -39,6 +40,12 @@ const SHOW: Record<string, () => Shown> = {
     const g = buildGong();
     g.strike(1);
     return { object: g.group, update: (dt) => g.update(dt) };
+  },
+  safe: () => {
+    // open=1 swings it open (step it with t=2 or so).
+    const s = buildSafe({ x: 0, z: 0 });
+    if (q.get('open') === '1') s.open(true);
+    return { object: s.group, update: (dt) => void s.update(dt) };
   },
   cabinet: () => ({ object: buildCabinet().group }),
   kitchen: () => ({ object: buildKitchen().group }),

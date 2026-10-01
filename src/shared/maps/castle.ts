@@ -61,8 +61,9 @@ const props: PropConfig[] = [
   { kind: 'armor', x: 4.2, z: 28.4, rotY: Math.PI },
   { kind: 'armor', x: -12.1, z: 24.5, rotY: Math.PI / 2 },
   { kind: 'armor', x: 12.1, z: 24.5, rotY: -Math.PI / 2 },
-  // The merge gong, west of the dais; ale on the east wall.
+  // The merge gong, west of the dais, and the vault's safe against the wall behind it; ale on the east wall.
   { kind: 'gong', x: -7.6, z: -19.6, rotY: Math.PI / 2 },
+  { kind: 'safe', x: -W / 2 + 0.42, z: -21, rotY: Math.PI / 2 },
   { kind: 'cask', x: W / 2 - 0.65, z: 15, rotY: -Math.PI / 2 },
 ];
 
