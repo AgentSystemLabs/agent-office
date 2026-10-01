@@ -243,6 +243,8 @@ function wallLever(): { group: THREE.Group; set(on: boolean): void; update(dt: n
 }
 
 export interface Closet {
+  /** Post-it issue board behind the Maintenance agent. */
+  issueBoard: THREE.Mesh;
   /** The laptop's interactable: E there asks the office's small model something. */
   laptop: Interactable;
   /** Shows the Maintenance agent's stack on the console's screen. */
@@ -308,6 +310,19 @@ export function buildMaintenanceCloset(
   const lamp = toon('#fff3b0', { emissive: '#fff3b0' });
   group.add(mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.04, 16), lamp, (M.minX + M.maxX) / 2, H - 0.02, midZ, false));
 
+  // Behind Maintenance, facing into the room; above the counter and clear of the rack.
+  const board = new THREE.Group();
+  board.position.set(M.minX + 0.09, 1.95, 3.2);
+  board.rotation.y = Math.PI / 2;
+  board.add(mesh(box(2.1, 1.05, 0.08), toon('#8b5e3c'), 0, 0, 0));
+  const issueBoard = new THREE.Mesh(new THREE.PlaneGeometry(1.95, 0.9), new THREE.MeshBasicMaterial({ color: '#d8a86a' }));
+  issueBoard.position.z = 0.045;
+  board.add(issueBoard);
+  const boardAt: Interactable = { kind: 'maintenanceIssues', x: M.minX + 0.2, z: 3.2, radius: 1.2 };
+  board.userData.interact = boardAt;
+  interactables.push(boardAt);
+  group.add(board);
+
   // The rack in the north-west corner, facing the door.
   const R = M.rack;
   const r = rack();
@@ -361,5 +376,5 @@ export function buildMaintenanceCloset(
   const leverAt: Interactable = { kind: 'lever', x: -15.05, z: M.maxZ - 0.9, radius: 1.1 };
   interactables.push(leverAt);
   lever.group.userData.interact = leverAt;
-  return { laptop: laptopAt, setStack: console_.set, setLever: lever.set, update: lever.update };
+  return { issueBoard, laptop: laptopAt, setStack: console_.set, setLever: lever.set, update: lever.update };
 }

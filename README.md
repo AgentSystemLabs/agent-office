@@ -372,3 +372,5 @@ Every change to the app that lands on `main` is published as a GitHub release by
 [MIT](LICENSE)
 
 Workers can present completed work on the lounge TV's **Worker showcase** channel. Use the remote on the coffee table (or the TV) to browse interactive artifacts or switch to screen sharing. See [TV presentations](docs/features.md#tv-presentations).
+
+The maintenance closet has a post-it issues board on the wall behind Maintenance. Hover (or aim at) a note to see its issue title; click it or press **E** to read the issue. Click bare cork to open the issue Kanban. The main-room board still lets you pick up and carry cards.

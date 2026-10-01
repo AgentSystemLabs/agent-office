@@ -240,6 +240,8 @@ const renderIssuesBoard = () => {
   issuesTex.render(off.size ? { ...store.issues, items: store.issues.items.filter((i) => !off.has(i.number)) } : store.issues);
 };
 mountBoard(office.boardMeshes.issues, issuesTex.texture, renderIssuesBoard, ['issues']);
+const maintenanceIssuesTex = new BoardTexture('issues', true);
+mountBoard(office.closet.issueBoard, maintenanceIssuesTex.texture, () => maintenanceIssuesTex.render(store.issues), ['issues']);
 let carriedOff = '';
 store.on('peers', () => {
   const k = [...offBoard()].join(',');
@@ -2918,6 +2920,13 @@ function watchScreenShare() {
 /** `note` is the issue note you're pointing at on the issues board, if any (see aimedNote). */
 function interact(target: Interactable | null, key: DeskKey, note = aimedNote) {
   if (!target) return;
+  if (target.kind === 'maintenanceIssues') {
+    if (key === 'E') {
+      if (note) openIssue(note, net, boardActions());
+      else openBoard('issues', net, boardActions());
+    }
+    return;
+  }
   if (target.kind !== 'issues') note = null;
   if (key === 'E' && carrying && dropCard(target, carrying, note)) return;
   if (target.kind === 'desk' && target.deskId) {
@@ -3688,6 +3697,8 @@ function hintFor(it: Interactable): Hint {
       return it.deskId ? deskHint(it.deskId) : { k: '', parts: [] };
     case 'station':
       return it.deskId ? stationHint(it.deskId) : { k: '', parts: [] };
+    case 'maintenanceIssues':
+      return aimedNote ? { k: String(aimedNote.number), parts: [title(clip(`📌 #${aimedNote.number} ${aimedNote.title}`, 60)), key('E', 'Read it')] } : board('📌 Maintenance issues · Kanban');
     case 'issues':
       if (aimedNote) return { k: String(aimedNote.number), parts: [title(clip(`📌 #${aimedNote.number} ${aimedNote.title}`, 60)), key('E', 'Take it'), key('O', 'Read it')] };
       return issuesTex.hasNotes ? { k: 'notes', parts: [title('📌 Issues board'), key('E', 'Open'), aside('or point at a note to take it')] } : board('📌 Issues board');
@@ -4358,7 +4369,7 @@ document.addEventListener('pointerlockchange', () => {
 const raycaster = new THREE.Raycaster();
 const CROSSHAIR = new THREE.Vector2(0, 0);
 /** How close (meters from your eyes) you must be to use each kind of thing. */
-const REACH: Record<InteractKind, number> = { desk: 4.5, station: 4.5, coffee: 3, issues: 9, pulls: 9, services: 9, queue: 9, tv: 10, decor: 9, smoke: 3, elevator: 4.5, gong: 3.5, dog: 3.2, jukebox: 4, seat: 3, whiteboard: 7, cabinet: 4, ladder: 3, pole: 4, meeting: 7, bar: 3.5, dj: 6, golf: 3.5, ball: 3.2, bookshelf: 4, darts: 4, axe: 5.5, telescope: 3.5, car: 4, expand: 8, herald: 5, maintenance: 3.5, ship: 3.5, lever: 3.5 };
+const REACH: Record<InteractKind, number> = { desk: 4.5, station: 4.5, coffee: 3, issues: 9, pulls: 9, services: 9, queue: 9, tv: 10, decor: 9, smoke: 3, elevator: 4.5, gong: 3.5, dog: 3.2, jukebox: 4, seat: 3, whiteboard: 7, cabinet: 4, ladder: 3, pole: 4, meeting: 7, bar: 3.5, dj: 6, golf: 3.5, ball: 3.2, bookshelf: 4, darts: 4, axe: 5.5, telescope: 3.5, car: 4, expand: 8, herald: 5, maintenanceIssues: 5, maintenance: 3.5, ship: 3.5, lever: 3.5 };
 const eye = new THREE.Vector3();
 
 /** What the ray through `ndc` lands on first, whether it is within reach (plus `slack` meters), and where it hit. */
@@ -4399,6 +4410,10 @@ function throneTarget(): Interactable | null {
 
 /** The issue whose note on the issues board an aim lands on, or null (bare cork, the frame, anything else). */
 function noteUnder(aim: { it: Interactable; hit: THREE.Intersection } | null): GhIssue | null {
+  if (aim?.it.kind === 'maintenanceIssues' && aim.hit.object === office.closet.issueBoard && aim.hit.uv) {
+    const n = maintenanceIssuesTex.noteAt(aim.hit.uv);
+    return store.issues.items.find((i) => i.number === n) ?? null;
+  }
   if (aim?.it.kind !== 'issues' || aim.hit.object !== world.boardMeshes.issues || !aim.hit.uv) return null;
   const n = issuesTex.noteAt(aim.hit.uv);
   return n === undefined ? null : (store.issues.items.find((i) => i.number === n) ?? null);
@@ -4990,13 +5005,19 @@ function frame(ts?: number) {
     if (aim?.near) aimedNote = noteUnder(aim);
   } else {
     target = throneTarget() ?? mySeat() ?? pickTarget();
+    // The closet's board is behind a kiosk: hover it directly instead of choosing the nearer agent.
+    if (pointer) {
+      const aim = aimedAt(pointer, 2.5);
+      if (aim?.near && aim.it.kind === 'maintenanceIssues') target = aim.it;
+    }
     // By the issues board, the mouse points at the note you'd take.
-    if (target?.kind === 'issues' && pointer) {
+    if ((target?.kind === 'issues' || target?.kind === 'maintenanceIssues') && pointer) {
       const aim = aimedAt(pointer, 2.5);
       if (aim?.near) aimedNote = noteUnder(aim);
     }
   }
-  issuesTex.lift(aimedNote?.number ?? null);
+  issuesTex.lift(target?.kind === 'issues' ? aimedNote?.number ?? null : null);
+  maintenanceIssuesTex.lift(target?.kind === 'maintenanceIssues' ? aimedNote?.number ?? null : null);
   renderHint();
   renderCrosshair();
 

@@ -42,7 +42,7 @@ export class BoardTexture {
   private lifted: number | null = null;
   private last: [GhState<GhIssue> | GhState<GhPull>, Map<string, WorkerInfo> | undefined] | null = null;
 
-  constructor(private kind: 'issues' | 'pulls') {
+  constructor(private kind: 'issues' | 'pulls', private sticky = false) {
     this.canvas.width = 1200;
     this.canvas.height = 600;
     this.ctx = this.canvas.getContext('2d')!;
@@ -168,13 +168,15 @@ export class BoardTexture {
         g.font = `800 ${Math.round(fs * 0.78)}px Nunito, ui-rounded, system-ui, sans-serif`;
         g.fillText(clip(g, `${w.name} · ${store.plan().byId.get(w.deskId)?.label ?? 'desk'}`, nw - 28 - r * 2 - 8), -nw / 2 + 14 + r * 2 + 8, y + fs * 0.28);
       }
-      g.beginPath();
-      g.arc(0, -nh / 2 + 10, 11, 0, Math.PI * 2);
-      g.fillStyle = PINS[i % PINS.length];
-      g.fill();
-      g.lineWidth = 3;
-      g.strokeStyle = '#2b2d42';
-      g.stroke();
+      if (!this.sticky) {
+        g.beginPath();
+        g.arc(0, -nh / 2 + 10, 11, 0, Math.PI * 2);
+        g.fillStyle = PINS[i % PINS.length];
+        g.fill();
+        g.lineWidth = 3;
+        g.strokeStyle = '#2b2d42';
+        g.stroke();
+      }
       g.restore();
     });
     if (open.length > cols * rows) {

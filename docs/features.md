@@ -83,3 +83,5 @@ Before finishing, workers write `.agent-office/presentations/<worker-id>.json` i
 ```
 
 The existing provider completion hooks collect fresh valid files when the worker becomes done, broadcast them with its state, and retain its latest presentation. Repeated completion signals do not republish the same artifact. Files are scoped by worker ID, including when workers share a directory. HTML runs in a sandboxed iframe without access to office cookies or network resources. The latest completed presentations appear first; they remain available while the worker remains in the office. This is a presentation viewer, not an annotation/feedback editor.
+
+The maintenance closet has a post-it issues board on the wall behind Maintenance. Hover (or aim at) a note to see its issue title; click it or press **E** to read the issue. Click bare cork to open the issue Kanban. The main-room board still lets you pick up and carry cards.
