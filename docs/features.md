@@ -72,7 +72,7 @@ Everything in the office, room by room. Back to the [README](../README.md).
 
 ### TV presentations
 
-The lounge TV has a Worker showcase channel and a remote on the coffee table. Use E on the TV or remote to open it, select a channel, and browse the Artifact archive with its searchable sidebar and previous/next controls. The selected artifact appears on the right, with source PR/issue links, Reload, and Fullscreen controls. The TV shows the artifact's title and summary; the remote opens its interactive HTML. Channel selection is personal, so workers' results do not interrupt someone watching a shared screen.
+The lounge TV has a Worker showcase channel and a remote on the coffee table. Use E on the TV or remote to open it, select a channel, and browse the Artifact archive with its searchable sidebar and previous/next controls. The selected artifact appears on the right, with source PR/issue links, Reload, and Fullscreen controls. Fullscreen expands only the rendered HTML artifact to fill the screen; press Esc to return to the archive. The TV shows the artifact's title and summary; the remote opens its interactive HTML. Channel selection is personal, so workers' results do not interrupt someone watching a shared screen.
 
 All agent providers receive a presentation brief when launched with a task and when sent a new office prompt. They should lean toward presenting meaningful finished work: use the project's visual style, demonstrate results or comparisons, include validation, and make next decisions easy to understand. Trivial replies and unfinished work can skip it.
 

@@ -4589,7 +4589,7 @@ function openTVRemote() {
   let refreshTimer: ReturnType<typeof setInterval>;
   const modal = openModal(el, { doing: '📺 browsing presentations', onClose: () => {
     clearInterval(refreshTimer);
-    if (document.fullscreenElement === el) void document.exitFullscreen().catch(() => {});
+    if (document.fullscreenElement && el.contains(document.fullscreenElement)) void document.exitFullscreen().catch(() => {});
   } });
   close.onclick = () => modal.close();
   let query = '';
@@ -4632,7 +4632,7 @@ function openTVRemote() {
     const fullscreen = h('button.btn', { onclick: async () => {
       try {
         if (document.fullscreenElement) await document.exitFullscreen();
-        else await el.requestFullscreen();
+        else await frame.requestFullscreen();
       } catch { fullscreen.textContent = 'Fullscreen unavailable'; }
     } }, '⛶ Fullscreen');
     const reload = h('button.btn', { onclick: () => { frame.srcdoc = frame.srcdoc; } }, '↻ Reload');
