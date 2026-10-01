@@ -484,8 +484,8 @@ export class Holiday {
   private street: Record<Theme, THREE.Group> = { halloween: new THREE.Group(), christmas: new THREE.Group() };
   private drop = 0;
   private base = new Map<Collider, { top: number; bottom: number }>();
-  /** The plants' leaves, and the tree each becomes at Christmas. */
-  private plants: { leaves: THREE.Object3D[]; tree: THREE.Object3D }[] = [];
+  /** The potted plants, and the tree each becomes at Christmas. */
+  private plants: { pot: THREE.Object3D; tree: THREE.Object3D }[] = [];
   private readonly camPos = new THREE.Vector3();
 
   constructor(private office: Office) {
@@ -577,7 +577,6 @@ export class Holiday {
     // The potted plants become little trees standing in their pots, with presents round them: the
     // leaves are hidden and the tree shown instead.
     office.plants.forEach((p, i) => {
-      const leaves = plantLeaves(p);
       const tree = new THREE.Group();
       const t = christmasTree(1.25, this.lights);
       t.position.y = 0.45;
@@ -598,7 +597,7 @@ export class Holiday {
       const merged = mergeByMaterial(tree);
       merged.visible = false;
       p.add(merged);
-      this.plants.push({ leaves, tree: merged });
+      this.plants.push({ pot: p, tree: merged });
     });
     // A present on every desk.
     const deskGifts = new THREE.Group();
@@ -655,7 +654,8 @@ export class Holiday {
     this.christmas.visible = theme === 'christmas';
     for (const p of this.plants) {
       p.tree.visible = theme === 'christmas';
-      for (const l of p.leaves) l.visible = theme !== 'christmas';
+      // Looked up each time: the wardrobe may have swapped the plant in the pot since.
+      for (const l of plantLeaves(p.pot)) l.visible = theme !== 'christmas';
     }
   }
 

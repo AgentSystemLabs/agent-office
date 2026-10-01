@@ -6,6 +6,7 @@
 
 import type { AccountsClientMsg, AccountsServerMsg, SignInsClientMsg, TeamClientMsg } from './protocol/accounts.js';
 import type { ChangesClientMsg, ChangesServerMsg } from './protocol/changes.js';
+import type { FurnishClientMsg, FurnishServerMsg } from './protocol/furnishings.js';
 import type { FloorClientMsg, FloorServerMsg, PlanClientMsg } from './protocol/floors.js';
 import type { GitHubClientMsg, GitHubServerMsg } from './protocol/github.js';
 import type { MeetingClientMsg, MeetingServerMsg } from './protocol/meetings.js';
@@ -21,6 +22,7 @@ export * from './protocol/accounts.js';
 export * from './protocol/agents.js';
 export * from './protocol/changes.js';
 export * from './protocol/floors.js';
+export * from './protocol/furnishings.js';
 export * from './protocol/github.js';
 export * from './protocol/meetings.js';
 export * from './protocol/presence.js';
@@ -52,7 +54,8 @@ export type ClientMsg =
   | WhiteboardClientMsg
   | BallClientMsg
   | CarClientMsg
-  | DogClientMsg;
+  | DogClientMsg
+  | FurnishClientMsg;
 
 export type ServerMsg =
   | PresenceServerMsg
@@ -66,4 +69,5 @@ export type ServerMsg =
   | AccountsServerMsg
   | SettingsServerMsg
   | UsageServerMsg
-  | ToysServerMsg;
+  | ToysServerMsg
+  | FurnishServerMsg;

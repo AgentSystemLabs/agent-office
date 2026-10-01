@@ -88,7 +88,12 @@ const paintLounge = palette(LOUNGE_COLORS);
 /** A pillow or a pouf, its Cloth in `color`. */
 function upholstered(part: 'pillow' | 'pouf', color: string): THREE.Object3D {
   const cloth = toon(color);
-  return piece('lounge', part, (name) => (name === 'Cloth' ? cloth : paintLounge(name)));
+  const p = piece('lounge', part, (name) => (name === 'Cloth' ? cloth : paintLounge(name)));
+  // Marked, so the wardrobe can re-cover it (features/wardrobe/apply.ts).
+  p.traverse((o) => {
+    if ((o as THREE.Mesh).isMesh && (o as THREE.Mesh).material === cloth) o.userData.cloth = true;
+  });
+  return p;
 }
 
 /**
@@ -99,7 +104,7 @@ function upholstered(part: 'pillow' | 'pouf', color: string): THREE.Object3D {
  */
 export function loungeCouch(): THREE.Group {
   const g = new THREE.Group();
-  g.add(piece('lounge', 'sofa', paintLounge));
+  g.add(sofa());
   for (const [x, color] of [
     [0.6, '#ffd166'],
     [-0.6, '#ef476f'],
@@ -111,6 +116,14 @@ export function loungeCouch(): THREE.Group {
     g.add(pillow);
   }
   return g;
+}
+
+/** The sofa on its own, upholstered in `color` (the wardrobe swaps it for another), its origin as loungeCouch()'s. */
+export function sofa(color: string = LOUNGE_COLORS.Sofa): THREE.Object3D {
+  const cloth = toon(color);
+  const s = piece('lounge', 'sofa', (name) => (name === 'Sofa' ? cloth : paintLounge(name)));
+  s.userData.sofa = true;
+  return s;
 }
 
 /** A floor pouf in `color`, about 1.05 round and 0.4 tall, its origin on the floor under its middle. */

@@ -2,6 +2,7 @@
 
 import type { CabinetView } from '../cabinet.js';
 import type { Decoration } from '../decor.js';
+import type { Furnishings } from '../furnishings.js';
 import type { DogState } from '../dog.js';
 import type { FloorPlan } from '../floorplan.js';
 import type { CarState } from '../garage.js';
@@ -105,6 +106,8 @@ export interface FloorView {
   queue: QueueState;
   /** Pictures on this floor's walls. */
   decor: Decoration[];
+  /** What this floor's plants, rugs, lamps and sofa look like (swapped at the wardrobe). */
+  furnishings: Furnishings;
   /** The signs over this floor's desks, and how far its back office is built out. */
   plan: FloorPlan;
   services: ServicesState;

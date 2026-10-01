@@ -1,0 +1,9 @@
+/* The wardrobe (ui.ts): a row of looks for each kind of furnishing */
+.modal.wardrobe { width: min(640px, 100%); }
+.wd-slot + .wd-slot { margin-top: 16px; }
+.wd-slot h3 { margin: 0 0 8px; font-size: 15px; font-weight: 900; }
+.wd-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.modal .wd-pick { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px 6px 6px; font-size: 13.5px; }
+.modal .wd-pick.on { background: var(--ink); color: #fff; border-color: var(--ink); }
+.wd-swatch { width: 28px; height: 22px; border-radius: 7px; border: 2px solid var(--ink); flex: none; }
+.wd-swatch.none { background: repeating-linear-gradient(45deg, #fff 0 4px, rgba(43, 45, 66, .25) 4px 6px); }

@@ -22,21 +22,30 @@ declare module '../types' {
     machineScreen: THREE.Mesh;
     /** The potted plants round the room, in PLANTS' order. At Christmas world/holiday.ts hides their leaves (plantLeaves()) and stands a little tree in each pot. */
     plants: THREE.Group[];
+    /** The rugs under the desk clusters, west to east and north to south, which the wardrobe recolors. */
+    rugs: THREE.Mesh[];
+    /** The lounge's couch (its sofa marked userData.sofa), its rug and its two poufs, which the wardrobe recolors. */
+    lounge: { couch: THREE.Group; rug: THREE.Mesh; poufs: THREE.Object3D[] };
+    /** The ceiling lamps: each hangs its pendant (see pendant()), which the wardrobe swaps for another. */
+    lamps: THREE.Group[];
   }
 }
 
 /** Rugs under each desk cluster. */
-export const rugs: Fixture = (site) => {
-  [
+export const rugs: Fixture<'rugs'> = (site) => {
+  const rugs = (
+    [
     [-10.5, -4],
     [-1.5, -4],
     [-10.5, 4],
     [-1.5, 4],
-  ].forEach(([x, z], i) => {
+    ] as const
+  ).map(([x, z], i) => {
     const rug = mesh(roundedBox(6.2, 0.02, 4.6, 0.6), toon(PALETTE.rugs[i]), x, 0.011, z, false);
     site.group.add(rug);
+    return rug;
   });
-  return {};
+  return { handle: { rugs } };
 };
 
 /** What the sky lights and darkens (see NightParts), which everything after it that has any adds to. */
@@ -120,7 +129,7 @@ export const machineMonitor: Fixture<'machineScreen'> = (site) => {
 };
 
 /** The rest of the lounge: the couch, the coffee table, its rug, and a pouf either side. */
-export const lounge: Fixture = (site) => {
+export const lounge: Fixture<'lounge'> = (site) => {
   // The couch, its back to the room, turned from the model's +z to face the TV on the east wall (+x).
   const couch = loungeCouch();
   couch.position.set(10.5, 0, 0);
@@ -136,6 +145,7 @@ export const lounge: Fixture = (site) => {
   site.colliders.push({ minX: 12.2, maxX: 13.8, minZ: -0.8, maxZ: 0.8, top: 0.46 });
   const rug = mesh(roundedBox(7, 0.02, 7, 1.2), toon('#ffc6ff'), 13.4, 0.011, 0, false);
   site.group.add(rug);
+  const poufs: THREE.Object3D[] = [];
 
   // A pouf either side of the lounge (the seats still called beanbags), turned to the TV like whoever sits on it.
   for (const [i, [color, x, z]] of (
@@ -149,11 +159,12 @@ export const lounge: Fixture = (site) => {
     seat.position.set(x, 0, z);
     seat.rotation.y = SEATING_BY_ID.get(id)!.rotY;
     site.group.add(seat);
+    poufs.push(seat);
     // Its top on the pouf's, the button in the middle of it.
     site.colliders.push({ minX: x - 0.5, maxX: x + 0.5, minZ: z - 0.5, maxZ: z + 0.5, top: 0.42 });
     seatable(seat, id, 1.4, site.interactables);
   }
-  return {};
+  return { handle: { lounge: { couch, rug, poufs } } };
 };
 
 /** Plants around the room: the ones in the way into the back office go while it's built out (see the wing). */
@@ -174,9 +185,10 @@ export const plants: Fixture<'plants'> = (site) => {
 };
 
 /** Ceiling lamps (cartoon pendants), hung on long cords down from the high ceiling. */
-export const lamps: Fixture = (site) => {
+export const lamps: Fixture<'lamps'> = (site) => {
   const night = site.get('night');
   const lampY = 4.05;
+  const lamps: THREE.Group[] = [];
   for (const [x, z] of [
     [-10.5, -4],
     [-1.5, -4],
@@ -184,12 +196,14 @@ export const lamps: Fixture = (site) => {
     [-1.5, 4],
     [13, 0],
   ]) {
-    const lamp = pendant(WALL_HEIGHT - lampY);
+    const lamp = new THREE.Group();
+    lamp.add(pendant(WALL_HEIGHT - lampY));
     lamp.position.set(x, lampY, z);
     site.group.add(lamp);
+    lamps.push(lamp);
     night.halos.push({ at: new THREE.Vector3(x, lampY - 0.12, z), size: 1.3, color: '#ffe08a' });
   }
-  return {};
+  return { handle: { lamps } };
 };
 
 /**
