@@ -6,6 +6,7 @@ export interface Buffers {
   keys: AudioBuffer[];
   spaces: AudioBuffer[];
   mouse: AudioBuffer;
+  /** Soft thuds. Footsteps have their own samples (see feet.ts). */
   steps: AudioBuffer[];
   rustle: AudioBuffer;
   /** A raindrop hitting the glass. */
@@ -30,7 +31,8 @@ export function makeBuffers(ctx: BaseAudioContext): Buffers {
   };
 }
 
-function sample(ctx: BaseAudioContext, seconds: number, next: (t: number) => number, peak?: number): AudioBuffer {
+/** `seconds` of whatever `next` gives for each moment, its loudest point brought to `peak` if there is one. */
+export function sample(ctx: BaseAudioContext, seconds: number, next: (t: number) => number, peak?: number): AudioBuffer {
   const sr = ctx.sampleRate;
   const b = ctx.createBuffer(1, Math.ceil(sr * seconds), sr);
   const d = b.getChannelData(0);
@@ -69,7 +71,7 @@ function brownNoise(): () => number {
 }
 
 /** Wanders between random levels, holding each for `min`–`max` seconds. */
-function lumpy(sr: number, min: number, max: number): () => number {
+export function lumpy(sr: number, min: number, max: number): () => number {
   let level = 0;
   let target = 0;
   let hold = 0;
@@ -105,7 +107,7 @@ function keyClick(ctx: BaseAudioContext, o: { body: number; bright: number; rele
   );
 }
 
-/** A soft shoe on carpet: a muffled thud and a little scuff. */
+/** A muffled thud and a little scuff: something soft landing (a ball, a dart, a page), and the weight under a jump's landing. */
 function footstep(ctx: BaseAudioContext): AudioBuffer {
   let low = 0;
   let prev = 0;

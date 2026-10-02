@@ -27,6 +27,8 @@ export class PlayerController extends PlayerInput {
   vy = 0;
   facing = Math.PI;
   moving = false;
+  /** At a run: holding Shift, or on the long stretch of a walk along a path. */
+  running = false;
   grounded = true;
   /** Walk cycle phase, shared by the camera bob and the first-person hands. */
   walkPhase = 0;
@@ -182,6 +184,7 @@ export class PlayerController extends PlayerInput {
     }
     const steering = ix !== 0 || iz !== 0;
     this.moving = steering;
+    this.running = steering && (k.has('ShiftLeft') || k.has('ShiftRight'));
     if (this.path && (steering || (this.enabled && k.has('Space')))) {
       this.path = null;
       this.onPathEnd?.('cancelled');
@@ -200,7 +203,7 @@ export class PlayerController extends PlayerInput {
       const cos = Math.cos(this.camYaw + stagger);
       const dx = ix * cos + iz * sin;
       const dz = -ix * sin + iz * cos;
-      const speed = (k.has('ShiftLeft') || k.has('ShiftRight') ? RUN : WALK) * this.effects.speed;
+      const speed = (this.running ? RUN : WALK) * this.effects.speed;
       this.tryMove(this.pos.x + dx * speed * dt, this.pos.z);
       this.tryMove(this.pos.x, this.pos.z + dz * speed * dt);
       if (this.view === 'third') {
@@ -238,7 +241,7 @@ export class PlayerController extends PlayerInput {
     }
     this.stepOffset *= Math.exp(-dt * 16);
     const walking = this.moving && this.grounded;
-    this.walkPhase += dt * (walking ? (k.has('ShiftLeft') || k.has('ShiftRight') ? 14 : 11) * this.effects.speed : 0);
+    this.walkPhase += dt * (walking ? (this.running ? 14 : 11) * this.effects.speed : 0);
     const bob = walking ? Math.abs(Math.sin(this.walkPhase)) * 0.035 : 0;
     this.bob += (bob - this.bob) * Math.min(1, dt * 18);
     this.jitterT += dt;
@@ -263,7 +266,8 @@ export class PlayerController extends PlayerInput {
     // Run the long way round, walk the last few meters.
     let left = dist;
     for (let i = 1; i < path.length; i++) left += Math.hypot(path[i].x - path[i - 1].x, path[i].z - path[i - 1].z);
-    const step = Math.min(dist, (left > 6 ? RUN : WALK) * this.effects.speed * dt);
+    this.running = left > 6;
+    const step = Math.min(dist, (this.running ? RUN : WALK) * this.effects.speed * dt);
     const x0 = this.pos.x;
     const z0 = this.pos.z;
     this.tryMove(this.pos.x + (dx / dist) * step, this.pos.z);
