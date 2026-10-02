@@ -17,7 +17,7 @@ export const dogHandlers = {
     const floor = here(ctx, c);
     if (!floor) return;
     const name = floor.dog.rename(str(msg.name, 200));
-    ctx.toastFloor(floor, `🐶 ${who} named the dog ${name}`);
+    ctx.toastFloor(floor, L.srv.namedDog(who, name));
   },
   'dog.breed'(ctx, c, msg) {
     const floor = here(ctx, c);
