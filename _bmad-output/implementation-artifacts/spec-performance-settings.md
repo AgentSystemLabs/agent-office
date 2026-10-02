@@ -2,7 +2,7 @@
 title: 'Adjustable performance settings'
 type: 'feature'
 created: '2026-10-01'
-status: 'in-review'
+status: 'done'
 baseline_commit: '1bc3028472d38b161e85117bf621bb6bc12700e5'
 route: 'full'
 route_source: 'pinned'
@@ -55,7 +55,7 @@ context: ['{project-root}/CLAUDE.md']
 - [x] Graphics: canonical browser options/presets, validated persistence, safe FPS/idle cadence, live graphics and character preview controls.
 - [x] Client: hidden/offscreen worker/laptop work, adjustable laptop resolution/refresh, muted ambience suppression, keyed/coalesced worker UI, owned-resource disposal.
 - [x] Server: canonical admin settings, viewer-gated thumbnails, empty-owner scan skip, adjustable polling, cached untracked counts and incremental Codex usage.
-- [ ] Integrate B performance pane with existing styling, docs and focused verification; independently review and open PR.
+- [x] Integrate B performance pane with existing styling, docs and focused verification; independently review and open PR.
 
 **Acceptance Criteria:**
 - Given any preset, when changed or reset, then FPS, idle drawing, resolution, outlines, shadows, character preview and laptop controls persist and apply without reload.
@@ -137,3 +137,7 @@ Parent retains independent review, isolated browser screenshots/live checks and 
 Remaining evidence limits: no CPU/energy/fan baseline, real GPU allocation profiling, audible background-alert check, filesystem-race/slow-client stress run, or provider integration run. Browser screenshots use software graphics and disposable data.
 
 - Final isolated browser run: exit 0, no page errors. Checked presets/custom, initial/live/reloaded DPR, cross-pane retention, rapid office edits, office persistence, both resets, Esc/X focus and controls restoration, mobile overflow and actual sidebar node identity. Desktop/mobile/expanded screenshots inspected in `/private/tmp/agent-office-performance-qa-artifacts`. Headless Chromium refused native pointer capture, so physical mouse-look was not verified; the existing focus/close pipeline is reused.
+
+## Delivery
+
+Real PR: https://github.com/AgentSystemLabs/agent-office/pull/276. Direct upstream push was denied, so the branch was delivered through `DmitriiSid/agent-office` without altering the shared origin remote. No merge or deployment was performed. CI/review state is reported at delivery, separately from local verification.

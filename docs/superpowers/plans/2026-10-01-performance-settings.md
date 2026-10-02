@@ -73,8 +73,10 @@
 - [x] Review the full diff and each matrix scenario against actual tests/output. Fix validated gaps and recheck modified risk surfaces.
 - [x] Audit all ten issue areas, settings persistence/live behavior, the chosen UI structure/styling and docs.
 - [x] Stage only owned source/tests/docs/spec/plan; leave generated `_bmad` runtime out of the PR.
-- [ ] Fetch/rebase latest main, open a real PR, inspect exact-head checks/review state and report remaining evidence limits. Never merge.
+- [x] Fetch/rebase latest main, open a real PR, inspect exact-head checks/review state and report remaining evidence limits. Never merge.
 
 ## Integration record
 
 Rebased onto `157b176d33768fdc344c8095b97114a83710bb0c` on 2026-10-02. Resolutions preserve upstream alert ordering/questions, dictation, model labels, dog/sky settings, first-person body, footsteps and phone-sound removal. The shared main checkout stayed clean. Final validation and PR delivery are recorded in the spec.
+
+Delivered as real upstream [PR #276](https://github.com/AgentSystemLabs/agent-office/pull/276) through the user fork. Local suite limitations and native pointer-capture gap are preserved in the spec and PR description. No merge or deployment.
