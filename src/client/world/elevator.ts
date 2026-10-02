@@ -49,9 +49,13 @@ export function buildElevator(height = WALL_HEIGHT): Elevator {
   const steelDark = toon(STEEL_DARK);
   const brass = toon(BRASS);
 
+  // The shaft's walls, pillars and doors stand side-on to the sun, and their own shadows would speckle
+  // their edges (the doorway most of all): they cast one, but don't take any.
+  const shaft = (m: THREE.Mesh) => ((m.receiveShadow = false), m);
+
   // Side walls, the whole height of the room.
   for (const sx of [minX + wall / 2, maxX - wall / 2]) {
-    group.add(mesh(new THREE.BoxGeometry(wall, height, depth), steel, sx, height / 2, midZ));
+    group.add(shaft(mesh(new THREE.BoxGeometry(wall, height, depth), steel, sx, height / 2, midZ)));
     colliders.push({ minX: sx - wall / 2, maxX: sx + wall / 2, minZ: back, maxZ: front, bottom: 0, top: topOf(0) });
   }
   // The front: a pillar either side of the doorway, and a header over it up to the ceiling line.
@@ -60,15 +64,15 @@ export function buildElevator(height = WALL_HEIGHT): Elevator {
     [minX, x - doorWidth / 2],
     [x + doorWidth / 2, maxX],
   ]) {
-    group.add(mesh(new THREE.BoxGeometry(pillar, height, wall), steel, (x0 + x1) / 2, height / 2, front - wall / 2));
+    group.add(shaft(mesh(new THREE.BoxGeometry(pillar, height, wall), steel, (x0 + x1) / 2, height / 2, front - wall / 2)));
     colliders.push({ minX: x0, maxX: x1, minZ: front - wall, maxZ: front, bottom: 0, top: topOf(0) });
   }
   const header = height - doorHeight;
-  group.add(mesh(new THREE.BoxGeometry(doorWidth, header, wall), steel, x, doorHeight + header / 2, front - wall / 2));
+  group.add(shaft(mesh(new THREE.BoxGeometry(doorWidth, header, wall), steel, x, doorHeight + header / 2, front - wall / 2)));
   // A brass frame round the doorway, and a kick plate along the bottom of the shaft.
   const frameT = 0.08;
-  group.add(mesh(new THREE.BoxGeometry(doorWidth + frameT * 2, frameT, 0.05), brass, x, doorHeight + frameT / 2, front + 0.02, false));
-  for (const sx of [-1, 1]) group.add(mesh(new THREE.BoxGeometry(frameT, doorHeight, 0.05), brass, x + sx * (doorWidth / 2 + frameT / 2), doorHeight / 2, front + 0.02, false));
+  group.add(shaft(mesh(new THREE.BoxGeometry(doorWidth + frameT * 2, frameT, 0.05), brass, x, doorHeight + frameT / 2, front + 0.02, false)));
+  for (const sx of [-1, 1]) group.add(shaft(mesh(new THREE.BoxGeometry(frameT, doorHeight, 0.05), brass, x + sx * (doorWidth / 2 + frameT / 2), doorHeight / 2, front + 0.02, false)));
   group.add(mesh(new THREE.BoxGeometry(width + 0.02, 0.25, wall + 0.04), steelDark, x, 0.125, front - wall / 2, false));
 
   // Inside: a dark floor, a mirror on the back wall, handrails, a strip light over the doors.
@@ -131,10 +135,11 @@ export function buildElevator(height = WALL_HEIGHT): Elevator {
   const doorMat = toon('#d9dee4');
   const doors = [-1, 1].map((side) => {
     const d = new THREE.Group();
-    d.add(mesh(new THREE.BoxGeometry(half, doorHeight - 0.02, 0.05), doorMat, 0, 0, 0));
-    // A seam line and a porthole of light, so they read as elevator doors from across the room.
-    d.add(mesh(new THREE.BoxGeometry(0.02, doorHeight - 0.1, 0.055), steelDark, (-side * half) / 2 + side * 0.01, 0, 0, false));
-    d.add(mesh(new THREE.BoxGeometry(half - 0.2, 0.05, 0.055), steelDark, 0, 0.35, 0, false));
+    d.add(shaft(mesh(new THREE.BoxGeometry(half, doorHeight - 0.02, 0.05), doorMat, 0, 0, 0)));
+    // A seam line and a porthole of light, so they read as elevator doors from across the room. The seam
+    // stands a few millimetres in from the door's edge, or the two edges flicker through each other side-on.
+    d.add(shaft(mesh(new THREE.BoxGeometry(0.02, doorHeight - 0.1, 0.055), steelDark, (-side * half) / 2 + side * 0.014, 0, 0, false)));
+    d.add(shaft(mesh(new THREE.BoxGeometry(half - 0.2, 0.05, 0.055), steelDark, 0, 0.35, 0, false)));
     d.position.set(x + (side * half) / 2, doorHeight / 2, doorZ);
     group.add(d);
     return { group: d, side };
