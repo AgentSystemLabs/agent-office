@@ -55,6 +55,7 @@ They're in `core/registry.ts`, and each is a field of `ctx`. Every registration 
 - **`hooks/`** is the loopback-only hook server the workers call: their agents' hook events (`/hooks/<provider>`), the board agents' queue (`/office/queue`) and `office-workers` (`/office/workers`).
 - **`workers/`** is the worker manager (`WorkerManager` in `workers/manager.ts`) and its pieces: worktrees, pull requests, tasks, terminals, ACP workers, and saving to `workers.json`. `src/server/workers.ts` re-exports it for the modules that imported it from there.
 - **`providers/`** holds one adapter per agent CLI (see [Adding an agent provider](#adding-an-agent-provider)).
+- **`tunnel/`** is `agent-office tunnel`, the one part that runs on someone's own computer instead of the office's: it asks the office for the workers' web servers (`/api/services`, in `http/routes/services.ts`) and listens on each one's port there. It imports nothing from the office but what the two say to each other (`tunnel/wire.ts`) and the cookie's name.
 
 The rest of `src/server/` is a module per service or per thing a floor keeps (`dog.ts`, `jukebox.ts`, `queue.ts`, `meetings.ts`), made by the office or by each `Floor` (`floor.ts`).
 
@@ -77,13 +78,13 @@ A new feature adds files of its own and one line in each list it joins. For some
 6. **A help row** in `HELP_ROWS` in `src/client/ui/help.ts`.
 7. **A sound recipe** in its `sound.ts` (a function or class that takes the `AudioCore`), and the method on `OfficeSound` that plays it.
 8. **Its CSS** next to its ui module, imported from there.
-9. **Its words**, every one a person reads (titles, hints, buttons, toasts, errors), in `src/shared/locales/en.ts` and `pt-BR.ts`, never written into the code: the page reads them as `t.<section>.<name>` (`src/client/i18n.ts`), the server as `L.<section>.<name>` (`src/server/i18n.ts`), looked up when they're used rather than kept in a constant, since an admin can change the office's language while it runs. Every dictionary has the type of `en.ts`, so once a message is there the typecheck fails until `pt-BR.ts` has it too (the English, if you can't translate it, until someone can). The prompts an agent is given stay in English and out of the dictionaries.
+9. **Its words**, every one a person reads (titles, hints, buttons, toasts, errors), in `src/shared/locales/en.ts` and `pt-BR.ts`, never written into the code: the page reads them as `t.<section>.<name>` (`src/client/i18n.ts`), the server as `L.<section>.<name>` (`src/server/i18n.ts`), looked up when they're used rather than kept in a constant, since an admin can change the office's language while it runs. Every dictionary has the type of `en.ts`, so once a message is there the typecheck fails until `pt-BR.ts` has it too (the English, if you can't translate it, until someone can). The prompts an agent is given stay in English and out of the dictionaries, all but one line: in Portuguese the task namer is asked to name tasks in Portuguese (`tasks.namerSystem`), since people read the names.
 
 Its HTTP routes, if it has any, go in `http/routes/`, and its tests in `tests/`.
 
 ## Adding an agent provider
 
-One adapter file in `src/server/providers/`, one entry in `PROVIDERS` in `src/server/providers/index.ts`, and one row in `src/shared/providers.ts` (its id in `AGENT_PROVIDERS`, its entry in `PROVIDER_META`). The typecheck fails until all three are there. What reads them, and the two places that still name providers one by one, are in [Provider seams](dsh-acp-integration.md#provider-seams).
+One adapter file in `src/server/providers/`, one entry in `PROVIDERS` in `src/server/providers/index.ts`, and one row in `src/shared/providers.ts` (its id in `AGENT_PROVIDERS`, its entry in `PROVIDER_META`). The typecheck fails until all three are there. Its row says which models and efforts it takes and how the hire dialog asks for them; one whose CLI lists its models gets a lister in `src/server/models.ts` too. What reads them, and the one place that still names providers one by one, are in [Provider seams](dsh-acp-integration.md#provider-seams).
 
 ## The size guard
 

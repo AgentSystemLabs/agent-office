@@ -166,6 +166,29 @@ export function readHireRequest(body: unknown, providers: AgentProvider[]): Hire
   };
 }
 
+/**
+ * A request to say which pull request is a worker's, read from its JSON body: its number, or its
+ * URL (then `repo` is whose it is). With neither and unlink: true, the worker's is taken off.
+ */
+export interface PrRequest {
+  /** Whose: the worker asking, when it doesn't say. */
+  worker?: string;
+  pr?: number;
+  repo?: string;
+}
+
+export function readPrRequest(body: unknown): PrRequest | string {
+  const b = (body ?? {}) as { worker?: unknown; pr?: unknown; unlink?: unknown };
+  if (b.worker !== undefined && (typeof b.worker !== 'string' || !b.worker.trim())) return 'worker is a worker name or id';
+  const who = typeof b.worker === 'string' ? { worker: b.worker.trim() } : {};
+  if (b.unlink === true) return b.pr === undefined ? who : 'Give pr or unlink: true, not both';
+  const text = typeof b.pr === 'string' ? b.pr.trim() : '';
+  const url = /^https?:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/pull\/(\d+)(?:[/?#].*)?$/i.exec(text);
+  const n = typeof b.pr === 'number' ? b.pr : url ? Number(url[2]) : /^#?\d+$/.test(text) ? Number(text.replace('#', '')) : NaN;
+  if (!Number.isSafeInteger(n) || n < 1) return "Say which pull request: pr, its number or its URL (or unlink: true to take the worker's off)";
+  return { ...who, pr: n, ...(url ? { repo: url[1] } : {}) };
+}
+
 // --- The MCP server -------------------------------------------------------------------------------
 
 /** The MCP server's name, which agents put before its tools (Claude Code: mcp__agent-office__send_home). */

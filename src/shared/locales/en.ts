@@ -111,7 +111,7 @@ Options:
     people: 'In the office',
     workers: 'Workers',
     workersCost: 'Spent by the workers at their desks',
-    waitingTip: 'Go to the worker that has waited longest on someone (N)',
+    waitingTip: 'Go to the next worker waiting on someone: the ones that need you first (N)',
     spend: 'Spend',
     hide: 'Hide',
     hideTip: 'Hide (☰ brings it back)',
@@ -143,6 +143,7 @@ Options:
     },
   },
   main: {
+    needsYou: (who: string) => `🙋 ${who} needs you`,
     stations: {
       issues: { offer: 'Ask me about issues', does: 'I file, find, triage, label and close them', example: 'File an issue: the dog walks straight through the jukebox' },
       pulls: { offer: 'Ask me about PRs', does: 'I sum up, review, comment on and merge them', example: 'Review the newest PR and tell me if it’s ready to merge' },
@@ -278,7 +279,7 @@ Options:
     asleepResumeKey: (who: string) => `${who} is asleep — press R to resume`,
     exited: (who: string) => `${who} exited`,
     booting: 'booting…',
-    nWaiting: (n: number) => `🙋 ${n} waiting`,
+    nWaiting: (n: number) => `🙋 ${n} ${n === 1 ? 'needs' : 'need'} you`,
     nDone: (n: number) => `✅ ${n} done`,
   },
   common: {
@@ -484,6 +485,12 @@ Options:
       redblue: { label: 'Red / blue', blurb: 'Red attacks the change (bugs, security), blue fixes what holds up, round after round; blue writes it up.', roundsNote: 'An attack and a fix per round; it ends early when red finds nothing more.' },
       review: { label: 'Review panel', blurb: 'Reviewers read a pull request through their own lens; the head of the table merges them into one review, posted on the PR.', roundsNote: 'Reviews, then the combined review.' },
     } as Record<string, { label: string; blurb: string; roundsNote: string }>,
+    /** The rounds by name, by the English name (see stages in ../meetings.ts). */
+    stages: { Planning: 'Planning', Execution: 'Execution', Merge: 'Merge', Map: 'Map', Reduce: 'Reduce', Reviews: 'Reviews', 'Combined review': 'Combined review' } as Record<string, string>,
+    fixedLine: (rounds: string, pattern: string) => `${rounds} · fixed by the ${pattern} workflow`,
+    fixedWhy: (pattern: string, rounds: string, stages: string) => `${pattern} always runs ${rounds}${stages ? `: ${stages}` : ''}. Each one is a step of the pattern, so there’s none to add or take away.`,
+    /** What a seat is doing, by the English (see MEETING_DOING in ../meetings.ts). */
+    doing: { 'writing the decision': 'writing the decision', 'proposing': 'proposing', 'critiquing': 'critiquing', 'planning': 'planning', 'doing their part': 'doing their part', 'merging the work': 'merging the work', 'mapping': 'mapping', 'reducing': 'reducing', 'attacking': 'attacking', 'writing it up': 'writing it up', 'fixing and writing it up': 'fixing and writing it up', 'fixing': 'fixing', 'reviewing': 'reviewing', 'writing the review': 'writing the review' } as Record<string, string>,
     /** By the English role (see ../meetings.ts). */
     roles: {
       Chair: 'Chair',
@@ -580,7 +587,7 @@ Options:
       ['📝', 'The whiteboard on wheels between the desks and the lounge: press E to draw on it with everyone on your floor, live. What you draw stays up on the board'],
       ['🕹️', 'The arcade cabinet in the lounge plays BLOCKFALL: arrows (or WASD) move and turn, Space drops, C holds, P pauses. Everyone on the floor sees your game on it, and E there watches whoever is playing. One of your workers needing input pauses it'],
       ['🎉', 'Whenever a pull request merges, the gong next to the PR board rings, confetti rains down all over the floor and every worker gets up on its desk for a quick dance. Walk up to the gong and press E to bang it yourself'],
-      ['N', "Next worker that needs you: go to whoever has waited longest (needs input, or done and nobody's looked), and again for the next one. Arrows at the edge of the screen point to the ones out of sight"],
+      ['N', "Next worker that needs you: go to whoever needs input (they have a red beacon over their desk, and a banner up top says what each is asking), then whoever is done and nobody's looked at, longest-waiting first, and again for the next one. Arrows at the edge of the screen point to the ones out of sight"],
       ['🏀', 'The hoop on the west wall, by the exit door: E at the ball picks it up. Hold E (or the mouse, in first person) and let go when the meter is in the green to sink it. In first person it goes where you look. Q drops it. Everyone on your floor sees your shot'],
       ['🏎️', "The Lambos and Ferraris in the garage: E at one gets you behind the wheel, or beside whoever's driving it. W is the gas, S brakes and reverses, A and D steer, Space brakes, H honks and E gets you out. Everyone on your floor sees you drive by"],
       ['🍸', 'The elevator goes up to the rooftop bar: a DJ playing drum and bass under the lights, and the city all around. Press E at the bar for a drink (it goes to your head for a bit) and at the DJ booth for the air horn'],
@@ -603,6 +610,7 @@ Options:
       [palette, 'Command palette: type a few letters to find a worker, issue, PR, service, board, teammate or action. Enter opens it, Shift+Enter walks you over to it first'],
       ['V', 'Join voice. In voice, hold V to talk (push to talk): you’re muted once you let go. Leave voice from the ☰ menu'],
       ['M', 'Mute or unmute your mic in voice. ⚙️ Settings can have you join muted, for push to talk'],
+      ['Ctrl+Space', 'Dictate: in a worker’s terminal or a prompt box, hold Ctrl+Space (or the 🎤) and talk, and what you said is typed in when you let go, for you to read over and send. A quick tap leaves it listening until you tap again. The browser does the listening (Chrome, Edge and Safari can), so there’s nothing to install'],
       ['Tab', 'The ☰ menu, top right: every window, and what shows on screen. Pin what you use most to the top bar'],
       ['Esc', 'Close any window and get back to looking around'],
       ['Ctrl + [', 'Send Esc to a terminal instead, to close a menu like Claude’s /skills or interrupt Claude. ⎋ Esc in the terminal’s header does the same'],
@@ -610,6 +618,9 @@ Options:
     ],
   },
   hud: {
+    needsYouPill: 'NEEDS YOU',
+    needsYouTip: (who: string) => `${who} needs you: open its terminal to answer`,
+    waitingAnswer: 'Waiting on an answer',
     changeCharacter: 'Change your character',
     walkTo: (who: string) => `Walk over to ${who}`,
     elevatorTo: (who: string) => `Take the elevator to ${who}`,
@@ -708,6 +719,19 @@ Options:
     carryOn: 'You can close this and carry on: everyone hears when the new floor opens.',
   },
   settings: {
+    skyNote: (real: boolean, live: boolean) => `Everyone sees the same sky: ${real ? 'the real time of day' : 'a whole day and night every hour'}, and ${live ? 'the live weather where it is.' : 'weather that comes and goes. Start the office with --city to use a real city’s forecast.'}`,
+    skyHourly: '⏩ A day every hour',
+    skyRealTime: '🕰️ Real time (24 h)',
+    skyClock: 'The sky’s clock',
+    dogCoats: ['Golden', 'Black and white', 'Chocolate', 'Cream', 'Grey', 'Red', 'White'],
+    dogBreeds: { pup: '🐶 Pup', corgi: '🦊 Corgi', dachshund: '🌭 Dachshund', pug: '🐾 Pug', shiba: '🍂 Shiba', pomeranian: '🧸 Pomeranian' } as Record<string, string>,
+    dogCoat: 'Coat',
+    dogBreed: 'Breed',
+    needsYouNote: 'An alarm the moment a worker stops to ask you something or wants a permission. Keep reminding me rings it again, softly, every 30 seconds until someone opens that worker’s terminal. It’s as loud as the office sounds are.',
+    needsYouOff: '🔕 Off',
+    needsYouRemind: '🔁 Keep reminding me',
+    needsYouOnce: '🔔 Ring once',
+    needsYou: 'When a worker needs you',
     first: '👀 First person',
     firstNote: 'See through your own eyes. Click the office to look around with the mouse and click things to use them. Esc frees the mouse.',
     third: '🎥 Third person',
@@ -735,7 +759,7 @@ Options:
     showOne: 'Show me one',
     notifyUnsupported: 'This browser can’t show notifications from the office here. They need https or localhost (an SSH tunnel counts).',
     notifyDenied: 'Your browser blocks notifications from the office. Allow them in the site settings (the icon left of the address), then open this again.',
-    notifyNote: 'When a worker needs input or finishes while you’re in another tab or app, you get a notification. Click it to jump to that worker’s terminal. The tab title counts the workers waiting on someone either way.',
+    notifyNote: 'When a worker needs you or finishes while you’re in another tab or app, you get a notification. Click it to go straight to that worker: you’re put at its desk with its terminal open. The tab title counts the workers waiting on someone either way.',
     webhookUrl: 'Slack or Discord webhook URL',
     sendTest: 'Send a test',
     remove: 'Remove',
@@ -773,12 +797,12 @@ Options:
     dogName: 'The dog’s name',
     rename: 'Rename',
     officeDog: 'Office dog',
-    dogNote: (name: string) => `${name} lives on this floor. When a worker needs input, ${name} runs to its desk and barks. Walk up and press E to pet it. A new name is for everyone on this floor.`,
+    dogNote: (name: string) => `${name} lives on this floor. When a worker needs input, ${name} runs to its desk and barks. Walk up and press E to pet it. Its name, breed and coat are for everyone on this floor.`,
     signOut: '🚪 Sign out',
     changeLook: '🧍 Change your look',
     changeLookName: '🧍 Change your look & name',
     sounds: 'Office sounds',
-    soundsNote: 'Workers typing, footsteps, the coffee machine, birds and rain outside, the dog, and the ding when a worker is done. Voice chat isn’t affected.',
+    soundsNote: 'Workers typing, footsteps, the coffee machine, birds and rain outside, the dog, the ding when a worker is done and the alarm when one needs you. Voice chat isn’t affected.',
     voiceNote: 'Either way, V joins voice, holding V talks and you’re muted once you let go, and M mutes or unmutes. With push to talk you join muted. Leave voice from the ☰ menu.',
     jukeboxNote: 'The jukebox in the lounge. Everyone on the floor hears the same song, louder the closer they are to it; this is how loud it is for you alone.',
     outside: 'Outside',
@@ -845,6 +869,22 @@ Options:
     othersLost: (n: number, names: string) => `${n} other worker${n === 1 ? '' : 's'} on this floor lost ${n === 1 ? 'its worktree' : 'their worktrees'} too: ${names}.`,
   },
   provider: {
+    meta: {
+      claude: { note: 'Office usage and budget track Claude Code.', unset: 'Default (--agent-args)', hint: 'The cost panel tracks each model separately.' },
+      opencode: { note: 'OpenCode reports model/provider estimates; they are not billing, and arrive after the first report.', waiting: 'waiting for metrics', unset: 'Default (OpenCode settings)', hint: 'Optional provider/model: choose a suggestion or type one. Effort is the model’s variant in OpenCode.', invalid: 'Use provider/model format without whitespace or control characters (up to 256 characters).' },
+      codex: { note: 'Review Office hooks in /hooks to enable tracking. Codex reports root-session tokens; subagents are excluded and cost is unavailable.', waiting: 'waiting for first report', unset: 'Default (Codex settings)', hint: 'Optional model and effort for this worker.', invalid: 'Use a Codex model id without whitespace (up to 128 characters).' },
+      grok: { note: 'Grok spend is not metered by the office; token totals stay in the worker terminal.', unset: 'Default (Grok settings)', hint: 'Optional model and effort for this worker.', invalid: 'Use a Grok model id without whitespace (up to 64 characters).' },
+      muse: { note: 'Muse spend is not metered by the office; token totals stay in the worker terminal.', unset: 'Default (Muse settings)', hint: 'Optional model id (for example muse-spark-1.3-contributor) and effort for this worker.', invalid: 'Use a Muse model id without whitespace or control characters (up to 128 characters).' },
+      dsh: { note: 'DeepSeek Harness reports context usage over ACP after its first turn; cost may be unavailable.', waiting: 'waiting for first report', unset: 'Default (DSH profile)', hint: 'Optional model id from DeepSeek Harness’s catalog, and effort; leave empty to use the profile default.', invalid: 'Use a DeepSeek Harness catalog model id of up to 256 characters without control characters.' },
+      pi: { note: 'Pi uses your existing Pi login and settings. Usage and cost stay in its terminal; the office does not meter them.', unset: 'Default (Pi settings)', hint: 'Optional model name or provider/model; leave Default to use Pi settings.', invalid: 'Use a Pi model name or provider/model: letters, digits and . _ : / @ + - (up to 256 characters).', effortLabel: 'Thinking' },
+      cursor: { note: 'Cursor uses the Cursor CLI login on the office machine. Usage and cost stay in its terminal and your Cursor account; the office does not meter them.', unset: 'Default (Cursor settings)', hint: 'Optional model id; suggestions come from `cursor-agent models` once Cursor is signed in on the office machine. An effort goes in brackets after it: model[effort=high].', invalid: 'Use a Cursor model id: letters, digits and . _ -, with any overrides in brackets, like model[effort=high] (up to 128 characters).' },
+      custom: { note: 'Usage is untracked unless compatible Claude Code hooks report it.', unpicked: 'A custom --agent runs as it is: set its model and effort in --agent-args.' },
+    } as Record<string, { note?: string; waiting?: string; unset?: string; hint?: string; invalid?: string; effortLabel?: string; unpicked?: string }>,
+    notAModel: 'That isn’t a model id this provider takes.',
+    modelsUnlisted: (agent: string) => `${agent}’s models couldn’t be listed: leave it empty for its default, or type a model id.`,
+    loadingModels: (agent: string) => `Loading ${agent} models…`,
+    levelOf: (agent: string, what: string) => `${agent} ${what} level`,
+    noEffort: 'This model has no reasoning effort to pick',
     custom: 'Custom',
     efforts: { low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra high', max: 'Max' },
     noteClaude: 'Office usage and budget track Claude Code.',
@@ -1134,6 +1174,7 @@ Options:
     filesReviewed: (done: number, n: number) => `${done} of ${n} file${n === 1 ? '' : 's'} reviewed`,
   },
   boards: {
+    handed: '🤖 handed to a worker',
     agentTags: { 'Issues agent': 'Issues agent', 'PR agent': 'PR agent', 'Queue agent': 'Queue agent' } as Record<string, string>,
     boardTitles: { issues: 'Issues', pulls: 'Pull Requests', queue: '📋 Task queue', services: '🌐 Services' } as Record<string, string>,
     refreshTip: 'Refresh from GitHub',
@@ -1224,6 +1265,8 @@ Options:
     terminal: '🖥️ Terminal',
   },
   meeting: {
+    roundsRange: (min: number, max: number) => `${min} to ${max}.`,
+    spendTip: (tokens: string) => `${tokens} tokens, cache reads included`,
     pullRequest: 'Pull request',
     parts: { waiting: '⏳ up next', sent: '📨 handed over', working: '💬 on it', done: '✅ written' },
     callTitle: '🤝 Call a meeting',
@@ -1597,6 +1640,10 @@ Options:
     dshWait: 'DeepSeek Harness metrics waiting for first report',
   },
   services: {
+    auto3: ' command on your computer: the install line in the README.',
+    auto2: ' is the worker’s), and closes when the worker stops it. It needs the ',
+    auto1: 'Run this on your computer and leave it running. Every server a worker starts opens on the same port there (',
+    autoTitle: '⚡ Open them all, by themselves',
     foot: 'Tunnels go through the office, so the office password still guards every page. Keep the terminal open while you look.',
     intro: 'Web servers the workers are running. Click one to copy a command that opens it on your computer — run it in a terminal and the page opens by itself.',
     nothing: 'Nothing running yet.',
@@ -1761,7 +1808,7 @@ Options:
     more: (n: number) => `+${n} more`,
   },
   wchar: {
-    chips: { starting: '⏳ STARTING', idle: '💬 READY', working: '⌨️ WORKING', needs_input: '❗ NEEDS YOU', done: '✅ DONE', asleep: '💤 ASLEEP' },
+    chips: { starting: '⏳ STARTING', idle: '💬 READY', working: '⌨️ WORKING', needs_input: '🙋 NEEDS YOU', done: '✅ DONE', asleep: '💤 ASLEEP' },
     needsYou: '❗ needs you',
     done: '✅ done!',
     working: '⌨️ working',
@@ -1820,6 +1867,7 @@ Options:
     woof2: 'Woof! Woof!',
   },
   voice: {
+    noTurn: (who: string) => `🎙️ Can't connect voice with ${who}: a network between you blocks direct calls. The office needs a TURN server (see self-hosting docs).`,
     needsHttps: 'Voice needs HTTPS (or localhost). Ask whoever runs the office to enable TLS.',
     noMic: (error: string) => `Microphone unavailable: ${error}`,
     shareHttps: 'Screen sharing needs HTTPS (or localhost).',
@@ -1841,11 +1889,29 @@ Options:
     farewells: ['😢 bye, everyone', '🥲 it was fun', '📦 welp', '😞 cleaning out my desk', '🥺 but my PR…', '😶 security is walking me out'],
     jumps: ['🪂 geronimo!', '🪂 see ya!', '🪂 wheee!', '🪂 bye bye!', '🪂 I quit!'],
   },
+  needsYou: {
+    title: (who: string) => `${who} needs you`,
+    more: (n: number) => `+${n} more`,
+    hideTip: 'Hide until another worker needs you',
+    goTip: (who: string) => `Go to ${who}'s desk (N)`,
+  },
+  dictate: {
+    title: 'Dictate: hold to talk (or hold Ctrl+Space) and let go, and what you said is typed in. A quick click leaves it listening until you click again',
+    label: 'Dictate',
+    needsHttps: 'Dictation needs HTTPS (or localhost), like voice. Ask whoever runs the office to enable TLS.',
+    needsMic: 'Dictation needs the microphone: allow it for this page in the address bar, then try again.',
+    noMic: 'Dictation found no microphone to listen to.',
+    noService: "This browser's speech service didn't answer, so there's nothing to take dictation. Chrome, Edge and Safari have one; Brave and some others come without it.",
+    noLanguage: (lang: string) => `This browser can't take dictation in ${lang}.`,
+    stopped: (code: string) => `Dictation stopped: ${code}.`,
+    unsupported: 'This browser has no speech recognition built in. Chrome, Edge and Safari do.',
+    couldntStart: (why: string) => `Dictation couldn't start: ${why}`,
+  },
   notify: {
-    done: (who: string) => `${who} is done`,
-    needsInput: (who: string) => `${who} needs input`,
+    done: (who: string) => `✅ ${who} is done`,
+    needsInput: (who: string) => `🙋 ${who} needs you`,
     on: '🔔 Notifications are on',
-    sample: 'This is how a worker that needs input or is done gets your attention while you are in another tab.',
+    sample: 'This is how a worker that needs you or is done gets your attention while you are in another tab. Click one to go straight to that worker.',
   },
   emotes: {
     names: { wave: 'Wave', thumbs: 'Thumbs up', clap: 'Clap', dance: 'Dance', point: 'Point', facepalm: 'Facepalm' } as Record<string, string>,
@@ -1899,6 +1965,11 @@ Options:
     couldNotMake: 'Could not make your account',
   },
   srv: {
+    dogCoat: (who: string, dog: string, coat: string) => `🐶 ${who} gave ${dog} a ${coat.toLowerCase()} coat`,
+    dogBreed: (who: string, dog: string, breed: string) => `🐶 ${who} made ${dog} a ${breed.replace(/^\S+ /, '')}`,
+    skyHourly: (who: string) => `⏩ ${who} set the sky to a whole day every hour`,
+    skyRealTime: (who: string) => `🕰️ ${who} put the sky on the real time of day`,
+    noModelsOf: (agent: string) => `Could not load ${agent} models`,
     sentHome: (who: string, worker: string) => `${who} sent ${worker} home`,
     adminsLanguage: 'Only admins can change the language the office speaks',
     languageSet: (who: string) => `🌐 ${who} changed the office’s language to English`,
@@ -2024,6 +2095,7 @@ Options:
     aTask: 'a task',
   },
   workers: {
+    cursorNotSignedIn: "Cursor isn't signed in on this machine — open the terminal and log in",
     restarted: 'the office restarted · earlier output above',
     hostStopped: "The workers' terminal host stopped — resuming them",
     unknownDesk: 'Unknown desk',
@@ -2110,7 +2182,7 @@ Options:
     needsPr: 'A review panel needs a pull request to review',
     listParts: (n: number) => `List at least ${n} part${n === 1 ? '' : 's'} for the mappers, one per line (or seat fewer workers)`,
     stillSitting: 'Someone is still sitting at the meeting table',
-    called: (who: string, pattern: string, title: string, count: number, rounds: number, tokens: string) => `🤝 ${who} called a ${pattern} meeting: “${title}” (${count} workers, ${rounds} round${rounds === 1 ? '' : 's'} at most, ${tokens} tokens)`,
+    called: (who: string, pattern: string, title: string, count: number, rounds: number) => `🤝 ${who} called a ${pattern} meeting: “${title}” (${count} workers, ${rounds} round${rounds === 1 ? '' : 's'} at most)`,
     noMeeting: 'No meeting is on',
     stoppedBy: (who: string) => `stopped by ${who}`,
     nobody: 'Nobody is in the meeting room',
@@ -2128,22 +2200,6 @@ Options:
     stopped: (title: string, round: number, reason: string) => `⛔ The meeting on “${title}” stopped in round ${round}: ${reason}`,
     kept: (title: string, branch: string, why: string) => `Kept the “${title}” meeting's worktree and branch ${branch}: ${why}`,
     tidyFailed: (error: string) => `Couldn't tidy away the meeting's worktree: ${error}`,
-    doing: {
-      decide: 'writing the decision',
-      propose: 'proposing',
-      critique: 'critiquing',
-      plan: 'planning',
-      part: 'doing their part',
-      merge: 'merging the work',
-      map: 'mapping',
-      reduce: 'reducing',
-      attack: 'attacking',
-      writeup: 'writing it up',
-      fixWriteup: 'fixing and writing it up',
-      fix: 'fixing',
-      review: 'reviewing',
-      combine: 'writing the review',
-    },
     commitFailed: (file: string, branch: string, error: string) => `Couldn't commit ${file} on ${branch}: ${error}`,
     worktreeNote: (note: string) => `The meeting's worktree ${note}`,
   },
@@ -2272,7 +2328,7 @@ Options:
     badDshModel: 'Invalid DeepSeek Harness model (expected a catalog model id of up to 256 characters)',
     modelsFor: (names: string) => `Models can only be selected for ${names} workers`,
     effortFor: (names: string) => `Reasoning effort can only be selected for ${names} workers`,
-    invalidModel: { claude: 'Invalid Claude model (expected fable, opus, sonnet or haiku)', opencode: 'Invalid OpenCode model (expected provider/model without whitespace)', grok: 'Invalid Grok model', muse: 'Invalid Muse model', dsh: 'Invalid DeepSeek Harness model (expected a catalog model id of up to 256 characters)', pi: 'Invalid Pi model (expected a model name or provider/model without whitespace)' } as Record<string, string>,
+    invalidModel: { claude: 'Invalid Claude model (expected fable, opus, sonnet or haiku)', opencode: 'Invalid OpenCode model (expected provider/model without whitespace)', grok: 'Invalid Grok model', muse: 'Invalid Muse model', dsh: 'Invalid DeepSeek Harness model (expected a catalog model id of up to 256 characters)', pi: 'Invalid Pi model (expected a model name or provider/model without whitespace)', codex: 'Invalid Codex model (expected a model id such as gpt-5.5, without whitespace)', cursor: 'Invalid Cursor model (expected a model id such as gpt-5, with any overrides in brackets)' } as Record<string, string>,
   },
   srvUpgrade: {
     checkFailed: (error: string) => `Couldn't check for updates: ${error}`,
@@ -2343,6 +2399,87 @@ Options:
     spent: (budget: string) => `Today's ${budget} budget is spent — no new hires until tomorrow`,
     passed: (budget: string, spent: string, paused: boolean) => `💸 Today's spend passed the ${budget} budget (${spent})${paused ? ' — no new hires until tomorrow' : ''}`,
   },
+  tunnel: {
+    help: (port: number) => `agent-office tunnel — open every worker's web server on this computer, by itself
+
+Usage:
+  agent-office tunnel [where] [options] [-- <ssh options>]
+
+Run it on your own computer and leave it running. Whenever a worker in the office
+starts a web server (npm run dev, a preview build), the same port opens here:
+http://localhost:5173 on this computer is the worker's localhost:5173. It closes
+again when the worker stops the server. No command per server, nothing to restart.
+
+Where the office is:
+  office@203.0.113.7      An SSH address (the one 👥 Invite teammates shows, also
+  ssh://office@host:2222  as ssh://, or a Host from your ssh config). Opens the
+                          tunnel to the office as well, and the office in your
+                          browser, and opens the tunnel again when it drops
+  http://localhost:4600   An office you can already open in a browser: through a
+  https://office.example  tunnel that's running, on a domain, or on your tailnet.
+                          The default is http://localhost:4600
+
+It signs in like a browser does. The first time it asks for the office password
+(or your name and your own) and keeps the session for next time.
+
+Options:
+  -p, --port <n>          With an SSH address: the port the office gets on this
+                          computer (default: the same as --office-port)
+      --office-port <n>   With an SSH address: the office's port on its own
+                          machine (default ${port})
+      --name <name>       Sign in with this account (env AGENT_OFFICE_NAME)
+      --password <pw>     The password, instead of being asked for it
+                          (env AGENT_OFFICE_PASSWORD)
+      --no-open           With an SSH address: don't open the office in a browser
+      --insecure          Accept a certificate nobody vouches for (--self-signed)
+  -h, --help              Show this help
+
+Everything after -- goes to ssh, e.g.  agent-office tunnel office@host -- -i ~/.ssh/office
+`,
+    needsPort: (flag: string) => `${flag} needs a port number`,
+    needsValue: (flag: string) => `${flag} needs a value`,
+    unknownOption: (flag: string) => `unknown option ${flag}`,
+    oneOffice: (a: string, b: string) => `one office at a time: ${a} or ${b}?`,
+    notAddress: (where: string) => `${where} isn't an address`,
+    seeHelp: 'see agent-office tunnel --help',
+    on: 'on',
+    theWorker: 'the worker',
+    closed: (port: number, who: string) => `  - localhost:${port} closed: ${who} stopped the server`,
+    needsRoot: (port: number, what: string) => `  ! localhost:${port} can't be opened on this computer without root: ${what}`,
+    inUse: (port: number, what: string) => `  ! localhost:${port} is already in use on this computer, so it isn't opened: ${what}\n    Stop what's running there and it opens by itself.`,
+    closedAll: 'closed',
+    alreadyOpen: (origin: string) => `  the office is already open at ${origin}: using that tunnel`,
+    opening: (where: string) => `  opening the tunnel to ${where}…`,
+    dropped: '  … the tunnel dropped: opening it again',
+    back: '  ✓ the tunnel is open again',
+    sshFailed: (err: string, port: number) => `${err}. Is localhost:${port} free on this computer (--port picks another), and is your SSH key invited to the office?`,
+    noOffice: (origin: string) => `no office answers at ${origin}. Open the tunnel to it first, or give its SSH address: agent-office tunnel office@<address>`,
+    theOffice: (origin: string, ssh: string) => `  the office: ${origin}${ssh ? ` (over SSH to ${ssh})` : ''}`,
+    signInFailed: (why: string) => `couldn't sign in: ${why}`,
+    running: '\n  Every web server a worker starts opens on the same port here. Leave this running; Ctrl-C closes them all.\n',
+    notAnswering: "  … the office isn't answering: still trying",
+    old: "this office is a version from before it could list its workers' servers. Upgrade it (⬆️ Upgrade the office in its ☰ menu, or the deploy script's update), then run this again.",
+    signedOut: '  … signed out of the office (the password changed, or the session ran out)',
+    answering: '  ✓ the office is answering again',
+    noServers: '  No worker is running a web server yet. Ask one to start its dev server and it shows up here.',
+    local: "  If this office runs on this computer, there's nothing to tunnel: its workers' servers are on localhost already.",
+    noSsh: "ssh isn't installed on this computer",
+    sshRun: (why: string) => `couldn't run ssh: ${why}`,
+    sshExit: (code: number | null) => `ssh couldn't open the tunnel${code ? ` (it exited with ${code})` : ''}`,
+    notSignedIn: 'Not signed in. Run it in a terminal to type the password, or set AGENT_OFFICE_PASSWORD (and --name for an account of your own).',
+    signInAt: (origin: string, file: string) => `  Sign in to the office at ${origin} (asked once: the session is kept in ${file})`,
+    yourNameShared: '  Your name (Enter for the office password): ',
+    yourName: '  Your name: ',
+    password: '  Password: ',
+    officePassword: '  Office password: ',
+    failed: 'Sign-in failed',
+    failedStatus: (status: number) => `Sign-in failed (${status})`,
+    noSession: "The office didn't answer with a session",
+    answered: (status: number) => `the office answered ${status}`,
+    timedOut: 'timed out',
+    openAs: (port: number) => `This is localhost:${port}, forwarded by agent-office tunnel. Open it as http://localhost:${port}.`,
+    unreachable: (origin: string) => `agent-office tunnel couldn't reach the office at ${origin}. It keeps trying — reload in a moment.`,
+  },
   cli: {
     help: (workers: string) => `agent-office — a 3D office for your team and its ${workers} workers
 
@@ -2352,6 +2489,7 @@ Usage:
   agent-office setup [--projects <dir>] [--project <owner/repo>]...
   agent-office prune [dir] [--dry-run] [--force]
   agent-office accounts [list|invite|revoke|role|password] ...
+  agent-office tunnel [office@address | url]
 
 Runs the office. Every project is a floor of the building: ride the elevator,
 pick one of the repositories your \`gh\` login can see, and the office clones it
@@ -2375,6 +2513,9 @@ Commands:
                           changes or unpushed commits is kept unless --force is given.
   accounts                Invite, list and revoke people's own accounts, and switch
                           the shared password off or on (see accounts --help)
+  tunnel                  On your own computer, for an office that runs somewhere
+                          else: every web server a worker starts there opens on the
+                          same port here, by itself (see tunnel --help)
 
 Options:
       --home <dir>        Where the office keeps its data when no [dir] is given
@@ -2406,7 +2547,8 @@ Options:
       --self-signed       Serve HTTPS with a generated self-signed certificate
       --trust-proxy       Trust X-Forwarded-* headers (behind Caddy/nginx)
       --turn <url>        Add a TURN server for voice (repeatable), e.g.
-                          turn:user:pass@turn.example.com:3478
+                          turn:user:pass@turn.example.com:3478 (env
+                          AGENT_OFFICE_TURN, several separated by spaces)
       --budget <usd>      Daily budget for tracked Claude Code spend (env
                           AGENT_OFFICE_BUDGET). Everyone is warned when the
                           day's spend passes it. OpenCode/Codex/Grok/Muse spend is excluded
@@ -2427,6 +2569,10 @@ Options:
                           whole day and night go by every hour
       --weather <kind>    Pin the weather: clear, cloudy, rain, storm, snow or
                           fog (env AGENT_OFFICE_WEATHER)
+      --real-time-sky     Start the sky on the office's real clock, so it's night when
+                          it's night there, instead of a day and night every hour
+                          (⚙️ Settings can switch it)
+                          (env AGENT_OFFICE_SKY_CLOCK=real)
   -h, --help              Show this help
 
 Started in a terminal, the office opens in your browser already signed in, with
@@ -2448,7 +2594,7 @@ Voice and screen sharing need a secure context: use https (a reverse proxy,
     password: 'password',
     defaultAgent: 'default agent',
     viaLoginShell: (cmd: string) => `${cmd} (via login shell)`,
-    chooseProvider: 'choose a provider (including Pi) when hiring or queueing a task',
+    chooseProvider: 'choose a provider (including Pi and Cursor) when hiring or queueing a task',
     tip: 'tip: voice & screen share need https off localhost — use a reverse proxy or --self-signed',
     closingKeep: 'closing the office — workers keep running for the next one…',
     closing: 'closing the office…',

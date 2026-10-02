@@ -1,6 +1,5 @@
-import { DESKS } from '../../shared/layout';
 import { NowAndThen, type AudioCore } from './core';
-import { biquad, envelope, pick, rand, randInt } from './dsp';
+import { biquad, pick, rand, randInt } from './dsp';
 import { FRIDGE } from './places';
 
 // ---- Around the room --------------------------------------------------------------------------
@@ -128,34 +127,6 @@ function crickets(a: AudioCore, now: number) {
   }
 }
 
-/** A desk phone rings a couple of times somewhere across the room, then someone picks up. */
-function phone(a: AudioCore, now: number) {
-  const ctx = a.ctx!;
-  const l = a.listener;
-  const far = DESKS.filter((d) => Math.hypot(d.x - l.x, d.z - l.z) > 7);
-  const desk = pick(far.length ? far : DESKS);
-  a.count('phone');
-  const out = a.panner({ x: desk.x, y: 0.9, z: desk.z }, 1.5, 1.2);
-  out.connect(biquad(ctx, 'lowpass', 3000, 0.7)).connect(a.ambience);
-  const rings = randInt(2, 3);
-  for (let r = 0; r < rings; r++) {
-    const t = now + 0.05 + r * 2.4;
-    const o = ctx.createOscillator();
-    o.type = 'triangle';
-    // A warbling trill, flipping between two notes.
-    for (let k = 0; k < 18; k++) o.frequency.setValueAtTime(k % 2 ? 1450 : 1150, t + k / 18);
-    const g = ctx.createGain();
-    envelope(g.gain, t, [
-      [0.02, 0.045],
-      [0.95, 0.045],
-      [1, 0],
-    ]);
-    o.connect(g).connect(out);
-    o.start(t);
-    o.stop(t + 1.05);
-  }
-}
-
 /** Birds by day, and not in the rain: every so often, and sometimes another answers from a different window. */
 export function birdsong(a: AudioCore): NowAndThen {
   return new NowAndThen(
@@ -178,17 +149,6 @@ export function nightCrickets(a: AudioCore): NowAndThen {
     (now) => {
       const { rain, night } = a.weather;
       if (night > 0.6 && rain < 0.05) crickets(a, now);
-    },
-  );
-}
-
-/** A desk phone ringing across the room now and then (in the office, not on the roof or in a hall). */
-export function deskPhones(a: AudioCore): NowAndThen {
-  return new NowAndThen(
-    () => rand(60, 150),
-    () => rand(90, 240),
-    (now) => {
-      if (!a.outdoors && !a.hall) phone(a, now);
     },
   );
 }

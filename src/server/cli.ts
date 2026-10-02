@@ -1,9 +1,9 @@
-import { spawn } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { loadConfig, ensureSelfSigned } from './config.js';
 import { startServer } from './server.js';
 import { tildify } from './building.js';
+import { openBrowser } from './browser.js';
 import { L } from './i18n.js';
 
 const argv = process.argv.slice(2);
@@ -18,6 +18,10 @@ if (argv[0] === 'accounts') {
 if (argv[0] === 'setup') {
   const { setupCommand } = await import('./setup.js');
   process.exit(await setupCommand(argv.slice(1)));
+}
+if (argv[0] === 'tunnel') {
+  const { tunnelCommand } = await import('./tunnel/index.js');
+  process.exit(await tunnelCommand(argv.slice(1)));
 }
 
 const cfg = loadConfig(argv);
@@ -63,20 +67,6 @@ function passwordLine() {
   if (cfg.claimToken && !cfg.claimed) return L.cli.passwordClaim;
   if (cfg.claimed || !cfg.password) return L.cli.passwordClaimed;
   return cfg.password;
-}
-/**
- * Opens the office in this computer's browser. Not over SSH, in CI, or on a Linux box without a
- * desktop: nobody would see it there.
- */
-function openBrowser(url: string): boolean {
-  if (process.env.SSH_CONNECTION || process.env.SSH_TTY || process.env.CI) return false;
-  if (process.platform === 'linux' && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY) return false;
-  const [cmd, args] =
-    process.platform === 'darwin' ? ['open', [url]] : process.platform === 'win32' ? ['rundll32', ['url.dll,FileProtocolHandler', url]] : ['xdg-open', [url]];
-  spawn(cmd, args, { stdio: 'ignore', detached: true })
-    .on('error', () => {})
-    .unref();
-  return true;
 }
 
 // Someone started it in a terminal: a link that signs them in once, opened in their browser, so

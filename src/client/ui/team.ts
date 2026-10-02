@@ -145,8 +145,8 @@ export function openTeam(net: Net) {
         t.fingerprint ? h('span', {}, L.team.fingerprintMust, h('code', {}, t.fingerprint), '.') : null,
       ),
     );
-    // Railway's TCP proxy, a Fly.io app's IP address and Dokploy's published port (addresses with a port
-    // of their own) answer every IP; AWS's firewall doesn't.
+    // Railway's TCP proxy, a Fly.io app's IP address and the port Dokploy or Coolify publishes
+    // (addresses with a port of their own) answer every IP; AWS's firewall doesn't.
     if (!t.ssh?.startsWith('ssh://')) {
       body.append(h('p.note', {}, L.team.sshOnly, h('code', {}, `${t.deploy ?? 'deploy/aws.sh'} allow <their-ip>`), L.team.orParen, h('code', {}, 'allow anywhere'), L.team.onYourMachine));
     }

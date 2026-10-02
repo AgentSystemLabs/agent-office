@@ -51,6 +51,28 @@ test('every language has every message, and none is left empty or in English by 
   }
 });
 
+test('no message comes out empty, whatever it is given', () => {
+  // A refusal on the server is a non-empty message: one that came out empty would let through what it refuses.
+  const call = (fn: Function, arg: unknown) => fn(...Array.from({ length: fn.length }, () => arg));
+  for (const locale of LOCALES) {
+    for (const [key, value] of flatten(messages(locale) as Messages)) {
+      if (typeof value !== 'function') continue;
+      // Words, a number or a list: whichever it takes (one that takes a mix is left to its own tests).
+      let out: unknown;
+      for (const arg of ['x', 2, ['x', 'y']]) {
+        try {
+          out = call(value, arg);
+          break;
+        } catch {
+          out = undefined;
+        }
+      }
+      if (typeof out === 'string') assert.ok(out.trim(), `${locale} ${key} comes out empty`);
+      else if (Array.isArray(out)) assert.ok(out.length, `${locale} ${key} comes out empty`);
+    }
+  }
+});
+
 test('plurals in the setup', () => {
   const en = messages('en').setup;
   const pt = messages('pt-BR').setup;

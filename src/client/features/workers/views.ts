@@ -142,9 +142,9 @@ export function installWorkerViews(ctx: Ctx, core: CoreState, parts: WorkerViews
         workerViews.set(w.id, v);
       }
       if (v.status !== w.status || v.acked !== w.acked) {
-        // It just finished or started waiting on you (not already so when this page first saw it): ding, and notify if you're away.
+        // It just finished or started waiting on you (not already so when this page first saw it): ding (one that needs you has an alarm of its own, see features/needsyou), and notify if you're away.
         if (waitingOnSomeone(w) && v.status !== '' && w.status !== v.status) {
-          sound.ding(w.status);
+          if (w.status === 'done') sound.ding('done');
           parts.notifier.alert(w);
           // Playing at the arcade: one of yours stops the game.
           if (w.status === 'needs_input' && yours(w)) parts.cabinet.needsYou(w);
@@ -162,7 +162,7 @@ export function installWorkerViews(ctx: Ctx, core: CoreState, parts: WorkerViews
       v.model.setAction(w.action);
       v.model.setPr(workerPr(w, store.pulls.items, store.queue.tasks));
       v.model.setLost(!!w.lost);
-      const engineBadge = w.kind === 'agent' ? modelBadge(w.provider, w.model, w.effort) : undefined;
+      const engineBadge = w.kind === 'agent' ? modelBadge(w.provider, w.model, w.effort, w.usage?.model) : undefined;
       v.model.setTask(meetingCard(w) ?? (w.task && w.kind === 'agent' ? { ...w.task, name: `${providerLabel(w.provider, store.project)}${engineBadge ? ` · ${engineBadge}` : ''} · ${w.task.name}` } : w.task));
       const deskDef = plan().byId.get(w.deskId);
       // Keys clack while it types, not while it reads, watches its tests or browses.

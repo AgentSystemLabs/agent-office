@@ -47,7 +47,7 @@ export function chooseLocale(l: Locale | null) {
   if (l) url.searchParams.set('lang', l);
   location.replace(url.toString());
 }
-if (typeof document !== 'undefined') document.documentElement.lang = locale;
+if (typeof document !== 'undefined' && document.documentElement) document.documentElement.lang = locale;
 
 /** The page's words, in its language (see ../shared/locales). */
 export const L = messages(locale);

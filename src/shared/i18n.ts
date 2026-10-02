@@ -11,7 +11,20 @@ export type Messages = typeof en;
 export const LOCALES = ['en', 'pt-BR'] as const;
 export type Locale = (typeof LOCALES)[number];
 
-const DICTIONARIES: Record<Locale, Messages> = { en, 'pt-BR': ptBR };
+/**
+ * Every table in a dictionary without Object's prototype, so a lookup by a name from outside (a
+ * worker, a role or a board called "constructor") finds nothing and falls back, as for any other
+ * name the table doesn't have, instead of finding Object's own function.
+ */
+function bare<T>(o: T): T {
+  if (o && typeof o === 'object' && !Array.isArray(o) && Object.getPrototypeOf(o) === Object.prototype) {
+    for (const v of Object.values(o)) bare(v);
+    Object.setPrototypeOf(o, null);
+  }
+  return o;
+}
+
+const DICTIONARIES: Record<Locale, Messages> = { en: bare(en), 'pt-BR': bare(ptBR) };
 
 export function messages(locale: Locale): Messages {
   return DICTIONARIES[locale];

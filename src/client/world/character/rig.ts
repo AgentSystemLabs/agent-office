@@ -13,6 +13,8 @@ export const DOWN = new THREE.Vector3(0, -1, 0);
 export interface PersonRig {
   root: THREE.Group;
   body: THREE.Group;
+  /** The torso's own mesh, on body. */
+  torso: THREE.Object3D;
   head: THREE.Group;
   armL: THREE.Object3D;
   armR: THREE.Object3D;

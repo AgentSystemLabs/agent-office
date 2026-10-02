@@ -4,12 +4,14 @@ import type { Duplex } from 'node:stream';
 import type { ServiceInfo } from '../shared/protocol.js';
 import { withoutOfficeCookies } from './auth.js';
 import { L, locale } from './i18n.js';
+import { SERVICE_HEADER } from './tunnel/wire.js';
 
 // Service tunnels: `ssh -L 5173:localhost:4600 office@box` lands on the office's own port, and the
 // browser's Host header (localhost:5173) says which worker server it's for. So teammates reach
 // every service through the one port their SSH key may already forward to, and only while
 // signed in to the office. On a Tailscale network it's https://<office>.ts.net:5173 instead, which
-// Tailscale Serve points at the office's port too (see tailnet.ts).
+// Tailscale Serve points at the office's port too (see tailnet.ts). `agent-office tunnel` opens
+// every worker's server on someone's computer by itself, and names the port in a header (tunnel/).
 
 /** Set on everything the office relays, so a server that proxies back to the office can't loop. */
 const RELAYED = 'x-agent-office-relay';
@@ -30,8 +32,32 @@ export function tunneledPort(req: http.IncomingMessage, officePort: number, tail
   return port && port !== officePort ? port : undefined;
 }
 
+/** A request that came through a tunnel: the port it's for, and that worker's server ('gone' when nothing serves it). */
+export interface Tunneled {
+  port: number;
+  svc: ServiceInfo | 'gone';
+}
+
+/**
+ * The worker's server a request is for, or undefined when it's for the office itself. A request
+ * the tunnel client sent is never for the office, whatever else it says and even when nothing
+ * serves the port it names: it carries the client's own session, and the page that made it is a
+ * worker's. (It can't loop: what the office relays never has the header.)
+ */
+export function tunneledService(req: http.IncomingMessage, officePort: number, tailnet: string | undefined, lookup: (port: number) => ServiceInfo | 'gone' | undefined): Tunneled | undefined {
+  const named = req.headers[SERVICE_HEADER];
+  if (named !== undefined) {
+    const port = typeof named === 'string' && /^\d{1,5}$/.test(named) ? Number(named) : 0;
+    return { port, svc: (port !== officePort && lookup(port)) || 'gone' };
+  }
+  const port = tunneledPort(req, officePort, tailnet);
+  const svc = port ? lookup(port) : undefined;
+  return port && svc ? { port, svc } : undefined;
+}
+
 function upstreamHeaders(req: http.IncomingMessage, svc: ServiceInfo): http.OutgoingHttpHeaders {
   const headers: http.OutgoingHttpHeaders = { ...req.headers, [RELAYED]: '1' };
+  delete headers[SERVICE_HEADER];
   // From the tailnet, the server gets the Host it would through a tunnel: dev servers like Vite
   // refuse names they don't know. X-Forwarded-Host (set by Tailscale Serve) still has the real one.
   if (!LOOPBACK_HOST.test(req.headers.host ?? '')) headers.host = `localhost:${svc.port}`;
@@ -47,7 +73,7 @@ export function relayRequest(req: http.IncomingMessage, res: http.ServerResponse
     ur.pipe(res);
   });
   up.on('error', () => {
-    if (!res.headersSent) page(res, 502, L.relay.notAnswering, L.relay.notAnsweringBody(svc.port, `<code>${esc(svc.command)}</code>`));
+    if (!res.headersSent) page(res, 502, L.relay.notAnswering, esc(L.relay.notAnsweringBody(svc.port, '\u0000')).replace('\u0000', `<code>${esc(svc.command)}</code>`));
     else res.destroy();
   });
   res.on('close', () => up.destroy());
@@ -81,6 +107,9 @@ function esc(s: string): string {
   return s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 }
 
+/** A string for the page's script: JSON, with nothing in it that could close the <script>. */
+const jsString = (s: string) => JSON.stringify(s).replace(/</g, '\\u003c');
+
 const STYLE = `body{margin:0;min-height:100vh;display:grid;place-items:center;background:#bfe3ff;font:16px/1.5 Nunito,ui-rounded,system-ui,sans-serif;color:#2b2d42}
 main{background:#fffaf3;border:3px solid #2b2d42;border-radius:18px;box-shadow:0 6px 0 #2b2d42;padding:28px 32px;max-width:440px;margin:16px}
 h1{margin:0 0 8px;font-size:22px}p{margin:0 0 14px}code{background:#f1e7d8;border-radius:6px;padding:1px 5px}
@@ -109,14 +138,14 @@ export function signInPage(res: http.ServerResponse, port: number, opts: { accou
     res,
     401,
     L.relay.signInTitle,
-    `<p>${L.relay.intro(port, how)}</p>
-<form id="f">${askName ? `<input id="name" placeholder="${opts.shared ? L.relay.nameOptional : L.auth.yourName}" autocomplete="username"${opts.shared ? '' : ' required'} autofocus>` : ''}<input id="pw" type="password" placeholder="${askName ? L.auth.password : L.relay.officePassword}" autocomplete="current-password"${askName ? '' : ' autofocus'}><button>${L.relay.signIn}</button></form><p class="err" id="err"></p>`,
+    `<p>${esc(L.relay.intro(port, how))}</p>
+<form id="f">${askName ? `<input id="name" placeholder="${esc(opts.shared ? L.relay.nameOptional : L.auth.yourName)}" autocomplete="username"${opts.shared ? '' : ' required'} autofocus>` : ''}<input id="pw" type="password" placeholder="${esc(askName ? L.auth.password : L.relay.officePassword)}" autocomplete="current-password"${askName ? '' : ' autofocus'}><button>${esc(L.relay.signIn)}</button></form><p class="err" id="err"></p>`,
     `document.getElementById('f').addEventListener('submit',async(e)=>{e.preventDefault();const err=document.getElementById('err');err.textContent='';const n=document.getElementById('name');
 try{const r=await fetch(${JSON.stringify(RELAY_LOGIN)},{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({name:n?n.value:'',password:document.getElementById('pw').value})});
-if(r.ok)location.reload();else err.textContent=(await r.json().catch(()=>({}))).error||${JSON.stringify(L.relay.failed)}}catch{err.textContent=${JSON.stringify(L.relay.unreachable)}}})`,
+if(r.ok)location.reload();else err.textContent=(await r.json().catch(()=>({}))).error||${jsString(L.relay.failed)}}catch{err.textContent=${jsString(L.relay.unreachable)}}})`,
   );
 }
 
 export function stoppedPage(res: http.ServerResponse, port: number) {
-  page(res, 503, L.relay.notRunning, `<p>${L.relay.notRunningBody(port)}</p>`);
+  page(res, 503, L.relay.notRunning, `<p>${esc(L.relay.notRunningBody(port))}</p>`);
 }

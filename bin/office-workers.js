@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // office-workers: the office's workers, from inside Agent Office: who's at which desk and where their
-// pull requests stand, hiring one, sending some home (their worktrees and branches with them) and
-// telling one something. The office puts it on every worker's PATH and gives each its own address and
+// pull requests stand, hiring one, sending some home (their worktrees and branches with them),
+// telling one something and saying which pull request is one's. The office puts it on every worker's PATH and gives each its own address and
 // token in AGENT_OFFICE_HOOK_URL, AGENT_OFFICE_WORKER_ID and AGENT_OFFICE_HOOK_TOKEN; this talks to
 // the /office/workers endpoint with them (src/server/office-workers.ts). `office-workers mcp` is the
 // same as an MCP server on stdio, which the office hands the agents that take one. Plain Node, no
@@ -24,6 +24,13 @@ const USAGE = `Usage:
                                                 that isn't on GitHub, and says what it kept
   office-workers home --merged                  send home everyone whose pull request merged
   office-workers tell <name|id> <<'EOF'         type a prompt to a worker (or --prompt "…")
+  office-workers pr <number|url> [--worker <name|id>]
+                                                say which pull request is a worker's (yours, without
+                                                --worker), when the list doesn't show it: the office
+                                                only knows one by itself when it was opened from the
+                                                desk, from the worker's own branch, or by a Claude
+                                                Code worker running gh pr create
+  office-workers pr --none [--worker <name|id>] take that pull request off the worker again
   office-workers mcp                            serve these as MCP tools on stdio`;
 
 /** A mistake in how the command was called: the usage is shown with it. */
@@ -35,7 +42,9 @@ export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 /** How long the office may take to come back when it's restarting (a dev reload, an upgrade). */
 const RETRY_MS = 6000;
 /** Sending several workers home waits on git for each; hiring may fetch from GitHub first. */
-const TIMEOUT_MS = { list: 15_000, tell: 15_000, hire: 90_000, home: 300_000 };
+const TIMEOUT_MS = { list: 15_000, tell: 15_000, pr: 45_000, hire: 90_000, home: 300_000 };
+/** Where each call goes, under /office/workers. */
+const PATHS = { list: '', hire: '', home: '/home', tell: '/tell', pr: '/pr' };
 
 /**
  * Reads `--flag value` and `--flag=value` options, and the words that aren't options.
@@ -100,6 +109,13 @@ export function parseArgs(argv) {
     if (words.length !== 1) throw new UsageError('tell takes one worker, its name or id, with the prompt on stdin or --prompt "…"');
     return { cmd: 'tell', worker: words[0], ...(opts['--prompt'] !== undefined ? { prompt: opts['--prompt'] } : {}) };
   }
+  // link-pr, after the MCP tool.
+  if (cmd === 'pr' || cmd === 'link-pr') {
+    const { opts, words } = options(rest, ['--worker'], ['--none', '--json']);
+    const none = opts['--none'] === true;
+    if (none ? words.length : words.length !== 1) throw new UsageError('pr takes one pull request, its number or URL, or --none to take it off (with --worker <name|id> when the worker isn\'t you)');
+    return { cmd: 'pr', ...(none ? { unlink: true } : { pr: words[0] }), ...(opts['--worker'] !== undefined ? { worker: String(opts['--worker']).trim() } : {}), json: opts['--json'] === true };
+  }
   if (cmd === 'hire') {
     const { opts, words } = options(rest, ['--prompt', '--provider', '--model', '--effort', '--desk', '--issue'], ['--no-worktree', '--json']);
     if (words.length) throw new UsageError(`Unexpected argument: ${words[0]} (give the task on stdin or with --prompt)`);
@@ -141,13 +157,13 @@ export function officeEnv(env) {
 
 /**
  * The HTTP request for one of the office's worker calls.
- * @param {'list' | 'hire' | 'home' | 'tell'} what
+ * @param {'list' | 'hire' | 'home' | 'tell' | 'pr'} what
  * @param {{ url: string, worker: string, token: string }} office
  * @param {Record<string, unknown>} [body]
  * @returns {{ method: string, url: string, headers: Record<string, string>, body?: string, timeout: number }}
  */
 export function buildRequest(what, office, body) {
-  const url = new URL(`${office.url}/office/workers${what === 'home' ? '/home' : what === 'tell' ? '/tell' : ''}`);
+  const url = new URL(`${office.url}/office/workers${PATHS[what]}`);
   url.searchParams.set('worker', office.worker);
   const headers = { authorization: `Bearer ${office.token}` };
   if (what === 'list') return { method: 'GET', url: url.href, headers, timeout: TIMEOUT_MS.list };
@@ -158,7 +174,8 @@ export function buildRequest(what, office, body) {
 export function refusal(status, body) {
   const said = body && typeof body.error === 'string' ? body.error : '';
   if (status === 401) return `The office didn't accept this worker's token (401)${said ? `: ${said}` : ''}. Is this a worker's terminal that's still running?`;
-  if (status === 404) return "The office doesn't know office-workers (404): it's running an older Agent Office than this command. Restart or upgrade it.";
+  if (status === 404 && !said) return "The office doesn't know office-workers (404): it's running an older Agent Office than this command. Restart or upgrade it.";
+  if (status === 405) return "The office doesn't know this one yet (405): it's running an older Agent Office than this command. Restart or upgrade it.";
   return said || `The office said no (${status}).`;
 }
 
@@ -189,7 +206,7 @@ async function send(req, fetchImpl) {
 
 /**
  * Makes one call to the office; resolves to what it answered, or throws with why it said no.
- * @param {'list' | 'hire' | 'home' | 'tell'} what
+ * @param {'list' | 'hire' | 'home' | 'tell' | 'pr'} what
  * @param {Record<string, unknown> | undefined} body
  * @param {{ env: Record<string, string | undefined>, fetch: typeof fetch }} io
  */
@@ -235,6 +252,13 @@ export function formatHome(answer, merged) {
     .join('\n');
 }
 
+/** Whose pull request is whose now, after `pr` said so. */
+export function formatLinked(answer) {
+  const w = answer?.worker ?? {};
+  if (!w.pr) return `${w.name} has no pull request now.`;
+  return `${w.name}: PR #${w.pr.number} ${w.pr.state}${w.pr.title ? ` “${w.pr.title}”` : ''}${w.merged ? (w.staying ? ` · landed, staying: ${w.staying}` : ' · landed: free to go home') : ''}`;
+}
+
 // --- MCP ------------------------------------------------------------------------------------------
 
 /** The MCP protocol versions this server speaks; it answers in the client's when it knows it. */
@@ -247,7 +271,8 @@ export const TOOLS = [
     name: 'list_workers',
     title: 'List workers',
     description:
-      "Lists the coding agents (the office's workers) at the desks on this Agent Office floor, and shells: each one's id, name, status, desk, task, git worktree branch and pull request. " +
+      "Lists the coding agents (the office's workers) at the desks on this Agent Office floor, and shells: each one's id, name, status, desk, task, git worktree branch and pull request " +
+      '(pr; a worker that opened one the office does not show here needs link_pr). ' +
       'merged: true means a pull request of its merged and none is open: its work landed and it can go home. staying says why the office would not send it home by itself yet ' +
       '(still working, someone has its terminal open, a board agent...). worktree.deleted: true means its folder was deleted outside the office, so it cannot start until a person rebuilds it at its desk. you: true is you.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
@@ -312,13 +337,35 @@ export const TOOLS = [
     },
     annotations: { destructiveHint: false, openWorldHint: false },
   },
+  {
+    name: 'link_pr',
+    title: "Say which pull request is a worker's",
+    description:
+      "Says which pull request is a worker's, so its desk and list_workers show where its work stands (open, or merged: free to go home) instead of only ready or done. " +
+      'The office knows a pull request by itself when it was opened from the desk, from the branch the office gave the worker, by a queue task, or by a Claude Code worker running gh pr create. ' +
+      'Use this for the others: a worker in the main checkout that pushed a branch of its own, or an agent whose pull request list_workers does not show. Match a worker to its pull request by what it ' +
+      "was asked to do (its task, the issue it names) and gh pr list, and leave out one you can't match. The pull request must be open, or merged recently, in this floor's repository. " +
+      'With go home once merged on (leaveOnMerge), a worker whose linked pull request merged is sent home. unlink: true takes a wrong one off again. worker defaults to you. ' +
+      WORKER_NOTE,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        pr: { type: 'integer', minimum: 1, description: "The pull request's number." },
+        worker: { type: 'string', description: 'Whose it is, by name or id. Default: you.' },
+        unlink: { type: 'boolean', description: 'Take the pull request off the worker, instead of giving pr.' },
+      },
+      additionalProperties: false,
+    },
+    annotations: { destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  },
 ];
 
 const INSTRUCTIONS =
   "You work in Agent Office, where coding agents (the office's workers) sit at desks, each usually in its own git worktree and branch. These tools are the way to see and manage " +
   'the other agents: whenever you are asked about the agents or workers (who is working on what, whose pull request merged, hiring one, sending them home), use them, ' +
   "rather than looking for the agents with git, ps or HTTP calls. list_workers says where each one's pull request stands (merged: true means it merged), hire_worker " +
-  'puts a new agent to work, send_home sends agents home and deletes their worktrees and branches, and tell_worker gives one a prompt. Everyone in the office sees who did what. ' +
+  'puts a new agent to work, send_home sends agents home and deletes their worktrees and branches, tell_worker gives one a prompt, and link_pr says which pull request is a ' +
+  "worker's when list_workers does not show it. Everyone in the office sees who did what. " +
   'The office-workers command on your PATH does the same from a shell.';
 
 /** Runs a tool; resolves to its text, and whether nothing it was asked came off, or throws with why it failed. */
@@ -339,6 +386,7 @@ async function runTool(name, args, io) {
     const answer = await call('tell', a, io);
     return { text: `Told ${answer.worker?.name ?? a.worker}.` };
   }
+  if (name === 'link_pr') return { text: formatLinked(await call('pr', a, io)) };
   throw new Error(`Unknown tool: ${name}`);
 }
 
@@ -462,6 +510,12 @@ export async function main(argv, io = {}) {
       if (!text) throw new UsageError('The prompt is empty');
       const answer = await call('tell', { worker: cmd.worker, prompt: text }, ctx);
       err(`Told ${answer.worker?.name ?? cmd.worker}.`);
+      return 0;
+    }
+    if (cmd.cmd === 'pr') {
+      const { cmd: _c, json: asJson, ...ask } = cmd;
+      const answer = await call('pr', ask, ctx);
+      out(asJson ? JSON.stringify(answer.worker, null, 2) : formatLinked(answer));
       return 0;
     }
     const { cmd: _, json, ...body } = cmd;

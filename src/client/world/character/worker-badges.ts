@@ -16,12 +16,15 @@ export const STATUS_BULB: Record<string, string> = {
   offline: '#6c757d',
 };
 
+/** A worker that needs you: its bubble is the red of its light, in white capitals, and its card is outlined in it (unless a pull request's color is). */
+const NEEDS_YOU = { text: L.wchar.chips.needs_input, bg: STATUS_BULB.needs_input, color: '#ffffff', size: 46, card: '#ffc2d1' };
+
 /** Status pill on a worker's task card: [text, background, text color]. */
 const TASK_CHIP: Record<string, [string, string, string]> = {
   starting: [L.wchar.chips.starting, STATUS_BULB.starting, '#2b2d42'],
   idle: [L.wchar.chips.idle, STATUS_BULB.idle, '#2b2d42'],
   working: [L.wchar.chips.working, STATUS_BULB.working, '#2b2d42'],
-  needs_input: [L.wchar.chips.needs_input, STATUS_BULB.needs_input, '#ffffff'],
+  needs_input: [NEEDS_YOU.text, STATUS_BULB.needs_input, '#ffffff'],
   done: [L.wchar.chips.done, STATUS_BULB.done, '#2b2d42'],
   exited: [L.wchar.chips.asleep, STATUS_BULB.exited, '#ffffff'],
   offline: [L.wchar.chips.asleep, STATUS_BULB.offline, '#ffffff'],
@@ -40,13 +43,14 @@ const PR_ICON: Record<WorkerPr['state'], string> = { open: '🔀', merged: '🎉
  */
 export function bubbleFor(status: WorkerStatus, bounce: boolean, task: WorkerTask | undefined, pr: WorkerPr | undefined, lost: boolean): { key: string; draw(): THREE.Sprite | null } {
   const hot = status === 'needs_input' || (status === 'done' && bounce);
-  const bg = hot ? (status === 'done' ? '#caffbf' : '#ffd6e0') : status === 'working' ? '#ffec99' : '#fffaf3';
-  const border = pr && PR_INK[pr.state];
+  const asking = status === 'needs_input' && !lost;
+  const bg = hot ? (status === 'done' ? '#caffbf' : NEEDS_YOU.card) : status === 'working' ? '#ffec99' : '#fffaf3';
+  const border = pr ? PR_INK[pr.state] : asking ? NEEDS_YOU.bg : undefined;
   // Not working on or waiting for something more: its pull request in place of ready / done / asleep.
   const prLabel = pr && status !== 'working' && status !== 'needs_input' && status !== 'starting' ? `${PR_ICON[pr.state]} PR #${pr.number} ${pr.state}` : undefined;
   const bubble = lost
     ? `🌿 ${L.game.worktreeDeleted}`
-    : prLabel ?? (status === 'needs_input' ? L.wchar.needsYou : status === 'done' && bounce ? L.wchar.done : status === 'working' ? L.wchar.working : isAsleep(status) ? '💤' : '');
+    : prLabel ?? (status === 'needs_input' ? NEEDS_YOU.text : status === 'done' && bounce ? L.wchar.done : status === 'working' ? L.wchar.working : isAsleep(status) ? '💤' : '');
   const key = `${lost}|${border}|${prLabel}|${task ? `${status}|${bounce}|${task.name}|${task.summary}` : bubble}`;
   return {
     key,
@@ -55,6 +59,7 @@ export function bubbleFor(status: WorkerStatus, bounce: boolean, task: WorkerTas
         const [text, chipBg, color] = lost ? LOST_CHIP : prLabel ? [prLabel.toUpperCase(), border!, '#ffffff'] : (TASK_CHIP[status] ?? TASK_CHIP.idle);
         return cardSprite({ chip: { text, bg: chipBg, color }, title: task.name, body: task.summary, bg: isAsleep(status) ? '#e9ecef' : bg, border });
       }
+      if (asking) return textSprite(bubble, { bg: NEEDS_YOU.bg, color: NEEDS_YOU.color, size: NEEDS_YOU.size, border: pr && border });
       return bubble ? textSprite(bubble, { bg: lost ? LOST_CHIP[1] : bg, size: 38, border }) : null;
     },
   };

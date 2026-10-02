@@ -21,6 +21,9 @@ export interface HandsInput {
   grip?: 'ladder' | 'pole' | null;
 }
 
+/** Where the hands rest for holding, throwing, a drag or an emote (see classic): out wider than at rest. */
+const CLASSIC = { x: 0.25, y: -0.185, z: -0.44, rx: 0.2, ry: 0.22, rz: -0.25 } as const;
+
 /** Lifting the mug for a sip and lowering it again, in seconds. */
 const SIP_TIME = 1.1;
 
@@ -31,7 +34,7 @@ interface Arm {
   side: 1 | -1;
   /** The white cuff at the wrist. */
   cuff: THREE.Mesh;
-  /** The cartoon hand: palm, thumb, and on the right hand the pointing finger. */
+  /** The hand: a round one like your character's, and on the right a pointing finger, out only to point. */
   mitten: THREE.Mesh[];
   finger: THREE.Mesh | null;
   /** A holiday hand in place of the mitten (see setCostume), and the witch-fire round it. */
@@ -202,10 +205,10 @@ export class Hands {
         arm.fire?.material.dispose();
         arm.dressed = arm.fire = null;
       }
-      for (const m of arm.mitten) m.visible = !warlock && !(theme === 'christmas' && m === arm.finger);
-      arm.cuff.visible = !warlock;
+      for (const m of arm.mitten) m.visible = !warlock;
       // A mitten's fluffy cuff.
-      arm.cuff.scale.set(theme === 'christmas' ? 1.3 : 1, theme === 'christmas' ? 1.3 : 1, theme === 'christmas' ? 1.9 : 1);
+      arm.cuff.visible = theme === 'christmas';
+      arm.cuff.scale.set(1.3, 1.3, 1.9);
       if (!warlock) continue;
       const g = new THREE.Group();
       g.add(warlockHand(arm.side, this.skin), raggedCuff(this.rags));
@@ -301,6 +304,7 @@ export class Hands {
     const emote = EMOTE_BY_ID.get(id);
     this.emoting = emote ? { emote, t: 0 } : null;
     this.thumbUp.visible = id === 'thumbs';
+    if (this.right.finger) this.right.finger.visible = id === 'point' && this.costume !== 'halloween' && this.costume !== 'christmas';
   }
 
   /** Raise the mug for a sip, once the right hand is back from the coffee machine. */
@@ -311,24 +315,28 @@ export class Hands {
   private arm(side: 1 | -1): Arm {
     const group = new THREE.Group();
     // Sleeve runs from the wrist back past the camera, so its far end is always off screen.
-    group.add(mesh(new THREE.CapsuleGeometry(0.058, 0.42, 6, 14).rotateX(Math.PI / 2), this.sleeve, 0, 0, 0.34, false));
+    group.add(mesh(new THREE.CapsuleGeometry(0.058, 0.42, 6, 14).rotateX(Math.PI / 2), this.sleeve, 0, 0, 0.29, false));
+    // A mitten's fluffy cuff, only at Christmas (see setCostume).
     const cuff = mesh(new THREE.CylinderGeometry(0.068, 0.068, 0.045, 18).rotateX(Math.PI / 2), toon('#fffaf3'), 0, 0, 0.075, false);
+    cuff.visible = false;
     group.add(cuff);
-    // Cartoon mitten: a chunky palm, a thumb on the inside, and a pointing finger on the right hand.
-    const palm = mesh(new THREE.SphereGeometry(0.062, 18, 14), this.skin, 0, 0, 0, false);
-    palm.scale.set(1, 0.78, 1.18);
+    // A round hand at the end of the sleeve, as your character has (see character/person.ts), a little
+    // bigger round than the sleeve; the right one points a finger only to point (see emote).
+    const palm = mesh(new THREE.SphereGeometry(0.056, 20, 16), this.skin, 0, 0, -0.012, false);
+    palm.scale.set(1, 0.94, 1.04);
     group.add(palm);
-    const thumb = mesh(new THREE.CapsuleGeometry(0.02, 0.03, 4, 10).rotateX(Math.PI / 2), this.skin, -side * 0.05, 0.014, -0.02, false);
-    thumb.rotation.y = side * 0.55;
-    group.add(thumb);
-    const finger = side === 1 ? mesh(new THREE.CapsuleGeometry(0.019, 0.05, 4, 10).rotateX(Math.PI / 2), this.skin, -0.016, 0.022, -0.085, false) : null;
-    if (finger) group.add(finger);
-    const base = new THREE.Vector3(side * 0.25, -0.185, -0.44);
-    const baseRot = new THREE.Euler(0.2, side * 0.22, side * -0.25);
+    const finger = side === 1 ? mesh(new THREE.CapsuleGeometry(0.017, 0.045, 4, 10).rotateX(Math.PI / 2), this.skin, -0.01, 0.01, -0.08, false) : null;
+    if (finger) {
+      finger.visible = false;
+      group.add(finger);
+    }
+    // Out from the bottom corners of the view, the sleeves angled in toward the hands.
+    const base = new THREE.Vector3(side * 0.18, -0.17, -0.5);
+    const baseRot = new THREE.Euler(0.45, side * 0.55, side * -0.2);
     group.position.copy(base);
     group.rotation.copy(baseRot);
     this.scene.add(group);
-    return { group, base, baseRot, side, cuff, mitten: [palm, thumb, ...(finger ? [finger] : [])], finger, dressed: null, fire: null };
+    return { group, base, baseRot, side, cuff, mitten: [palm], finger, dressed: null, fire: null };
   }
 
   /** Witch-fire curling up round your fingers, and flickering. */
@@ -419,6 +427,7 @@ export class Hands {
       p.y += 0.22 * throwK;
       p.z -= 0.16 * throwK;
       arm.group.rotation.x += 0.9 * throwK;
+      this.classic(arm, Math.max(carry, held, throwK));
     }
     // Up the ladder, hand over hand; round a pole, both hands on it, one over the other.
     const climb = Math.sin(s.walkPhase);
@@ -470,6 +479,7 @@ export class Hands {
     if (this.smokeT >= 0) {
       this.smokeT += dt;
       const d = s.walking || s.airborne ? 0 : dragCurve(this.smokeT % SMOKE_CYCLE);
+      this.classic(this.right, d);
       r.position.x -= 0.2 * d;
       r.position.y += 0.02 * d;
       r.position.z += 0.3 * d;
@@ -478,6 +488,21 @@ export class Hands {
     }
     if (this.emoting) this.emoteStep(dt, l);
     if (this.costume === 'halloween') this.burn(t);
+  }
+
+  /**
+   * Eases `arm` (already placed for this frame) by `w` toward where the hands used to rest, further out
+   * and higher (CLASSIC): what holding, throwing, a drag and the emotes were shaped from.
+   */
+  private classic(arm: Arm, w: number) {
+    if (w <= 0) return;
+    const g = arm.group;
+    g.position.x += (arm.side * CLASSIC.x - arm.base.x) * w;
+    g.position.y += (CLASSIC.y - arm.base.y) * w;
+    g.position.z += (CLASSIC.z - arm.base.z) * w;
+    g.rotation.x += (CLASSIC.rx - arm.baseRot.x) * w;
+    g.rotation.y += (arm.side * CLASSIC.ry - arm.baseRot.y) * w;
+    g.rotation.z += (arm.side * CLASSIC.rz - arm.baseRot.z) * w;
   }
 
   /** Moves the hands (already placed for this frame) through the emote. */
@@ -489,10 +514,13 @@ export class Hands {
     if (u >= seconds) {
       this.emoting = null;
       this.thumbUp.visible = false;
+      if (this.right.finger) this.right.finger.visible = false;
       return;
     }
     const k = emoteEnvelope(u, seconds);
     const r = this.right.group;
+    this.classic(this.right, k);
+    this.classic(this.left, k);
     switch (id) {
       case 'wave':
         // Up in front of your shoulder (in from the edge, clear of the sidebar), rocking side to side.

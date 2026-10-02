@@ -124,6 +124,10 @@ export const opencode: ProviderAdapter<StatusState, OpenCodeSetup> = {
       rotateToken: true,
       finishEnv(env) {
         env.AGENT_OFFICE_SESSION_ID = resumeSessionId ?? '';
+        // Its effort, which OpenCode's TUI has no flag for: the plugin puts its first message on it
+        // (see ../opencode.ts). Like its model, it's for a fresh session: a resumed one carries on with its own.
+        env.AGENT_OFFICE_EFFORT = (!resumeSessionId && info.effort) || '';
+        env.AGENT_OFFICE_MODEL = (!resumeSessionId && info.model) || '';
         env.OPENCODE_CONFIG_CONTENT = mergeOpenCodeConfigContent(env.OPENCODE_CONFIG_CONTENT, openCodePluginSpecifier(setup.plugin), setup.mcpScript ? openCodeMcp(setup.mcpScript) : undefined);
       },
     };

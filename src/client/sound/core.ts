@@ -11,7 +11,7 @@ export interface Listener extends Pos {
 
 /**
  * On a map of its own (the castle): the room it is, where its gong hangs and where its windows are,
- * with nothing of the office's in it (no phones, no fridge).
+ * with nothing of the office's in it (no fridge).
  */
 export interface Hall {
   bounds: { minX: number; maxX: number; minZ: number; maxZ: number };

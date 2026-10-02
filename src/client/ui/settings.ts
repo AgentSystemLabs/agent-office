@@ -1,15 +1,18 @@
 import './settings.css';
 import type { Net } from '../net';
-import { store, type Settings, type ViewMode } from '../state';
+import type { OfficeSound } from '../sound';
+import { store, type NeedsYouSound, type Settings, type ViewMode } from '../state';
 import { askNotifyPermission, notifyPermission, type DesktopNotifier } from '../notify';
 import type { ThemePick, WebhookKind } from '../../shared/protocol';
 import { THEME_PICKS } from '../../shared/theme';
 import { mapChoices } from '../../shared/maps';
+import { dogSetting } from './settings-dog';
 import { h, openModal, timeAgo } from './dom';
 import { agentFields, choiceLabel, officeChoice } from './provider';
 import { openPromptEditor, rewrittenPrompts } from './prompts';
+import { outsideSetting } from './settings-sky';
+import { choiceRow } from './settings-rows';
 import { L } from '../i18n';
-import { dogSetting } from './settings-dog';
 import { languageSettings } from './settings-language';
 
 const VIEWS: [ViewMode, string, string][] = [
@@ -48,7 +51,7 @@ const setting = (title: string, scope: Scope | null, ...body: Node[]) =>
 let lastPane: SettingsPane = 'you';
 
 /** `outside` describes the sky over the office (see describeSky), once the server has said. `first` opens on that category instead of the last one. */
-export function openSettings(net: Net, settings: Settings, onChange: (s: Settings) => void, onCharacter: () => void, previewSound: () => void, notifier: DesktopNotifier, onSignOut: () => void, outside?: { now: string; live: boolean }, first?: SettingsPane) {
+export function openSettings(net: Net, settings: Settings, onChange: (s: Settings) => void, onCharacter: () => void, sound: Pick<OfficeSound, 'ding' | 'needsYou'>, notifier: DesktopNotifier, onSignOut: () => void, outside?: { now: string; live: boolean }, first?: SettingsPane) {
   const seg = h('div.seg', { role: 'radiogroup', 'aria-label': L.settings.camera });
   const note = h('p.setting-note');
   const paint = () => {
@@ -107,70 +110,24 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
     });
     return row;
   };
-  const soundRow = volumeRow(L.settings.soundsVolume, 'volume', 'muted', previewSound);
+  const soundRow = volumeRow(L.settings.soundsVolume, 'volume', 'muted', () => sound.ding('done'));
 
-  // Voice chat: an open mic, or muted until you hold V.
-  const talkRow = h('div.seg', { role: 'radiogroup', 'aria-label': L.settings.voice });
-  const paintTalk = () => {
-    talkRow.replaceChildren(
-      ...(
-        [
-          [false, L.settings.openMic],
-          [true, L.settings.pushToTalk],
-        ] as const
-      ).map(([ptt, label]) =>
-        h(
-          'button.btn',
-          {
-            type: 'button',
-            role: 'radio',
-            'aria-checked': String(settings.pushToTalk === ptt),
-            class: settings.pushToTalk === ptt ? 'on' : '',
-            onclick: () => {
-              if (settings.pushToTalk === ptt) return;
-              settings = { ...settings, pushToTalk: ptt };
-              onChange(settings);
-              paintTalk();
-            },
-          },
-          label,
-        ),
-      ),
-    );
+  /** Changes some of your own settings, and has the office take them up. */
+  const change = (some: Partial<Settings>) => {
+    settings = { ...settings, ...some };
+    onChange(settings);
   };
-  paintTalk();
+  // Voice chat: an open mic, or muted until you hold V.
+  const talkRow = choiceRow(L.settings.voice, [[false, L.settings.openMic], [true, L.settings.pushToTalk]], () => settings.pushToTalk, (pushToTalk) => change({ pushToTalk }));
   const musicRow = volumeRow(L.settings.jukeboxVolume, 'music', 'musicMuted');
 
   // The swish of the book's pages at the bookshelf, on or off.
-  const pagesRow = h('div.seg', { role: 'radiogroup', 'aria-label': L.settings2.pages });
-  const paintPages = () => {
-    pagesRow.replaceChildren(
-      ...(
-        [
-          [true, L.settings2.pagesOn],
-          [false, L.settings.themes.off],
-        ] as const
-      ).map(([on, label]) =>
-        h(
-          'button.btn',
-          {
-            type: 'button',
-            role: 'radio',
-            'aria-checked': String(settings.pageTurns === on),
-            class: settings.pageTurns === on ? 'on' : '',
-            onclick: () => {
-              if (settings.pageTurns === on) return;
-              settings = { ...settings, pageTurns: on };
-              onChange(settings);
-              paintPages();
-            },
-          },
-          label,
-        ),
-      ),
-    );
-  };
-  paintPages();
+  const pagesRow = choiceRow(L.settings2.pages, [[true, L.settings2.pagesOn], [false, L.settings.themes.off]], () => settings.pageTurns, (pageTurns) => change({ pageTurns }));
+  // The alarm when a worker stops to ask you something; picking one plays it.
+  const alarmRow = choiceRow<NeedsYouSound>(L.settings.needsYou, [['once', L.settings.needsYouOnce], ['remind', L.settings.needsYouRemind], ['off', L.settings.needsYouOff]], () => settings.needsYouSound, (needsYouSound) => {
+    change({ needsYouSound });
+    if (needsYouSound !== 'off') sound.needsYou();
+  });
 
   // The building's holiday theme, for everyone.
   const themeRow = h('div.seg', { role: 'radiogroup', 'aria-label': L.settings.holiday });
@@ -478,11 +435,13 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
   });
   dirDefault.addEventListener('click', () => net.send({ t: 'floor.projectsDir', dir: '' }));
 
-  // The dog on this floor, named for everyone here (see settings-dog.ts).
+  // The dog on this floor: its name, breed and coat, for everyone here (see settings-dog.ts).
   const { section: dogSection, paint: paintDog } = dogSetting(net, (body) => setting(L.settings.officeDog, 'floor', ...body));
   // Your language and the office's (see settings-language.ts).
   const langs = languageSettings(net, (title, scope, body) => setting(title, scope, ...body));
 
+  // What the sky's doing, and which clock it keeps (see settings-sky.ts).
+  const sky = outside && outsideSetting(net, outside, (body) => setting(L.settings.outside, 'office', ...body));
   const account = store.me.account;
   const signOut = h('button.btn', { type: 'button' }, L.settings.signOut);
   signOut.addEventListener('click', onSignOut);
@@ -496,6 +455,7 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
     ],
     sound: [
       setting(L.settings.sounds, 'you', soundRow, h('p.setting-note', {}, L.settings.soundsNote)),
+      setting(L.settings.needsYou, 'you', alarmRow, h('p.setting-note', {}, L.settings.needsYouNote)),
       setting(L.settings2.pages, 'you', pagesRow, h('p.setting-note', {}, L.settings2.pagesNote)),
       setting(L.settings2.jukebox, 'you', musicRow, h('p.setting-note', {}, L.settings.jukeboxNote)),
       setting(L.settings.voice, 'you', talkRow, h('p.setting-note', {}, L.settings.voiceNote)),
@@ -508,16 +468,7 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
       setting(L.settings2.map, 'office', mapRow, mapNote, mapBad),
       langs.office,
       setting(L.settings.holiday, 'office', themeRow, themeNote),
-      ...(outside
-        ? [
-            setting(
-              L.settings.outside,
-              'office',
-              h('p.outside-now', {}, outside.now),
-              h('p.setting-note', {}, outside.live ? L.settings2.skyLive : L.settings2.skyFake),
-            ),
-          ]
-        : []),
+      ...(sky ? [sky.section] : []),
       dogSection,
       setting(L.elevator.workspaceFolder, 'office', dirRow, dirActions, dirNote),
     ],
@@ -578,6 +529,7 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
       offNotify();
       offDog();
       offTheme();
+      sky?.off();
       offMap();
       offLeave();
       offLang.forEach((f) => f());

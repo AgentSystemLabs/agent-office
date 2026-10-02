@@ -59,7 +59,7 @@ export function openIssue(first: GhIssue, net: Net, actions: BoardActions) {
       queueProvider.element,
       queue,
       pickUp,
-      h('button.btn.primary', { type: 'button', onclick: () => actions.assign(issuePrompt(it), L.pull.handIssue(it.number)) }, L.pull.hand),
+      h('button.btn.primary', { type: 'button', onclick: () => actions.assign(issuePrompt(it), L.pull.handIssue(it.number), it.number) }, L.pull.hand),
     ),
   );
   const renderFrame = () => {
@@ -69,7 +69,7 @@ export function openIssue(first: GhIssue, net: Net, actions: BoardActions) {
         avatar(it.author),
         h('b', {}, it.author),
         h('span', {}, `${L.pull.openedThis} ${timeAgo(it.createdAt)}`),
-        it.assignees.length ? h('span', {}, `· 👤 ${it.assignees.join(', ')}`) : null,
+        it.assignees.length ? h('span', {}, `· 👤 ${it.assignees.join(', ')}`) : it.taken ? h('span', {}, `· ${L.boards.handed}`) : null,
         ...it.labels.map(labelChip),
         labelButton('issue', () => it, net, (labels) => ((it = { ...it, labels }), renderFrame())),
       ),

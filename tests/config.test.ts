@@ -50,3 +50,15 @@ test('--no-open leaves the browser alone', (t) => {
   assert.equal(load(t).open, true);
   assert.equal(load(t, '--no-open').open, false);
 });
+
+test('TURN servers come from --turn and from AGENT_OFFICE_TURN', (t) => {
+  const previous = process.env.AGENT_OFFICE_TURN;
+  process.env.AGENT_OFFICE_TURN = ' turn:office:p%40ss@office.example.com:3478  turn:office:p%40ss@office.example.com:3478?transport=tcp ';
+  t.after(() => (previous === undefined ? delete process.env.AGENT_OFFICE_TURN : (process.env.AGENT_OFFICE_TURN = previous)));
+  const { iceServers } = load(t, '--turn', 'turns:relay.example.com:5349');
+  assert.deepEqual(iceServers.slice(1), [
+    { urls: 'turn:office.example.com:3478', username: 'office', credential: 'p@ss' },
+    { urls: 'turn:office.example.com:3478?transport=tcp', username: 'office', credential: 'p@ss' },
+    { urls: 'turns:relay.example.com:5349' },
+  ]);
+});

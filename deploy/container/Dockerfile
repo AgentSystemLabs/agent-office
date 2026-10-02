@@ -1,6 +1,7 @@
-# Agent Office in a container, the way deploy/railway.sh runs it on Railway, deploy/fly.sh on Fly.io
-# and deploy/dokploy.sh on Dokploy. Any Docker host works the same way: mount a volume at /data and
-# publish port 22 (or the port in AGENT_OFFICE_SSHD_PORT, which deploy/fly.sh sets to 2222).
+# Agent Office in a container, the way deploy/railway.sh runs it on Railway, deploy/fly.sh on Fly.io,
+# deploy/dokploy.sh on Dokploy and deploy/coolify.sh on Coolify. Any Docker host works the same way:
+# mount a volume at /data and publish port 22 (or the port in AGENT_OFFICE_SSHD_PORT, which
+# deploy/fly.sh sets to 2222).
 #
 # The office listens on 127.0.0.1:4600 inside the container and is never published. sshd on port 22
 # is the only way in: the keys in AGENT_OFFICE_ADMIN_KEYS get a shell as agentoffice, the user that
@@ -20,10 +21,11 @@ RUN chmod 755 bin/*.js deploy/container/*.sh \
 
 FROM node:22-bookworm-slim
 ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8
-# sshd for the tunnels, tini to reap what workers leave behind, and what workers need: git, the
-# GitHub CLI (from GitHub's own apt repo, like deploy/provision.sh) and build tools.
+# sshd for the tunnels, tini to reap what workers leave behind, `ss` (iproute2) for the office to
+# find the web servers workers start, and what workers need: git, the GitHub CLI (from GitHub's own
+# apt repo, like deploy/provision.sh) and build tools.
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends openssh-server sudo tini procps ca-certificates curl git less build-essential python3 \
+  && apt-get install -y --no-install-recommends openssh-server sudo tini procps iproute2 ca-certificates curl git less build-essential python3 \
   && install -d -m 755 /etc/apt/keyrings \
   && curl -fsSLo /etc/apt/keyrings/githubcli-archive-keyring.gpg https://cli.github.com/packages/githubcli-archive-keyring.gpg \
   && chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \

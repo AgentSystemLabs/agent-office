@@ -51,7 +51,7 @@ The office listens on `127.0.0.1:4600` inside its container, and everyone reache
 ssh -L 4600:localhost:4600 ssh://office@203.0.113.7:2222
 ```
 
-They leave it running, open http://localhost:4600 and sign in. Their keys log in as the `office` user, which can **only** forward to the office's port: no shell, no other ports, no `-R`. The SSH port answers any IP, but sshd accepts only your key and invited keys, and never a password. **🌐 Services** tunnels to workers' web servers work the same way (`deploy/dokploy.sh service 5173` for you).
+They leave it running, open http://localhost:4600 and sign in. Their keys log in as the `office` user, which can **only** forward to the office's port: no shell, no other ports, no `-R`. The SSH port answers any IP, but sshd accepts only your key and invited keys, and never a password. **🌐 Services** tunnels to workers' web servers work the same way (`deploy/dokploy.sh service 5173` for you), and [`agent-office tunnel`](tunnel.md) opens every one of them on your computer by itself.
 
 ```bash
 deploy/dokploy.sh open                 # tunnel + open the office in your browser

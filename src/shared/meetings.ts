@@ -15,8 +15,10 @@ export interface PatternDef {
   seats: { min: number; max: number; default: number };
   /** The round limit: the fewest, the most, and the default. Fixed when min equals max. */
   rounds: { min: number; max: number; default: number };
-  /** What a round is, for the dialog. */
-  roundsNote: string;
+  /** What a round is, for the dialog, when the limit is a range to pick from. */
+  roundsNote?: string;
+  /** The rounds by name, in order, when the pattern always runs the same ones. */
+  stages?: readonly string[];
   /** Where the output goes when whoever calls the meeting doesn't say (`slug` is the meeting's title as a file name). */
   output(slug: string, pr?: number): string;
   /** Needs a pull request (the review panel) or a list of parts (map-reduce). */
@@ -41,7 +43,7 @@ export const MEETING_PATTERNS: Record<MeetingPattern, PatternDef> = {
     roles: ['Lead', 'Engineer', 'Engineer', 'Engineer', 'Engineer'],
     seats: { min: 2, max: 5, default: 3 },
     rounds: { min: 3, max: 3, default: 3 },
-    roundsNote: 'Plan, work, merge.',
+    stages: ['Planning', 'Execution', 'Merge'],
     output: (slug) => `docs/meetings/${slug}.md`,
   },
   mapreduce: {
@@ -51,7 +53,7 @@ export const MEETING_PATTERNS: Record<MeetingPattern, PatternDef> = {
     roles: ['Reducer', 'Mapper', 'Mapper', 'Mapper', 'Mapper'],
     seats: { min: 2, max: 5, default: 3 },
     rounds: { min: 2, max: 2, default: 2 },
-    roundsNote: 'Map, then reduce.',
+    stages: ['Map', 'Reduce'],
     output: (slug) => `docs/meetings/${slug}.md`,
     needs: 'parts',
   },
@@ -72,7 +74,7 @@ export const MEETING_PATTERNS: Record<MeetingPattern, PatternDef> = {
     roles: ['Correctness', 'Security', 'Performance & simplicity', 'Tests', 'API design'],
     seats: { min: 2, max: 5, default: 3 },
     rounds: { min: 2, max: 2, default: 2 },
-    roundsNote: 'Reviews, then the combined review.',
+    stages: ['Reviews', 'Combined review'],
     output: (_slug, pr) => `reviews/pr-${pr ?? 'n'}.md`,
     needs: 'pr',
   },
@@ -84,11 +86,6 @@ export function isMeetingPattern(v: unknown): v is MeetingPattern {
   // Own keys only: `in` would also take the prototype's (constructor, toString…), and those crash the server.
   return typeof v === 'string' && Object.hasOwn(MEETING_PATTERNS, v);
 }
-
-/** Tokens a meeting may use by default: a million per worker at the table. */
-export const TOKENS_PER_SEAT = 1_000_000;
-/** The most a meeting may be given, however many workers sit down. */
-export const MAX_MEETING_BUDGET = 50_000_000;
 
 /**
  * The round notes' folder at the top of a meeting's worktree. It's left out of the meeting's commit and
@@ -125,8 +122,40 @@ export function outputProblem(p: string, m: Messages = messages('en')): string |
   return undefined;
 }
 
+/** What each seat is doing in a round, in English: it goes into the workers' prompts as it is, and the windows translate it (meetings.doing in shared/locales). */
+export const MEETING_DOING = {
+  decide: 'writing the decision',
+  propose: 'proposing',
+  critique: 'critiquing',
+  plan: 'planning',
+  part: 'doing their part',
+  merge: 'merging the work',
+  map: 'mapping',
+  reduce: 'reducing',
+  attack: 'attacking',
+  writeup: 'writing it up',
+  fixWriteup: 'fixing and writing it up',
+  fix: 'fixing',
+  review: 'reviewing',
+  combine: 'writing the review',
+} as const;
+
 /** "3 rounds" / "round 2 of 3". */
 const rounds = (n: number) => `${n} round${n === 1 ? '' : 's'}`;
+
+/**
+ * For a pattern that always runs the same rounds, what the dialog shows in place of a limit to set:
+ * the line ("3 rounds · fixed by the Lead & team workflow"), its rounds by name, and why, for the
+ * tooltip. Undefined when the limit is a range to pick from.
+ */
+export function fixedRounds(p: PatternDef, t: Messages = messages('en')): { line: string; stages: string; why: string } | undefined {
+  if (p.rounds.min !== p.rounds.max) return undefined;
+  const n = t.shared.rounds(p.rounds.max);
+  const stages = (p.stages ?? []).map((s) => t.meetings.stages[s] ?? s).join(' → ');
+  const id = Object.keys(MEETING_PATTERNS).find((k) => MEETING_PATTERNS[k as MeetingPattern] === p);
+  const label = (id && t.meetings.patterns[id]?.label) || p.label;
+  return { line: t.meetings.fixedLine(n, label), stages, why: t.meetings.fixedWhy(label, n, stages) };
+}
 
 /** The spend, e.g. "1.2M tokens · $2.40" (or without the cost when a provider doesn't report it). */
 export function meetingSpend(m: Pick<Meeting, 'tokens' | 'cost' | 'costKnown'>): string {
@@ -134,9 +163,9 @@ export function meetingSpend(m: Pick<Meeting, 'tokens' | 'cost' | 'costKnown'>):
 }
 
 /** What's on the table in a line: "Round 2 of 3 · critiquing". */
-export function meetingStage(m: Meeting): string {
-  const doing = [...new Set(m.turns.filter((t) => t.state !== 'done').map((t) => t.doing))].join(', ');
-  return `Round ${m.round} of ${m.rounds}${doing ? ` · ${doing}` : ''}`;
+export function meetingStage(m: Meeting, t: Messages = messages('en')): string {
+  const doing = [...new Set(m.turns.filter((s) => s.state !== 'done').map((s) => t.meetings.doing[s.doing] ?? s.doing))].join(', ');
+  return `${t.meeting.roundOf(m.round, m.rounds)}${doing ? ` · ${doing}` : ''}`;
 }
 
 /**

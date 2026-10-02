@@ -12,6 +12,10 @@ import type { CoreState } from './ctx';
 import type { Parts } from './parts';
 import type { Frame } from './registry';
 import { FOV } from './scene';
+import { FirstPersonBody } from '../world/character/person-first';
+
+/** Covering less ground than this (m/s) since your last footstep, your feet make no sound: a walk is 4.6. */
+const QUIET_FEET = 1.2;
 
 export interface LoopDeps {
   /** Offers the 2D view (/lite), where the 3D is hard going (see main.ts). */
@@ -35,6 +39,8 @@ export function installLoop(ctx: Ctx, core: CoreState, parts: Pick<Parts, 'stage
   let spotSavedAt = 0;
   /** Which half-stride your walk is on, so each one plays a footstep. */
   let stride = 0;
+  /** Where you were last frame, and how far and how long you've walked since your last footstep. */
+  const walked = { x: 0, z: 0, far: 0, time: 0 };
   /** How fast you were falling, so landing a jump thumps but stepping down a stair doesn't. */
   let fallV = 0;
   const lookDir = new THREE.Vector3();
@@ -64,6 +70,9 @@ export function installLoop(ctx: Ctx, core: CoreState, parts: Pick<Parts, 'stage
     renderCaffeine(caffeine, secs);
   }
 
+  /** Your body below you in first person (made on the first frame, once you are). */
+  let firstBody: FirstPersonBody | null = null;
+
   /** You as everyone else sees you, your hands as you see them, and the camera's view. */
   function moveMe({ dt, t }: Frame) {
     const { player, me, hands, voice, camera } = ctx;
@@ -79,7 +88,10 @@ export function installLoop(ctx: Ctx, core: CoreState, parts: Pick<Parts, 'stage
     // In first person you are the camera; in third, hide yourself when it's zoomed in right behind your head.
     // At the tee the camera's behind the ball, and you're the one holding the club.
     // So is the camera over your shoulder at the dart board or the axe lane.
-    me.root.visible = ctx.activities.any('takesCamera') || (!firstPerson && camera.position.distanceTo(headPos.set(player.pos.x, player.pos.y + 1.3, player.pos.z)) > 1.5);
+    // In first person your body's there below you (see FirstPersonBody), unless your hands are busy elsewhere (a car's wheel).
+    const ownBody = firstPerson && !ctx.activities.any('takesCamera') && !ctx.activities.any('hidesHands');
+    (firstBody ??= new FirstPersonBody(me.rig)).set(ownBody, camera);
+    me.root.visible = ownBody || ctx.activities.any('takesCamera') || (!firstPerson && camera.position.distanceTo(headPos.set(player.pos.x, player.pos.y + 1.3, player.pos.z)) > 1.5);
     // In a car, your hands are on the wheel, out of sight.
     if (firstPerson && !ctx.activities.any('hidesHands')) hands.update(dt, t, { yaw: player.camYaw, pitch: player.lookPitch, walkPhase: player.walkPhase, walking: player.moving && player.grounded, airborne: !player.grounded, jitter: player.effects.jitter, grip });
     // What you're doing widens the view (down a pole) or narrows it (at the oche or the line), and once
@@ -93,19 +105,27 @@ export function installLoop(ctx: Ctx, core: CoreState, parts: Pick<Parts, 'stage
   }
 
   /** What you hear, from where you are, and your footsteps. */
-  function listen() {
+  function listen({ dt }: Frame) {
     const { player, camera, sound } = ctx;
     // Your ears are in your head, facing wherever the camera looks.
     camera.getWorldDirection(lookDir);
     sound.update({ x: player.pos.x, y: player.pos.y + EYE_HEIGHT, z: player.pos.z, fx: lookDir.x, fz: lookDir.z });
+    const walking = player.moving && player.grounded;
+    walked.far = walking ? walked.far + Math.hypot(player.pos.x - walked.x, player.pos.z - walked.z) : 0;
+    walked.time = walking ? walked.time + dt : 0;
+    walked.x = player.pos.x;
+    walked.z = player.pos.z;
     const s = Math.floor(player.walkPhase / Math.PI);
     if (s !== stride) {
       stride = s;
-      if (player.moving && player.grounded) sound.step();
+      // Only for ground you've covered: walking into a wall, your feet go nowhere and make no sound.
+      if (walking && walked.far > walked.time * QUIET_FEET) sound.step(player.pos, player.running ? 1 : 0);
+      walked.far = walked.time = 0;
     }
     if (!player.grounded) fallV = Math.min(fallV, player.vy);
     else {
-      if (fallV < -4) sound.step('land');
+      // A hop lands at about 6 m/s, a drop from the loft at 10.
+      if (fallV < -4) sound.land(player.pos, Math.min(1, (-fallV - 4) / 7));
       fallV = 0;
     }
   }
@@ -171,7 +191,9 @@ export function installLoop(ctx: Ctx, core: CoreState, parts: Pick<Parts, 'stage
     const { player, hands, sky, camera, renderer } = ctx;
     const { effect, scene } = parts.stage;
     const firstPerson = player.view === 'first';
+    const unhide = firstBody?.hideExtras();
     effect.render(scene, camera);
+    unhide?.();
     // Not while something has the screen to itself (the telescope, the boss's monitor or the arcade up close), where they'd cover it.
     if (firstPerson && !ctx.view.covered() && !ctx.activities.any('hidesHands')) {
       // Hands go on top of everything, so they never clip into a desk you walk up to. They have

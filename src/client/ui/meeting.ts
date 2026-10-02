@@ -1,5 +1,5 @@
 import './meeting.css';
-import { MEETING_PATTERNS, MEETING_PATTERN_IDS, TOKENS_PER_SEAT, meetingSpend, meetingStage, outputProblem, slugify } from '../../shared/meetings';
+import { MEETING_PATTERNS, MEETING_PATTERN_IDS, fixedRounds, meetingSpend, meetingStage, outputProblem, slugify } from '../../shared/meetings';
 import { fmtTokens, type Meeting, type MeetingPattern, type MeetingTurn } from '../../shared/protocol';
 import type { Net } from '../net';
 import { store } from '../state';
@@ -9,6 +9,7 @@ import { providerPicker } from './provider';
 import { officePrompt } from './prompts';
 import { issueVars } from './github/prompts';
 import { L, patternLabel, patternText, roleLabel } from '../i18n';
+import { dictateField } from './dictate';
 
 /** What a meeting called from an issue, a PR or a task starts out with. */
 export interface MeetingPreset {
@@ -76,7 +77,6 @@ function renderStatus(m: Meeting, body: HTMLElement, foot: HTMLElement, net: Net
   const p = MEETING_PATTERNS[m.pattern];
   const running = m.status === 'running';
   const pill = h('span.pill', { class: running ? 'working' : m.status === 'done' ? 'done' : 'needs_input' }, running ? L.meeting.inMeeting : (L.meeting.statuses[m.status] ?? m.status));
-  const f = Math.min(1, m.tokens / Math.max(1, m.budget));
   const seats = h(
     'ul.meeting-seats',
     {},
@@ -102,8 +102,8 @@ function renderStatus(m: Meeting, body: HTMLElement, foot: HTMLElement, net: Net
   body.replaceChildren(
     ...present(
     h('div.meeting-head', {}, pill, h('b', {}, `${p.icon} ${patternLabel(m.pattern)}`), h('span.meeting-title', { title: m.prompt }, m.title)),
-    h('p.meeting-line', {}, running ? `${meetingStage(m)} · ${L.meeting.calledBy(m.calledBy, timeAgo(new Date(m.startedAt).toISOString()))}` : m.status === 'done' ? L.meeting.wrote(m.output, m.round) : L.meeting.stoppedIn(m.round, m.reason ?? L.meeting.statuses.stopped)),
-    h('div.meeting-budget', { title: L.meeting.tokensOf(m.tokens.toLocaleString(), m.budget.toLocaleString()) }, h('div.meeting-bar', {}, h('i', { style: `width:${(f * 100).toFixed(1)}%;background:${f > 0.9 ? 'var(--bad)' : f > 0.7 ? 'var(--warn)' : 'var(--good)'}` })), h('span', {}, L.meeting.tokensOf(meetingSpend(m), fmtTokens(m.budget)))),
+    h('p.meeting-line', {}, running ? `${meetingStage(m, L)} · ${L.meeting.calledBy(m.calledBy, timeAgo(new Date(m.startedAt).toISOString()))}` : m.status === 'done' ? L.meeting.wrote(m.output, m.round) : L.meeting.stoppedIn(m.round, m.reason ?? L.meeting.statuses.stopped)),
+    m.tokens ? h('p.meeting-spend', { title: L.meeting.spendTip(m.tokens.toLocaleString()) }, `💸 ${running ? L.meeting.soFar(meetingSpend(m)) : meetingSpend(m)}`) : null,
     seats,
     h('div.meeting-out', {}, h('div.meeting-out-head', {}, h('b', {}, '📄 '), h('code', {}, m.output), where, review), h('pre.meeting-preview', {}, m.preview?.trim() ? m.preview : running ? L.meeting.nothingYet : L.meeting.nothingWritten)),
     store.meeting.past.length
@@ -125,12 +125,11 @@ function renderStatus(m: Meeting, body: HTMLElement, foot: HTMLElement, net: Net
 
 const present = (...xs: (Node | null)[]): Node[] => xs.filter((x): x is Node => x !== null);
 
-/** The form that calls a meeting: the pattern, what it's about, who sits down, the output, the bounds. */
+/** The form that calls a meeting: the pattern, what it's about, who sits down, the output, the round limit. */
 function meetingForm(net: Net, preset: MeetingPreset | undefined, done: () => void, back: () => void) {
   let pattern: MeetingPattern = preset?.pattern ?? 'debate';
   let roles: string[] = [];
   let outputTouched = false;
-  let budgetTouched = false;
   const patterns = h('div.meeting-patterns', { role: 'radiogroup', 'aria-label': L.meeting.pattern });
   const about = h('textarea', { rows: 4, placeholder: L.meeting.aboutPlaceholder, 'aria-label': L.meeting.aboutLabel }) as HTMLTextAreaElement;
   about.value = preset?.prompt ?? '';
@@ -146,9 +145,10 @@ function meetingForm(net: Net, preset: MeetingPreset | undefined, done: () => vo
   const minus = h('button.btn.small', { type: 'button', 'aria-label': L.meeting.fewer }, '−');
   const plus = h('button.btn.small', { type: 'button', 'aria-label': L.meeting.more }, '+');
   const roleList = h('div.meeting-roles');
-  const roundsIn = h('input', { type: 'number', 'aria-label': L.meeting.rounds }) as HTMLInputElement;
+  const roundsSel = h('select.provider-select.meeting-rounds', { 'aria-label': L.meeting.roundLimit }) as HTMLSelectElement;
+  // A pattern that always runs the same rounds says so, where a locked control would look broken.
+  const roundsFixed = h('span.meeting-fixed');
   const roundsNote = h('small.muted');
-  const budgetIn = h('input', { type: 'number', min: 50, step: 250, 'aria-label': L.meeting.budgetLabel }) as HTMLInputElement;
   const provider = providerPicker(store.project, 'meeting-provider', L.meeting.workers);
   const busy = h('p.meeting-busy');
   const submit = h('button.btn.primary', { type: 'submit' }, L.meeting.start);
@@ -163,9 +163,6 @@ function meetingForm(net: Net, preset: MeetingPreset | undefined, done: () => vo
     outputNote.textContent = problem ? `⚠️ ${problem}` : pattern === 'review' ? L.meeting.endsReview : store.project?.branch ? L.meeting.endsCommit : L.meeting.ends;
     outputNote.classList.toggle('bad', !!problem);
   };
-  const syncBudget = () => {
-    if (!budgetTouched) budgetIn.value = String((roles.length * TOKENS_PER_SEAT) / 1000);
-  };
   const renderRoles = () => {
     const d = def();
     count.textContent = String(roles.length);
@@ -178,7 +175,6 @@ function meetingForm(net: Net, preset: MeetingPreset | undefined, done: () => vo
         return h('div.meeting-role', {}, h('span.muted', {}, i === 0 ? '👑' : `${i + 1}`), input);
       }),
     );
-    syncBudget();
   };
   const pickPattern = (p: MeetingPattern) => {
     pattern = p;
@@ -186,11 +182,15 @@ function meetingForm(net: Net, preset: MeetingPreset | undefined, done: () => vo
     roles = d.roles.slice(0, d.seats.default);
     for (const b of patterns.children) b.classList.toggle('on', (b as HTMLElement).dataset.pattern === p);
     for (const b of patterns.children) b.setAttribute('aria-checked', String((b as HTMLElement).dataset.pattern === p));
-    roundsIn.min = String(d.rounds.min);
-    roundsIn.max = String(d.rounds.max);
-    roundsIn.value = String(d.rounds.default);
-    roundsIn.disabled = d.rounds.min === d.rounds.max;
-    roundsNote.textContent = d.roundsNote;
+    const fixed = fixedRounds(d, L);
+    const limits = Array.from({ length: d.rounds.max - d.rounds.min + 1 }, (_, i) => d.rounds.min + i);
+    roundsSel.replaceChildren(...limits.map((n) => h('option', { value: String(n) }, L.shared.rounds(n))));
+    roundsSel.value = String(d.rounds.default);
+    roundsSel.classList.toggle('hidden', !!fixed);
+    roundsFixed.classList.toggle('hidden', !fixed);
+    roundsFixed.textContent = fixed ? `🔒 ${fixed.line}` : '';
+    roundsFixed.title = fixed?.why ?? '';
+    roundsNote.textContent = fixed ? fixed.stages : `${L.meeting.roundsRange(d.rounds.min, d.rounds.max)} ${patternText(p)?.roundsNote ?? d.roundsNote ?? ''}`.trim();
     prRow.classList.toggle('hidden', d.needs !== 'pr');
     partsRow.classList.toggle('hidden', d.needs !== 'parts');
     renderRoles();
@@ -212,7 +212,6 @@ function meetingForm(net: Net, preset: MeetingPreset | undefined, done: () => vo
     outputTouched = true;
     syncOutput();
   });
-  budgetIn.addEventListener('input', () => (budgetTouched = true));
   titleIn.addEventListener('input', syncOutput);
   about.addEventListener('input', syncOutput);
   prSel.addEventListener('change', syncOutput);
@@ -221,13 +220,13 @@ function meetingForm(net: Net, preset: MeetingPreset | undefined, done: () => vo
     'form.meeting-form',
     {},
     patterns,
-    h('div.meeting-field', {}, h('label', {}, L.meeting.whatAbout), about),
+    h('div.meeting-field', {}, h('label', {}, L.meeting.whatAbout), dictateField(about)),
     h('div.meeting-field', {}, titleIn),
     prRow,
     partsRow,
     h('div.meeting-field', {}, h('label', {}, L.meeting.outputFile), outputIn, outputNote),
     h('div.meeting-field', {}, h('label.meeting-count', {}, L.meeting.atTable, minus, count, plus), roleList),
-    h('div.meeting-bounds', {}, h('div.meeting-field', {}, h('label', {}, L.meeting.roundLimit), roundsIn, roundsNote), h('div.meeting-field', {}, h('label', {}, L.meeting.budget), budgetIn, h('small.muted', {}, L.meeting.budgetNote))),
+    h('div.meeting-field', {}, h('label', {}, L.meeting.roundLimit), roundsSel, roundsFixed, roundsNote),
     provider.element,
     busy,
   ) as HTMLFormElement;
@@ -256,8 +255,7 @@ function meetingForm(net: Net, preset: MeetingPreset | undefined, done: () => vo
       parts: def().needs === 'parts' ? parts : undefined,
       pr: def().needs === 'pr' ? pr() : undefined,
       issue: preset?.issue,
-      rounds: Number(roundsIn.value) || undefined,
-      budget: Math.round((Number(budgetIn.value) || 0) * 1000) || undefined,
+      rounds: Number(roundsSel.value) || undefined,
       provider: provider.value(),
       model: provider.model(),
       effort: provider.effort(),

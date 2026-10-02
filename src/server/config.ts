@@ -60,6 +60,8 @@ export interface Config {
   city?: string;
   /** Weather pinned for good, instead of made up or forecast. */
   weather?: Weather;
+  /** The sky keeps real time (a day a day), instead of a whole day and night every hour. */
+  realTimeSky: boolean;
 }
 
 export interface RTCIceServerLike {
@@ -99,15 +101,15 @@ export function officeHome(): string {
   return path.resolve(process.env.AGENT_OFFICE_HOME || path.join(os.homedir(), 'agent-office'));
 }
 
-/** Keep the office's own data out of git without touching the project's .gitignore. */
-export function excludeFromGit(dir: string) {
+/** Keep the office's own data (or another `entry` it writes into the project) out of git without touching the project's .gitignore. */
+export function excludeFromGit(dir: string, entry = '.agent-office/') {
   try {
     const gitDir = execFileSync('git', ['rev-parse', '--git-common-dir'], { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
     const exclude = path.resolve(dir, gitDir, 'info', 'exclude');
     const cur = existsSync(exclude) ? readFileSync(exclude, 'utf8') : '';
-    if (!cur.split('\n').some((l) => l.trim() === '.agent-office/' || l.trim() === '.agent-office')) {
+    if (!cur.split('\n').some((l) => l.trim() === entry || l.trim() === entry.replace(/\/$/, ''))) {
       mkdirSync(path.dirname(exclude), { recursive: true });
-      appendFileSync(exclude, `${cur && !cur.endsWith('\n') ? '\n' : ''}.agent-office/\n`);
+      appendFileSync(exclude, `${cur && !cur.endsWith('\n') ? '\n' : ''}${entry}\n`);
     }
   } catch {
     // not a git repo; nothing to exclude
@@ -139,7 +141,10 @@ export function loadConfig(argv: string[]): Config {
   let webhook = process.env.AGENT_OFFICE_WEBHOOK;
   let city = process.env.AGENT_OFFICE_CITY || '';
   let weather = process.env.AGENT_OFFICE_WEATHER || '';
+  let realTimeSky = process.env.AGENT_OFFICE_SKY_CLOCK === 'real';
   const iceServers: RTCIceServerLike[] = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }];
+  // A container can't take --turn (deploy/container/compose.yaml), so the TURN servers come from the environment too.
+  for (const url of (process.env.AGENT_OFFICE_TURN ?? '').split(/\s+/).filter(Boolean)) iceServers.push(parseTurn(url));
 
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -218,6 +223,9 @@ export function loadConfig(argv: string[]): Config {
         break;
       case '--weather':
         weather = takeValue(argv, i++, a);
+        break;
+      case '--real-time-sky':
+        realTimeSky = true;
         break;
       default:
         if (a.startsWith('-')) {
@@ -355,6 +363,7 @@ export function loadConfig(argv: string[]): Config {
     webhook,
     city: city.trim() || undefined,
     weather: (weather as Weather) || undefined,
+    realTimeSky,
   };
 }
 

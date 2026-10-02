@@ -36,7 +36,7 @@ export function installMeeting(ctx: Ctx, parts: Pick<Parts, 'waiting' | 'actions
     hint: () => {
       const m = store.meeting.current;
       const p = m && MEETING_PATTERNS[m.pattern];
-      const what = !m || !p ? L.hints.free : m.status === 'running' ? `${p.icon} ${p.label} · ${meetingStage(m)}` : `${p.icon} ${p.label} ${m.status === 'done' ? L.hints.meetingDone : L.hints.meetingStopped}`;
+      const what = !m || !p ? L.hints.free : m.status === 'running' ? `${p.icon} ${p.label} · ${meetingStage(m, L)}` : `${p.icon} ${p.label} ${m.status === 'done' ? L.hints.meetingDone : L.hints.meetingStopped}`;
       return { k: what, parts: [hintTitle(L.hints.meetingRoom), aside(clip(what, 50)), key('E', m?.status === 'running' ? L.hints.seeHow : m ? L.hints.seeOrCall : L.hints.callMeeting)] };
     },
     use: onE(() => showMeeting()),

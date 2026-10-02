@@ -82,6 +82,12 @@ export const settingsHandlers = {
             : L.srv.decorCalendar(who, now === 'halloween' ? L.srv.seasonHalloween : now ? L.srv.seasonChristmas : undefined),
     );
   },
+  'sky.clock'(ctx, c, msg) {
+    const real = msg.real === true;
+    if (real === !!ctx.sky.state.realTime) return;
+    ctx.sky.setClock(real);
+    ctx.toastAll(real ? L.srv.skyRealTime(c.peer.name) : L.srv.skyHourly(c.peer.name));
+  },
   'map.set'(ctx, c, msg) {
     const who = c.peer.name;
     // Someone opened the list, or picked a map: either way the folder of maps of your own is read again first.

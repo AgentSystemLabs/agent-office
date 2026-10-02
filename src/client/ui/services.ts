@@ -26,6 +26,19 @@ export function serviceTunnel(s: ServicesState, port: number, os: Os): string {
   return `ssh -N -o ExitOnForwardFailure=yes -o PermitLocalCommand=yes -o LocalCommand="${open}" -L ${port}:localhost:${s.port} ${s.ssh ?? 'you@your-server'}`;
 }
 
+/**
+ * The command that opens every worker's server on someone's own computer by itself, as each one
+ * starts (`agent-office tunnel`, src/server/tunnel/). It reaches the office the way this page did.
+ */
+export function autoTunnel(origin = location.origin): string {
+  return origin === 'http://localhost:4600' ? 'agent-office tunnel' : `agent-office tunnel ${origin}`;
+}
+
+/** Whether the office is likely on another machine than this browser, so its workers' ports aren't already here. */
+function elsewhere(s: ServicesState): boolean {
+  return !!s.ssh || !/^(?:localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
+}
+
 function describe(svc: ServiceInfo): { who: string; color: string; branch?: string } {
   const w = store.workers.get(svc.workerId);
   return { who: w?.name ?? L.pull.aWorker, color: w?.color ?? '#8d99ae', branch: w?.worktree?.branch };
@@ -74,6 +87,25 @@ export function openServices() {
           : L.services.intro,
       ),
     );
+    if (!direct && elsewhere(s)) {
+      body.append(
+        h(
+          'div.svc-auto',
+          {},
+          h('p', {}, L.services.autoTitle),
+          h(
+            'p.note',
+            {},
+            L.services.auto1,
+            h('code', {}, 'localhost:5173'),
+            L.services.auto2,
+            h('code', {}, 'agent-office'),
+            L.services.auto3,
+          ),
+          h('div.cmd', {}, h('pre', {}, autoTunnel()), copyButton(L.team.copy, () => autoTunnel())),
+        ),
+      );
+    }
     if (!s.items.length) {
       body.append(
         h(

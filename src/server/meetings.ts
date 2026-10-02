@@ -4,8 +4,8 @@ import { closeSync, cpSync, existsSync, mkdirSync, openSync, readFileSync, readS
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { MEETING_SEATS } from '../shared/layout.js';
-import { MAX_MEETING_BUDGET, MEETING_NOTES_DIR, MEETING_PATTERNS, TOKENS_PER_SEAT, isMeetingPattern, meetingRecord, outputProblem, slugify } from '../shared/meetings.js';
-import { fmtTokens, isAgentEffort, isAgentProvider, tokensOf, type AgentChoice, type AgentEffort, type AgentProvider, type Meeting, type MeetingRecord, type MeetingRequest, type MeetingState, type MeetingTurn, type WorkerInfo, type WorkerStatus } from '../shared/protocol.js';
+import { MEETING_DOING, MEETING_NOTES_DIR, MEETING_PATTERNS, isMeetingPattern, meetingRecord, outputProblem, slugify } from '../shared/meetings.js';
+import { isAgentEffort, isAgentProvider, tokensOf, type AgentChoice, type AgentEffort, type AgentProvider, type Meeting, type MeetingRecord, type MeetingRequest, type MeetingState, type MeetingTurn, type WorkerInfo, type WorkerStatus } from '../shared/protocol.js';
 import { validateWorkerEffort, validateWorkerModel } from './agents.js';
 import { providerMeta, takesEffort, takesModel } from '../shared/providers.js';
 import { gitError, type WorktreeRef, type WorktreeState } from './worktrees.js';
@@ -78,8 +78,8 @@ interface Part {
  * through the rounds of its pattern (shared/meetings.ts): in each step every worker with a part gets
  * it as a prompt, and the step is over when each of them has ended its turn with its part written to
  * the file it names. Checking the files, not the talk, is what moves a meeting on. It ends when the
- * output file is written, and stops early, saying why, when it runs over its token budget, when a
- * worker won't write its part, or when a worker leaves.
+ * output file is written, and stops early, saying why, when a worker won't write its part or when a
+ * worker leaves. What the table has used is added up to be shown, and never stops it.
  *
  * Everyone at the table shares the meeting's own git worktree (in a git project). When it's done,
  * the office commits the output there, or for a review panel posts it on the pull request. The
@@ -148,8 +148,7 @@ export class MeetingRoom {
     if (pattern.needs === 'parts' && parts.length < count - 1) return L.srvMeeting.listParts(count - 1);
     const issue = Number.isInteger(req.issue) && (req.issue as number) > 0 ? (req.issue as number) : undefined;
     const rounds = clamp(Math.floor(Number(req.rounds) || pattern.rounds.default), pattern.rounds.min, pattern.rounds.max);
-    const budget = clamp(Math.floor(Number(req.budget) || count * TOKENS_PER_SEAT), 50_000, MAX_MEETING_BUDGET);
-    const title = (String(req.title ?? '').replace(/\s+/g, ' ').trim() || (pr !== undefined && req.pattern === 'review' ? L.pull.reviewOf(pr) : firstLine(prompt))).slice(0, 100);
+    const title = (String(req.title ?? '').replace(/\s+/g, ' ').trim() || (pr !== undefined && req.pattern === 'review' ? `Review of PR #${pr}` : firstLine(prompt))).slice(0, 100);
     const id = randomBytes(4).toString('hex');
     const slug = slugify(title, 32);
     const output = String(req.output ?? '').trim() || pattern.output(slug, pr);
@@ -187,7 +186,6 @@ export class MeetingRoom {
       round: 1,
       step: 1,
       turns: [],
-      budget,
       tokens: 0,
       cost: 0,
       costKnown: true,
@@ -218,7 +216,7 @@ export class MeetingRoom {
     if (last) this.archive(last);
     this.current = m;
     this.changed();
-    this.events.toast(L.srvMeeting.called(by, L.meetings.patterns[req.pattern]?.label ?? pattern.label, title, count, rounds, fmtTokens(budget)), 'info');
+    this.events.toast(L.srvMeeting.called(by, L.meetings.patterns[req.pattern]?.label ?? pattern.label, title, count, rounds), 'info');
     return undefined;
   }
 
@@ -299,7 +297,6 @@ export class MeetingRoom {
       if (!w) return this.halt(m, L.srvMeeting.sentHome(s.role, s.workerName));
       if (w.status === 'exited') return this.halt(m, L.srvMeeting.agentExited(s.role, w.name));
     }
-    if (m.tokens > m.budget) return this.halt(m, L.srvMeeting.overBudget(fmtTokens(m.tokens), fmtTokens(m.budget)));
     let changed = false;
     for (const t of m.turns) {
       changed = this.advance(m, t, byId.get(m.seats[t.seat].workerId!)!) || changed;
@@ -544,7 +541,6 @@ export class MeetingRoom {
       output: m.output,
       outputPath: path.join(this.cwd(m), m.output),
       rounds: `${m.rounds} round${m.rounds === 1 ? '' : 's'}`,
-      budget: fmtTokens(m.budget),
       where: where + inside,
     });
   }
@@ -573,12 +569,12 @@ export class MeetingRoom {
       case 'debate': {
         if (step > 1) return null;
         if (last) {
-          return [{ seat: 0, doing: L.srvMeeting.doing.decide, file: m.output, ask: this.say('meeting.debate.decide', { notes: A(m.notes), lastNotes: notes(round - 1, all), output: A(m.output) }) }];
+          return [{ seat: 0, doing: MEETING_DOING.decide, file: m.output, ask: this.say('meeting.debate.decide', { notes: A(m.notes), lastNotes: notes(round - 1, all), output: A(m.output) }) }];
         }
-        if (round === 1) return all.map((i) => ({ seat: i, doing: L.srvMeeting.doing.propose, file: note(1, i), ask: this.say('meeting.debate.propose', { role: m.seats[i].role, file: A(note(1, i)) }) }));
+        if (round === 1) return all.map((i) => ({ seat: i, doing: MEETING_DOING.propose, file: note(1, i), ask: this.say('meeting.debate.propose', { role: m.seats[i].role, file: A(note(1, i)) }) }));
         return all.map((i) => ({
           seat: i,
-          doing: L.srvMeeting.doing.critique,
+          doing: MEETING_DOING.critique,
           file: note(round, i),
           ask: this.say('meeting.debate.critique', { previousRound: round - 1, theirNotes: notes(round - 1, all.filter((j) => j !== i)), file: A(note(round, i)) }),
         }));
@@ -589,12 +585,12 @@ export class MeetingRoom {
         const plan = `${m.notes}/plan.md`;
         if (round === 1) {
           const parts = `${team.length} part${team.length === 1 ? '' : 's'}`;
-          return [{ seat: 0, doing: L.srvMeeting.doing.plan, file: plan, ask: this.say('meeting.lead.plan', { parts, team: list(team.map((i) => `the ${m.seats[i].role}`)), exampleRole: m.seats[team[0]].role, file: A(plan) }) }];
+          return [{ seat: 0, doing: MEETING_DOING.plan, file: plan, ask: this.say('meeting.lead.plan', { parts, team: list(team.map((i) => `the ${m.seats[i].role}`)), exampleRole: m.seats[team[0]].role, file: A(plan) }) }];
         }
         if (round === 2) {
-          return team.map((i) => ({ seat: i, doing: L.srvMeeting.doing.part, file: note(2, i), ask: this.say('meeting.lead.part', { plan: A(plan), role: m.seats[i].role, lead: m.seats[0].role, file: A(note(2, i)) }) }));
+          return team.map((i) => ({ seat: i, doing: MEETING_DOING.part, file: note(2, i), ask: this.say('meeting.lead.part', { plan: A(plan), role: m.seats[i].role, lead: m.seats[0].role, file: A(note(2, i)) }) }));
         }
-        return [{ seat: 0, doing: L.srvMeeting.doing.merge, file: m.output, ask: this.say('meeting.lead.merge', { reports: notes(2, team), output: A(m.output) }) }];
+        return [{ seat: 0, doing: MEETING_DOING.merge, file: m.output, ask: this.say('meeting.lead.merge', { reports: notes(2, team), output: A(m.output) }) }];
       }
       case 'mapreduce': {
         if (step > 1) return null;
@@ -602,10 +598,10 @@ export class MeetingRoom {
         if (round === 1) {
           return mappers.map((i, k) => {
             const mine = (m.parts ?? []).filter((_, j) => j % mappers.length === k);
-            return { seat: i, doing: L.srvMeeting.doing.map, file: note(1, i), ask: this.say('meeting.mapreduce.map', { parts: mine.map((x) => `- ${x}`).join('\n'), file: A(note(1, i)) }) };
+            return { seat: i, doing: MEETING_DOING.map, file: note(1, i), ask: this.say('meeting.mapreduce.map', { parts: mine.map((x) => `- ${x}`).join('\n'), file: A(note(1, i)) }) };
           });
         }
-        return [{ seat: 0, doing: L.srvMeeting.doing.reduce, file: m.output, ask: this.say('meeting.mapreduce.reduce', { results: notes(1, mappers), output: A(m.output) }) }];
+        return [{ seat: 0, doing: MEETING_DOING.reduce, file: m.output, ask: this.say('meeting.mapreduce.reduce', { results: notes(1, mappers), output: A(m.output) }) }];
       }
       case 'redblue': {
         const [blue, red] = [0, 1];
@@ -613,26 +609,26 @@ export class MeetingRoom {
         const blueNote = `${m.notes}/r${round}-blue.md`;
         if (step === 1) {
           const before = round > 1 ? ` The Blue team's fixes from round ${round - 1} are in ${A(`${m.notes}/r${round - 1}-blue.md`)}: check them first, then keep looking.` : '';
-          return [{ seat: red, doing: L.srvMeeting.doing.attack, file: redNote, ask: this.say('meeting.redblue.attack', { previousFixes: before, file: A(redNote) }) }];
+          return [{ seat: red, doing: MEETING_DOING.attack, file: redNote, ask: this.say('meeting.redblue.attack', { previousFixes: before, file: A(redNote) }) }];
         }
         if (step > 2) return null;
         if (m.lastRound === round) {
-          return [{ seat: blue, doing: L.srvMeeting.doing.writeup, file: m.output, ask: this.say('meeting.redblue.writeup', { findings: A(redNote), notes: A(m.notes), output: A(m.output) }) }];
+          return [{ seat: blue, doing: MEETING_DOING.writeup, file: m.output, ask: this.say('meeting.redblue.writeup', { findings: A(redNote), notes: A(m.notes), output: A(m.output) }) }];
         }
         const wrap = last ? ` This is the last round: once you've fixed things, also write ${A(m.output)}: every finding from every round (${A(m.notes)}/), what was fixed and how, and what's still open. That file is the meeting's output.` : '';
-        return [{ seat: blue, doing: last ? L.srvMeeting.doing.fixWriteup : L.srvMeeting.doing.fix, file: last ? m.output : blueNote, ask: this.say('meeting.redblue.fix', { findings: A(redNote), file: A(blueNote), lastRound: wrap, output: A(m.output) }) }];
+        return [{ seat: blue, doing: last ? MEETING_DOING.fixWriteup : MEETING_DOING.fix, file: last ? m.output : blueNote, ask: this.say('meeting.redblue.fix', { findings: A(redNote), file: A(blueNote), lastRound: wrap, output: A(m.output) }) }];
       }
       case 'review': {
         if (step > 1) return null;
         if (round === 1) {
           return all.map((i) => ({
             seat: i,
-            doing: L.srvMeeting.doing.review,
+            doing: MEETING_DOING.review,
             file: note(1, i),
             ask: this.say('meeting.review.review', { pr: m.pr, role: m.seats[i].role, file: A(note(1, i)) }),
           }));
         }
-        return [{ seat: 0, doing: L.srvMeeting.doing.combine, file: m.output, ask: this.say('meeting.review.combine', { findings: notes(1, all), exampleRole: m.seats[1]?.role ?? 'Security', output: A(m.output) }) }];
+        return [{ seat: 0, doing: MEETING_DOING.combine, file: m.output, ask: this.say('meeting.review.combine', { findings: notes(1, all), exampleRole: m.seats[1]?.role ?? 'Security', output: A(m.output) }) }];
       }
     }
   }

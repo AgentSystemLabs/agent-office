@@ -7,6 +7,11 @@ const DAY = 86_400_000;
 /** How long the sky takes over a whole day and night: an hour, so you see the sun go down and come back up. */
 export const SKY_DAY_MS = 3_600_000;
 
+/** The time of day in `s`'s sky at `ms`: the real time when it keeps the office's clock, else skyTime. */
+export function skyNow(ms: number, s: { utcOffset: number; realTime?: boolean }): number {
+  return s.realTime ? ms : skyTime(ms, s.utcOffset);
+}
+
 /**
  * The time of day in the sky at `ms` (Unix time) on the office's clock, `utcOffset` minutes east of
  * UTC: it goes round a whole day every SKY_DAY_MS, midnight on the hour and noon at half past. It
