@@ -1,5 +1,5 @@
 import './meeting.css';
-import { MEETING_PATTERNS, MEETING_PATTERN_IDS, TOKENS_PER_SEAT, meetingSpend, meetingStage, outputProblem, slugify } from '../../shared/meetings';
+import { MEETING_PATTERNS, MEETING_PATTERN_IDS, TOKENS_PER_SEAT, fixedRounds, meetingSpend, meetingStage, outputProblem, slugify } from '../../shared/meetings';
 import { fmtTokens, type Meeting, type MeetingPattern, type MeetingTurn } from '../../shared/protocol';
 import type { Net } from '../net';
 import { store } from '../state';
@@ -145,7 +145,9 @@ function meetingForm(net: Net, preset: MeetingPreset | undefined, done: () => vo
   const minus = h('button.btn.small', { type: 'button', 'aria-label': 'Fewer workers' }, '−');
   const plus = h('button.btn.small', { type: 'button', 'aria-label': 'More workers' }, '+');
   const roleList = h('div.meeting-roles');
-  const roundsIn = h('input', { type: 'number', 'aria-label': 'Rounds' }) as HTMLInputElement;
+  const roundsSel = h('select.provider-select.meeting-rounds', { 'aria-label': 'Round limit' }) as HTMLSelectElement;
+  // A pattern that always runs the same rounds says so, where a locked control would look broken.
+  const roundsFixed = h('span.meeting-fixed');
   const roundsNote = h('small.muted');
   const budgetIn = h('input', { type: 'number', min: 50, step: 250, 'aria-label': 'Token budget in thousands' }) as HTMLInputElement;
   const provider = providerPicker(store.project, 'meeting-provider', 'Workers');
@@ -185,11 +187,15 @@ function meetingForm(net: Net, preset: MeetingPreset | undefined, done: () => vo
     roles = d.roles.slice(0, d.seats.default);
     for (const b of patterns.children) b.classList.toggle('on', (b as HTMLElement).dataset.pattern === p);
     for (const b of patterns.children) b.setAttribute('aria-checked', String((b as HTMLElement).dataset.pattern === p));
-    roundsIn.min = String(d.rounds.min);
-    roundsIn.max = String(d.rounds.max);
-    roundsIn.value = String(d.rounds.default);
-    roundsIn.disabled = d.rounds.min === d.rounds.max;
-    roundsNote.textContent = d.roundsNote;
+    const fixed = fixedRounds(d);
+    const limits = Array.from({ length: d.rounds.max - d.rounds.min + 1 }, (_, i) => d.rounds.min + i);
+    roundsSel.replaceChildren(...limits.map((n) => h('option', { value: String(n) }, `${n} round${n === 1 ? '' : 's'}`)));
+    roundsSel.value = String(d.rounds.default);
+    roundsSel.classList.toggle('hidden', !!fixed);
+    roundsFixed.classList.toggle('hidden', !fixed);
+    roundsFixed.textContent = fixed ? `🔒 ${fixed.line}` : '';
+    roundsFixed.title = fixed?.why ?? '';
+    roundsNote.textContent = fixed ? fixed.stages : `${d.rounds.min} to ${d.rounds.max}. ${d.roundsNote ?? ''}`.trim();
     prRow.classList.toggle('hidden', d.needs !== 'pr');
     partsRow.classList.toggle('hidden', d.needs !== 'parts');
     renderRoles();
@@ -226,7 +232,7 @@ function meetingForm(net: Net, preset: MeetingPreset | undefined, done: () => vo
     partsRow,
     h('div.meeting-field', {}, h('label', {}, 'Output file'), outputIn, outputNote),
     h('div.meeting-field', {}, h('label.meeting-count', {}, 'Workers at the table', minus, count, plus), roleList),
-    h('div.meeting-bounds', {}, h('div.meeting-field', {}, h('label', {}, 'Round limit'), roundsIn, roundsNote), h('div.meeting-field', {}, h('label', {}, 'Token budget (thousands)'), budgetIn, h('small.muted', {}, 'For everyone at the table together. Over it, the meeting stops.'))),
+    h('div.meeting-bounds', {}, h('div.meeting-field', {}, h('label', {}, 'Round limit'), roundsSel, roundsFixed, roundsNote), h('div.meeting-field', {}, h('label', {}, 'Token budget (thousands)'), budgetIn, h('small.muted', {}, 'For everyone at the table together. Over it, the meeting stops.'))),
     provider.element,
     busy,
   ) as HTMLFormElement;
@@ -255,7 +261,7 @@ function meetingForm(net: Net, preset: MeetingPreset | undefined, done: () => vo
       parts: def().needs === 'parts' ? parts : undefined,
       pr: def().needs === 'pr' ? pr() : undefined,
       issue: preset?.issue,
-      rounds: Number(roundsIn.value) || undefined,
+      rounds: Number(roundsSel.value) || undefined,
       budget: Math.round((Number(budgetIn.value) || 0) * 1000) || undefined,
       provider: provider.value(),
       model: provider.model(),

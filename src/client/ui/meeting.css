@@ -13,7 +13,8 @@
 .meeting-field { display: flex; flex-direction: column; gap: 4px; }
 /* The fields' labels: styles/base.css, after the frame's label rule. */
 .meeting-field input[type=number] { width: 150px; font: inherit; font-size: 15px; border: 3px solid var(--ink); border-radius: 12px; padding: 8px 10px; background: #fff; }
-.meeting-field input:disabled { opacity: .55; }
+.meeting-field .meeting-rounds { align-self: flex-start; min-width: 150px; font-size: 15px; border-width: 3px; border-radius: 12px; padding: 8px 10px; }
+.meeting-fixed { align-self: flex-start; padding: 11px 0; font-size: 15px; font-weight: 800; cursor: help; text-decoration: underline dotted var(--muted); text-underline-offset: 4px; }
 .meeting-count { display: flex !important; align-items: center; gap: 8px; }
 .meeting-roles { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 6px; }
 .meeting-role { display: flex; align-items: center; gap: 6px; }
