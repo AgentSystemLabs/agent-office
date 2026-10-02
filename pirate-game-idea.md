@@ -2,7 +2,7 @@
 
 Last updated: 2026-10-02 (Europe/Vilnius).
 
-Status: concept direction accepted; mechanics below are proposed defaults unless marked as decided. This document will evolve during the conversation into a concrete implementation plan. It does not authorize starting game implementation or changing agent-office's runtime.
+Status: concept direction accepted; mechanics below are proposed defaults unless marked as decided. A [dedicated development plan](pirate-game-plan/README.md) now records architecture, individual DEV tasks, mandatory review, stage/PROD promotion, verification, and operations. Planning must satisfy its readiness gate before implementation starts. This does not authorize starting game implementation or changing agent-office's runtime.
 
 Working names: PromptCraft / PromptyCraft. Final name and availability remain open.
 
@@ -486,6 +486,18 @@ Use meaningful transaction and recovery tests for authoritative state, automated
 13. Child-data provider arrangement, launch jurisdiction, and moderation staffing.
 14. Commercial model, final name, development budget, and team.
 
+## Development workflow and documentation
+
+The user requires documentation and planning before code: one implementation task per `DEV-` branch, mandatory independent review, merge requests into `stage`, then a reviewed promotion from `stage` to `PROD`.
+
+The [development-plan folder](pirate-game-plan/README.md) provides the workflow, proposed easy-to-follow project structure, phases, serious testing, optimization standards, release operations, and an individual step-by-step file for DEV-001 through DEV-018. Each task records dependencies, scope, acceptance criteria, verification, and actual implementation/review/release evidence as work occurs.
+
+Task branches use names such as `DEV-007-sailing`. Task PRs squash-merge into stage after required checks and an independent review. Release PRs preserve stage ancestry with a merge commit and deploy the same artifact verified on staging. The future game will use a separate repository; these rules do not replace agent-office's existing documentation PR workflow.
+
+Use KISS and DRY through clear feature boundaries, typed/validated contracts, small composition files, and justified shared code. Avoid speculative abstractions and optimize measured bottlenecks. Planning artifacts do not claim protections, CI, infrastructure, or child-safe launch arrangements already exist.
+
+Next: resolve the [blocking decisions](pirate-game-plan/decisions.md), approve immediate architecture and task scope, select owners/reviewers and budgets, and make DEV-001 ready. Naval PvP, raids and towns remain later phases requiring their own approved task breakdowns.
+
 ## How to keep this document current
 
 During this chat, incorporate new decisions here instead of creating competing plans. Record changed defaults, remaining alternatives, and their effects on scope, safety, multiplayer, and costs. Keep established direction distinct from proposals.
@@ -494,5 +506,6 @@ When implementation is ready, replace open questions with accepted rules and add
 
 ## Decision history
 
+- **2026-10-02:** User required a dedicated documentation package before coding, one DEV-prefixed task branch per implementation, mandatory independent review, stage integration and PROD promotion. Added the development-plan folder, proposed architecture, six implementation phases, 18 individual planned task files, verification standards and release/recovery workflow. Infrastructure and runtime implementation remain unstarted.
 - **2026-10-02:** User approved drafting the first-expedition specification. Added provisional desktop/third-person/private-crew defaults, a bounded cooperative adventure, starter economy, three encounters, construction transactions, recovery rules, dependency-ordered work packages, and measurable acceptance criteria. Runtime implementation and later competitive mechanics remain unapproved.
 - **2026-10-02:** Shifted from a general AI sandbox to a four-friend pirate island and expedition game. Accepted this direction for continued planning. Proposed protected homes, opt-in naval conflict, temporary stolen charts, limited harbor raids, outpost flags, later towns, scripted environmental events, and animated builders.
