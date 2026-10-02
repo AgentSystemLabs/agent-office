@@ -141,9 +141,9 @@ export function installWorkerViews(ctx: Ctx, core: CoreState, parts: WorkerViews
         workerViews.set(w.id, v);
       }
       if (v.status !== w.status || v.acked !== w.acked) {
-        // It just finished or started waiting on you (not already so when this page first saw it): ding, and notify if you're away.
+        // It just finished or started waiting on you (not already so when this page first saw it): ding (one that needs you has an alarm of its own, see features/needsyou), and notify if you're away.
         if (waitingOnSomeone(w) && v.status !== '' && w.status !== v.status) {
-          sound.ding(w.status);
+          if (w.status === 'done') sound.ding('done');
           parts.notifier.alert(w);
           // Playing at the arcade: one of yours stops the game.
           if (w.status === 'needs_input' && yours(w)) parts.cabinet.needsYou(w);

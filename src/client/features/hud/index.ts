@@ -119,7 +119,7 @@ export function installHud(ctx: Ctx, core: CoreState, parts: HudParts) {
         chip: () => waitingLabel(waitingNow()).replace(/^(🙋|✅) /, ''),
         on: () => waitingNow().every((w) => w.status === 'done'),
         tone: () => (waitingNow().some((w) => w.status === 'needs_input') ? 'danger' : undefined),
-        title: () => 'Go to the worker that has waited longest on someone (N)',
+        title: () => 'Go to the next worker waiting on someone: the ones that need you first (N)',
         run: waiting.goToNextWaiting,
       },
     ],
@@ -163,7 +163,7 @@ export function installHud(ctx: Ctx, core: CoreState, parts: HudParts) {
         sound.setMusicVolume(settings.music, settings.musicMuted);
       },
       editProfile,
-      () => sound.ding('done'),
+      sound,
       parts.notifier,
       signOut,
       store.sky ? { now: describeSky(store.sky, store.officeNow()), live: !!store.sky.city } : undefined,

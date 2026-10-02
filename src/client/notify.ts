@@ -34,6 +34,7 @@ export class DesktopNotifier {
 
   constructor(
     private enabled: () => boolean,
+    /** What a click on a worker's notification does: in the 3D office, over to its desk with its terminal open. */
     private openWorker: (workerId: string) => void,
   ) {
     // Back in the office, which shows who's waiting by itself.
@@ -44,7 +45,7 @@ export class DesktopNotifier {
   alert(w: WorkerInfo & { status: 'needs_input' | 'done' }) {
     if (!this.enabled() || notifyPermission() !== 'granted') return;
     if (!document.hidden && document.hasFocus()) return;
-    const title = `${w.name} ${w.status === 'done' ? 'is done' : 'needs input'}`;
+    const title = w.status === 'done' ? `✅ ${w.name} is done` : `🙋 ${w.name} needs you`;
     const body = [w.task?.name, alertDetail(w)].filter(Boolean).join('\n');
     this.shown.get(w.id)?.close();
     // Needs input blocks the worker, so that one stays up until you deal with it.
@@ -73,7 +74,7 @@ export class DesktopNotifier {
 
   /** What one looks like, from ⚙️ Settings. */
   sample() {
-    const n = this.show('🔔 Notifications are on', { body: 'This is how a worker that needs input or is done gets your attention while you are in another tab.' });
+    const n = this.show('🔔 Notifications are on', { body: 'This is how a worker that needs you or is done gets your attention while you are in another tab. Click one to go straight to that worker.' });
     if (!n) return;
     n.onclick = () => {
       window.focus();
