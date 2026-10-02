@@ -1226,8 +1226,13 @@ export type ClientMsg =
    * A prompt for the agent standing by a board (`deskId` is its kiosk, see STATIONS in layout). It's
    * typed into its session, which is woken up first if it's asleep, or hired there when nobody is.
    */
-  | { t: 'station.prompt'; deskId: string; prompt: string; maintenanceIssue?: number }
-  | { t: 'maintenance.chat.send'; id: string; prompt: string; newConversation?: boolean; thread?: string; attachments?: string[]; maintenanceIssue?: number }
+  /**
+   * With `provider` (and optionally `model` and `effort`), the agent runs on that instead of the office's
+   * default: it's hired on it, and one already there on something else is sent home and hired afresh, which
+   * is how to move one off a model that's out of credits.
+   */
+  | { t: 'station.prompt'; deskId: string; prompt: string; maintenanceIssue?: number; provider?: AgentProvider; model?: string; effort?: AgentEffort }
+  | { t: 'maintenance.chat.send'; id: string; prompt: string; newConversation?: boolean; thread?: string; attachments?: string[]; maintenanceIssue?: number; provider?: AgentProvider; model?: string; effort?: AgentEffort }
   /** A question for the maintenance closet's laptop (a small model that knows the office's source); `id` comes back on the `maintenance.answer`. */
   | { t: 'maintenance.ask'; id: string; question: string }
   /** The big button in the maintenance closet: commit what's stacked, check it, push, rebuild and restart the office. */

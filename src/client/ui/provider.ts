@@ -1,4 +1,4 @@
-import type { AgentChoice, AgentEffort, AgentProvider, ClaudeModel, ProjectInfo, Usage } from '../../shared/protocol';
+import type { AgentChoice, AgentEffort, AgentProvider, ClaudeModel, ProjectInfo, Usage, WorkerInfo } from '../../shared/protocol';
 import { AGENT_EFFORTS, CLAUDE_MODELS } from '../../shared/protocol';
 import { store } from '../state';
 import { h } from './dom';
@@ -112,6 +112,11 @@ export function officeChoice(project: ProjectInfo | null): AgentChoice {
   return { provider: resolvedProvider(project?.defaultProvider, project) };
 }
 
+/** What a hired agent runs on, for the picker; nothing when nobody is hired yet. */
+export function workerChoice(w: WorkerInfo | undefined): AgentChoice | undefined {
+  return w?.provider ? { provider: w.provider, ...(w.model ? { model: w.model } : {}), ...(w.effort ? { effort: w.effort } : {}) } : undefined;
+}
+
 /** "Claude Code · Opus · High", "Claude Code", "OpenCode · anthropic/claude-sonnet-4", "Grok · grok-4.6". */
 export function choiceLabel(choice: AgentChoice): string {
   const badge = modelBadge(choice.provider, choice.model, choice.effort);
@@ -127,6 +132,14 @@ export interface ProviderPicker {
   effort(): AgentEffort | undefined;
   /** Reports a visible field error for an invalid nonempty OpenCode model. */
   valid(): boolean;
+}
+
+/** The picker for a worker's own agent, which also says whether it was moved off the office's default. */
+export interface WorkerPicker extends ProviderPicker {
+  /** Redraws the line for what it's on now, when that changed under it. */
+  repaint(): void;
+  /** True once ✏️ Edit is open: the choice is theirs rather than the office's default. */
+  edited(): boolean;
 }
 
 export interface AgentFields extends ProviderPicker {
@@ -442,20 +455,22 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
  * Which worker to start: the office's default (⚙️ Settings), shown as a line, with an ✏️ Edit button
  * that opens the provider, model and effort fields to pick another for this one.
  */
-export function providerPicker(project: ProjectInfo | null, id: string, label = 'Worker'): ProviderPicker {
+export function providerPicker(project: ProjectInfo | null, id: string, label = 'Worker', on?: () => AgentChoice | undefined): WorkerPicker {
   let editing = false;
+  // An agent already hired is on what it was hired on, which may not be the office's default any more.
+  const base = () => on?.() ?? officeChoice(project);
   const fields = agentFields(project, id, officeChoice(project));
   fields.element.classList.add('hidden');
   const current = h('span.provider-current');
   const edit = h('button.btn.small', { type: 'button', 'aria-expanded': 'false' }) as HTMLButtonElement;
   const element = h('div.provider-pick', {}, h('div.provider-summary', {}, h('span.provider-label', {}, label), current, edit), fields.element);
   const paint = () => {
-    const def = officeChoice(project);
+    const def = base();
     current.textContent = choiceLabel(def);
-    current.title = store.prompts.agent ? 'The office’s default worker, set in ⚙️ Settings' : 'The office’s default worker (its --agent); an admin can pick another in ⚙️ Settings';
+    current.title = on?.() ? 'What it runs on now' : store.prompts.agent ? 'The office’s default worker, set in ⚙️ Settings' : 'The office’s default worker (its --agent); an admin can pick another in ⚙️ Settings';
     current.classList.toggle('hidden', editing);
-    edit.textContent = editing ? '↺ Use the default' : '✏️ Edit';
-    edit.title = editing ? `Back to ${choiceLabel(def)}` : 'Pick another provider, model or effort for this one';
+    edit.textContent = editing ? (on?.() ? '↺ Keep it' : '↺ Use the default') : '✏️ Edit';
+    edit.title = editing ? `Back to ${choiceLabel(def)}` : on?.() ? 'Move it to another provider, model or effort: it starts a fresh session there' : 'Pick another provider, model or effort for this one';
     edit.setAttribute('aria-expanded', String(editing));
     fields.element.classList.toggle('hidden', !editing);
   };
@@ -464,7 +479,7 @@ export function providerPicker(project: ProjectInfo | null, id: string, label = 
     paint();
     // They open on the default as it is now.
     if (!editing) return;
-    fields.set(officeChoice(project));
+    fields.set(base());
     (fields.element.querySelector('select') as HTMLSelectElement | null)?.focus();
   });
   paint();
@@ -476,5 +491,7 @@ export function providerPicker(project: ProjectInfo | null, id: string, label = 
     model: () => (editing ? fields.model() : officeChoice(project).model),
     effort: () => (editing ? fields.effort() : officeChoice(project).effort),
     valid: () => !editing || fields.valid(),
+    edited: () => editing,
+    repaint: paint,
   };
 }

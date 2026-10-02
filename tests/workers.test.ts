@@ -993,6 +993,51 @@ test('a worker nobody picked a model for starts on the office default, and a boa
   assert.equal(own.args.includes('--model'), false);
 });
 
+test('a board agent can be hired on, or moved onto, another model than the office default', async (t) => {
+  const f = fixture();
+  isolateProviderEnvironment(f, t);
+  const previousLog = process.env.FAKE_AGENT_LOG;
+  process.env.FAKE_AGENT_LOG = f.log;
+  t.after(() => {
+    if (previousLog === undefined) delete process.env.FAKE_AGENT_LOG;
+    else process.env.FAKE_AGENT_LOG = previousLog;
+    f.close();
+  });
+  const prompts: PromptSource = { text: (id) => PROMPTS[id].text, agent: () => ({ provider: 'claude', model: 'haiku' }) };
+  const workers = new WorkerManager(f.root, f.data, f.claude, ['--from-test'], { url: 'http://127.0.0.1:1', token: '' }, events([]), ledger(f.data), undefined, prompts);
+  t.after(() => workers.shutdown());
+  const launches = (id: string) => f.read().filter((r) => r.kind === 'claude' && r.args.includes('--settings') && r.stdin === undefined && r.env.workerId === id);
+  const flag = (args: string[], name: string) => (args.includes(name) ? args[args.indexOf(name) + 1] : undefined);
+
+  const first = workers.station('station-issues', 'Ada', 'Triage the bugs');
+  assert.equal(typeof first, 'object');
+  if (typeof first === 'string') return;
+  assert.equal(first.info.model, 'haiku');
+  assert.equal(workers.stationSwitches('station-issues', { provider: 'claude', model: 'haiku' }), false);
+  assert.equal(workers.stationSwitches('station-issues', undefined), false);
+  assert.equal(workers.stationSwitches('station-issues', { provider: 'claude', model: 'opus' }), true);
+
+  // Picking what it's already on carries on with the same agent.
+  const same = workers.station('station-issues', 'Ada', 'And the typos', undefined, undefined, { provider: 'claude', model: 'haiku' });
+  assert.deepEqual(typeof same === 'object' && [same.hired, same.info.id], [false, first.info.id]);
+
+  // A bad pick is refused and leaves the agent where it was.
+  assert.match(workers.station('station-issues', 'Ada', 'Switch', undefined, undefined, { provider: 'claude', model: 'nope' }) as string, /invalid claude model/i);
+  assert.equal(workers.get(first.info.id)?.model, 'haiku');
+
+  // Another model sends it home and hires it afresh there, however busy it is.
+  const moved = workers.station('station-issues', 'Ada', 'Triage the rest', undefined, undefined, { provider: 'claude', model: 'opus', effort: 'high' });
+  assert.equal(typeof moved, 'object');
+  if (typeof moved === 'string') return;
+  assert.equal(moved.hired, true);
+  assert.notEqual(moved.info.id, first.info.id);
+  assert.equal(workers.get(first.info.id), undefined);
+  assert.deepEqual([moved.info.provider, moved.info.model, moved.info.effort], ['claude', 'opus', 'high']);
+  const [launch] = await waitFor(() => launches(moved.info.id), (l) => l.length === 1);
+  assert.deepEqual([flag(launch.args, '--model'), flag(launch.args, '--effort')], ['opus', 'high']);
+  assert.equal(workers.list().filter((w) => w.deskId === 'station-issues').length, 1);
+});
+
 test('the queue agent is launched without file-editing tools, and board agents get office-queue on their PATH', async (t) => {
   const f = fixture();
   const updates: WorkerInfo[] = [];

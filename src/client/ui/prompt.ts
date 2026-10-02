@@ -1,7 +1,7 @@
-import type { AgentEffort, AgentProvider, LostBranch, ServerMsg, WorktreeCleanup, WorktreeState } from '../../shared/protocol';
+import type { AgentChoice, AgentEffort, AgentProvider, LostBranch, ServerMsg, WorktreeCleanup, WorktreeState } from '../../shared/protocol';
 import { h, openModal } from './dom';
 import { store } from '../state';
-import { providerPicker, type ProviderPicker } from './provider';
+import { providerPicker, type WorkerPicker } from './provider';
 
 export interface PromptOptions {
   title: string;
@@ -17,9 +17,14 @@ export interface PromptOptions {
   worktreeOption?: boolean;
   /** Offer the configured agent provider choice (only when hiring a new worker). */
   providerOption?: boolean;
+  /** Label for the provider choice, when it isn't a new "Worker". */
+  providerLabel?: string;
+  /** What the agent being prompted already runs on, shown in place of the office's default. */
+  providerCurrent?: AgentChoice;
   /** Other floors' projects a new worker in its own worktree can work in too (see WorkerInfo.repos). */
   repoOptions?: { id: string; name: string }[];
-  onSubmit(text: string, opts: { worktree: boolean; provider?: AgentProvider; model?: string; effort?: AgentEffort; repos: string[] }): void;
+  /** `picked` is whether the provider, model and effort were chosen here instead of left on the office's default. */
+  onSubmit(text: string, opts: { worktree: boolean; provider?: AgentProvider; model?: string; effort?: AgentEffort; repos: string[]; picked?: boolean }): void;
 }
 
 const WT_KEY = 'agent-office.worktree';
@@ -66,7 +71,7 @@ export function openPrompt(opts: PromptOptions) {
     )
     : null;
   const repos = repoPicker(opts.worktreeOption ? opts.repoOptions : undefined, wtBox);
-  const provider: ProviderPicker | null = opts.providerOption ? providerPicker(store.project, 'prompt-provider') : null;
+  const provider: WorkerPicker | null = opts.providerOption ? providerPicker(store.project, 'prompt-provider', opts.providerLabel, opts.providerCurrent && (() => opts.providerCurrent)) : null;
   const submit = h('button.btn.primary', { type: 'submit' }, opts.submitLabel ?? 'Send ✨');
   const cancel = h('button.btn', { type: 'button' }, 'Cancel');
   const form = h(
@@ -96,7 +101,7 @@ export function openPrompt(opts: PromptOptions) {
       }
     }
     const worktree = !!opts.worktreeOption && wtBox.checked;
-    opts.onSubmit(text, { worktree, provider: provider?.value(), model: provider?.model(), effort: provider?.effort(), repos: worktree ? repos.value() : [] });
+    opts.onSubmit(text, { worktree, provider: provider?.value(), model: provider?.model(), effort: provider?.effort(), repos: worktree ? repos.value() : [], picked: provider?.edited() });
   };
   form.addEventListener('submit', (e) => {
     e.preventDefault();

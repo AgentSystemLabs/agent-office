@@ -573,9 +573,12 @@ export class WorkerManager {
   /**
    * A request for the agent standing by a board (see STATIONS): typed into its session, which is woken
    * up with it if it's asleep, or it's hired there with it when nobody is. Returns what went wrong, or
-   * the agent and whether it was just hired.
+   * the agent and whether it was just hired. With a `pick`, it's hired on that instead of the office's
+   * default, and one already there on something else is sent home first (its session can't carry over
+   * to another model), however busy or stuck it is: that's how to move one off a model that's out of
+   * credits.
    */
-  station(deskId: string, by: string, text: string, owner?: string, chat?: { newConversation?: boolean; thread?: string }): { info: WorkerInfo; hired: boolean } | string {
+  station(deskId: string, by: string, text: string, owner?: string, chat?: { newConversation?: boolean; thread?: string }, pick?: AgentChoice): { info: WorkerInfo; hired: boolean } | string {
     if (!DESK_BY_ID.get(deskId)?.station) return 'There is no agent to ask there';
     const clean = text.replace(/\r\n?/g, '\n').trim();
     if (!clean) return 'Empty prompt';
@@ -590,8 +593,14 @@ export class WorkerManager {
         w = undefined;
       }
     }
+    if (pick && w && !this.sameChoice(w.info, pick)) {
+      const bad = validateWorkerModel('agent', pick.provider, pick.model) ?? validateWorkerEffort('agent', pick.provider, pick.effort);
+      if (bad) return bad;
+      void this.kill(w.info.id);
+      w = undefined;
+    }
     if (!w) {
-      const info = this.spawn(deskId, by, clean, false, 'agent', undefined, undefined, undefined, undefined, owner);
+      const info = this.spawn(deskId, by, clean, false, 'agent', pick?.provider, pick?.model, pick?.effort, undefined, owner);
       if (typeof info !== 'string' && deskId === 'station-maintenance') this.events.conversation?.(info, [{ id: randomUUID(), role: 'user', content: clean, at: Date.now(), by, pending: true }]);
       return typeof info === 'string' ? info : { info, hired: true };
     }
@@ -603,6 +612,17 @@ export class WorkerManager {
     if (!err && !running) this.recordMaintenanceRequest(w, clean, by);
     if (!err && running && deskId === 'station-maintenance' && ['idle', 'done'].includes(w.info.status)) this.setStatus(w, 'working');
     return err ?? { info: w.info, hired: false };
+  }
+
+  /** Whether a board agent is on the provider, model and effort asked for, so asking with it needn't hire afresh. */
+  sameChoice(info: WorkerInfo, pick: AgentChoice): boolean {
+    return info.provider === pick.provider && info.model === pick.model && info.effort === pick.effort;
+  }
+
+  /** Whether asking the agent at this kiosk with this pick hires one afresh (see station). */
+  stationSwitches(deskId: string, pick?: AgentChoice): boolean {
+    const w = [...this.workers.values()].find((x) => x.info.deskId === deskId);
+    return !!pick && !!w && !this.sameChoice(w.info, pick);
   }
 
   /** The worker whose terminal holds this hook token: how a worker proves it's asking for itself. */

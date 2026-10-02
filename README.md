@@ -92,7 +92,7 @@ agent-office --no-open                      # print the sign-in link instead of 
 agent-office setup                          # the first-start walkthrough again (office stopped)
 ```
 
-Every option is in [docs/configuration.md](docs/configuration.md). Choosing models and providers per worker is in [docs/agents.md](docs/agents.md).
+Every option is in [docs/configuration.md](docs/configuration.md). Choosing models and providers per worker, including for the agents on the wall, is in [docs/agents.md](docs/agents.md).
 
 To run it from a clone instead:
 

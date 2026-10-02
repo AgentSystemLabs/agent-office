@@ -81,7 +81,7 @@ import { openSettings, type SettingsPane } from './ui/settings';
 import { hiringPaused, renderUsage, usageLabel, usageTitle } from './ui/usage';
 import { GARAGE, elevatorPanelOpen, openElevator, routeElevatorMessage } from './ui/elevator';
 import { toggleFloorMenu } from './ui/floormenu';
-import { providerLabel, officeChoice, resolvedProvider, modelBadge } from './ui/provider';
+import { providerLabel, officeChoice, resolvedProvider, modelBadge, workerChoice } from './ui/provider';
 import { mirrorWhiteboard, openWhiteboard, routeWhiteboardMessage } from './ui/whiteboard';
 import { renderLimits } from './ui/limits';
 import { MachineTexture } from './world/machine';
@@ -2450,7 +2450,10 @@ function maintenanceActions(): MaintenanceActions {
 ` : '',
       placeholder: 'Tell Maintenance what to change, explain, or correct…',
       submitLabel: 'Send to Maintenance',
-      onSubmit: (text) => net.send({ t: 'station.prompt', deskId: MAINTENANCE_DESK, prompt: text }),
+      providerOption: true,
+      providerLabel: 'Runs on',
+      providerCurrent: workerChoice(store.workerAtDesk(MAINTENANCE_DESK)),
+      onSubmit: (text, o) => net.send({ t: 'station.prompt', deskId: MAINTENANCE_DESK, prompt: text, ...pickedAgent(o) }),
     }),
     watch: (worker: WorkerInfo, floor: string) => {
       if (floor === store.floor) return openWorkerTerminal(worker.id, undefined, true);
@@ -2499,8 +2502,16 @@ function askStation(deskId: string) {
     placeholder: `e.g. ${info.example}`,
     submitLabel: 'Send ✨',
     warning: w ? undefined : pressureNote(store.machine),
-    onSubmit: (text) => net.send({ t: 'station.prompt', deskId, prompt: text }),
+    providerOption: true,
+    providerLabel: 'Runs on',
+    providerCurrent: workerChoice(w),
+    onSubmit: (text, o) => net.send({ t: 'station.prompt', deskId, prompt: text, ...pickedAgent(o) }),
   });
+}
+
+/** What a board agent's prompt asks to run on, when it was moved off the office's default (the office hires it afresh on that). */
+function pickedAgent(o: { provider?: AgentProvider; model?: string; effort?: AgentEffort; picked?: boolean }) {
+  return o.picked && o.provider ? { provider: o.provider, model: o.model, effort: o.effort } : {};
 }
 
 function resumeWorker(w: WorkerInfo) {

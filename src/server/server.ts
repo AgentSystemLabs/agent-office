@@ -11,7 +11,7 @@ import { Auth, type Session } from './auth.js';
 import { Accounts } from './accounts.js';
 import { MAX_REPOS, childEnv, resolveCommand, type RepoSource } from './workers.js';
 import { SignIns, type GhAs } from './signins.js';
-import { agentProviders, configuredProvider, OPEN_CODE_MODEL_MAX } from './agents.js';
+import { agentProviders, configuredProvider, OPEN_CODE_MODEL_MAX, validateWorkerEffort, validateWorkerModel } from './agents.js';
 import { createGrokModelCatalogue, createOpenCodeModelCatalogue } from './models.js';
 import { Tailnet } from './tailnet.js';
 import { Team } from './team.js';
@@ -35,7 +35,7 @@ import { RELAY_LOGIN, relayRequest, relayUpgrade, signInPage, stoppedPage, tunne
 import { ChatLog } from './history.js';
 import { Arcade, HighScores } from './cabinet.js';
 import type { ChatLine, ClientMsg, FloorInfo, FloorView, Me, MeetingRequest, PeerInfo, SearchResults, ServerMsg, ServicesState, SignInKind, WorkerInfo } from '../shared/protocol.js';
-import { GH_COMMENT_MAX, GH_LABEL_MAX, isAgentEffort, isAgentProvider } from '../shared/protocol.js';
+import { GH_COMMENT_MAX, GH_LABEL_MAX, isAgentEffort, isAgentProvider, type AgentChoice } from '../shared/protocol.js';
 import { DESK_BY_ID, MAINTENANCE_DESK, elevatorSpot, nextFreeSeat, streetBelow } from '../shared/layout.js';
 import { OFFICE_MAP, seatHereOn } from '../shared/maps/index.js';
 import { EMPTY_PLAN } from '../shared/floorplan.js';
@@ -1994,6 +1994,17 @@ export async function startServer(cfg: Config) {
         // Nobody there yet: whoever asks first hires it, on their own sign-ins.
         const chat = msg.t === 'maintenance.chat.send' ? { newConversation: msg.newConversation === true, thread: str(msg.thread, 64) || undefined } : undefined;
 
+        // Not the office's default: hired on this, or moved onto it if it's on something else (see Workers.station).
+        let pick: AgentChoice | undefined;
+        if (msg.provider !== undefined) {
+          if (!isAgentProvider(msg.provider) || !floor.project.agentProviders.includes(msg.provider)) { reply('Unknown agent provider'); break; }
+          const model = msg.model === undefined ? undefined : str(msg.model, OPEN_CODE_MODEL_MAX + 1) || undefined;
+          const effort = isAgentEffort(msg.effort) ? msg.effort : undefined;
+          const bad = validateWorkerModel('agent', msg.provider, model) ?? validateWorkerEffort('agent', msg.provider, effort);
+          if (bad) { reply(bad); break; }
+          pick = { provider: msg.provider, ...(model ? { model } : {}), ...(effort ? { effort } : {}) };
+        }
+
         const maintenanceIssue = deskId === MAINTENANCE_DESK ? issueNumber(msg.maintenanceIssue) : undefined;
         const send = async () => {
           const maintenance = deskId === MAINTENANCE_DESK;
@@ -2019,8 +2030,8 @@ export async function startServer(cfg: Config) {
             const displayPrompt = prompt;
             if (maintenance) prompt = maintenanceImages.prompt(prompt, images);
             const stationChat = maintenanceIssue && maintenance ? { ...chat, newConversation: true, thread: undefined } : chat;
-            const hires = stationChat?.newConversation || !target.workers.deskOccupied(deskId);
-            const signIn = hires ? claudeFor(target.workers.officeDefault.provider) : undefined;
+            const hires = stationChat?.newConversation || !target.workers.deskOccupied(deskId) || target.workers.stationSwitches(deskId, pick);
+            const signIn = hires ? claudeFor(pick?.provider ?? target.workers.officeDefault.provider) : undefined;
             if (signIn && c.accountId && !signins.claudeReady(c.accountId)) {
               await signins.look(c.accountId, true);
               if (!signins.claudeReady(c.accountId)) {
@@ -2032,7 +2043,7 @@ export async function startServer(cfg: Config) {
             if (maintenanceIssue && maintenanceWork.list(maintenanceBoard.state.repo).some(i => i.status === 'running')) { reply('Another issue is active. Finish it before starting the next one.'); return; }
             {
               if (maintenanceIssue && maintenanceBoard.state.repo) maintenanceWork.queue(maintenanceBoard.state.repo, { number: maintenanceIssue, title: maintenanceBoard.state.items.find(i => i.number === maintenanceIssue)?.title ?? `Issue #${maintenanceIssue}`, url: `https://github.com/${maintenanceBoard.state.repo}/issues/${maintenanceIssue}` }, who, images);
-              const r = target.workers.station(deskId, who, prompt, c.accountId, stationChat);
+              const r = target.workers.station(deskId, who, prompt, c.accountId, stationChat, pick);
               if (typeof r === 'string') reply(r);
               else {
                 if (images.length) maintenanceHistory.capture(r.info, [{ id: randomBytes(16).toString('hex'), role: 'user', content: displayPrompt, attachments: images, by: who, at: Date.now(), pending: true }]);

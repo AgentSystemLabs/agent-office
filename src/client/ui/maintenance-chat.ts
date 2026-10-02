@@ -5,6 +5,7 @@ import { markdown } from './markdown';
 import { maintenanceJson } from './maintenance-board';
 import { openStackChange, type MaintenanceActions } from './maintenance';
 import { confirmDialog } from './prompt';
+import { providerPicker, workerChoice } from './provider';
 import { imageComposer, imageEvidence } from './maintenance-images';
 import { maintenanceConsole } from './maintenance-console';
 import { openMaintenanceIssueCreate, workPanel } from './maintenance-work';
@@ -102,7 +103,10 @@ export function openMaintenanceChat(send: (message: ClientMsg) => void, actions:
   const create = h('button.maintenance-new', { type: 'button', onclick: () => {
     saveDraft(); selectTab('conversation'); newConversation = true; selected = undefined; loadedDraft = ''; messages = []; messageKey = ''; showError(''); void refresh().then(() => input.focus());
   } }, '+ New conversation');
-  const form = h('form.maintenance-chat-composer', {}, error, input, images.element,
+  // The agent is on what it was hired on, so a request to move it (say, off a model that's out of credits) hires it afresh there.
+  const model = providerPicker(store.project, 'maintenance-provider', 'Runs on', () => newConversation ? undefined : workerChoice(state?.worker));
+  model.element.addEventListener('click', () => setTimeout(updateControls));
+  const form = h('form.maintenance-chat-composer', {}, error, input, images.element, model.element,
     h('div.maintenance-composer-bottom', {}, note, submit));
   const close = h('button.close', { type: 'button', 'aria-label': 'Close Maintenance chat' }, '✕');
   const el = h('div.modal.maintenance-chat', { role: 'dialog', 'aria-label': 'Maintenance engineering workspace' },
@@ -212,6 +216,7 @@ export function openMaintenanceChat(send: (message: ClientMsg) => void, actions:
   }
   function updateControls() {
     const worker = state?.worker;
+    model.repaint();
     const archived = !newConversation && !!selected && selected !== worker?.id;
     const waiting = worker?.status === 'needs_input';
     status.textContent = worker ? `${worker.status.replace(/_/g, ' ')}${state?.floorName ? ` · ${state.floorName}` : ''}` : 'Ready for your first request';
@@ -221,7 +226,8 @@ export function openMaintenanceChat(send: (message: ClientMsg) => void, actions:
     // Keep drafting available while busy or blocked; only dispatch is gated.
     input.disabled = !!pending || archived || !state || !!historyFailed;
     images.disable(input.disabled);
-    submit.disabled = input.disabled || images.uploading || waiting || (newConversation && busy) || state?.stack?.phase === 'shipping' || state?.stack?.validation?.phase === 'running';
+    // Stuck on a question it can't get past, it can still be moved onto another model.
+    submit.disabled = input.disabled || images.uploading || (waiting && !model.edited()) || (newConversation && busy) || state?.stack?.phase === 'shipping' || state?.stack?.validation?.phase === 'running';
     note.textContent = newConversation ? (busy ? 'Wait for the current issue to finish before starting a new conversation.' : 'New issue · starts a fresh conversation and keeps the previous history.') : archived ? 'Archived conversation · choose Current conversation to send a new request.'
       : waiting ? 'Maintenance needs an answer or approval. Respond in the live console beside this conversation.'
       : state && !state.richReplies ? 'This provider uses the terminal for replies. Requests are still archived.'
@@ -304,7 +310,7 @@ export function openMaintenanceChat(send: (message: ClientMsg) => void, actions:
   form.addEventListener('submit', (e) => {
     e.preventDefault();
     const text = input.value.trim() || (images.images.length ? 'Please inspect the attached screenshots.' : '');
-    if (!text || submit.disabled) return;
+    if (!text || submit.disabled || !model.valid()) return;
     showError('');
     const id = crypto.randomUUID();
     issueStart = false;
@@ -315,7 +321,7 @@ export function openMaintenanceChat(send: (message: ClientMsg) => void, actions:
       showError('No acknowledgement yet. Check the terminal before sending again.');
     }, 30_000) };
     updateControls();
-    send({ t: 'maintenance.chat.send', id, prompt: text, attachments: images.images.map(i => i.id), ...(newConversation ? { newConversation: true } : { thread: selected ?? state?.worker?.id }) });
+    send({ t: 'maintenance.chat.send', id, prompt: text, attachments: images.images.map(i => i.id), ...(model.edited() ? { provider: model.value(), model: model.model(), effort: model.effort() } : {}), ...(newConversation ? { newConversation: true } : { thread: selected ?? state?.worker?.id }) });
   });
   input.addEventListener('input', saveDraft);
   input.addEventListener('keydown', (e) => {
