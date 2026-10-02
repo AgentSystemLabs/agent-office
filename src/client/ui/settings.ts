@@ -6,7 +6,7 @@ import { askNotifyPermission, notifyPermission, type DesktopNotifier } from '../
 import type { ThemePick, WebhookKind } from '../../shared/protocol';
 import { THEME_PICKS } from '../../shared/theme';
 import { mapChoices } from '../../shared/maps';
-import { DOG_NAME_MAX, cleanDogName } from '../../shared/dog';
+import { dogSetting } from './settings-dog';
 import { h, openModal, timeAgo } from './dom';
 import { agentFields, choiceLabel, officeChoice } from './provider';
 import { openPromptEditor, rewrittenPrompts } from './prompts';
@@ -432,29 +432,8 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
   });
   dirDefault.addEventListener('click', () => net.send({ t: 'floor.projectsDir', dir: '' }));
 
-  // The dog on this floor, named for everyone here.
-  const dogInput = h('input', { type: 'text', maxlength: DOG_NAME_MAX, 'aria-label': 'The dog’s name', spellcheck: 'false', autocomplete: 'off' }) as HTMLInputElement;
-  const dogSave = h('button.btn.primary', { type: 'button' }, 'Rename');
-  const dogNote = h('p.setting-note');
-  const dogSection = setting('Office dog', 'floor', h('div.webhook', {}, dogInput, dogSave), dogNote);
-  const paintDog = () => {
-    const dog = store.dog;
-    dogSection.classList.toggle('hidden', !dog);
-    if (!dog) return;
-    dogInput.placeholder = dog.name;
-    dogNote.textContent = `${dog.name} lives on this floor. When a worker needs input, ${dog.name} runs to its desk and barks. Walk up and press E to pet it. A new name is for everyone on this floor.`;
-  };
-  paintDog();
-  const renameDog = () => {
-    const name = cleanDogName(dogInput.value);
-    if (!name) return dogInput.focus();
-    net.send({ t: 'dog.name', name });
-    dogInput.value = '';
-  };
-  dogSave.addEventListener('click', renameDog);
-  dogInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') renameDog();
-  });
+  // The dog on this floor: its name, breed and coat, for everyone here (see settings-dog.ts).
+  const { section: dogSection, paint: paintDog } = dogSetting(net, (body) => setting('Office dog', 'floor', ...body));
 
   const account = store.me.account;
   const signOut = h('button.btn', { type: 'button' }, '🚪 Sign out');

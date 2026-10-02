@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { BARK_EVERY_S, BARK_FOR_S, DOG_COATS, dogAt, dogBreed, legSeconds, type DogAct, type DogBreed, type DogState } from '../../../shared/dog';
 import type { Theme } from '../../../shared/protocol';
+import { paintCoat } from './coat';
 import { dogAntlers, dogBatWings, dogRedNose, dogScarf, dogWitchHat } from '../../world/costumes';
 import { loadModel, type Model } from '../../world/models';
 import type { Interactable } from '../../world/types';
@@ -234,10 +235,7 @@ export class Dog {
     // Another floor's dog (someone took the elevator): its breed's model, once that's in.
     const breed = dogBreed(state.breed);
     if (breed !== this.wants) this.wear(breed);
-    if (state.coat !== this.coat) {
-      this.coat = state.coat;
-      DOG_COATS[state.coat % DOG_COATS.length].forEach((c, i) => this.coatMats[i].color.set(c));
-    }
+    if (state.coat !== this.coat) paintCoat(this.coatMats, (this.coat = state.coat));
     if (state.name !== this.tagName) this.setTag(state.name);
     this.arriveAt = start + legSeconds(state) * 1000;
     // The next woof on its schedule (a page opened halfway through picks up where it's at).
