@@ -194,10 +194,11 @@ test('queue preserves a Muse model and effort through seating, retry, and restar
   assert.equal(f.workers[2].effort, 'low');
 });
 
-test('queue rejects reasoning effort unless the task is Claude, Grok or Muse and the level is known', (t) => {
+test('queue rejects a reasoning effort nobody knows, whichever provider the task is for', (t) => {
   const f = fixture(); t.after(() => f.close());
   const q = f.open();
-  assert.match(q.add('Task', 'Tester', undefined, undefined, 'opencode', undefined, 'high' as AgentEffort) ?? '', /effort|Claude/i);
+  assert.match(q.add('Task', 'Tester', undefined, undefined, 'opencode', undefined, 'overdrive' as AgentEffort) ?? '', /Invalid effort/i);
+  assert.match(q.add('Task', 'Tester', undefined, undefined, 'codex', undefined, 'overdrive' as AgentEffort) ?? '', /Invalid effort/i);
   assert.match(q.add('Task', 'Tester', undefined, undefined, 'claude', undefined, 'overdrive' as AgentEffort) ?? '', /effort/i);
   assert.equal(q.state().tasks.length, 0);
 });

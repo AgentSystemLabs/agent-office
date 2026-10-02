@@ -8,14 +8,14 @@
 .queue-add .provider-choice label { margin: 0 0 0 6px; font-size: 13px; white-space: nowrap; }
 .queue-add .provider-choice > label:first-child { margin-left: 0; }
 /* A zero basis keeps the row from wrapping: the pickers shrink first (down to a readable floor) and grow back to their natural width when there's room. */
-.queue-add .provider-select, .queue-add .provider-model.claude-model select { flex: 1 1 0; width: auto; min-width: 84px; max-width: max-content; }
+.queue-add .provider-select, .queue-add .provider-model select { flex: 1 1 0; width: auto; min-width: 84px; max-width: max-content; }
 .queue-add .provider-model input[type=text] { flex: 1 1 0; width: auto; min-width: 140px; padding: 6px 9px; border-width: 2px; border-radius: 9px; font-size: 13px; }
 .queue-add .provider-note, .queue-add .provider-model-hint { order: 2; flex: 1 1 100%; }
 .queue-add button[type=submit] { margin-left: auto; }
 /* Too narrow for one line: each label and its picker take a row, so a label never ends up stranded from its picker. */
 @media (max-width: 640px) {
   .queue-add .provider-choice label { flex: 0 0 64px; margin-left: 0; }
-  .queue-add .provider-select, .queue-add .provider-model.claude-model select, .queue-add .provider-model input[type=text] { flex: 1 1 calc(100% - 70px); max-width: none; }
+  .queue-add .provider-select, .queue-add .provider-model select, .queue-add .provider-model input[type=text] { flex: 1 1 calc(100% - 70px); max-width: none; }
 }
 .queue h4 { display: flex; align-items: center; gap: 8px; margin: 18px 0 8px; font-size: 14px; font-weight: 900; text-transform: uppercase; letter-spacing: .04em; }
 .queue h4 .count { color: var(--muted); }
