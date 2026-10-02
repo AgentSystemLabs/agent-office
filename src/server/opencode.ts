@@ -68,6 +68,31 @@ export const OPENCODE_PLUGIN_SOURCE = String.raw`export default async function A
   const worker = process.env.AGENT_OFFICE_WORKER_ID;
   if (!url || !token || !worker) return {};
   let rootSession = process.env.AGENT_OFFICE_SESSION_ID || undefined;
+  // The reasoning effort picked for this worker, for a fresh session: OpenCode calls it the model's
+  // variant, and its TUI has no flag for one. It sends each message with the variant it remembers
+  // for the model (the last one anyone used it at, in any session), so the first message goes out
+  // at the worker's own instead. The TUI then takes its variant from that message, and ctrl+t still
+  // changes it: once it sends another variant than it started with, or another model, theirs stands.
+  let effort = process.env.AGENT_OFFICE_EFFORT || undefined;
+  const effortModel = process.env.AGENT_OFFICE_MODEL || undefined;
+  let effortSession;
+  let effortOver;
+  function applyEffort(input, output) {
+    const model = output && output.message && output.message.model;
+    // An OpenCode from before variants names none here, and wouldn't know what to do with one.
+    if (!effort || !model || typeof model !== "object" || typeof input.sessionID !== "string" || !("variant" in input)) return;
+    if (!effortSession) {
+      effortSession = input.sessionID;
+      effortOver = input.variant;
+    }
+    // A subagent's messages are its own.
+    if (input.sessionID !== effortSession) return;
+    if (input.variant !== effortOver || (effortModel && model.providerID + "/" + model.modelID !== effortModel)) {
+      effort = undefined;
+      return;
+    }
+    model.variant = effort;
+  }
   const children = new Set();
   const pending = new Set();
   const usageByMessage = new Map();
@@ -282,12 +307,16 @@ export const OPENCODE_PLUGIN_SOURCE = String.raw`export default async function A
   }
   return {
     event: ({ event }) => enqueue(() => send(compact(event))),
-    "chat.message": (input, output) => enqueue(async () => {
-      if (typeof input.sessionID !== "string" || !await selectExisting(input.sessionID)) return;
-      const parts = output && Array.isArray(output.parts) ? output.parts : [];
-      const prompt = parts.filter((part) => part && part.type === "text" && typeof part.text === "string").map((part) => part.text).join("\n").trim().slice(0, 20000);
-      await send({ type: "prompt", sessionId: input.sessionID, status: "working", ...(prompt ? { prompt } : {}) });
-    }),
+    "chat.message": (input, output) => {
+      // Before anything is awaited: OpenCode saves the message as this hook leaves it.
+      applyEffort(input, output);
+      return enqueue(async () => {
+        if (typeof input.sessionID !== "string" || !await selectExisting(input.sessionID)) return;
+        const parts = output && Array.isArray(output.parts) ? output.parts : [];
+        const prompt = parts.filter((part) => part && part.type === "text" && typeof part.text === "string").map((part) => part.text).join("\n").trim().slice(0, 20000);
+        await send({ type: "prompt", sessionId: input.sessionID, status: "working", ...(prompt ? { prompt } : {}) });
+      });
+    },
     "tool.execute.before": (input) => enqueue(() => {
       if (input.sessionID === rootSession && !children.has(input.sessionID)) {
         return send({ type: "tool", sessionId: input.sessionID, tool: input.tool, status: pending.size ? "needs_input" : "working" });

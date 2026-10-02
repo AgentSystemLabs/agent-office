@@ -82,7 +82,7 @@ Its HTTP routes, if it has any, go in `http/routes/`, and its tests in `tests/`.
 
 ## Adding an agent provider
 
-One adapter file in `src/server/providers/`, one entry in `PROVIDERS` in `src/server/providers/index.ts`, and one row in `src/shared/providers.ts` (its id in `AGENT_PROVIDERS`, its entry in `PROVIDER_META`). The typecheck fails until all three are there. What reads them, and the two places that still name providers one by one, are in [Provider seams](dsh-acp-integration.md#provider-seams).
+One adapter file in `src/server/providers/`, one entry in `PROVIDERS` in `src/server/providers/index.ts`, and one row in `src/shared/providers.ts` (its id in `AGENT_PROVIDERS`, its entry in `PROVIDER_META`). The typecheck fails until all three are there. Its row says which models and efforts it takes and how the hire dialog asks for them; one whose CLI lists its models gets a lister in `src/server/models.ts` too. What reads them, and the one place that still names providers one by one, are in [Provider seams](dsh-acp-integration.md#provider-seams).
 
 ## The size guard
 

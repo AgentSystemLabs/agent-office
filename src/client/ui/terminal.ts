@@ -11,7 +11,7 @@ import type { ServerMsg, WorkerInfo } from '../../shared/protocol';
 import { isAsleep } from '../../shared/status';
 import { findLine } from '../../shared/search';
 import { DROP_MAX_BYTES, droppedPaths } from '../../shared/drops';
-import { providerLabel, providerUsageNote, providerUsageState, providerWaitingLabel, resolvedProvider } from './provider';
+import { engineLabel, providerUsageNote, providerUsageState, providerWaitingLabel, resolvedProvider } from './provider';
 import { naturalKey } from './termkeys';
 import { termTabs } from './termtabs';
 import { dictateField, dictation } from './dictate';
@@ -108,7 +108,7 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void,
   if (!info) return;
 
   const dot = h('span.dot', { style: `background:${info.color}` });
-  const title = h('h2', {}, info.kind === 'agent' ? `${providerLabel(info.provider, store.project)} · ${info.name}` : info.name);
+  const title = h('h2', {}, info.kind === 'agent' ? `${engineLabel(info, store.project)} · ${info.name}` : info.name);
   const pill = h('span.pill', {}, '');
   const cost = h('span.cost', {});
   const viewers = h('div.viewers', {});
@@ -252,7 +252,7 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void,
       modal.close();
       return;
     }
-    title.textContent = [w.kind === 'agent' ? providerLabel(w.provider, store.project) : null, w.name, w.title, w.worktree && `🌿 ${w.worktree.branch}`, w.repos?.length && `🗂️ ${[w.worktree?.path.split(/[\\/]/).pop(), ...w.repos.map((r) => r.name)].join(' + ')}`].filter(Boolean).join(' · ');
+    title.textContent = [w.kind === 'agent' ? engineLabel(w, store.project) : null, w.name, w.title, w.worktree && `🌿 ${w.worktree.branch}`, w.repos?.length && `🗂️ ${[w.worktree?.path.split(/[\\/]/).pop(), ...w.repos.map((r) => r.name)].join(' + ')}`].filter(Boolean).join(' · ');
     pill.className = `pill ${w.status}`;
     pill.textContent = STATUS_LABEL[w.status] ?? w.status;
     const workerProvider = w.kind === 'agent' ? resolvedProvider(w.provider, store.project) : undefined;

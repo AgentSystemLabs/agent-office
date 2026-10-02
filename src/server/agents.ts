@@ -30,7 +30,7 @@ export function validateWorkerModel(kind: 'agent' | 'shell', provider: AgentProv
   return meta.validModel(model) ? undefined : meta.invalidModel;
 }
 
-/** Claude Code, Grok and Muse reasoning-effort flags; DSH advertises a reasoning_effort configuration option. */
+/** A reasoning effort for a worker: a flag of its provider's CLI, an OpenCode model's variant, or DSH's reasoning_effort configuration option. */
 export function validateWorkerEffort(kind: 'agent' | 'shell', provider: AgentProvider | undefined, effort: unknown): string | undefined {
   if (effort === undefined) return undefined;
   if (kind === 'shell') return 'Shell workers do not have a reasoning effort';

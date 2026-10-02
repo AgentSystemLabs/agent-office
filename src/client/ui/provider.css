@@ -4,13 +4,12 @@
 .provider-choice { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 10px; min-width: 190px; }
 .provider-select { min-width: 132px; padding: 6px 9px; border: 2px solid var(--ink); border-radius: 9px; background: #fff; color: var(--ink); font: inherit; font-size: 13px; font-weight: 800; }
 .provider-note { display: block; flex: 1 1 160px; min-width: 0; color: var(--muted); font-size: 11px; font-weight: 700; line-height: 1.25; }
-.provider-model { display: flex; flex: 1 1 220px; flex-direction: column; gap: 3px; min-width: 180px; margin-top: 4px; }
-.provider-model input { width: 100%; padding: 6px 9px; border: 2px solid var(--ink); border-radius: 9px; background: #fff; color: var(--ink); font: inherit; font-size: 13px; }
-.provider-model-hint { color: var(--muted); font-size: 11px; font-weight: 700; line-height: 1.25; }
-.provider-model.claude-model { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 4px 8px; }
-.provider-model.claude-model label { white-space: nowrap; }
-.provider-model.claude-model select { width: 100%; padding: 6px 9px; border: 2px solid var(--ink); border-radius: 9px; background: #fff; color: var(--ink); font: inherit; font-size: 13px; font-weight: 800; }
-.provider-model.claude-model .provider-model-hint { grid-column: 1 / -1; }
+.provider-model { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 4px 8px; flex: 1 1 220px; min-width: 180px; margin-top: 4px; }
+.provider-model label { white-space: nowrap; }
+.provider-model input, .provider-model select { width: 100%; min-width: 0; padding: 6px 9px; border: 2px solid var(--ink); border-radius: 9px; background: #fff; color: var(--ink); font: inherit; font-size: 13px; }
+.provider-model select { font-weight: 800; }
+.provider-model select:disabled { opacity: .55; cursor: not-allowed; }
+.provider-model-hint { grid-column: 1 / -1; color: var(--muted); font-size: 11px; font-weight: 700; line-height: 1.25; }
 /* Which worker to start: the office's default on a line, and the fields under it once ✏️ Edit opens them. */
 .provider-pick { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; min-width: 0; }
 .provider-pick > .provider-choice { margin-top: 0; }

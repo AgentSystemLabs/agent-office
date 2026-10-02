@@ -1,29 +1,22 @@
-// The models the hire dialog offers for OpenCode and Grok workers.
+// The models the hire dialog offers for the providers whose CLI lists them (see ../../models.ts).
+import { PROVIDER_META, isAgentProvider } from '../../../shared/providers.js';
 import { send } from '../util.js';
 import type { Route } from '../router.js';
 
 export const agentRoutes = {
-  openCodeModels: {
+  /** GET /api/agents/<provider>/models */
+  models: {
     method: 'GET',
-    path: '/api/agents/opencode/models',
+    prefix: '/api/agents/',
     auth: 'session',
-    async handle(ctx, { res }) {
+    async handle(ctx, { res, path }) {
+      const [provider, what, ...rest] = path.slice('/api/agents/'.length).split('/');
+      const catalogue = isAgentProvider(provider) && what === 'models' && !rest.length ? ctx.models[provider] : undefined;
+      if (!catalogue || !isAgentProvider(provider)) return send(res, 404, { error: 'Not found' });
       try {
-        return send(res, 200, { models: await ctx.openCodeModels.get() });
+        return send(res, 200, { models: await catalogue.get() });
       } catch {
-        return send(res, 502, { error: 'Could not load OpenCode models' });
-      }
-    },
-  },
-  grokModels: {
-    method: 'GET',
-    path: '/api/agents/grok/models',
-    auth: 'session',
-    async handle(ctx, { res }) {
-      try {
-        return send(res, 200, { models: await ctx.grokModels.get() });
-      } catch {
-        return send(res, 502, { error: 'Could not load Grok models' });
+        return send(res, 502, { error: `Could not load ${PROVIDER_META[provider].name} models` });
       }
     },
   },
