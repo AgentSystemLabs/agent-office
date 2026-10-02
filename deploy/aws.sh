@@ -396,6 +396,7 @@ tunnel() {
   fi
   ok "Your office: http://localhost:$port$path"
   echo "   (tunneled over SSH to $IP — keep this running while you use it; Ctrl-C closes it)"
+  echo "   Workers' web servers open on this computer too, by themselves, with (in another terminal): agent-office tunnel http://localhost:$port"
   open_url "http://localhost:$port$path"
   wait "$pid" || true
   trap - INT TERM

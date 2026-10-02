@@ -149,6 +149,15 @@ deploy/aws.sh destroy             # delete everything it created (asks first)
 
 You can also upgrade from inside the office: **☰ → ⬆️ Upgrade the office**. Other flags (`--region`, `--instance-type`, `--disk`, `--name` for several offices) are in `deploy/aws.sh help`, and the details are in [docs/aws.md](docs/aws.md).
 
+**The workers' dev servers, on your computer.** The office runs on the server, so a worker's `npm run dev` listens there. Run this on your own computer and leave it running, and every web server a worker starts opens on the same port on yours, by itself (`http://localhost:5173` is the worker's), and closes when the worker stops it:
+
+```bash
+agent-office tunnel                       # while `deploy/aws.sh open` (or a teammate's ssh command) is running
+agent-office tunnel office@203.0.113.7    # or by itself: it opens the tunnel to the office too
+```
+
+It works with every way of running the office on a server, and needs the `agent-office` command on your computer: [docs/tunnel.md](docs/tunnel.md).
+
 ## Deploy to Azure
 
 The same thing on an Azure VM, using only the Azure CLI. You need the **Azure CLI signed in** (`az login`), `ssh`, `curl` and a clone of this repo:
@@ -290,6 +299,8 @@ ssh -L 4600:localhost:4600 office@<your-office-ip>
 
 Their key logs in as a locked-down `office` user that can only forward to the office port: no shell, no other ports. Running the office on your own computer, or on your own domain over HTTPS? Skip this step.
 
+A teammate with the `agent-office` command on their computer can run `agent-office tunnel office@<your-office-ip>` instead of the `ssh` line: it opens the same tunnel, and every web server a worker starts opens on their computer too ([docs/tunnel.md](docs/tunnel.md)).
+
 **2. Make them an account.** Open **☰ → 🔑 Accounts** and make an invite link. Name it (or let them pick) and make them a *Member* or an *Admin*. The link works once, for 7 days, and they choose their own password. Make one for yourself too, as an admin.
 
 The same works from a terminal on the office's machine, even while it runs:
@@ -362,6 +373,7 @@ Every change to the app that lands on `main` is published as a GitHub release by
 - [Agents](docs/agents.md): Claude Code, Codex and OpenCode, models and effort, and the office's prompts
 - [Configuration](docs/configuration.md): every command-line option, and where the office keeps its data
 - [Maps](docs/maps.md): the castle, and making a map of your own
+- [Workers' servers on your own computer](docs/tunnel.md): `agent-office tunnel`, which opens every worker's web server on your computer by itself
 - [AWS reference](docs/aws.md): Tailscale, service tunnels, upgrades, and everything `deploy/aws.sh` does
 - [Railway reference](docs/railway.md): what `deploy/railway.sh` sets up, and what the volume keeps
 - [Fly.io reference](docs/fly.md): what `deploy/fly.sh` sets up, machine sizes, pausing and what the volume keeps

@@ -4,3 +4,7 @@
 .svc-empty p { margin: 0; font-weight: 800; }
 .services .team-status { margin-top: 12px; }
 .modal header .os-tabs { margin-right: 4px; }
+.svc-auto { margin: 0 0 12px; padding: 10px 12px; border: 2px solid var(--ink); border-radius: 12px; background: var(--paper-2); }
+.svc-auto > p:first-child { margin: 0; font-weight: 800; }
+.services .svc-auto .note { margin-top: 4px; }
+.svc-auto code { white-space: nowrap; }
