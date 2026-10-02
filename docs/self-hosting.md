@@ -98,4 +98,4 @@ WantedBy=multi-user.target
 
 If you don't have a domain, `--self-signed` serves HTTPS directly. Browsers will warn once per person.
 
-**Voice across strict NATs.** Peers connect directly using public STUN. If some teammates can't hear each other (common on corporate networks), run a TURN server such as coturn and pass `--turn turn:user:pass@turn.example.com:3478`.
+**Voice across strict NATs.** Peers connect directly using public STUN. If some teammates can't hear each other (common on corporate networks), run a TURN server such as coturn and pass `--turn turn:user:pass@turn.example.com:3478`, or set `AGENT_OFFICE_TURN` (several separated by spaces), which is how an office in a container (Railway, Fly.io, Dokploy) gets one. When a call can't connect at all, the office says so in a toast instead of leaving people talking to silence.

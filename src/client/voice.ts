@@ -28,6 +28,7 @@ export class Voice {
   private audioCtx: AudioContext | null = null;
   private localAnalyser: AnalyserNode | null = null;
   private listeners = new Set<() => void>();
+  private failListeners = new Set<(peerId: string) => void>();
   /** Asking for the mic, so a second join waits for the first instead of asking again. */
   private joining: Promise<string | null> | null = null;
   /** Push to talk is held down: letting go mutes you. */
@@ -54,6 +55,11 @@ export class Voice {
 
   onChange(fn: () => void) {
     this.listeners.add(fn);
+  }
+
+  /** A peer's call couldn't connect at all: neither direct nor through a TURN relay. */
+  onFailed(fn: (peerId: string) => void) {
+    this.failListeners.add(fn);
   }
 
   private changed() {
@@ -260,6 +266,9 @@ export class Voice {
     pc.onicecandidate = ({ candidate }) => this.signal(id, { candidate: candidate ? candidate.toJSON() : null });
     pc.oniceconnectionstatechange = () => {
       if (pc.iceConnectionState === 'failed') pc.restartIce();
+    };
+    pc.onconnectionstatechange = () => {
+      if (pc.connectionState === 'failed') this.failListeners.forEach((fn) => fn(id));
     };
     pc.ontrack = ({ track, streams }) => {
       const stream = streams[0] ?? new MediaStream([track]);
