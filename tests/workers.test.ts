@@ -1141,6 +1141,62 @@ test('a Claude worker acts out its latest tool call, and puts its head in its ha
   assert.equal(action(), undefined);
 });
 
+test('a Claude worker that opens a pull request itself has it as its own', async (t) => {
+  const f = fixture();
+  isolateProviderEnvironment(f, t);
+  const previousExit = process.env.FAKE_AGENT_EXIT_MS;
+  const previousLog = process.env.FAKE_AGENT_LOG;
+  process.env.FAKE_AGENT_EXIT_MS = '5000';
+  process.env.FAKE_AGENT_LOG = f.log;
+  t.after(() => {
+    if (previousExit === undefined) delete process.env.FAKE_AGENT_EXIT_MS;
+    else process.env.FAKE_AGENT_EXIT_MS = previousExit;
+    if (previousLog === undefined) delete process.env.FAKE_AGENT_LOG;
+    else process.env.FAKE_AGENT_LOG = previousLog;
+    f.close();
+  });
+  execFileSync('git', ['init', '-q'], { cwd: f.root });
+  execFileSync('git', ['remote', 'add', 'origin', 'git@github.com:acme/app.git'], { cwd: f.root });
+  const toasts: string[] = [];
+  const hookEnv = { url: 'http://127.0.0.1:1', token: '' };
+  const workers = new WorkerManager(f.root, f.data, f.claude, [], hookEnv, { ...events([]), toast: (text) => toasts.push(text) }, ledger(f.data));
+  t.after(() => workers.shutdown());
+  // In the main checkout: the branch it pushes is one the office never made.
+  const worker = workers.spawn('desk-1', 'test', 'fix the login redirect and open a pull request');
+  if (typeof worker === 'string') return assert.fail(worker);
+  assert.equal(worker.worktree, undefined);
+  const [launch] = await waitFor(() => f.read().filter((r) => r.kind === 'claude' && r.args.includes('--settings')), (l) => l.length === 1);
+  const hook = (event: string, payload: object) => assert.equal(workers.handleHook(worker.id, launch.env.hookToken!, event, { session_id: 'pr', ...payload }), true);
+  const pr = () => workers.get(worker.id)?.pr;
+  const create = { tool_name: 'Bash', tool_input: { command: 'cd ../wt && git push -u origin fix-login && gh pr create --title "Fix login" --body "Closes #4"' } };
+  hook('SessionStart', {});
+  hook('UserPromptSubmit', { prompt: 'fix the login redirect and open a pull request' });
+  // Looking at someone's, naming the command, or opening one in another repository: none of them is its own.
+  hook('PostToolUse', { tool_name: 'Bash', tool_input: { command: 'gh pr view 3 --json url' }, tool_response: { stdout: 'https://github.com/acme/app/pull/3' } });
+  hook('PostToolUse', { tool_name: 'Bash', tool_input: { command: 'grep -rn "gh pr create" docs' }, tool_response: { stdout: 'docs/a.md: gh pr create … https://github.com/acme/app/pull/3' } });
+  hook('PostToolUse', { ...create, tool_response: { stdout: 'https://github.com/other/thing/pull/9\n', stderr: '' } });
+  assert.equal(pr(), undefined);
+  hook('PostToolUse', { ...create, tool_response: { stdout: 'https://github.com/acme/app/pull/12\n', stderr: 'Creating pull request for fix-login into main in acme/app' } });
+  assert.deepEqual(pr(), { number: 12, url: 'https://github.com/acme/app/pull/12' });
+  assert.deepEqual(toasts, [`${worker.name} opened PR #12`]);
+  assert.equal(JSON.parse(readFileSync(path.join(f.data, 'workers.json'), 'utf8')).find((w: { id: string }) => w.id === worker.id).pr.number, 12, 'kept across a restart');
+  // A follow-up whose branch already had one: gh fails, and says which.
+  hook('PostToolUseFailure', { ...create, error: 'Exit code 1\na pull request for branch "fix-more" into branch "main" already exists:\nhttps://github.com/acme/app/pull/14' });
+  assert.equal(pr()?.number, 14);
+  assert.deepEqual(workers.get(worker.id)?.pastPrs, [12], 'the first one is still its own');
+  // Said again, it's no news.
+  hook('PostToolUseFailure', { ...create, error: 'Exit code 1\nhttps://github.com/acme/app/pull/14' });
+  assert.equal(toasts.length, 2);
+
+  // And someone can say which is whose, or that none is (office-workers pr).
+  assert.equal(workers.linkPr(worker.id, { number: 20, url: 'https://github.com/acme/app/pull/20' }), undefined);
+  assert.equal(pr()?.number, 20);
+  assert.equal(workers.get(worker.id)?.pastPrs, undefined, 'said by someone: only that one');
+  assert.equal(workers.linkPr(worker.id), undefined);
+  assert.equal(pr(), undefined);
+  assert.equal(workers.linkPr('nobody', { number: 20, url: 'https://github.com/acme/app/pull/20' }), 'No such worker');
+});
+
 test('a worker is stamped with when it started waiting on someone, afresh each time', async (t) => {
   const f = fixture();
   isolateProviderEnvironment(f, t);

@@ -523,15 +523,14 @@ export class WorkerManager {
     return undefined;
   }
 
-  /**
-   * Pushes a worktree worker's branch and opens a pull request for it, with a title and body
-   * drafted from its task, as `as` (whoever pressed the button) or else the office. Resolves to the
-   * PR, or to a message saying why there is none. The branch may already have an open PR (a second
-   * press, or one opened by hand): that one is used. A worker across repositories gets one in each
-   * repository it committed to (see WorkerPrs).
-   */
+  /** Pushes a worktree worker's branch and opens a pull request for it, as `as` or else the office (see WorkerPrs.openPr). */
   openPr(id: string, by: string, as?: GhAs): Promise<{ prs: OpenedPr[]; failed: string[] } | string> {
     return this.prs.openPr(id, by, as);
+  }
+
+  /** Says which pull request is a worker's, or that none is (see WorkerPrs.link). */
+  linkPr(id: string, pr?: { number: number; url: string }): string | undefined {
+    return this.prs.link(id, pr);
   }
 
   resize(id: string, cols: number, rows: number) {
@@ -982,6 +981,7 @@ export class WorkerManager {
       persist: () => this.persist(),
       notePrompt: (prompt) => this.tasks.notePrompt(w, prompt),
       noteTool: (tool) => this.tasks.noteTool(w, tool),
+      notePr: (command, output) => this.prs.noteOwn(w, command, output),
       clearTask: () => this.tasks.clear(w),
       scheduleScan: () => this.scheduleScan(w),
       prompt: (text) => this.prompt(w.info.id, text),
