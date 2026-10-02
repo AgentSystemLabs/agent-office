@@ -90,6 +90,12 @@ function describeTool(payload: any): string {
   return truncate(detail ? `${name}: ${detail}` : String(name), 80);
 }
 
+/** What a finished tool call printed, and why it failed when it did. */
+function toolOutput(payload: any): string {
+  const res = payload?.tool_response;
+  return [payload?.error, res, res?.stdout, res?.stderr].filter((s) => typeof s === 'string').join('\n');
+}
+
 /**
  * A tool call finished. Tests or a build that failed again (by exit code, or by the summary it
  * printed when the exit code was piped away) and the worker puts its head in its hands, until its
@@ -97,9 +103,7 @@ function describeTool(payload: any): string {
  */
 function noteOutcome(h: WorkerHandle, payload: any, failed: boolean) {
   if (payload?.is_interrupt || toolAction(payload?.tool_name, payload?.tool_input) !== 'test') return;
-  const res = payload?.tool_response;
-  const output = [payload?.error, res?.stdout, res?.stderr].filter((s) => typeof s === 'string').join('\n');
-  if (!failed && !outputFailed(output)) {
+  if (!failed && !outputFailed(toolOutput(payload))) {
     h.failStreak = 0;
     return;
   }
@@ -159,6 +163,8 @@ function claudeHook(h: WorkerHandle, event: string, payload: any): boolean {
     case 'PostToolUse':
     case 'PostToolUseFailure':
       noteOutcome(h, payload, event === 'PostToolUseFailure');
+      // It opened a pull request itself (`gh pr create`): that one is its own.
+      h.notePr(payload?.tool_input?.command, toolOutput(payload));
       answered(h, now);
       break;
     case 'PermissionRequest':

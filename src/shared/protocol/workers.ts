@@ -59,8 +59,10 @@ export interface WorkerInfo {
    * home. `branch` says where its branch still is: in the project, only on origin, or nowhere.
    */
   lost?: { branch: LostBranch };
-  /** The pull request opened from this desk for the worktree branch (see 'worker.pr'). */
+  /** Its pull request: opened from this desk for the worktree branch (see 'worker.pr'), by itself with `gh pr create`, or said to be its own. */
   pr?: { number: number; url: string };
+  /** The pull requests it opened itself before `pr`: while one of them is open, its work hasn't all landed. */
+  pastPrs?: number[];
   /**
    * Other floors' repositories it works in too, for a task that spans them. It then starts in a
    * workspace folder with a worktree of each repository in it, its own floor's (`worktree`) and

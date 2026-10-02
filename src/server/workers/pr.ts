@@ -18,6 +18,22 @@ const PR_TASK_MAX = 2500;
 /** Around the list of a change's pull requests in each of their descriptions, so it can be brought up to date. */
 const RELATED_START = '<!-- agent-office:related -->';
 const RELATED_END = '<!-- /agent-office:related -->';
+/** `gh pr create` being run, alone or in a longer line: not one that only names it (a grep for it, a quoted string). */
+const CREATES_PR = /(?:^|[\s;&|(])gh\s+pr\s+create\b/;
+/** How many of the pull requests a worker opened before its latest are remembered. */
+const MAX_PAST_PRS = 20;
+const PR_URL = /https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/pull\/(\d+)/g;
+
+/**
+ * The pull request a worker opened itself, read off a shell command it ran and what that printed:
+ * `gh pr create` prints the new pull request's URL, or the one its branch already had. The last one
+ * printed is it.
+ */
+export function ownPr(command: unknown, output: string): { repo: string; number: number; url: string } | undefined {
+  if (typeof command !== 'string' || !CREATES_PR.test(command)) return undefined;
+  const last = [...output.matchAll(PR_URL)].pop();
+  return last && { repo: last[1], number: Number(last[2]), url: last[0] };
+}
 
 async function findOpenPr(branch: string, cwd: string): Promise<{ number: number; url: string } | undefined> {
   const out = await gh(['pr', 'list', '--head', branch, '--state', 'open', '--limit', '1', '--json', 'number,url'], cwd);
@@ -79,7 +95,49 @@ function draftPr(info: WorkerInfo, commits: string[], by: string, other?: { home
 
 /** Opening pull requests for one floor's workers (see WorkerContext). */
 export class WorkerPrs {
+  /** owner/name of the floor's project on GitHub, looked up the first time a worker opens a pull request itself. */
+  private origin?: { repo: string | undefined };
+
   constructor(private ctx: WorkerContext) {}
+
+  /**
+   * A worker ran `gh pr create` itself (see ownPr): that pull request is its own from then on, as
+   * one opened from its desk is. A worker in the main checkout works on a branch the office never
+   * made, so this is how the office knows which pull request is whose. For a worker across
+   * repositories, one in another of its repositories is kept with that repository.
+   */
+  noteOwn(w: Worker, command: unknown, output: string) {
+    const pr = ownPr(command, output);
+    if (!pr) return;
+    const { info } = w;
+    const same = (repo?: string) => repo?.toLowerCase() === pr.repo.toLowerCase();
+    this.origin ??= { repo: originRepo(this.ctx.dir) };
+    const other = same(this.origin.repo) ? undefined : info.repos?.find((r) => same(r.repo));
+    if (!same(this.origin.repo) && !other) return;
+    if ((other ?? info).pr?.number === pr.number) return;
+    // The one it had may still be open (a second task, a follow-up): it stays its own too.
+    if (!other && info.pr) info.pastPrs = [...new Set([...(info.pastPrs ?? []), info.pr.number])].filter((n) => n !== pr.number).slice(-MAX_PAST_PRS);
+    (other ?? info).pr = { number: pr.number, url: pr.url };
+    this.ctx.persist();
+    this.ctx.emit(w);
+    this.ctx.events.toast(`${info.name} opened PR #${pr.number}${other ? ` in ${other.name}` : ''}`, 'info');
+  }
+
+  /**
+   * Says which pull request is a worker's, or with none that it has none: for one the office
+   * couldn't tell by itself (opened by hand, or by an agent whose hooks don't say what it ran).
+   * A message when there's no such worker.
+   */
+  link(id: string, pr: { number: number; url: string } | undefined): string | undefined {
+    const w = this.ctx.workers.get(id);
+    if (!w) return 'No such worker';
+    w.info.pr = pr;
+    // Whoever says so knows better than what the office gathered.
+    w.info.pastPrs = undefined;
+    this.ctx.persist();
+    this.ctx.emit(w);
+    return undefined;
+  }
 
   /**
    * Pushes a worktree worker's branch and opens a pull request for it, with a title and body

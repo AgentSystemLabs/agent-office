@@ -143,6 +143,8 @@ export interface WorkerHandle<S = unknown> {
   notePrompt(prompt: string): void;
   /** A tool call it made, for naming its task. */
   noteTool(tool: string): void;
+  /** A shell command it ran and what that printed: a pull request it opened that way is its own (see WorkerPrs.noteOwn). */
+  notePr(command: unknown, output: string): void;
   /** A new conversation, so a new task. */
   clearTask(): void;
   /** Reads its usage again in a moment (hooks come in bursts). */
