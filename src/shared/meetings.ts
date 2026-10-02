@@ -84,11 +84,6 @@ export function isMeetingPattern(v: unknown): v is MeetingPattern {
   return typeof v === 'string' && Object.hasOwn(MEETING_PATTERNS, v);
 }
 
-/** Tokens a meeting may use by default: a million per worker at the table. */
-export const TOKENS_PER_SEAT = 1_000_000;
-/** The most a meeting may be given, however many workers sit down. */
-export const MAX_MEETING_BUDGET = 50_000_000;
-
 /**
  * The round notes' folder at the top of a meeting's worktree. It's left out of the meeting's commit and
  * cleared away with the room (a copy stays in the floor's .agent-office/meetings/). Not under

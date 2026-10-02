@@ -4,8 +4,8 @@ import { closeSync, cpSync, existsSync, mkdirSync, openSync, readFileSync, readS
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { MEETING_SEATS } from '../shared/layout.js';
-import { MAX_MEETING_BUDGET, MEETING_NOTES_DIR, MEETING_PATTERNS, TOKENS_PER_SEAT, isMeetingPattern, meetingRecord, outputProblem, slugify } from '../shared/meetings.js';
-import { fmtTokens, isAgentEffort, isAgentProvider, tokensOf, type AgentChoice, type AgentEffort, type AgentProvider, type Meeting, type MeetingRecord, type MeetingRequest, type MeetingState, type MeetingTurn, type WorkerInfo, type WorkerStatus } from '../shared/protocol.js';
+import { MEETING_NOTES_DIR, MEETING_PATTERNS, isMeetingPattern, meetingRecord, outputProblem, slugify } from '../shared/meetings.js';
+import { isAgentEffort, isAgentProvider, tokensOf, type AgentChoice, type AgentEffort, type AgentProvider, type Meeting, type MeetingRecord, type MeetingRequest, type MeetingState, type MeetingTurn, type WorkerInfo, type WorkerStatus } from '../shared/protocol.js';
 import { validateWorkerEffort, validateWorkerModel } from './agents.js';
 import { providerMeta, takesEffort, takesModel } from '../shared/providers.js';
 import { gitError, type WorktreeRef, type WorktreeState } from './worktrees.js';
@@ -77,8 +77,8 @@ interface Part {
  * through the rounds of its pattern (shared/meetings.ts): in each step every worker with a part gets
  * it as a prompt, and the step is over when each of them has ended its turn with its part written to
  * the file it names. Checking the files, not the talk, is what moves a meeting on. It ends when the
- * output file is written, and stops early, saying why, when it runs over its token budget, when a
- * worker won't write its part, or when a worker leaves.
+ * output file is written, and stops early, saying why, when a worker won't write its part or when a
+ * worker leaves. What the table has used is added up to be shown, and never stops it.
  *
  * Everyone at the table shares the meeting's own git worktree (in a git project). When it's done,
  * the office commits the output there, or for a review panel posts it on the pull request. The
@@ -147,7 +147,6 @@ export class MeetingRoom {
     if (pattern.needs === 'parts' && parts.length < count - 1) return `List at least ${count - 1} part${count === 2 ? '' : 's'} for the mappers, one per line (or seat fewer workers)`;
     const issue = Number.isInteger(req.issue) && (req.issue as number) > 0 ? (req.issue as number) : undefined;
     const rounds = clamp(Math.floor(Number(req.rounds) || pattern.rounds.default), pattern.rounds.min, pattern.rounds.max);
-    const budget = clamp(Math.floor(Number(req.budget) || count * TOKENS_PER_SEAT), 50_000, MAX_MEETING_BUDGET);
     const title = (String(req.title ?? '').replace(/\s+/g, ' ').trim() || (pr !== undefined && req.pattern === 'review' ? `Review of PR #${pr}` : firstLine(prompt))).slice(0, 100);
     const id = randomBytes(4).toString('hex');
     const slug = slugify(title, 32);
@@ -186,7 +185,6 @@ export class MeetingRoom {
       round: 1,
       step: 1,
       turns: [],
-      budget,
       tokens: 0,
       cost: 0,
       costKnown: true,
@@ -217,7 +215,7 @@ export class MeetingRoom {
     if (last) this.archive(last);
     this.current = m;
     this.changed();
-    this.events.toast(`🤝 ${by} called a ${pattern.label} meeting: “${title}” (${count} workers, ${rounds} round${rounds === 1 ? '' : 's'} at most, ${fmtTokens(budget)} tokens)`, 'info');
+    this.events.toast(`🤝 ${by} called a ${pattern.label} meeting: “${title}” (${count} workers, ${rounds} round${rounds === 1 ? '' : 's'} at most)`, 'info');
     return undefined;
   }
 
@@ -298,7 +296,6 @@ export class MeetingRoom {
       if (!w) return this.halt(m, `the ${s.role} (${s.workerName ?? 'its worker'}) was sent home`);
       if (w.status === 'exited') return this.halt(m, `the ${s.role}'s agent (${w.name}) exited`);
     }
-    if (m.tokens > m.budget) return this.halt(m, `over budget: ${fmtTokens(m.tokens)} of ${fmtTokens(m.budget)} tokens`);
     let changed = false;
     for (const t of m.turns) {
       changed = this.advance(m, t, byId.get(m.seats[t.seat].workerId!)!) || changed;
@@ -543,7 +540,6 @@ export class MeetingRoom {
       output: m.output,
       outputPath: path.join(this.cwd(m), m.output),
       rounds: `${m.rounds} round${m.rounds === 1 ? '' : 's'}`,
-      budget: fmtTokens(m.budget),
       where: where + inside,
     });
   }

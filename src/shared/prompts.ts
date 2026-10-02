@@ -226,7 +226,6 @@ const DEFS = {
       output: "The output file, as it's named in the project",
       outputPath: 'The output file, by its full path',
       rounds: 'The round limit: "3 rounds"',
-      budget: 'The token budget for the whole table: "300k"',
       where: 'What they may and may not do in the checkout (commit, push, switch branches)',
     },
     text: [
@@ -235,7 +234,7 @@ const DEFS = {
       'What the meeting is about:\n{{about}}',
       '{{pullRequest}}',
       '{{issue}}',
-      'How it runs: the office hands each of you your part of every round in a message like this one. Do just that part, write it to the file it names, and end your turn; the next round starts once every part of this one is written. Your working directory is {{cwd}}, and every file of the meeting is in it: the notes go in {{notes}}/, which is where you read what the others wrote. The meeting ends when {{output}} ({{outputPath}}) is written, and only the part that says so writes it. It has {{rounds}} at most and {{budget}} tokens between all of you, so keep your notes short: bullets over prose.',
+      'How it runs: the office hands each of you your part of every round in a message like this one. Do just that part, write it to the file it names, and end your turn; the next round starts once every part of this one is written. Your working directory is {{cwd}}, and every file of the meeting is in it: the notes go in {{notes}}/, which is where you read what the others wrote. The meeting ends when {{output}} ({{outputPath}}) is written, and only the part that says so writes it. It has {{rounds}} at most, so keep your notes short: bullets over prose.',
       '{{where}}',
     ].join('\n\n'),
   },
