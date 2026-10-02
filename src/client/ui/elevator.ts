@@ -1,3 +1,4 @@
+import { LOBBY, LOBBY_DESCRIPTION, floorNumber } from '../../shared/lobby';
 import './elevator.css';
 import type { CloneProgress, FloorInfo, RepoChoice, ServerMsg } from '../../shared/protocol';
 import { cloneLabel, cloneStep, floorPalette, normalizeRepo, sameRepo } from '../../shared/floors';
@@ -8,8 +9,8 @@ import { h, openModal, timeAgo, toast, type Modal } from './dom';
 import { confirmDialog } from './prompt';
 
 // The elevator's panel: a button for every floor (every project), and "add a project", which clones
-// one of the repositories the office's gh login can see and makes it a new floor. The first time
-// the office runs there are no floors, and this is where you start. Admins can take a floor off the
+// one of the repositories the office's gh login can see and makes it a new floor above the permanent
+// public lobby on G. Admins can take a project floor off the
 // building here too; its checkout stays on disk. Under the floors, it goes down to the garage.
 
 /**
@@ -127,18 +128,18 @@ export function openElevator(opts: ElevatorOptions): void {
     else {
       if (f.busy) stats.push(h('span', { title: 'Working' }, `👷 ${f.busy}`));
       if (f.waiting) stats.push(h('span.waiting', { title: 'Waiting on someone' }, `🙋 ${f.waiting}`));
-      stats.push(h('span', { title: 'Workers at desks' }, `💻 ${f.workers}`));
+      if (f.id !== LOBBY) stats.push(h('span', { title: 'Workers at desks' }, `💻 ${f.workers}`));
       if (f.people) stats.push(h('span', { title: 'People on this floor' }, `🧑 ${f.people}`));
     }
     const btn = h(
       'button.floor-btn',
       { type: 'button', class: here ? 'here' : '', disabled: f.cloning || here, title: here ? "You're on this floor" : f.cloning ? 'Still being cloned' : `Ride ${mine ? 'back up ' : ''}to ${f.name}` },
-      h('span.floor-no', { style: `background:${p.trim}` }, String(i + 1)),
+      h('span.floor-no', { style: `background:${p.trim}` }, floorNumber(f, i)),
       h(
         'span.floor-text',
         {},
         h('span.floor-name', {}, f.name, here ? h('span.here-tag', {}, 'you are here') : mine ? h('span.here-tag', {}, 'your floor') : null),
-        h('span.floor-sub', {}, [f.repo ?? f.dir, f.cloning ? f.clone?.detail : ''].filter(Boolean).join(' · ')),
+        h('span.floor-sub', {}, [f.id === LOBBY ? LOBBY_DESCRIPTION : f.repo ?? f.dir, f.cloning ? f.clone?.detail : ''].filter(Boolean).join(' · ')),
         f.cloning ? cloneBar(f.clone) : null,
       ),
       h('span.floor-stats', {}, ...stats.flatMap((s, j) => (j ? [' ', s] : [s]))),
@@ -160,7 +161,7 @@ export function openElevator(opts: ElevatorOptions): void {
       stop.addEventListener('click', () => confirmDialog(`Stop cloning ${f.repo ?? f.name}?`, "What's come down so far is thrown away. You can add it again any time.", '⏹️ Stop cloning', () => net.send({ t: 'floor.cancel', floor: f.id })));
       return h('div.floor-row', {}, btn, stop);
     }
-    if (!store.me.admin) return btn;
+    if (!store.me.admin || f.id === LOBBY) return btn;
     const off = h('button.btn.floor-off', { type: 'button', title: `Take ${f.name} off the building`, 'aria-label': `Remove ${f.name}` }, '🗑');
     off.addEventListener('click', () => confirmRemove(f));
     return h('div.floor-row', {}, btn, off);
@@ -194,7 +195,7 @@ export function openElevator(opts: ElevatorOptions): void {
     return btn;
   };
 
-  /** Under floor 1: the garage, level with the street. */
+  /** Under the ground-floor lobby: the garage, level with the street. */
   const garageButton = () => {
     const here = opts.downstairs();
     const bottom = store.floors.find((f) => !f.cloning);
@@ -233,7 +234,7 @@ export function openElevator(opts: ElevatorOptions): void {
       h('span.nm', {}, r.name),
       r.private ? h('span', { title: 'Private' }, '🔒') : null,
       h('span.desc', {}, r.description ?? ''),
-      floor ? h('span.pill', {}, floor.id === store.floor ? 'you are here' : `floor ${store.floors.indexOf(floor) + 1}`) : r.pushedAt ? h('span.when', {}, timeAgo(r.pushedAt)) : null,
+      floor ? h('span.pill', {}, floor.id === store.floor ? 'you are here' : `floor ${floorNumber(floor, store.floors.indexOf(floor))}`) : r.pushedAt ? h('span.when', {}, timeAgo(r.pushedAt)) : null,
     );
     row.addEventListener('click', () => {
       if (adding) return;

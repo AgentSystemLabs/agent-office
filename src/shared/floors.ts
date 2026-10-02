@@ -3,7 +3,7 @@
 
 import type { CloneProgress } from './protocol.js';
 
-/** The most floors a building has. */
+/** The most project floors a building has, above its permanent public lobby. */
 export const MAX_FLOORS = 16;
 
 /** How a floor looks: its walls, their trim, and its planks. */

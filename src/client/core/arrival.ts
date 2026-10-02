@@ -1,3 +1,4 @@
+import { LOBBY_NAME, LOBBY_DESCRIPTION } from '../../shared/lobby';
 /**
  * Arriving: everything the office says goes through ctx.messages from here (each type's `before`
  * handlers, the store, the routers, then its `after` handlers), and arriving (a welcome, a
@@ -186,17 +187,17 @@ export function installArrival(ctx: Ctx, core: CoreState, parts: ArrivalParts) {
       return;
     }
     if (!p) {
-      $('project-name').textContent = '🏢 Agent Office';
-      $('project-meta').textContent = store.floors.length ? '🛗 Take the elevator to a floor' : '🛗 No floors yet — add a project in the elevator';
+      $('project-name').textContent = `🌿 ${LOBBY_NAME}`;
+      $('project-meta').textContent = `${LOBBY_DESCRIPTION} · 🛗 Projects upstairs`;
       // Where to go next, so it shows even with the floor details turned off.
       $('project-meta').classList.add('lobby');
-      ctx.world().setProjectName(store.floors.length ? 'Pick a floor' : 'Lobby');
+      ctx.world().setProjectName(LOBBY_NAME);
       return;
     }
     const n = store.floors.findIndex((f) => f.id === store.floor);
     $('project-meta').classList.remove('lobby');
     $('project-name').textContent = `🏢 ${p.name}`;
-    $('project-meta').textContent = [n >= 0 && `🛗 floor ${n + 1} of ${store.floors.length}`, p.branch && `⎇ ${p.branch}`, p.dir, `default: ${providerLabel(p.defaultProvider, p)}`].filter(Boolean).join(' · ');
+    $('project-meta').textContent = [n >= 0 && `🛗 floor ${n} · lobby on G`, p.branch && `⎇ ${p.branch}`, p.dir, `default: ${providerLabel(p.defaultProvider, p)}`].filter(Boolean).join(' · ');
     ctx.world().setProjectName(p.name);
   }
   store.on('floors', renderProject);

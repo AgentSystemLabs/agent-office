@@ -28,6 +28,7 @@ import { beanbags, desks, kiosks } from './seats';
 import { meetingRoom } from './meeting-room';
 import { loft } from './loft';
 import type { Fixture, Gives, Site } from './fixture';
+import { lobby, projectFixture } from '../../features/lobby/world';
 
 // The office floor, put together from its fixtures (see fixture.ts): the room and its walls, the desks
 // and everything else in it, the balcony, the loft and the meeting room under it, the back office, and
@@ -50,28 +51,29 @@ function floorPlan() {
     tower,
     desks,
     beanbags,
-    kiosks,
-    boards,
+    projectFixture(kiosks),
+    projectFixture(boards),
     // The lounge: the TV, the couch and its table and poufs, and the jukebox and the arcade in the corner.
     tv,
     machineMonitor,
     lounge,
     jukebox,
     cabinet,
-    bookshelf,
+    projectFixture(bookshelf),
     kitchen,
     plants,
     lamps,
     wing,
     signs,
     loft,
-    meetingRoom,
+    projectFixture(meetingRoom),
     elevator,
     garageLift,
     gong,
     hoop,
     whiteboard,
     clearOfStairs,
+    lobby,
   ] as const;
 }
 

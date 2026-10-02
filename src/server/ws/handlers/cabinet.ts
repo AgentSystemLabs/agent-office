@@ -1,10 +1,9 @@
+import { socialFloor, type SocialFloor } from '../../lobby.js';
 // The arcade cabinet on every floor: who's playing it, the game on its screen, and the high scores.
-import type { Floor } from '../../floor.js';
 import { checkFrame, type CabinetFrame, type CabinetState } from '../../../shared/cabinet.js';
 import type { CabinetClientMsg } from '../../../shared/protocol.js';
 import type { Ctx } from '../../office/context.js';
 import { throttle, type Client } from '../../office/client.js';
-import { here } from './common.js';
 import type { FeatureHooks, HandlerMap, ViewPieces } from './types.js';
 
 /** At the arcade cabinet on their floor, playing `game` (see Arcade); `frame` is it as it looks now. */
@@ -21,22 +20,23 @@ const player = (c: Client): Player => {
 };
 
 /** Who's playing the arcade cabinet on a floor. */
-export const cabinetPlayer = (ctx: Ctx, floor: Floor): Client | undefined => [...ctx.clients.values()].find((c) => player(c).playing && c.peer.floor === floor.id);
-export const cabinetState = (ctx: Ctx, floor: Floor | undefined): CabinetState => {
+export const cabinetPlayer = (ctx: Ctx, floor: SocialFloor): Client | undefined => [...ctx.clients.values()].find((c) => player(c).playing && c.peer.floor === floor.id);
+export const cabinetState = (ctx: Ctx, floor: SocialFloor | undefined): CabinetState => {
   const p = floor && cabinetPlayer(ctx, floor);
   return { player: p ? { id: p.id, name: p.peer.name, game: player(p).game ?? '' } : null, scores: ctx.highScores.top() };
 };
 /** Who's at the cabinet, its high scores, and the game on its screen as its player last sent it. */
-export const cabinetView: ViewPieces['cabinet'] = (ctx, floor) => {
+export const cabinetSnapshot = (ctx: Ctx, floor: SocialFloor | undefined) => {
   const state = cabinetState(ctx, floor);
   const p = floor && cabinetPlayer(ctx, floor);
   return { ...state, frame: (p && player(p).frame) ?? null };
 };
-export const cabinetChanged = (ctx: Ctx, floor: Floor | undefined) => {
+export const cabinetView: ViewPieces['cabinet'] = cabinetSnapshot;
+export const cabinetChanged = (ctx: Ctx, floor: SocialFloor | undefined) => {
   if (floor) ctx.toFloor(floor, { t: 'cabinet', state: cabinetState(ctx, floor) });
 };
 /** `c` stepped away from the cabinet (or left the floor, or the office): their game waits, with its score so far on the table. */
-export const stopPlaying = (ctx: Ctx, c: Client, floor = ctx.floorOf(c)) => {
+export const stopPlaying = (ctx: Ctx, c: Client, floor = socialFloor(ctx, c)) => {
   const p = player(c);
   if (!p.playing) return;
   if (floor) ctx.arcade.leave(p.game, floor.id);
@@ -49,7 +49,7 @@ export const stopPlaying = (ctx: Ctx, c: Client, floor = ctx.floorOf(c)) => {
 export const cabinetHandlers = {
   'cabinet.play'(ctx, c, msg) {
     const who = c.peer.name;
-    const floor = here(ctx, c);
+    const floor = socialFloor(ctx, c);
     const p = player(c);
     if (!floor || (p.playing && msg.game === p.game)) return;
     const at = cabinetPlayer(ctx, floor);
@@ -70,7 +70,7 @@ export const cabinetHandlers = {
     stopPlaying(ctx, c);
   },
   'cabinet.frame'(ctx, c, msg) {
-    const floor = ctx.floorOf(c);
+    const floor = socialFloor(ctx, c);
     const frame = checkFrame(msg.frame);
     const p = player(c);
     if (!p.playing || !floor || !frame) return;
@@ -84,6 +84,6 @@ export const cabinetHandlers = {
 
 export const cabinetHooks: FeatureHooks = {
   // The arcade downstairs stays downstairs.
-  leaving: (ctx, c, was) => stopPlaying(ctx, c, was),
+  leaving: (ctx, c, was) => stopPlaying(ctx, c, was ?? socialFloor(ctx, c)),
   closed: (ctx, c) => stopPlaying(ctx, c),
 };

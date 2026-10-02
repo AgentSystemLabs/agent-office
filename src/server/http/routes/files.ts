@@ -1,3 +1,4 @@
+import { LOBBY } from '../../../shared/lobby.js';
 // Files a floor's windows show or take: pictures on the walls and the whiteboard, files dropped into
 // a terminal, changed pictures in the Changes window, and the bookshelf's Markdown.
 import type { Floor } from '../../floor.js';
@@ -36,7 +37,7 @@ export const fileRoutes = {
     path: '/api/whiteboard/file',
     auth: 'session',
     async handle(ctx, { req, res, url }) {
-      const floor = floorParam(ctx, url);
+      const floor = url.searchParams.get('floor') === LOBBY ? ctx.lobby : floorParam(ctx, url);
       // Pictures on the whiteboard. Their ids are hashes of what's in them, so they never change.
       if (!floor) return send(res, 404, { error: 'No such floor' });
       if (req.method === 'GET') {

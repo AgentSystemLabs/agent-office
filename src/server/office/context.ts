@@ -1,3 +1,4 @@
+import type { Lobby } from '../lobby.js';
 // What every part of the office shares: the building-wide singletons and the helpers the WebSocket
 // handlers, the HTTP routes and the hook server use. startServer (server.ts) makes it a stage at a
 // time, in the order the office has always started up in (see each stage's interface), so a part
@@ -52,6 +53,7 @@ export interface Core {
   /** The building: a floor per project, each with its own workers, boards and queue. */
   building: Building;
   floors: Map<string, Floor>;
+  lobby: Lobby;
 }
 
 /** Made once the hook server listens, before any floor opens (office/services.ts). */
@@ -98,8 +100,8 @@ export interface Messaging {
   broadcast(msg: ServerMsg, except?: string, droppable?: boolean): void;
   toastAll(text: string, level?: ToastLevel): void;
   /** To everyone on one floor. */
-  toFloor(floor: Floor, msg: ServerMsg, droppable?: boolean): void;
-  toastFloor(floor: Floor | undefined, text: string, level?: ToastLevel): void;
+  toFloor(floor: Pick<Floor, 'id'>, msg: ServerMsg, droppable?: boolean): void;
+  toastFloor(floor: Pick<Floor, 'id'> | undefined, text: string, level?: ToastLevel): void;
   /** To everyone else on the same floor as `c`: nobody on another floor can see them. */
   toNeighbors(c: Client, msg: ServerMsg, droppable?: boolean): void;
   /** Tells just this person why their request didn't happen; nothing when there's no error. */
@@ -116,11 +118,11 @@ export interface FloorHelpers {
   floorsChanged(): void;
   /** Drops a `floorsChanged` still waiting to go out (the office is closing). */
   cancelFloorsChanged(): void;
-  /** Where someone arriving goes: the floor they asked for, else the first one there is. */
+  /** Where someone arriving goes: the floor they asked for, else the public lobby (no project Floor). */
   arrivalFloor(wanted: string | null): Floor | undefined;
   /**
    * Takes `floor` off the building (already out of floors.json): everyone on it rides the elevator to
-   * the next floor, or out to the lobby if it was the last (the roof goes with it), and its workers stop.
+   * the next project floor, or the public lobby if it was the last, and its workers stop.
    */
   closeFloor(floor: Floor, who: string): void;
 }
@@ -146,8 +148,8 @@ export interface Navigation {
   goToFloor(c: Client, floor: Floor, at?: Spot): void;
   /** Up to the rooftop bar, by elevator. */
   goToRoof(c: Client): void;
-  /** Out to the lobby, where the elevator has nowhere to go: the building's last floor was taken off. */
-  toLobby(c: Client): void;
+  /** Back to the permanent public lobby on the ground floor. */
+  toLobby(c: Client, at?: Spot): void;
 }
 
 /** What has to be true before something happens for someone (office/gates.ts). */

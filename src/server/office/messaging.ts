@@ -19,7 +19,7 @@ export function messaging(ctx: Ctx): Messaging {
   };
   const toastAll = (text: string, level: ToastLevel = 'info') => broadcast({ t: 'toast', text, level });
   /** To everyone on one floor. */
-  const toFloor = (floor: Floor, msg: ServerMsg, droppable = false) => {
+  const toFloor = (floor: Pick<Floor, 'id'>, msg: ServerMsg, droppable = false) => {
     const json = JSON.stringify(msg);
     for (const c of ctx.clients.values()) {
       if (c.peer.floor !== floor.id || c.ws.readyState !== WebSocket.OPEN) continue;
@@ -27,7 +27,7 @@ export function messaging(ctx: Ctx): Messaging {
       c.ws.send(json);
     }
   };
-  const toastFloor = (floor: Floor | undefined, text: string, level: ToastLevel = 'info') => {
+  const toastFloor = (floor: Pick<Floor, 'id'> | undefined, text: string, level: ToastLevel = 'info') => {
     if (floor) toFloor(floor, { t: 'toast', text, level });
   };
   /** To everyone else on the same floor as `c`: nobody on another floor can see them. */

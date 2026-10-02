@@ -5,6 +5,7 @@ import { IS_MAC } from './termkeys';
 
 export const HELP_ROWS: readonly (readonly [string, string])[] = [
   ['W A S D', 'Walk (hold Shift to run)'],
+  ['🌿', 'The Public Lobby is always on G: sit at a coworking desk, talk, share your screen or draw together. Project floors are upstairs; return to G from the elevator or floor list'],
   ['Space', 'Jump'],
   ['☕', 'Press E at the coffee machine in the kitchen for a minute of quicker walking and higher jumps. Three cups in a row gives you the jitters'],
   ['Mouse', 'Look around in first person (click to capture the mouse, Esc to free it)'],
