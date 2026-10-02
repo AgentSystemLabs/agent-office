@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { MEETING_PATTERNS, meetingStage, meetingSummary } from '../../../shared/meetings';
-import { fmtCost, fmtTokens, type Meeting, type MeetingState } from '../../../shared/protocol';
+import { MEETING_PATTERNS, meetingSpend, meetingStage, meetingSummary } from '../../../shared/meetings';
+import type { Meeting, MeetingState } from '../../../shared/protocol';
 
 const FONT = 'Nunito, ui-rounded, system-ui, sans-serif';
 const MONO = 'ui-monospace, SFMono-Regular, Menlo, monospace';
@@ -127,7 +127,7 @@ export class MeetingBoardTexture {
 
 /**
  * The panel on the glass beside the meeting room's door, like a room-booking screen: what's on, the
- * round, who has the floor and the tokens against the budget; once it's over, its one-line summary.
+ * round, who has the floor and what it has used so far; once it's over, its one-line summary.
  */
 export class MeetingSignTexture {
   readonly texture: THREE.CanvasTexture;
@@ -180,19 +180,8 @@ export class MeetingSignTexture {
       y = lines(meetingStage(m), `800 32px ${FONT}`, '#e9ecef', y, 3, 40);
       const who = speaking(m);
       if (who.length) lines(`💬 ${who.join(', ')}`, `700 30px ${FONT}`, '#bde0fe', y + 8, 3, 38);
-      // The budget, as a bar that fills up, and what's been spent.
-      const f = Math.min(1, m.tokens / Math.max(1, m.budget));
-      const barY = H - 118;
-      g.fillStyle = 'rgba(255,255,255,.18)';
-      g.fillRect(pad, barY, W - 2 * pad, 20);
-      g.fillStyle = f > 0.9 ? '#ef476f' : f > 0.7 ? '#ffd166' : '#06d6a0';
-      g.fillRect(pad, barY, (W - 2 * pad) * f, 20);
-      g.fillStyle = '#fffaf3';
-      g.font = `800 30px ${FONT}`;
-      g.fillText(`${fmtTokens(m.tokens)} of ${fmtTokens(m.budget)} tokens`, pad, H - 58);
-      g.font = `700 28px ${FONT}`;
-      g.fillStyle = '#e9ecef';
-      if (m.cost > 0) g.fillText(`${fmtCost(m.cost)}${m.costKnown ? '' : '+'} so far`, pad, H - 22);
+      // What's been spent, along the bottom.
+      if (m.tokens) lines(`${meetingSpend(m)} so far`, `800 30px ${FONT}`, '#fffaf3', H - 40, 1, 38);
     } else {
       // The summary line after the pattern, which is up top already.
       lines(meetingSummary(m).split(' · ').slice(1).join(' · '), `700 30px ${FONT}`, '#e9ecef', y, Math.floor((H - y) / 38), 38);

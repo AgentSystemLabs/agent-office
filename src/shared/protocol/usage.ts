@@ -27,7 +27,7 @@ export interface Usage {
   contextSize?: number;
 }
 
-/** Every token a session used, cache reads and writes included: what the office shows and budgets meetings by. */
+/** Every token a session used, cache reads and writes included: what the office shows. */
 export function tokensOf(u: Usage): number {
   return u.totalTokens ?? u.input + u.output + (u.reasoning ?? 0) + u.cacheWrite + u.cacheRead;
 }
