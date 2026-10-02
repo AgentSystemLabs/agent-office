@@ -2,7 +2,7 @@
 title: 'Adjustable performance settings'
 type: 'feature'
 created: '2026-10-01'
-status: 'in-progress'
+status: 'in-review'
 baseline_commit: '1bc3028472d38b161e85117bf621bb6bc12700e5'
 route: 'full'
 route_source: 'pinned'
@@ -87,6 +87,11 @@ Verification is sequential to limit load. Children run only their focused tests;
 
 ## Review Triage Log
 
+- Root browser verification caught graphics application before stage/settings initialization. Moved it to HUD setup after initialization; initial/live/reloaded DPR checks passed.
+- Independent server review caught a lifecycle check consuming dirtiness before xterm parsed queued output. Rearm dirtiness on `onWriteParsed`; the pre-parse flush test failed before correction and passed afterward.
+- Independent client review found no further actionable issue. Root reviewed the full unified diff.
+- Remote integration conflicts were resolved with separate file ownership; incoming features were preserved. Final gates cover the rebased source.
+
 ## Verification
 
 - Focused behavior tests for cadence, storage, subscription gating, timer changes, file invalidation, security and disposal.
@@ -95,7 +100,7 @@ Verification is sequential to limit load. Children run only their focused tests;
 - Short controlled render/work-count observations where practical; report measurements separately from expected savings.
 
 
-### Implementation verification (2026-10-02)
+### Pre-rebase implementation verification (2026-10-02)
 
 All commands ran in the isolated worktree; verification was serialized.
 
@@ -120,3 +125,15 @@ Matrix coverage executed in the full suite:
 Deterministic work observation at representative 120 Hz timestamps over 10 seconds: 601 simulation updates preserved 10.000 seconds; 60/15/5 FPS drawing admitted 601/151/51 draws respectively (including the first draw). Hidden interval admitted zero draws/updates. Actual movement covered 30/60/120 FPS. These are work counts, not measured CPU/fan/energy savings.
 
 Parent retains independent review, isolated browser screenshots/live checks and PR delivery. No production/live-data/daily-driver channels, pushes or merges were performed by implementation agents.
+
+### Root verification on remote integration (2026-10-02)
+
+- Rebased onto freshly fetched `157b176d33768fdc344c8095b97114a83710bb0c`. The shared checkout remained clean and untouched.
+- `npm run typecheck` and `npm run build`: exit 0. Final staged/committed diff whitespace check: exit 0.
+- Focused Codex/worker suite: 38/38 passed. Disposable remote baseline clone/worker suite: 39/39 passed.
+- Integrated full suite: first run 631/635, repeated run 632/635. Remaining failures were short clone-stall/fake-agent launch deadlines, with changing failing cases. Unmodified remote full suite also failed fake-agent launch deadlines: 598/600. No deadlines or unrelated clone/launch code were changed to make these checks pass. The native startup/scheduling cause remains undetermined.
+- All new performance behavior tests passed in both integrated full runs. Prior work counts describe deterministic scheduling, not measured hardware savings.
+
+Remaining evidence limits: no CPU/energy/fan baseline, real GPU allocation profiling, audible background-alert check, filesystem-race/slow-client stress run, or provider integration run. Browser screenshots use software graphics and disposable data.
+
+- Final isolated browser run: exit 0, no page errors. Checked presets/custom, initial/live/reloaded DPR, cross-pane retention, rapid office edits, office persistence, both resets, Esc/X focus and controls restoration, mobile overflow and actual sidebar node identity. Desktop/mobile/expanded screenshots inspected in `/private/tmp/agent-office-performance-qa-artifacts`. Headless Chromium refused native pointer capture, so physical mouse-look was not verified; the existing focus/close pipeline is reused.

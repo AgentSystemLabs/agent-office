@@ -32,10 +32,10 @@
 
 **Interfaces:** Produces canonical `BrowserPerformance` options, presets/parser and `Settings.performance`; live renderer application remains within this task.
 
-- [ ] Add focused tests: legacy/invalid settings normalization, preset/custom round trips, 60/120/144 Hz frame admission, hidden/resume and elapsed time.
-- [ ] Run focused tests and capture failing behavior before implementation.
-- [ ] Implement foreground cap, independently reduced idle drawing, safe timer reset, intentional-throttle-aware frame detection and character-preview cadence. Apply pixel ratio/outline/shadows live, disposing replaced shadow allocations. Detach inactive cached maps from active traversal and restore on entry.
-- [ ] Verify scheduler/storage tests and report exact exported APIs and covering commands. Do not run a full build concurrently.
+- [x] Add focused tests: legacy/invalid settings normalization, preset/custom round trips, 60/120/144 Hz frame admission, hidden/resume and elapsed time.
+- [x] Run focused behavior tests. Red-first evidence was not retained for every initial change; the terminal parse-order correction has a recorded failing case before its fix.
+- [x] Implement foreground cap, independently reduced idle drawing, safe timer reset, intentional-throttle-aware frame detection and character-preview cadence. Apply pixel ratio/outline/shadows live, disposing replaced shadow allocations. Detach inactive cached maps from active traversal and restore on entry.
+- [x] Verify scheduler/storage tests and report exact exported APIs and covering commands. Do not run a full build concurrently.
 
 ### Task 2: Server settings and demand-driven work
 
@@ -43,13 +43,13 @@
 
 **Interfaces:** Produces `OfficePerformanceSettings`, validated defaults/choices, admin `performance.set`, server `performance` state, `store.performance` and `performance` topic.
 
-- [ ] Test validation/admin rejection/persistence/timer rescheduling and zero-subscriber lifecycle behavior.
-- [ ] Implement configurable thumbnail/scan/Changes/usage cadence; preserve parser and blocked-state checks at their existing reliable rate.
-- [ ] Gate thumbnails on visible 3D recipients. Supply full snapshots on resume; raw terminal attachment remains independent.
-- [ ] Skip service process scans with zero owners, preserving disappearance semantics.
-- [ ] Cache untracked counts using robust file identity/signatures, invalidate after edits/replacement and retain immediate open/action refresh.
-- [ ] Incrementally read Codex complete append records with bounded partial buffering; bootstrap on rotation/truncation/rewrite and maintain session/path validation.
-- [ ] Run focused tests, including foreign sessions/symlink escapes and partial/oversized rollout records. Report APIs and any client subscription integration needed.
+- [x] Test validation/admin rejection/persistence/timer rescheduling and zero-subscriber lifecycle behavior.
+- [x] Implement configurable thumbnail/scan/Changes/usage cadence; preserve parser and blocked-state checks at their existing reliable rate.
+- [x] Gate thumbnails on visible 3D recipients. Supply full snapshots on resume; raw terminal attachment remains independent.
+- [x] Skip service process scans with zero owners, preserving disappearance semantics.
+- [x] Cache untracked counts using robust file identity/signatures, invalidate after edits/replacement and retain immediate open/action refresh.
+- [x] Incrementally read Codex complete append records with bounded partial buffering; bootstrap on rotation/truncation/rewrite and maintain session/path validation.
+- [x] Run focused tests, including foreign sessions/symlink escapes and partial/oversized rollout records. Report APIs and any client subscription integration needed.
 
 ### Task 3: Client work and approved settings UI
 
@@ -57,20 +57,24 @@
 
 **Interfaces:** Consumes Tasks 1–2's canonical settings and typed protocol.
 
-- [ ] Gate invisible floor/model/laptop visual work, keeping lifecycle transitions and audio independent. Apply laptop width/refresh live and retain dirty content for catch-up.
-- [ ] Dispose unique laptop geometries/materials without clearing shared toon materials; verify repeated disposal paths.
-- [ ] Suppress inaudible muted ambience scheduling; keep alerts and voice independent.
-- [ ] Retain keyed sidebar rows and avoid unrelated terminal viewer rebuilds; coalesce update bursts without stale actions.
-- [ ] Pause Changes watchers on hidden pages and immediately refresh on resume.
-- [ ] Add Performance pane with Economy/Balanced/Quality presets, visible FPS/resolution controls, browser advanced disclosure, office admin disclosure and reset. Use existing app visual styles and semantic controls; show concrete values and derive Custom.
-- [ ] Update README and configuration docs with scopes/defaults/tradeoffs and describe automatic optimizations.
-- [ ] Run `npm run typecheck`, `npm test`, `npm run build`, `git diff --check` sequentially; capture output. Use an isolated fixture browser page/server for screenshots and settings/reset/reload/focus checks without production or daily-driver data.
+- [x] Gate invisible floor/model/laptop visual work, keeping lifecycle transitions and audio independent. Apply laptop width/refresh live and retain dirty content for catch-up.
+- [x] Dispose unique laptop geometries/materials without clearing shared toon materials; verify repeated disposal paths.
+- [x] Suppress inaudible muted ambience scheduling; keep alerts and voice independent.
+- [x] Retain keyed sidebar rows and avoid unrelated terminal viewer rebuilds; coalesce update bursts without stale actions.
+- [x] Pause Changes watchers on hidden pages and immediately refresh on resume.
+- [x] Add Performance pane with Economy/Balanced/Quality presets, visible FPS/resolution controls, browser advanced disclosure, office admin disclosure and reset. Use existing app visual styles and semantic controls; show concrete values and derive Custom.
+- [x] Update README and configuration docs with scopes/defaults/tradeoffs and describe automatic optimizations.
+- [x] Run `npm run typecheck`, `npm test`, `npm run build`, `git diff --check` sequentially; capture output. Use an isolated fixture browser page/server for screenshots and settings/reset/reload/focus checks without production or daily-driver data.
 
 ### Task 4: Independent review and PR delivery
 
 **Ownership:** Parent controller with independent native review agents.
 
-- [ ] Review the full diff and each matrix scenario against actual tests/output. Fix validated gaps and recheck modified risk surfaces.
-- [ ] Audit all ten issue areas, settings persistence/live behavior, the chosen UI structure/styling and docs.
-- [ ] Stage only owned source/tests/docs/spec/plan; leave generated `_bmad` runtime out of the PR.
+- [x] Review the full diff and each matrix scenario against actual tests/output. Fix validated gaps and recheck modified risk surfaces.
+- [x] Audit all ten issue areas, settings persistence/live behavior, the chosen UI structure/styling and docs.
+- [x] Stage only owned source/tests/docs/spec/plan; leave generated `_bmad` runtime out of the PR.
 - [ ] Fetch/rebase latest main, open a real PR, inspect exact-head checks/review state and report remaining evidence limits. Never merge.
+
+## Integration record
+
+Rebased onto `157b176d33768fdc344c8095b97114a83710bb0c` on 2026-10-02. Resolutions preserve upstream alert ordering/questions, dictation, model labels, dog/sky settings, first-person body, footsteps and phone-sound removal. The shared main checkout stayed clean. Final validation and PR delivery are recorded in the spec.
