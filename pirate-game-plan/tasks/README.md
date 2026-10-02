@@ -1,10 +1,10 @@
 # Implementation task index
 
-All tasks are **planned**, not ready or implemented. DEV-001 is now technically specified in [foundation](../foundation-spec.md), but independent-review and private-repository enforcement prerequisites remain pending. Branch names below target stage in the future pirate-game repository. Detailed steps, dependencies and acceptance evidence live in each file. Follow [workflow](../workflow.md); use the [template](TEMPLATE.md) when splitting or adding tasks.
+All tasks are **planned**, not implemented. DEV-001 is specified for implementation preparation in [foundation](../foundation-spec.md); PROD-default/disposable-stage policy is accepted and no paid GitHub plan is needed. A later implementation-start instruction is still required; assign an independent reviewer before merge. Branch names below explicitly target stage in the future pirate-game repository. Detailed steps, dependencies and acceptance evidence live in each file. Follow [workflow](../workflow.md); use the [template](TEMPLATE.md) when splitting or adding tasks.
 
 | Task | Branch | Phase | Depends on |
 | --- | --- | --- | --- |
-| [DEV-001](DEV-001-foundation.md) | DEV-001-foundation | A | Blocking planning decisions |
+| [DEV-001](DEV-001-foundation.md) | DEV-001-foundation | A | Implementation-start instruction; repository availability check during setup |
 | [DEV-002](DEV-002-contracts.md) | DEV-002-contracts | A | DEV-001 |
 | [DEV-003](DEV-003-persistence.md) | DEV-003-persistence | A | DEV-002 |
 | [DEV-004](DEV-004-private-crews.md) | DEV-004-private-crews | A | DEV-003 |

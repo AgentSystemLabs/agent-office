@@ -4,7 +4,7 @@ Task IDs and detailed steps are in [tasks](tasks/README.md). A task may be ready
 
 | Phase | Tasks | Playable outcome | Gate |
 | --- | --- | --- | --- |
-| A: foundations | DEV-001–004 | Protected repo/CI, contracts, durable storage, private crew identity | D02–D08 resolved; identity, authorization and transaction tests pass |
+| A: foundations | DEV-001–004 | PROD default, disposable stage, manual review/CI checks, contracts, durable storage, private crew identity | D02–D08 resolved; identity, authorization and transaction tests pass |
 | B: movement and sailing | DEV-005–008 | Four adults can join, move, sail, dock and use shared supplies | Stable passengers, safe reconnection, inventory concurrency evidence |
 | C: construction | DEV-009–011 | Manual/AI preview, approval, reservation and animated building | No duplicate spending, unauthorized edits, arbitrary code or provider-driven blocking |
 | D: expedition | DEV-012–014 | Wreck/cove/beacon, upgrade and coherent first-adventure flow | Solo and four-player completion with bounded, recoverable rewards |

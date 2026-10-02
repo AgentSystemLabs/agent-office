@@ -17,7 +17,7 @@ Use separate credentials, databases/buckets, provider projects or equivalent con
 
 Build an immutable artifact from the selected stage commit; record digest, dependency lockfile, schema version and configuration version. Promote the same artifact after review. Environment configuration changes receive review and a versioned record; secrets stay outside source/artifacts.
 
-Before promotion: verify access policies, TLS/origin checks, quotas, database migrations, backups, provider arrangements, capacity cap, alerts, reporting availability, and an accountable release owner. Deploy through protected automation with least privilege and environment approval.
+Before promotion: verify access policies, TLS/origin checks, quotas, database migrations, backups, provider arrangements, capacity cap, alerts, reporting availability, and an accountable release owner. Deploy through reviewed automation with least privilege and explicit, recorded manual release approval; paid GitHub environment protections are not required. Deleting or recreating stage does not change a running environment or authorize deployment.
 
 Use backward-compatible expand/contract migrations. Coordinate schema and server versions explicitly. Do not remove old fields until previous releases no longer require them. Restore rehearsal must use approved synthetic data and demonstrate readable worlds, reconciled reservations and reward history.
 

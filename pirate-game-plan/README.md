@@ -23,9 +23,9 @@ Keep product rules in the main concept, technical rules in architecture, task-sp
 
 ## Definition of ready before coding
 
-- Technical baseline and initial identity/contracts/storage are now specified. Resolve the remaining reviewer and private-repository protection checks in decisions.md before calling DEV-001 ready.
+- Technical baseline, initial identity/contracts/storage and branch policy are specified. Assign an independent reviewer before each implementation merge.
 - Every immediate task has one owner, bounded scope, approved dependencies, implementation steps, acceptance criteria, tests, and relevant risks.
-- Enable protected branches, required CI, independent reviews, and environment separation in the future repository.
+- Set PROD as default/main, use disposable stage for integration, and document manual review/check gates and environment separation. No paid GitHub protections are required.
 - Select the baseline device, supported browsers, and measurable performance targets.
 - Agree how secrets, private data, generated content, and test accounts are handled.
 - Approve phase A scope explicitly. Later phases do not start automatically.
@@ -40,4 +40,4 @@ Documentation is part of completion: record actual implementation, verification,
 
 ## Next planning session
 
-Confirm independent review and private-repository enforcement availability, inspect the selected baseline and task sizes, and make DEV-001 ready. Then approve a separate implementation start. This package is not a claim that branch protections, CI, hosting, or a child-safe launch already exist.
+Inspect the selected baseline and task sizes, then approve a separate DEV-001 implementation start. Its setup uses PROD as default, disposable stage, and manually verified reviews/checks without paid GitHub plans. The [workflow](workflow.md) explains stage recovery. This package is not a claim that CI, hosting, or a child-safe launch already exist.

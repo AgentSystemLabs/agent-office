@@ -13,7 +13,7 @@ DEV-017 merged; selected capacity, operators, deployment approvals and review av
 
 ## Implementation steps
 
-1. Implement protected release automation, immutable artifact promotion and separate environment configuration.
+1. Implement reviewed release automation with recorded manual approval, immutable artifact promotion and separate environment configuration; no paid GitHub protections are required.
 2. Verify migrations, session draining, smoke tests, backups and rollback/reconciliation.
 3. Run the complete staging release gate and document included DEV tasks, candidate and artifact.
 4. Open reviewed stage-to-PROD promotion, deploy the verified artifact, monitor and record pilot findings.

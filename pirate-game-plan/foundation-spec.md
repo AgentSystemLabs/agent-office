@@ -6,12 +6,12 @@ Selected engineering baseline: 2026-10-02. Scope: a separate adult-tested cooper
 
 - Intended destination: `sipelisdeividas/promptycraft`, private by default; temporary project name, not a cleared product trademark. Verify availability and owner before creation; do not overwrite or repurpose an existing repository.
 - Maintainer/release owner: sipelisdeividas. Implementation may be performed by the coding assistant under a later coding instruction; task review is independent.
-- Independent reviewer: pending a named teammate or external reviewer. The user was asked during planning; do not fabricate a reviewer or bypass the mandatory review rule.
+- Independent reviewer: assign before merging an implementation PR; record actual review and approval. Reviewer assignment does not block foundation planning or preparation.
 - Keep new application source private by default with no assumed open-source license grant. Preserve required notices for reused dependencies/assets and record asset provenance. Final commercial licensing remains open.
-- Initialize stage and PROD from the same documentation-only seed commit. Set stage as the default development branch, then create DEV-001-foundation from fetched stage. Protect branches before merging code.
+- Initialize stage and PROD from the same documentation-only seed commit. Set PROD as the default/main branch, then create DEV-001-foundation from fetched stage. stage is disposable; preserve unpromoted work before deleting it and recreate it using workflow.md.
 - Move the planning package to `docs/`, retain the root concept, and rewrite/validate all moved links. Add repository AGENTS.md explaining the DEV/stage/PROD rules.
 
-GitHub's documentation limits private-repository protected branches to eligible paid plans. The current user API returned no plan information, so entitlement is **unknown**, not assumed Free or Pro. Before creating the private project, verify enforcement is available; if it is not, the owner must choose an eligible plan/organization or another explicitly approved hosting approach. Do not purchase a plan or make the code public automatically. [Protected branches](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches).
+The user selected a workflow with no paid GitHub plan requirement. Review, tests and release approval are verified manually as specified in [workflow](workflow.md); platform-enforced branch or deployment protections are not prerequisites. Keep the intended private visibility and use CI within the available free allowance, with recorded equivalent local checks if needed. No GitHub upgrade is part of setup.
 
 ## Product baseline
 
@@ -94,8 +94,8 @@ Initial authoritative simulation target: 20 Hz; render independently. Measure be
 
 Phase A runs locally and in CI; no paid hosting is purchased. Plan a single EU staging host with Docker Compose for API/room server and PostgreSQL, behind TLS, only when a staging deployment task is approved. Hetzner EU is the initial host choice to evaluate against reliability, backup and networking requirements; provider availability is not reserved.
 
-Initial planning ceiling: EUR 50/month for a small adult-test staging environment, excluding developer labor, paid GitHub entitlement, legal work and later real AI. This is a budget limit to validate, not a quoted capacity guarantee or purchase authorization. If infrastructure cannot meet it, revisit scope/budget before provisioning. Separate production infrastructure, backups, spend and moderation remain DEV-018 decisions.
+Initial planning ceiling: EUR 50/month for a small adult-test staging environment, excluding developer labor, legal work and later real AI. GitHub paid plans are outside the selected workflow. This is a budget limit to validate, not a quoted capacity guarantee or purchase authorization. If infrastructure cannot meet it, revisit scope/budget before provisioning. Separate production infrastructure, backups, spend and moderation remain DEV-018 decisions.
 
 ## Operational readiness
 
-Technical specification: ready for DEV-001 implementation preparation. Operational readiness: **conditional** on an independent reviewer, confirmed private-repository protection entitlement, and a subsequent instruction to begin implementation. Do not mark DEV-001 in progress or claim protected branches before those conditions are actually satisfied.
+Technical specification and branch policy: ready for DEV-001 implementation preparation. A subsequent instruction to begin implementation is still needed; assign the independent reviewer before merge. Verify repository availability during setup. No paid-plan entitlement check blocks this task, and manual rules do not imply platform enforcement. No implementation has started.
