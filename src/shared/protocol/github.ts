@@ -16,6 +16,8 @@ export interface GhIssue {
   author: string;
   labels: GhLabel[];
   assignees: string[];
+  /** A worker in the office just took it, so it's In progress on the board before GitHub lists its assignee. */
+  taken?: boolean;
   createdAt: string;
   updatedAt: string;
   body: string;
