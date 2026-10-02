@@ -3,6 +3,7 @@
 import type { AgentProvider } from '../../shared/providers.js';
 import { claude } from './claude.js';
 import { codex } from './codex.js';
+import { cursor } from './cursor.js';
 import { custom } from './custom.js';
 import { dsh } from './dsh.js';
 import { grok } from './grok.js';
@@ -21,6 +22,7 @@ export const PROVIDERS: Record<AgentProvider, SomeAdapter> = {
   muse,
   dsh,
   pi,
+  cursor,
   custom,
 };
 

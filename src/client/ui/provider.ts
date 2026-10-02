@@ -3,12 +3,14 @@ import type { AgentChoice, AgentEffort, AgentProvider, ClaudeModel, ProjectInfo,
 import { AGENT_EFFORTS, CLAUDE_MODELS } from '../../shared/protocol';
 import {
   AGENT_PROVIDERS,
+  CURSOR_MODEL_MAX,
   DSH_MODEL_MAX,
   MUSE_MODEL_MAX,
   OPEN_CODE_MODEL_MAX as MODEL_MAX,
   PI_MODEL_MAX,
   PROVIDER_META,
   isAgentProvider,
+  isValidCursorModel as validCursorModel,
   isValidDshModel as validDshModel,
   isValidGrokModel as validGrokModel,
   isValidMuseModel as validMuseModel,
@@ -36,7 +38,7 @@ export const EFFORT_LABEL: Record<AgentEffort, string> = {
   max: 'Max',
 };
 
-/** A short badge for the task card / sidebar: "Opus", "Opus · High", or the raw OpenCode/Grok/Muse/DeepSeek Harness/Pi model id. */
+/** A short badge for the task card / sidebar: "Opus", "Opus · High", or the raw OpenCode/Grok/Muse/DeepSeek Harness/Pi/Cursor model id. */
 export function modelBadge(provider: AgentProvider | undefined, model: string | undefined, effort: AgentEffort | undefined): string | undefined {
   if (!model && !effort) return undefined;
   if (takesEffort(provider)) {
@@ -113,7 +115,7 @@ export function choiceLabel(choice: AgentChoice): string {
 export interface ProviderPicker {
   element: HTMLElement;
   value(): AgentProvider;
-  /** The optional initial model override: an OpenCode provider/model id, a Claude model alias, a Grok/Muse model id, or a DeepSeek Harness catalog id. */
+  /** The optional initial model override: an OpenCode provider/model id, a Claude model alias, a Grok/Muse/Cursor model id, or a DeepSeek Harness catalog id. */
   model(): string | undefined;
   /** The optional Claude, Grok, Muse, DeepSeek Harness or Pi reasoning effort (Pi calls it thinking). */
   effort(): AgentEffort | undefined;
@@ -134,6 +136,27 @@ let modelRequest: Promise<string[]> | null = null;
 let grokModelList: string[] | null = null;
 let grokModelListAt = 0;
 let grokModelRequest: Promise<string[]> | null = null;
+let cursorModelList: string[] | null = null;
+let cursorModelListAt = 0;
+let cursorModelRequest: Promise<string[]> | null = null;
+
+function fetchCursorModels(): Promise<string[]> {
+  if (cursorModelList && Date.now() - cursorModelListAt < 60_000) return Promise.resolve(cursorModelList);
+  if (cursorModelRequest) return cursorModelRequest;
+  cursorModelRequest = fetch('/api/agents/cursor/models', { credentials: 'same-origin', cache: 'no-store' })
+    .then(async (res) => {
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const body = (await res.json()) as { models?: unknown };
+      const models = Array.isArray(body.models) ? body.models.filter((m): m is string => typeof m === 'string' && validCursorModel(m)) : [];
+      cursorModelList = [...new Set(models)];
+      cursorModelListAt = Date.now();
+      return cursorModelList;
+    })
+    .finally(() => {
+      cursorModelRequest = null;
+    });
+  return cursorModelRequest;
+}
 
 function fetchGrokModels(): Promise<string[]> {
   if (grokModelList && Date.now() - grokModelListAt < 60_000) return Promise.resolve(grokModelList);
@@ -289,7 +312,20 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
     h('small.provider-model-hint', {}, 'Optional model name or provider/model; leave Default to use Pi settings.'),
   );
 
-  const element = h('div.provider-choice', {}, h('label', { for: id }, label), select, note, modelChoice, claudeChoice, grokChoice, museChoice, dshChoice, piChoice);
+  const cursorModelInput = h('input', {
+    type: 'text',
+    id: `${id}-cursor-model`,
+    list: `${id}-cursor-models`,
+    placeholder: 'Default (Cursor settings)',
+    'aria-label': 'Cursor model',
+    autocomplete: 'off',
+    maxlength: CURSOR_MODEL_MAX,
+  }) as HTMLInputElement;
+  const cursorModelListEl = h('datalist', { id: `${id}-cursor-models` });
+  const cursorHint = h('small.provider-model-hint', {}, 'Optional model id; suggestions load from `cursor-agent models` when Cursor is selected.');
+  const cursorChoice = h('div.provider-model.cursor-model', {}, h('label', { for: `${id}-cursor-model` }, 'Model'), cursorModelInput, cursorModelListEl, cursorHint);
+
+  const element = h('div.provider-choice', {}, h('label', { for: id }, label), select, note, modelChoice, claudeChoice, grokChoice, museChoice, dshChoice, piChoice, cursorChoice);
   const fillGrokModels = (models: string[], selected?: string) => {
     const keep = selected && validGrokModel(selected) ? selected : '';
     grokModelSelect.replaceChildren(h('option', { value: '' }, 'Default (Grok settings)'));
@@ -317,6 +353,20 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
         });
       return;
     }
+    if (select.value === 'cursor') {
+      if (!element.isConnected || element.closest('.hidden')) return;
+      const ready = 'Optional model id (for example gpt-5); choose a suggestion or enter one, with any overrides in brackets.';
+      cursorHint.textContent = cursorModelList ? ready : 'Loading Cursor models… You can enter a model id manually.';
+      void fetchCursorModels()
+        .then((models) => {
+          cursorModelListEl.replaceChildren(...models.map((model) => h('option', { value: model })));
+          cursorHint.textContent = ready;
+        })
+        .catch(() => {
+          cursorHint.textContent = 'Model suggestions unavailable (is Cursor signed in on the office machine?); enter a model id manually if needed.';
+        });
+      return;
+    }
     if (select.value !== 'opencode' || !element.isConnected || element.closest('.hidden')) return;
     modelHint.textContent = modelList ? 'Optional provider/model override; choose a suggestion or enter one manually.' : 'Loading OpenCode models… You can enter a provider/model manually.';
     void fetchOpenCodeModels()
@@ -338,6 +388,7 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
     museChoice.classList.toggle('hidden', provider !== 'muse');
     dshChoice.classList.toggle('hidden', provider !== 'dsh');
     piChoice.classList.toggle('hidden', provider !== 'pi');
+    cursorChoice.classList.toggle('hidden', provider !== 'cursor');
     loadModels();
   };
   const set = (c: AgentChoice) => {
@@ -357,11 +408,13 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
     dshEffortSelect.value = dsh && c.effort ? c.effort : '';
     piModelInput.value = pi && c.model ? c.model : '';
     piEffortSelect.value = pi && c.effort ? c.effort : '';
+    cursorModelInput.value = select.value === 'cursor' && c.model ? c.model : '';
     modelInput.value = select.value === 'opencode' && c.model ? c.model : '';
     modelInput.setCustomValidity('');
     museModelInput.setCustomValidity('');
     dshModelInput.setCustomValidity('');
     piModelInput.setCustomValidity('');
+    cursorModelInput.setCustomValidity('');
     setModelVisibility(select.value as AgentProvider);
   };
   set(initial);
@@ -371,6 +424,8 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
   museModelInput.addEventListener('input', () => museModelInput.setCustomValidity(''));
   dshModelInput.addEventListener('input', () => dshModelInput.setCustomValidity(''));
   piModelInput.addEventListener('input', () => piModelInput.setCustomValidity(''));
+  cursorModelInput.addEventListener('focus', loadModels);
+  cursorModelInput.addEventListener('input', () => cursorModelInput.setCustomValidity(''));
   const value = () => (options.includes(select.value as AgentProvider) ? (select.value as AgentProvider) : fallback);
   const effort = () => {
     if (select.value === 'claude' && effortSelect.value) return effortSelect.value as AgentEffort;
@@ -394,6 +449,10 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
     if (select.value === 'pi') {
       const v = piModelInput.value;
       return validPiModel(v) ? v : undefined;
+    }
+    if (select.value === 'cursor') {
+      const v = cursorModelInput.value;
+      return validCursorModel(v) ? v : undefined;
     }
     if (select.value !== 'opencode') return undefined;
     const v = modelInput.value;
@@ -431,6 +490,12 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
         const okay = !piModelInput.value || validPiModel(piModelInput.value);
         piModelInput.setCustomValidity(okay ? '' : 'Use a Pi model name or provider/model: letters, digits and . _ : / @ + - (up to 256 characters).');
         if (!okay) piModelInput.reportValidity();
+        return okay;
+      }
+      if (select.value === 'cursor') {
+        const okay = !cursorModelInput.value || validCursorModel(cursorModelInput.value);
+        cursorModelInput.setCustomValidity(okay ? '' : 'Use a Cursor model id: letters, digits and . _ -, with any overrides in brackets, like model[effort=high] (up to 128 characters).');
+        if (!okay) cursorModelInput.reportValidity();
         return okay;
       }
       if (select.value !== 'opencode' || !modelInput.value) {

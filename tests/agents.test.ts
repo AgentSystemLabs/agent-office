@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { agentProviders, configuredProvider, validateWorkerEffort, validateWorkerModel } from '../src/server/agents.js';
-import { isValidDshModel } from '../src/shared/providers.js';
+import { agentProviders, configuredProvider, providerCommand, validateWorkerEffort, validateWorkerModel } from '../src/server/agents.js';
+import { PROVIDER_META, isValidDshModel } from '../src/shared/providers.js';
 import { isAgentProvider } from '../src/shared/protocol.js';
 
 test('detects the configured provider from Unix and Windows command paths', () => {
@@ -21,6 +21,11 @@ test('detects the configured provider from Unix and Windows command paths', () =
   assert.equal(configuredProvider('pi'), 'pi');
   assert.equal(configuredProvider('C:\\Users\\me\\AppData\\Roaming\\npm\\pi.cmd'), 'pi');
   assert.equal(configuredProvider('/usr/local/bin/pi'), 'pi');
+  assert.equal(configuredProvider('cursor-agent'), 'cursor');
+  assert.equal(configuredProvider('/home/me/.local/bin/cursor-agent'), 'cursor');
+  assert.equal(configuredProvider('cursor-agent.cmd'), 'cursor');
+  // `cursor` is the editor's launcher, not the agent.
+  assert.equal(configuredProvider('cursor'), 'custom');
   assert.equal(configuredProvider('my-agent'), 'custom');
 });
 
@@ -41,6 +46,21 @@ test('Pi can be selected with model patterns and thinking levels', () => {
   assert.match(validateWorkerModel('agent', 'pi', 'bad\u0000model') ?? '', /Invalid Pi model/);
   assert.equal(validateWorkerEffort('agent', 'pi', 'high'), undefined);
   assert.match(validateWorkerEffort('agent', 'pi', 'invalid') ?? '', /Invalid effort/);
+});
+
+test('Cursor can be selected with a model, runs as cursor-agent, and takes no effort', () => {
+  assert.ok(agentProviders('claude').includes('cursor'));
+  assert.equal(isAgentProvider('cursor'), true);
+  assert.equal(PROVIDER_META.cursor.label, 'Cursor');
+  assert.equal(providerCommand('cursor', 'claude'), 'cursor-agent');
+  assert.equal(providerCommand('cursor', '/opt/bin/cursor-agent'), '/opt/bin/cursor-agent');
+  assert.equal(providerCommand('claude', '/opt/bin/cursor-agent'), 'claude');
+  assert.equal(validateWorkerModel('agent', 'cursor', undefined), undefined);
+  assert.equal(validateWorkerModel('agent', 'cursor', 'gpt-5'), undefined);
+  assert.equal(validateWorkerModel('agent', 'cursor', 'claude-opus-4-8[context=1m,effort=high]'), undefined);
+  assert.match(validateWorkerModel('agent', 'cursor', '--yolo') ?? '', /Invalid Cursor model/);
+  assert.match(validateWorkerModel('agent', 'cursor', 'gpt 5') ?? '', /Invalid Cursor model/);
+  assert.match(validateWorkerEffort('agent', 'cursor', 'high') ?? '', /Reasoning effort can only be selected/);
 });
 
 test('a DeepSeek Harness model is bounded by length and control characters only', () => {
@@ -67,7 +87,7 @@ test('model validation follows the provider', () => {
   assert.equal(validateWorkerModel('agent', 'opencode', 'vendor/model'), undefined);
   assert.match(validateWorkerModel('agent', 'opencode', 'gpt-5') ?? '', /OpenCode/);
   // Custom still takes none.
-  assert.match(validateWorkerModel('agent', 'custom', 'anything') ?? '', /Claude Code, OpenCode, Grok, Muse, DeepSeek Harness or Pi/);
+  assert.match(validateWorkerModel('agent', 'custom', 'anything') ?? '', /Claude Code, OpenCode, Grok, Muse, DeepSeek Harness, Pi or Cursor/);
 });
 
 test('reasoning effort joins Claude for DeepSeek Harness', () => {

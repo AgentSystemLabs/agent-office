@@ -1,4 +1,4 @@
-// The models the hire dialog offers for OpenCode and Grok workers.
+// The models the hire dialog offers for OpenCode, Grok and Cursor workers.
 import { send } from '../util.js';
 import type { Route } from '../router.js';
 
@@ -24,6 +24,18 @@ export const agentRoutes = {
         return send(res, 200, { models: await ctx.grokModels.get() });
       } catch {
         return send(res, 502, { error: 'Could not load Grok models' });
+      }
+    },
+  },
+  cursorModels: {
+    method: 'GET',
+    path: '/api/agents/cursor/models',
+    auth: 'session',
+    async handle(ctx, { res }) {
+      try {
+        return send(res, 200, { models: await ctx.cursorModels.get() });
+      } catch {
+        return send(res, 502, { error: 'Could not load Cursor models' });
       }
     },
   },

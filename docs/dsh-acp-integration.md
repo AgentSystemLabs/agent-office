@@ -123,6 +123,9 @@ Everything else reads those, and needs no change of its own:
   `terminal.ts`, `workers-panel.ts`, `queue.ts` and `usage.ts` beside it use).
 - An adapter with a `hook` gets its route, `/hooks/<id>`, on the loopback hook server
   (`src/server/hooks/server.ts`).
+- An adapter whose CLI only reads its settings from the folder it runs in (Cursor's
+  `.cursor/hooks.json`) is handed that folder at `launch`, and is told by `exited` when the run is
+  over (the process ended, the worker was sent home, or the office stopped), to take them out again.
 
 Hook helpers longer than a few lines (a settings file, a plugin, a payload parser) go in a module
 of their own that the adapter imports, as `src/server/codex.ts` and `src/server/grok.ts` do. Two

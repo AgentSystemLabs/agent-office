@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { isValidGrokModel, isValidMuseModel, isValidOpenCodeModel } from '../src/shared/providers.js';
-import { createGrokModelCatalogue, createOpenCodeModelCatalogue, fetchGrokModels, fetchOpenCodeModels, type ModelCommandRunner } from '../src/server/models.js';
+import { createCursorModelCatalogue, createGrokModelCatalogue, createOpenCodeModelCatalogue, fetchCursorModels, fetchGrokModels, fetchOpenCodeModels, type ModelCommandRunner } from '../src/server/models.js';
 
 test('OpenCode model ids require provider/model and reject whitespace or control characters', () => {
   assert.equal(isValidOpenCodeModel('openai/gpt-5'), true);
@@ -97,6 +97,52 @@ test('Grok catalogue coalesces requests and caches successful results briefly', 
   now += 2;
   await catalogue.get();
   assert.equal(calls, 2);
+});
+
+test('Cursor catalogue parses `cursor-agent models` lines and ignores the heading and tip', async () => {
+  let call: { file: string; args: string[]; options: Record<string, unknown> } | undefined;
+  const runner: ModelCommandRunner = async (file, args, options) => {
+    call = { file, args, options };
+    return {
+      stdout: [
+        '\x1b[2mAvailable models\x1b[22m',
+        '',
+        '\x1b[36mauto\x1b[39m \x1b[2m- Auto\x1b[22m',
+        '\x1b[32mcomposer-2.5\x1b[39m \x1b[2m- Composer 2.5\x1b[22m\x1b[2m (current, default)\x1b[22m',
+        'gpt-5 - GPT-5',
+        'sonnet-4-thinking',
+        'gpt-5 - GPT-5',
+        'bad/model - Not a Cursor id',
+        '',
+        "Tip: use --model <id> (or /model <id> in interactive mode) to switch. Parameterized models also accept quoted overrides, e.g. --model 'claude-opus-4-8[context=1m,effort=high,fast=false]'.",
+      ].join('\n'),
+      stderr: 'private detail',
+    };
+  };
+  assert.deepEqual(await fetchCursorModels('/custom/cursor-agent', '/project', runner), ['auto', 'composer-2.5', 'gpt-5', 'sonnet-4-thinking']);
+  assert.deepEqual(call, {
+    file: '/custom/cursor-agent',
+    args: ['models'],
+    options: { cwd: '/project', timeout: 10_000, maxBuffer: 1024 * 1024 },
+  });
+  assert.deepEqual(await fetchCursorModels('cursor-agent', '/project', async () => ({ stdout: 'No models available for this account.\n', stderr: '' })), []);
+});
+
+test('Cursor catalogue caches briefly and hides why it failed (not signed in)', async () => {
+  let calls = 0;
+  let now = 1000;
+  const catalogue = createCursorModelCatalogue('/cursor-agent', '/project', async () => {
+    calls++;
+    return { stdout: 'gpt-5 - GPT-5\n', stderr: '' };
+  }, () => now);
+  const [a, b] = await Promise.all([catalogue.get(), catalogue.get()]);
+  assert.deepEqual([a, b], [['gpt-5'], ['gpt-5']]);
+  now += 60_001;
+  await catalogue.get();
+  assert.equal(calls, 2);
+  await assert.rejects(createCursorModelCatalogue('cursor-agent', '/project', async () => {
+    throw new Error("Authentication required. Run 'agent login'");
+  }).get(), (error: unknown) => error instanceof Error && /unavailable/i.test(error.message) && !error.message.includes('Authentication'));
 });
 
 test('OpenCode catalogue errors do not expose command output', async () => {

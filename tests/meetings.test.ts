@@ -277,6 +277,16 @@ test('Pi meetings retain the chosen model and thinking level for every seat', (t
   assert.deepEqual([meeting.provider, meeting.model, meeting.effort], ['pi', 'openai/gpt-4.1', 'high']);
 });
 
+test('Cursor meetings retain the chosen model for every seat, and leave out an effort it has no flag for', (t) => {
+  const f = fixture({ officeDefault: { provider: 'claude', model: 'sonnet' } });
+  t.after(() => f.close());
+  assert.match(f.start({ provider: 'cursor', model: '--force' }) ?? '', /Invalid Cursor model/);
+  assert.equal(f.start({ provider: 'cursor', model: 'gpt-5', effort: 'high' }), undefined);
+  assert.deepEqual(f.workers.map((w) => [w.provider, w.model, w.effort]), Array(3).fill(['cursor', 'gpt-5', undefined]));
+  const meeting = f.room.state().current!;
+  assert.deepEqual([meeting.provider, meeting.model, meeting.effort], ['cursor', 'gpt-5', undefined]);
+});
+
 test('only the real meeting patterns pass, not what every object inherits', () => {
   for (const id of MEETING_PATTERN_IDS) assert.equal(isMeetingPattern(id), true);
   for (const v of ['constructor', '__proto__', 'toString', 'hasOwnProperty', 'valueOf', '', 'nope', 1, null, undefined]) assert.equal(isMeetingPattern(v), false, String(v));

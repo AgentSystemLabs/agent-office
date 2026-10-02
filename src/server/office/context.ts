@@ -6,7 +6,7 @@ import type { Config } from '../config.js';
 import type { Auth } from '../auth.js';
 import type { Accounts } from '../accounts.js';
 import type { SignIns, GhAs } from '../signins.js';
-import type { GrokModelCatalogue, OpenCodeModelCatalogue } from '../models.js';
+import type { CursorModelCatalogue, GrokModelCatalogue, OpenCodeModelCatalogue } from '../models.js';
 import type { Tailnet } from '../tailnet.js';
 import type { Team } from '../team.js';
 import type { Upgrader } from '../upgrade.js';
@@ -49,6 +49,7 @@ export interface Core {
   officeName: string;
   openCodeModels: OpenCodeModelCatalogue;
   grokModels: GrokModelCatalogue;
+  cursorModels: CursorModelCatalogue;
   /** The building: a floor per project, each with its own workers, boards and queue. */
   building: Building;
   floors: Map<string, Floor>;

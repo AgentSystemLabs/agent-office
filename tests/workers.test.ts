@@ -38,6 +38,7 @@ type Fixture = {
   codex: string;
   grok: string;
   muse: string;
+  cursor: string;
   custom: string;
   read(): Invocation[];
   close(): void;
@@ -140,6 +141,7 @@ function fixture(): Fixture {
   const codex = path.join(bin, 'codex');
   const grok = path.join(bin, 'grok');
   const muse = path.join(bin, 'muse');
+  const cursor = path.join(bin, 'cursor-agent');
   mkdirSync(data, { recursive: true });
   mkdirSync(bin, { recursive: true });
   writeFileSync(claude, fakeAgent, { mode: 0o700 });
@@ -148,11 +150,13 @@ function fixture(): Fixture {
   writeFileSync(codex, fakeAgent, { mode: 0o700 });
   writeFileSync(grok, fakeAgent, { mode: 0o700 });
   writeFileSync(muse, fakeAgent, { mode: 0o700 });
+  writeFileSync(cursor, fakeAgent, { mode: 0o700 });
   chmodSync(claude, 0o700);
   chmodSync(opencode, 0o700);
   chmodSync(custom, 0o700);
   chmodSync(grok, 0o700);
   chmodSync(muse, 0o700);
+  chmodSync(cursor, 0o700);
   writeFileSync(log, '');
   return {
     root,
@@ -163,6 +167,7 @@ function fixture(): Fixture {
     codex,
     grok,
     muse,
+    cursor,
     custom,
     read() {
       if (!existsSync(log)) return [];
@@ -824,6 +829,96 @@ test('Muse workers isolate XDG, follow authenticated hooks, resume by uuid, and 
   assert.equal(launched.args.includes('follow-up from the queue'), false);
   assert.equal(restored.handleMuseHook(worker.id, launched.env.hookToken!, 'SessionStart', { session_id: sessionId, source: 'resume' }), true);
   await waitFor(f.read, x => x.some(r => r.kind === 'muse' && r.stdin?.includes('follow-up from the queue') === true));
+});
+
+
+test('Cursor workers keep their hooks in their folder, follow them, and resume their chat with a follow-up prompt', async (t) => {
+  const f = fixture();
+  isolateProviderEnvironment(f, t);
+  const oldLog = process.env.FAKE_AGENT_LOG;
+  process.env.FAKE_AGENT_LOG = f.log;
+  t.after(() => {
+    if (oldLog === undefined) delete process.env.FAKE_AGENT_LOG; else process.env.FAKE_AGENT_LOG = oldLog;
+    delete process.env.FAKE_AGENT_EXIT_MS;
+    f.close();
+  });
+  const hooksFile = path.join(f.root, '.cursor', 'hooks.json');
+  const entries = () => (existsSync(hooksFile) ? (JSON.parse(readFileSync(hooksFile, 'utf8')) as { hooks: Record<string, { command: string }[]> }).hooks : undefined);
+  const book = ledger(f.data);
+  const workers = new WorkerManager(f.root, f.data, f.claude, ['--claude-only'], { url: 'http://127.0.0.1:1', token: '' }, events([]), book);
+  t.after(() => workers.shutdown());
+  assert.match(workers.spawn('desk-2', 'test', 'bad', false, 'agent', 'cursor', '--force') as string, /Invalid Cursor model/);
+  assert.match(workers.spawn('desk-2', 'test', 'bad', false, 'agent', 'cursor', 'gpt-5', 'high') as string, /effort/i);
+  const worker = workers.spawn('desk-1', 'test', '- fix the login', false, 'agent', 'cursor', 'gpt-5');
+  assert.notEqual(typeof worker, 'string'); if (typeof worker === 'string') return;
+  // The provider is "cursor"; its executable is cursor-agent.
+  const calls = await waitFor(f.read, x => x.some(r => r.kind === 'cursor-agent'));
+  const first = calls.find(r => r.kind === 'cursor-agent')!;
+  const token = first.env.hookToken!;
+  // A resumed chat fires no sessionStart, so it never waits for one: it's idle as soon as it runs.
+  assert.equal(worker.status, 'idle');
+  assert.equal(worker.model, 'gpt-5');
+  assert.equal(worker.sessionId, undefined);
+  assert.deepEqual(first.args, ['--trust', '--model', 'gpt-5', '--', '- fix the login']);
+  assert.equal(calls.some(r => r.kind === 'claude'), false);
+  // Its hooks are in the folder it runs in, one entry an event, each naming this worker.
+  assert.deepEqual(Object.keys(entries()!), ['sessionStart', 'beforeSubmitPrompt', 'preToolUse', 'postToolUse', 'postToolUseFailure', 'stop']);
+  assert.ok(entries()!.stop[0].command.endsWith(` 'stop' '${worker.id}'`));
+  assert.ok(entries()!.stop[0].command.includes(path.join(f.data, 'agent-office-cursor-hook.cjs')));
+  const sessionId = '0b9a7d0e-5c1f-4a57-9d55-3a1d2f6f0c11';
+  const hook = (event: string, extra = {}) => workers.handleProviderHook('cursor', worker.id, token, event, { conversation_id: sessionId, ...extra });
+  assert.equal(workers.handleProviderHook('cursor', worker.id, 'wrong', 'sessionStart', { conversation_id: sessionId }), false);
+  assert.equal(hook('sessionStart', { composer_mode: 'agent' }), true);
+  assert.equal(worker.status, 'idle');
+  assert.equal(worker.sessionId, sessionId);
+  assert.equal(hook('beforeSubmitPrompt', { prompt: 'Implement the actual task' }), true);
+  assert.equal(worker.status, 'working');
+  assert.equal(worker.activity, 'Implement the actual task');
+  assert.equal(hook('preToolUse', { tool_name: 'Read', tool_use_id: 'tool-1' }), true);
+  assert.equal(worker.activity, 'Read');
+  assert.equal(worker.action, 'read');
+  // A subagent's events, and another chat's, don't move the desk.
+  assert.equal(hook('stop', { subagent_id: 'child-1' }), false);
+  assert.equal(workers.handleProviderHook('cursor', worker.id, token, 'stop', { conversation_id: 'another-chat' }), false);
+  assert.equal(hook('afterAgentResponse', { text: 'private' }), false);
+  assert.equal(worker.status, 'working');
+  assert.equal(hook('postToolUseFailure', { tool_name: 'Shell', failure_type: 'permission_denied' }), true);
+  assert.equal(hook('stop', { status: 'completed' }), true);
+  assert.equal(worker.status, 'done');
+  assert.equal(workers.handleHook(worker.id, token, 'Stop', { session_id: 'claude' }), false);
+  // A chat started over inside the terminal fires no sessionStart: its first prompt takes the desk to it.
+  assert.equal(workers.handleProviderHook('cursor', worker.id, token, 'beforeSubmitPrompt', { conversation_id: 'second-chat', prompt: 'Something else' }), true);
+  assert.equal(worker.sessionId, 'second-chat');
+  assert.equal(worker.status, 'working');
+  assert.equal(workers.handleProviderHook('cursor', worker.id, token, 'stop', { conversation_id: 'second-chat' }), true);
+  assert.equal(worker.usage, undefined);
+  assert.equal(book.state().total.calls, 0);
+  // The office stops, and the worker with it: nothing of its hooks is left in the project.
+  workers.shutdown();
+  assert.equal(existsSync(hooksFile), false);
+  process.env.FAKE_AGENT_EXIT_MS = '1500';
+  const restored = manager(f, f.claude, [], []);
+  t.after(() => restored.shutdown());
+  await restored.start();
+  const nextCalls = await waitFor(f.read, x => x.filter(r => r.kind === 'cursor-agent' && !r.stdin).length >= 2);
+  const next = nextCalls.filter(r => r.kind === 'cursor-agent' && !r.stdin).at(-1)!;
+  assert.deepEqual(next.args, ['--trust', '--resume=second-chat']);
+  assert.notEqual(next.env.hookToken, token);
+  assert.equal(restored.get(worker.id)?.provider, 'cursor');
+  assert.equal(restored.get(worker.id)?.model, 'gpt-5');
+  assert.equal(restored.handleProviderHook('cursor', worker.id, token, 'stop', { conversation_id: 'second-chat' }), false);
+  assert.equal(entries()!.stop.length, 1);
+  // Its process ends: its entries go, and the file with them.
+  await waitFor(() => restored.get(worker.id)?.status, (status) => status === 'exited');
+  assert.equal(existsSync(hooksFile), false);
+  delete process.env.FAKE_AGENT_EXIT_MS;
+  assert.equal(restored.resume(worker.id, 'follow-up from the queue'), undefined);
+  const resumed = await waitFor(f.read, x => x.filter(r => r.kind === 'cursor-agent' && !r.stdin).length >= 3);
+  assert.deepEqual(resumed.filter(r => r.kind === 'cursor-agent' && !r.stdin).at(-1)!.args, ['--trust', '--resume=second-chat', '--', 'follow-up from the queue']);
+  assert.equal(entries()!.stop.length, 1);
+  // Sent home: the folder is the project's own, so its entries are taken out of it.
+  await restored.kill(worker.id);
+  await waitFor(() => existsSync(hooksFile), (there) => !there);
 });
 
 

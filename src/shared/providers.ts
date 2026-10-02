@@ -4,7 +4,7 @@
 //
 // Browser-safe: no node imports, the hire dialog reads this too.
 
-export const AGENT_PROVIDERS = ['claude', 'opencode', 'codex', 'grok', 'muse', 'dsh', 'pi', 'custom'] as const;
+export const AGENT_PROVIDERS = ['claude', 'opencode', 'codex', 'grok', 'muse', 'dsh', 'pi', 'cursor', 'custom'] as const;
 
 export type AgentProvider = (typeof AGENT_PROVIDERS)[number];
 
@@ -30,6 +30,7 @@ export const OPEN_CODE_MODEL_MAX = 256;
 export const GROK_MODEL_MAX = 64;
 export const MUSE_MODEL_MAX = 128;
 export const PI_MODEL_MAX = 256;
+export const CURSOR_MODEL_MAX = 128;
 
 /**
  * DeepSeek Harness model ids are opaque option ids from its live catalog (the `session/new`
@@ -68,6 +69,15 @@ export function isValidMuseModel(value: unknown): value is string {
  */
 export function isValidPiModel(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0 && value.length <= PI_MODEL_MAX && /^[A-Za-z0-9._:/@+][A-Za-z0-9._:/@+-]*$/.test(value);
+}
+
+/**
+ * Cursor model ids are argv values (`gpt-5`, `sonnet-4-thinking`), and a parameterized one carries
+ * its overrides in brackets (`claude-opus-4-8[context=1m,effort=high]`). Only those characters get
+ * through, and never a leading '-'.
+ */
+export function isValidCursorModel(value: unknown): value is string {
+  return typeof value === 'string' && value.length <= CURSOR_MODEL_MAX && /^[A-Za-z0-9][A-Za-z0-9._-]*(?:\[[A-Za-z0-9._-]+=[A-Za-z0-9._-]+(?:,[A-Za-z0-9._-]+=[A-Za-z0-9._-]+)*\])?$/.test(value);
 }
 
 /** DSH catalog ids are opaque, so only their length and control characters can be checked here. */
@@ -168,6 +178,14 @@ export const PROVIDER_META: Record<AgentProvider, ProviderMeta> = {
     invalidModel: 'Invalid Pi model (expected a model name or provider/model without whitespace)',
     takesEffort: true,
     usage: { note: 'Pi uses your existing Pi login and settings. Usage and cost stay in its terminal; the office does not meter them.' },
+  },
+  cursor: {
+    label: 'Cursor',
+    name: 'Cursor',
+    bin: 'cursor-agent',
+    validModel: isValidCursorModel,
+    invalidModel: 'Invalid Cursor model (expected a model id such as gpt-5, with any overrides in brackets)',
+    usage: { note: 'Cursor uses the Cursor CLI login on the office machine. Usage and cost stay in its terminal and your Cursor account; the office does not meter them.' },
   },
   custom: {
     label: 'Custom',

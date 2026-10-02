@@ -80,6 +80,22 @@ test('queued Pi model and thinking survive restart and retry', (t) => {
   assert.deepEqual([f.workers[1].provider, f.workers[1].model, f.workers[1].effort], ['pi', 'openai/gpt-4.1', 'high']);
 });
 
+test('queued Cursor model survives restart and retry', (t) => {
+  const f = fixture(); t.after(() => f.close());
+  const q = f.open(); q.setLimit(0);
+  assert.match(q.add('Fix login', 'Tester', undefined, undefined, 'cursor', '--force') ?? '', /Invalid Cursor model/);
+  assert.match(q.add('Fix login', 'Tester', undefined, undefined, 'cursor', 'gpt-5', 'high') ?? '', /effort/i);
+  assert.equal(q.add('Fix login', 'Tester', undefined, undefined, 'cursor', 'claude-opus-4-8[effort=high]'), undefined);
+  q.shutdown();
+  const restored = f.open(); restored.setLimit(1);
+  const first = f.workers[0];
+  assert.deepEqual([first.provider, first.model, first.effort], ['cursor', 'claude-opus-4-8[effort=high]', undefined]);
+  first.status = 'done'; restored.onWorker(first);
+  const task = restored.state().tasks[0];
+  assert.equal(restored.retry(task.id), undefined);
+  assert.deepEqual([f.workers[1].provider, f.workers[1].model, f.workers[1].effort], ['cursor', 'claude-opus-4-8[effort=high]', undefined]);
+});
+
 test('new and legacy tasks without a provider use the configured agent', (t) => {
   const f = fixture('custom'); t.after(() => f.close());
   writeFileSync(path.join(f.dir, 'queue.json'), JSON.stringify({ maxWorkers: 0, tasks: [

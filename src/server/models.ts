@@ -1,5 +1,5 @@
 import { execFile as nodeExecFile } from 'node:child_process';
-import { isValidGrokModel, isValidOpenCodeModel } from '../shared/providers.js';
+import { isValidCursorModel, isValidGrokModel, isValidOpenCodeModel } from '../shared/providers.js';
 
 export const MODEL_COMMAND_TIMEOUT_MS = 10_000;
 export const MODEL_COMMAND_MAX_BUFFER = 1024 * 1024;
@@ -76,6 +76,61 @@ export async function fetchGrokModels(command: string, cwd: string, runner: Mode
 
 export interface GrokModelCatalogue {
   get(): Promise<string[]>;
+}
+
+/**
+ * Run `cursor-agent models` without a shell and return only safe model ids. It prints one model a
+ * line, `<id> - <name>`, with `(current)` or `(default)` after some, under a heading and over a tip.
+ */
+export async function fetchCursorModels(command: string, cwd: string, runner: ModelCommandRunner = runModelCommand): Promise<string[]> {
+  try {
+    const result = await runner(command, ['models'], {
+      cwd,
+      timeout: MODEL_COMMAND_TIMEOUT_MS,
+      maxBuffer: MODEL_COMMAND_MAX_BUFFER,
+    });
+    const models: string[] = [];
+    const seen = new Set<string>();
+    for (const raw of result.stdout.replace(/\x1b\[[0-?]*[ -\/]*[@-~]/g, '').split(/\r?\n/)) {
+      const line = raw.trim();
+      const model = line.split(/\s/, 1)[0];
+      // The heading, the tip and "No models available" are sentences: a model's line is its id alone, or its id, " - " and its name.
+      if (!/^\S+(?: - .*| \((?:current|default)[^)]*\))?$/.test(line) || !isValidCursorModel(model) || seen.has(model)) continue;
+      seen.add(model);
+      models.push(model);
+    }
+    return models;
+  } catch {
+    throw new Error('Cursor model catalogue unavailable');
+  }
+}
+
+export interface CursorModelCatalogue {
+  get(): Promise<string[]>;
+}
+
+export function createCursorModelCatalogue(
+  command: string,
+  cwd: string,
+  runner: ModelCommandRunner = runModelCommand,
+  now: () => number = Date.now,
+): CursorModelCatalogue {
+  let cached: { models: string[]; expiresAt: number } | undefined;
+  let pending: Promise<string[]> | undefined;
+  return {
+    get() {
+      const current = now();
+      if (cached && current < cached.expiresAt) return Promise.resolve([...cached.models]);
+      if (pending) return pending;
+      pending = fetchCursorModels(command, cwd, runner).then((models) => {
+        cached = { models, expiresAt: now() + MODEL_CACHE_TTL_MS };
+        return [...models];
+      }).finally(() => {
+        pending = undefined;
+      });
+      return pending;
+    },
+  };
 }
 
 export function createGrokModelCatalogue(

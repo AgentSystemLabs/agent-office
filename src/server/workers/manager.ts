@@ -10,7 +10,7 @@ import type { GhAs } from '../signins.js';
 import type { ServiceOwner } from '../services.js';
 import { addUsage, newTracker, scanTracker, trackerUsage, zeroUsage, type Ledger } from '../usage.js';
 import { PtyHost, SCROLLBACK, type Adopted, type Pty } from '../ptys.js';
-import { configuredProvider, validateWorkerEffort, validateWorkerModel } from '../agents.js';
+import { configuredProvider, providerCommand, validateWorkerEffort, validateWorkerModel } from '../agents.js';
 import { ScrollbackStore, searchTerminal, terminalTail } from '../history.js';
 import { DSH_PROFILE_DEFAULT } from '../dsh.js';
 import { DropStore } from '../drops.js';
@@ -622,6 +622,7 @@ export class WorkerManager {
       if (keep && midTurn(w)) w.interrupted = true;
       try {
         w.pty?.kill();
+        if (w.pty && w.info.kind === 'agent') providerAdapter(w.info.provider)?.exited?.(this.handleOf(w), this.cwd(w.info)); // its exit won't be heard
       } catch {
         // ignore
       }
@@ -659,12 +660,12 @@ export class WorkerManager {
     const isShell = info.kind === 'shell';
     const adapter = isShell ? undefined : providerAdapter(info.provider);
     const configured = !isShell && info.provider === this.defaultProvider;
-    const station = DESK_BY_ID.get(info.deskId)?.station;
+    const cwd = this.cwd(info);
     const command = this.command(info);
     const commandPath = isShell ? undefined : configured ? this.agentPath : resolveCommand(command);
     const base = isShell ? (WIN && !process.env.SHELL ? [] : ['-l']) : configured ? [...this.agentArgs] : [];
     // Its provider's command line, and anything it sets for this run (see ProviderAdapter.launch).
-    const plan: LaunchPlan = adapter ? adapter.launch({ h: this.handleOf(w), args: base, prompt, resumeSessionId, station, setup: this.setups[adapter.id] }) : { args: base };
+    const plan: LaunchPlan = adapter ? adapter.launch({ h: this.handleOf(w), args: base, prompt, resumeSessionId, station: DESK_BY_ID.get(info.deskId)?.station, cwd, setup: this.setups[adapter.id] }) : { args: base };
     const { args } = plan;
     if (plan.rotateToken) w.hookToken = randomBytes(16).toString('hex');
     const env = childEnv();
@@ -684,7 +685,6 @@ export class WorkerManager {
       env[key] = [this.officeBin, env[key]].filter(Boolean).join(path.delimiter);
     }
 
-    const cwd = this.cwd(info);
     // A workspace isn't a repository, but it's inside this floor's checkout: git run in it must not
     // find that checkout (and switch its branch, say) instead of saying it's no repository.
     if (info.repos?.length) env.GIT_CEILING_DIRECTORIES = [path.dirname(cwd), env.GIT_CEILING_DIRECTORIES].filter(Boolean).join(path.delimiter);
@@ -795,6 +795,7 @@ export class WorkerManager {
       if (w.viewers.size) this.events.data(info.id, data, [...w.viewers.keys()]);
     });
     proc.onExit(({ exitCode, error, lost }) => {
+      if (w.pty === proc || !w.pty) adapter?.exited?.(this.handleOf(w), this.cwd(info)); // not for a run it has since replaced
       if (w.pty !== proc || this.workers.get(info.id) !== w) return;
       w.pty = undefined;
       if (error) {
@@ -856,8 +857,7 @@ export class WorkerManager {
 
   /** What a worker's terminal runs: the shell, the configured agent command, or another provider's CLI. */
   private command(info: WorkerInfo): string {
-    if (info.kind === 'shell') return defaultShell();
-    return info.provider === this.defaultProvider ? this.agentCmd : info.provider ?? this.agentCmd;
+    return info.kind === 'shell' ? defaultShell() : providerCommand(info.provider ?? this.defaultProvider, this.agentCmd);
   }
 
   /** Where a worker works: its worktree, a workspace for a worker across repositories, or the project itself. */
