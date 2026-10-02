@@ -100,7 +100,7 @@ export function buildCouncil(kit: Kit, plan: MapPlan): { board?: THREE.Mesh; sig
   // A square inside the round top, so its corners don't stick out past the edge.
   const r = COUNCIL.radius * Math.SQRT1_2;
   kit.colliders.push({ minX: cp.x - r, maxX: cp.x + r, minZ: cp.z - r, maxZ: cp.z + r, top: COUNCIL.height });
-  const meeting: Interactable = { kind: 'meeting', x: cp.x, z: cp.z, radius: 2.2 };
+  const meeting: Interactable = { kind: 'meeting', x: cp.x, z: cp.z, radius: 2.5 };
   t.userData.interact = meeting;
   kit.interactables.push(meeting);
   for (const def of plan.meeting) kit.desks.set(def.id, councilChair(kit, def));
@@ -207,16 +207,17 @@ function councilChair(kit: Kit, def: DeskDef): DeskView {
   for (const sx of [-1, 1]) for (const sz of [-1, 1]) chair.add(mesh(box(0.07, 0.46, 0.07), woodDark, sx * 0.25, 0.23, sz * 0.22));
   g.add(chair);
   const laptopAnchor = new THREE.Object3D();
-  laptopAnchor.position.set(0, COUNCIL.height, -0.05);
-  laptopAnchor.scale.setScalar(0.95);
+  laptopAnchor.position.set(0, COUNCIL.height, COUNCIL.tome.z);
+  laptopAnchor.scale.setScalar(COUNCIL.tome.scale);
   g.add(laptopAnchor);
   const seatAnchor = new THREE.Object3D();
   seatAnchor.position.set(0, 0.46, 0.85);
   seatAnchor.rotation.y = Math.PI;
   seatAnchor.scale.setScalar(0.82);
   g.add(seatAnchor);
+  // A merge's dance party: up on its chair rather than the table, which the five tomes fill.
   const stage = new THREE.Object3D();
-  stage.position.set(0.45, COUNCIL.height - 0.07, -0.1);
+  stage.position.set(0, 0.48, 0.85);
   g.add(stage);
   const vacancy = vacancyMarker(1.45);
   g.add(vacancy);
