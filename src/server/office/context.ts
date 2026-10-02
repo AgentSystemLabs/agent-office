@@ -23,6 +23,7 @@ import type { Themes } from '../theme.js';
 import type { Maps } from '../maps.js';
 import type { OfficePrompts } from '../prompts.js';
 import type { LeaveOnMerge } from '../leave-on-merge.js';
+import type { OfficeLanguage } from '../language.js';
 import type { ChatLog } from '../history.js';
 import type { Arcade, HighScores } from '../cabinet.js';
 import type { AgentProvider, FloorInfo, Me, ServerMsg, ServiceInfo, ServicesState, SignInKind } from '../../shared/protocol.js';
@@ -46,7 +47,7 @@ export interface Core {
   highScores: HighScores;
   arcade: Arcade;
   /** What the office is called where it has no project of its own to go by (webhooks, invites). */
-  officeName: string;
+  officeName(): string;
   /** The models each provider's own CLI lists, for the ones that list them (see models.ts). */
   models: Partial<Record<AgentProvider, ModelCatalogue>>;
   /** The building: a floor per project, each with its own workers, boards and queue. */
@@ -61,6 +62,7 @@ export interface BuildingServices {
   maps: Maps;
   prompts: OfficePrompts;
   leaveOnMerge: LeaveOnMerge;
+  language: OfficeLanguage;
   ledger: Ledger;
   signins: SignIns;
   /** The office's own Claude plan limits. */

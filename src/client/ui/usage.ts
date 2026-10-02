@@ -2,50 +2,54 @@ import { fmtCost, fmtTokens, tokensOf, type AgentProvider, type Usage } from '..
 import { store } from '../state';
 import { $, h } from './dom';
 import { providerUsageState, providerUsageTracked, resolvedProvider } from './provider';
+import { L } from '../i18n';
 
 export { fmtCost, fmtTokens, tokensOf };
 
 function displayedCost(u: Usage): string {
-  return u.costKnown === false ? 'cost unavailable' : fmtCost(u.cost);
+  return u.costKnown === false ? L.usage.noCost : fmtCost(u.cost);
 }
 
 /** e.g. "$0.42 · 38k tokens"; OpenCode's amount is explicitly an estimate. */
 export function usageLabel(u: Usage, provider: AgentProvider = 'claude'): string {
   const money = provider === 'codex' && u.costKnown !== true
-    ? 'cost unavailable'
+    ? L.usage.noCost
     : u.costKnown === false
-      ? 'cost unavailable'
-      : `${fmtCost(u.cost)}${provider === 'opencode' ? ' reported' : ''}`;
+      ? L.usage.noCost
+      : `${fmtCost(u.cost)}${provider === 'opencode' ? ` ${L.usage.reported}` : ''}`;
   // DeepSeek Harness reports what is in the context window, not a token split.
   if (provider === 'dsh') {
     const window = u.contextSize !== undefined ? ` / ${fmtTokens(u.contextSize)}` : '';
     const spend = u.costKnown === true ? `${fmtCost(u.cost)} · ` : '';
-    return `${u.incomplete ? 'Partial: ' : ''}${spend}${fmtTokens(tokensOf(u))}${window} context`;
+    return `${u.incomplete ? L.usage.partialPrefix : ''}${spend}${fmtTokens(tokensOf(u))}${window} ${L.usage.context}`;
   }
-  return `${u.incomplete ? "Partial: " : ""}${money} · ${fmtTokens(tokensOf(u))} tokens`;
+  return `${u.incomplete ? L.usage.partialPrefix : ""}${money} · ${fmtTokens(tokensOf(u))} tokens`;
+}
+
+/** Input, output, reasoning and cache tokens, a line each, for a tooltip. */
+function breakdown(input: number, output: number, reasoning: number, cacheWrite: number, cacheRead: number): string[] {
+  return [L.usage.inOut(fmtTokens(input), fmtTokens(output)), L.usage.reasoning(fmtTokens(reasoning)), L.usage.cache(fmtTokens(cacheWrite), fmtTokens(cacheRead))];
 }
 
 /** The breakdown behind a figure, for a tooltip. */
 export function usageTitle(u: Usage, provider: AgentProvider = 'claude'): string {
-  const money = provider === 'codex' && u.costKnown !== true ? 'cost unavailable' : u.costKnown === false ? 'cost unavailable' : fmtCost(u.cost);
+  const money = provider === 'codex' && u.costKnown !== true ? L.usage.noCost : u.costKnown === false ? L.usage.noCost : fmtCost(u.cost);
   const calls = provider === 'codex' || u.callsKnown === false
-    ? 'API call count unavailable'
+    ? L.usage.noCalls
     : provider === 'opencode'
-      ? `${u.calls} reported call${u.calls === 1 ? '' : 's'}`
-      : `${u.calls} API call${u.calls === 1 ? '' : 's'}`;
-  const dshContext = u.contextSize !== undefined ? `${fmtTokens(tokensOf(u))} of ${fmtTokens(u.contextSize)} context tokens` : `${fmtTokens(tokensOf(u))} context tokens`;
+      ? L.usage.reportedCalls(u.calls)
+      : L.usage.apiCalls(u.calls);
+  const dshContext = L.usage.contextTokens(fmtTokens(tokensOf(u)), u.contextSize !== undefined ? fmtTokens(u.contextSize) : undefined);
   return [
-    ...(u.incomplete ? ['Partial metrics: some session history is still loading or unavailable.'] : []),
+    ...(u.incomplete ? [L.usage.partial] : []),
     provider === 'codex'
-      ? `Codex root-session metrics; subagent usage is not included; ${money}; ${calls}`
+      ? L.usage.codexTitle(money, calls)
       : provider === 'opencode'
-        ? `OpenCode reported estimate ${money}; model/provider estimate, not billing; ${calls}`
+        ? L.usage.openCodeTitle(money, calls)
         : provider === 'dsh'
-          ? `DeepSeek Harness context usage from ACP: ${dshContext}; session cost ${u.costKnown === true ? money : 'unavailable'}; ${calls}`
-          : `${money} over ${calls}`,
-    `input ${fmtTokens(u.input)} · output ${fmtTokens(u.output)}`,
-    `reasoning ${fmtTokens(u.reasoning ?? 0)}`,
-    `cache write ${fmtTokens(u.cacheWrite)} · cache read ${fmtTokens(u.cacheRead)}`,
+          ? L.usage.dshTitle(dshContext, u.costKnown === true ? money : undefined, calls)
+          : L.usage.over(money, calls),
+    ...breakdown(u.input, u.output, u.reasoning ?? 0, u.cacheWrite, u.cacheRead),
   ].join('\n');
 }
 
@@ -158,54 +162,50 @@ export function renderUsage() {
       h(
         'div.row',
         {},
-        h('span', {}, '💸 Claude Code today'),
+        h('span', {}, L.usage.today),
         h('b', { title: usageTitle(s.today, 'claude') }, displayedCost(s.today)),
-        s.budget !== undefined ? h('span.muted', {}, `of ${fmtCost(s.budget)}`) : h('span.muted', {}, `· ${fmtTokens(tokensOf(s.today))} tokens`),
+        s.budget !== undefined ? h('span.muted', {}, L.usage.of(fmtCost(s.budget))) : h('span.muted', {}, `· ${fmtTokens(tokensOf(s.today))} ${L.usage.tokens}`),
       ),
     );
   }
   if (s.budget !== undefined) {
     const pct = Math.min(100, (s.today.cost / s.budget) * 100);
-    const state = over ? (s.pauseHiring ? 'Budget spent — no new hires until tomorrow' : 'Budget spent') : `${Math.round(pct)}% of today's budget`;
+    const state = over ? (s.pauseHiring ? L.usage.spentPaused : L.usage.spent) : L.usage.pctToday(Math.round(pct));
     rows.push(h('div.budget', { class: over ? 'over' : pct >= 80 ? 'near' : '', title: state, role: 'progressbar', 'aria-valuenow': Math.round(pct) }, h('div.fill', { style: `width:${pct}%` })));
   }
-  if (s.total.calls > 0 || s.budget !== undefined) rows.push(h('div.row.muted', { title: usageTitle(s.total, 'claude') }, `Claude Code all time ${displayedCost(s.total)} · ${fmtTokens(tokensOf(s.total))} tokens`));
+  if (s.total.calls > 0 || s.budget !== undefined) rows.push(h('div.row.muted', { title: usageTitle(s.total, 'claude') }, L.usage.allTime(displayedCost(s.total), fmtTokens(tokensOf(s.total)))));
   if (currentOpenCodeReports > 0) {
-    const amount = currentOpenCodeCostUnknown ? 'cost unavailable' : `${fmtCost(currentOpenCodeCost)} reported`;
+    const amount = currentOpenCodeCostUnknown ? L.usage.noCost : `${fmtCost(currentOpenCodeCost)} ${L.usage.reported}`;
     rows.push(
       h(
         'div.row.muted',
         {
           title: [
-            'OpenCode current-desk metrics are model/provider estimates, not billing.',
-            `input ${fmtTokens(currentOpenCodeInput)} · output ${fmtTokens(currentOpenCodeOutput)}`,
-            `reasoning ${fmtTokens(currentOpenCodeReasoning)}`,
-            `cache write ${fmtTokens(currentOpenCodeCacheWrite)} · cache read ${fmtTokens(currentOpenCodeCacheRead)}`,
+            L.usage.openCodeDesks,
+            ...breakdown(currentOpenCodeInput, currentOpenCodeOutput, currentOpenCodeReasoning, currentOpenCodeCacheWrite, currentOpenCodeCacheRead),
           ].join('\n'),
         },
-        `OpenCode ${currentOpenCodeIncomplete ? "partial" : "current desks"} ${amount} · ${fmtTokens(currentOpenCodeTokens)} tokens`,
+        `OpenCode ${currentOpenCodeIncomplete ? L.usage.partialWord : L.usage.currentDesks} ${amount} · ${fmtTokens(currentOpenCodeTokens)} ${L.usage.tokens}`,
       ),
     );
   }
-  if (openCodeWaiting) rows.push(h('div.row.muted', { title: 'OpenCode usage appears after its first metrics report.' }, 'OpenCode metrics waiting for first report'));
+  if (openCodeWaiting) rows.push(h('div.row.muted', { title: L.usage.openCodeWaitTip }, L.usage.openCodeWait));
   if (currentCodexReports > 0) {
-    const amount = currentCodexCostUnknown ? 'cost unavailable' : fmtCost(currentCodexCost);
+    const amount = currentCodexCostUnknown ? L.usage.noCost : fmtCost(currentCodexCost);
     rows.push(
       h(
         'div.row.muted',
         {
           title: [
-            'Codex current-desk metrics cover the root session only; subagent usage is not included; cost is unavailable.',
-            `input ${fmtTokens(currentCodexInput)} · output ${fmtTokens(currentCodexOutput)}`,
-            `reasoning ${fmtTokens(currentCodexReasoning)}`,
-            `cache write ${fmtTokens(currentCodexCacheWrite)} · cache read ${fmtTokens(currentCodexCacheRead)}`,
+            L.usage.codexDesks,
+            ...breakdown(currentCodexInput, currentCodexOutput, currentCodexReasoning, currentCodexCacheWrite, currentCodexCacheRead),
           ].join('\n'),
         },
-        `Codex ${currentCodexIncomplete ? 'partial' : 'current desks'} ${amount} · ${fmtTokens(currentCodexTokens)} tokens`,
+        `Codex ${currentCodexIncomplete ? L.usage.partialWord : L.usage.currentDesks} ${amount} · ${fmtTokens(currentCodexTokens)} ${L.usage.tokens}`,
       ),
     );
   }
-  if (codexWaiting) rows.push(h('div.row.muted', { title: 'Codex usage appears after its first root-session metrics report; subagent usage is not included.' }, 'Codex metrics waiting for first report'));
+  if (codexWaiting) rows.push(h('div.row.muted', { title: L.usage.codexWaitTip }, L.usage.codexWait));
   if (currentDshReports > 0) {
     const context = currentDshContext > 0 ? ` / ${fmtTokens(currentDshContext)}` : '';
     const spend = currentDshCostKnown ? `${fmtCost(currentDshCost)} · ` : '';
@@ -214,17 +214,17 @@ export function renderUsage() {
         'div.row.muted',
         {
           title: [
-            'DeepSeek Harness reports what is in each session\u2019s context window over ACP after a turn; cost appears only when the harness supplies it, and is never billing.',
-            `${currentDshReports} worker${currentDshReports === 1 ? '' : 's'} · ${fmtTokens(currentDshTokens)}${context} context tokens`,
+            L.usage.dshDesksTip,
+            L.usage.dshWorkers(currentDshReports, `${fmtTokens(currentDshTokens)}${context}`),
           ].join('\n'),
         },
-        `DeepSeek Harness current desks ${spend}${fmtTokens(currentDshTokens)}${context} context`,
+        L.usage.dshDesks(`${spend}${fmtTokens(currentDshTokens)}${context}`),
       ),
     );
   }
-  if (dshWaiting) rows.push(h('div.row.muted', { title: 'DeepSeek Harness usage appears after its first ACP usage update.' }, 'DeepSeek Harness metrics waiting for first report'));
+  if (dshWaiting) rows.push(h('div.row.muted', { title: L.usage.dshWaitTip }, L.usage.dshWait));
   if (untracked) {
-    rows.push(h('div.row.muted', { title: 'Custom provider usage is not reported by the office.' }, 'Custom usage untracked · budget and totals cover Claude Code only'));
+    rows.push(h('div.row.muted', { title: L.usage.customTip }, L.usage.custom));
   }
   el.replaceChildren(...rows);
 }

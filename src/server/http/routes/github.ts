@@ -2,6 +2,7 @@
 import { send } from '../util.js';
 import type { Route } from '../router.js';
 import { floorParam } from './files.js';
+import { L } from '../../i18n.js';
 
 export const githubRoutes = {
   github: {
@@ -14,7 +15,7 @@ export const githubRoutes = {
       const n = Number(url.searchParams.get('number'));
       // The repo's labels (for the label picker) are the one thing not about a single issue or PR.
       if (p !== '/api/gh/labels' && (!Number.isSafeInteger(n) || n <= 0)) return send(res, 400, { error: 'Bad number' });
-      if (!floor) return send(res, 404, { error: 'No such floor' });
+      if (!floor) return send(res, 404, { error: L.srv.noSuchFloor });
       const github = floor.github;
       try {
         // "You" on comments is your own GitHub login once you've signed in to it.

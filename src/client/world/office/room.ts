@@ -8,6 +8,7 @@ import type { Fixture } from './fixture';
 import { PALETTE } from './materials';
 import { coffeeTable, floorPlant, loungeCouch, pendant, plant, pouf, wallBoard } from './props';
 import { seatable } from './seats';
+import { boardLabel } from '../../i18n';
 
 // The room itself, past its walls and its seats: the rugs, what the sky lights and darkens, the boards
 // on the walls, the TV and the machine's monitor, the lounge, the plants and the lamps.
@@ -69,7 +70,7 @@ export const boards: Fixture<'boardMeshes'> = (site) => {
     bg.rotation.y = b.rotY;
     site.group.add(bg);
     boardMeshes[key] = face;
-    const label = textPlane(b.label, { bg: '#fffaf3', size: 64 });
+    const label = textPlane(boardLabel(key, b.label), { bg: '#fffaf3', size: 64 });
     label.scale.multiplyScalar(1.3);
     label.position.set(b.x + nx * 0.04, b.y + b.height / 2 + 0.5, b.z + nz * 0.04);
     label.rotation.y = b.rotY;

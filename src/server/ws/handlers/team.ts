@@ -3,6 +3,7 @@ import type { TeamClientMsg } from '../../../shared/protocol.js';
 import type { Ctx } from '../../office/context.js';
 import { str } from '../../office/input.js';
 import type { HandlerMap } from './types.js';
+import { L } from '../../i18n.js';
 
 const teamState = async (ctx: Ctx) => ({ ...(await ctx.team.state()), deploy: ctx.cfg.deployScript });
 const teamChanged = async (ctx: Ctx) => ctx.broadcast({ t: 'team', state: await teamState(ctx) });
@@ -17,7 +18,7 @@ export const teamHandlers = {
     void ctx.team.invite(user).then(async (r) => {
       ctx.sendTo(c, { t: 'team.invited', github: user, ...r });
       if ('error' in r) return;
-      ctx.toastAll(`${who} invited ${r.name} to the office`);
+      ctx.toastAll(L.srv.invited(who, r.name));
       await teamChanged(ctx);
     });
   },

@@ -1,6 +1,7 @@
 import { closeSync, existsSync, fstatSync, openSync, readdirSync, readFileSync, readSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { Usage, UsageState } from '../shared/protocol.js';
+import { L } from './i18n.js';
 
 /*
  * Where a worker's numbers come from
@@ -309,7 +310,7 @@ export class Ledger {
   /** Why a new agent can't be hired right now, when it can't. */
   get hiringPaused(): string | undefined {
     if (!this.opts.pauseHiring || !this.overBudget) return undefined;
-    return `Today's ${fmtUsd(this.opts.budget!)} budget is spent — no new hires until tomorrow`;
+    return L.srvUsage.spent(fmtUsd(this.opts.budget!));
   }
 
   add(delta: Usage) {
@@ -323,7 +324,7 @@ export class Ledger {
     if (this.opts.budget !== undefined && this.overBudget && this.warnedDay !== day) {
       this.warnedDay = day;
       const spent = fmtUsd(this.days[day].cost);
-      this.toast(`💸 Today's spend passed the ${fmtUsd(this.opts.budget)} budget (${spent})${this.opts.pauseHiring ? ' — no new hires until tomorrow' : ''}`, 'warn');
+      this.toast(L.srvUsage.passed(fmtUsd(this.opts.budget), spent, !!this.opts.pauseHiring), 'warn');
     }
   }
 

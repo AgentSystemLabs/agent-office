@@ -4,6 +4,8 @@
 // send what they hear to their maker's speech service, unless the on-device model for your language
 // is already there, and then it's used instead.
 
+import { L } from '../i18n';
+
 // The parts of the Web Speech API used here (TypeScript's DOM types leave it out).
 interface RecAlternative {
   transcript: string;
@@ -112,16 +114,16 @@ export function speechProblem(code: string, lang: string): string | undefined {
     case 'aborted':
       return undefined;
     case 'not-allowed':
-      return 'Dictation needs the microphone: allow it for this page in the address bar, then try again.';
+      return L.dictate.needsMic;
     case 'audio-capture':
-      return 'Dictation found no microphone to listen to.';
+      return L.dictate.noMic;
     case 'network':
     case 'service-not-allowed':
-      return "This browser's speech service didn't answer, so there's nothing to take dictation. Chrome, Edge and Safari have one; Brave and some others come without it.";
+      return L.dictate.noService;
     case 'language-not-supported':
-      return `This browser can't take dictation in ${lang}.`;
+      return L.dictate.noLanguage(lang);
     default:
-      return `Dictation stopped: ${code}.`;
+      return L.dictate.stopped(code);
   }
 }
 
@@ -155,7 +157,7 @@ export function listen(on: ListenHandlers, opts: { Ctor?: RecognizerCtor; lang?:
   const lang = opts.lang ?? speechLang();
   const now = opts.now ?? Date.now;
   if (!Ctor) {
-    on.end('This browser has no speech recognition built in. Chrome, Edge and Safari do.');
+    on.end(L.dictate.unsupported);
     return { stop() {}, abort() {} };
   }
   const rec = new Ctor();
@@ -187,7 +189,7 @@ export function listen(on: ListenHandlers, opts: { Ctor?: RecognizerCtor; lang?:
       rec.start();
       return true;
     } catch (err) {
-      problem ??= `Dictation couldn't start: ${(err as Error).message}`;
+      problem ??= L.dictate.couldntStart((err as Error).message);
       return false;
     }
   };

@@ -4,6 +4,7 @@ import type { Ctx } from '../../core/context';
 import { $, h, toast } from '../../ui/dom';
 import { EmoteWheel } from './ui';
 import type { Person } from '../../world/character';
+import { L } from '../../i18n';
 
 export interface EmotesDeps {
   /** Someone else on your floor, as you see them. */
@@ -20,7 +21,7 @@ export function installEmotes(ctx: Ctx, deps: EmotesDeps) {
     if (!emoteLimit.take(now)) {
       if (now - emoteWarnedAt > 3000) {
         emoteWarnedAt = now;
-        toast('Easy there, one emote at a time', 'warn');
+        toast(L.main.oneEmote, 'warn');
       }
       return;
     }

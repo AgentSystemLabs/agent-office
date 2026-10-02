@@ -6,6 +6,7 @@ import type { Collider, DeskView, Interactable } from '../types';
 import type { Fixture } from './fixture';
 import { PALETTE, box } from './materials';
 import { deskBooks, deskMug, plant } from './props';
+import { L } from '../../i18n';
 
 // Where people sit: the seats you use (see SEATING), and the desks, bean bags and board agents' kiosks
 // that workers sit (or stand) at, with the "+" over a free one.
@@ -162,7 +163,7 @@ export function buildBeanbag(def: DeskDef, index: number): DeskView {
   return { def, group, laptopAnchor, seatAnchor, stage, chair: bag, vacancy, vacancyY };
 }
 
-const KIOSK_SIGN: Record<StationKind, string> = { issues: '📌 Ask me', pulls: '🔀 Ask me', queue: '📋 Ask me' };
+const KIOSK_SIGN: Record<StationKind, string> = { issues: `📌 ${L.wboards.askMe}`, pulls: `🔀 ${L.wboards.askMe}`, queue: `📋 ${L.wboards.askMe}` };
 
 /**
  * A board agent's kiosk: a little counter in its color with a sign on the front, and the agent standing

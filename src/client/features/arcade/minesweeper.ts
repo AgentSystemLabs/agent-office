@@ -1,3 +1,4 @@
+import { L } from '../../i18n';
 /**
  * Minesweeper for the boss's monitor (ui.ts): the rules, and a painter that draws the whole
  * screen in fixed 960×540 units, so the same picture goes on the monitor and on the board you click.
@@ -141,7 +142,7 @@ export class Minesweeper {
       g.font = `900 92px ${FONT}`;
       g.fillText('MINESWEEPER', W / 2, 240);
       g.font = `800 28px ${FONT}`;
-      g.fillText('Sit in the boss’s chair and press E to play', W / 2, 318);
+      g.fillText(L.arcade.sitBoss, W / 2, 318);
     } else if (this.over) {
       const won = this.state === 'won';
       g.fillStyle = won ? 'rgba(42, 157, 75, 0.92)' : 'rgba(230, 57, 70, 0.92)';
@@ -149,9 +150,9 @@ export class Minesweeper {
       g.fill();
       g.fillStyle = '#ffffff';
       g.font = `900 40px ${FONT}`;
-      g.fillText(won ? `Cleared in ${Math.floor(this.ms / 1000)}s!` : 'Boom!', W / 2, H / 2 - 8);
+      g.fillText(won ? L.arcade.cleared(Math.floor(this.ms / 1000)) : L.arcade.boom, W / 2, H / 2 - 8);
       g.font = `800 20px ${FONT}`;
-      g.fillText(idle ? 'Sit down and press E to play again' : 'Click the face for a new game', W / 2, H / 2 + 26);
+      g.fillText(idle ? L.arcade.sitAgain : L.arcade.clickFace, W / 2, H / 2 + 26);
     }
   }
 

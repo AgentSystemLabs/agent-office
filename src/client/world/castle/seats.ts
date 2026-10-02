@@ -9,6 +9,7 @@ import { mesh, roundedBox, textPlane, toon } from '../toon';
 import { flame } from './fire';
 import { BENCH_TOP, TABLE_TOP, collide, xz, type Kit } from './kit';
 import { box } from './shapes';
+import { L } from '../../i18n';
 
 // Where everyone sits and stands: the long tables and their benches with a place at each for a
 // worker, the board agents' lecterns, and the round table the meetings are held at.
@@ -122,7 +123,7 @@ export function buildCouncil(kit: Kit, plan: MapPlan): { board?: THREE.Mesh; sig
   sign.position.set(0, 0.92, 0.07);
   easel.add(mesh(box(1.3, 0.42, 0.06), mats.woodDark, 0, 0.92, 0.02));
   easel.add(sign);
-  const title = textPlane('🤝 The small council', { bg: '#efe3c2', size: 56 });
+  const title = textPlane(L.world.council, { bg: '#efe3c2', size: 56 });
   title.scale.multiplyScalar(0.62);
   title.position.set(0, 2.98, 0.06);
   easel.add(title);

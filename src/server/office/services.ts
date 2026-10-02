@@ -17,9 +17,11 @@ import { Themes } from '../theme.js';
 import { Maps } from '../maps.js';
 import { OfficePrompts } from '../prompts.js';
 import { LeaveOnMerge } from '../leave-on-merge.js';
+import { OfficeLanguage } from '../language.js';
 import type { ServiceInfo, ServicesState } from '../../shared/protocol.js';
 import type { BuildingServices, Ctx, LateServices } from './context.js';
 import type { Client } from './client.js';
+import { L } from '../i18n.js';
 
 /** What the whole building shares, made before any floor opens: the sky, ⚙️ Settings, spend, sign-ins, limits. */
 export function createServices(ctx: Ctx): BuildingServices {
@@ -38,6 +40,7 @@ export function createServices(ctx: Ctx): BuildingServices {
   const prompts = new OfficePrompts(cfg.dataDir, { list: agentProviders(configured), configured }, (state) => ctx.broadcast({ t: 'prompts', state }));
   // Whether a worker whose pull request merged goes home by itself, on every floor (⚙️ Settings).
   const leaveOnMerge = new LeaveOnMerge(cfg.dataDir, (state) => ctx.broadcast({ t: 'leaveOnMerge', state }));
+  const language = new OfficeLanguage(cfg.dataDir, (state) => ctx.broadcast({ t: 'language', state }));
 
   // What the workers spend, all time and today, with the optional daily budget.
   const ledger = new Ledger(
@@ -97,9 +100,9 @@ export function createServices(ctx: Ctx): BuildingServices {
   };
 
   // Slack / Discord pings for workers that need input or finish (set from ⚙️ Settings or --webhook).
-  const webhook = new Webhook(cfg.dataDir, (workerId) => (workerId && ctx.workerFloor(workerId)?.def.name) || ctx.officeName, (state) => ctx.broadcast({ t: 'notify', state }));
+  const webhook = new Webhook(cfg.dataDir, (workerId) => (workerId && ctx.workerFloor(workerId)?.def.name) || ctx.officeName(), (state) => ctx.broadcast({ t: 'notify', state }));
   if (cfg.webhook !== undefined) {
-    const err = webhook.set(cfg.webhook, 'the command line');
+    const err = webhook.set(cfg.webhook, L.srv.commandLine);
     if (err) console.error(`agent-office: --webhook: ${err}`);
   }
 
@@ -125,7 +128,7 @@ export function createServices(ctx: Ctx): BuildingServices {
     });
   };
 
-  return { sky, themes, maps, prompts, leaveOnMerge, ledger, signins, limits, accountLimits, webhook, machine, limitsOf, pumpQueues };
+  return { sky, themes, maps, prompts, leaveOnMerge, language, ledger, signins, limits, accountLimits, webhook, machine, limitsOf, pumpQueues };
 }
 
 /** What's made once the floors are open: the SSH team, the tailnet, workers' web servers, pictures and upgrades. */

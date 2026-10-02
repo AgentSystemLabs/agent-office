@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import type { TeamState } from '../shared/protocol.js';
+import { L } from './i18n.js';
 
 // Installed by deploy/provision.sh. It edits the `office` user's authorized_keys (root-owned), so
 // it re-runs itself with sudo; the office only ever passes it a validated name and key text.
@@ -65,7 +66,7 @@ export class Team {
     }
     this.fingerprint ??= (await helper(['fingerprint'])).out.trim() || undefined;
     const list = await helper(['list']);
-    if (list.code) return { ...base, ssh: this.ssh, fingerprint: this.fingerprint, error: `Couldn't list the team: ${list.err}` };
+    if (list.code) return { ...base, ssh: this.ssh, fingerprint: this.fingerprint, error: L.srvTeam.listFailed(list.err) };
     const members = list.out
       .split('\n')
       .map((l) => l.trim().split(/\s+/))
@@ -76,29 +77,29 @@ export class Team {
 
   /** Installs the SSH keys on github.com/<user>.keys, each limited to opening the tunnel. */
   async invite(github: string): Promise<{ name: string; keys: number } | { error: string }> {
-    if (!this.available) return { error: 'Invites work on offices set up with deploy/provision.sh or deploy/aws.sh' };
+    if (!this.available) return { error: L.srvTeam.invitesNeedDeploy };
     const user = github.trim().replace(/^@/, '');
-    if (!GITHUB_USER.test(user)) return { error: `"${github}" isn't a GitHub username` };
+    if (!GITHUB_USER.test(user)) return { error: L.srvTeam.badUser(github) };
     let text: string;
     try {
       const res = await fetch(`https://github.com/${user}.keys`, { signal: AbortSignal.timeout(10_000) });
-      if (res.status === 404) return { error: `There's no GitHub user called ${user}` };
-      if (!res.ok) return { error: `GitHub answered ${res.status} for ${user}'s keys — try again` };
+      if (res.status === 404) return { error: L.srvTeam.noUser(user) };
+      if (!res.ok) return { error: L.srvTeam.ghAnswered(res.status, user) };
       text = (await res.text()).slice(0, 64 * 1024);
     } catch (err) {
-      return { error: `Couldn't reach GitHub: ${(err as Error).message}` };
+      return { error: L.srvTeam.unreachable((err as Error).message) };
     }
-    if (!text.trim()) return { error: `${user} has no SSH keys on GitHub — they can add one at github.com/settings/keys` };
+    if (!text.trim()) return { error: L.srvTeam.noKeys(user) };
     const r = await helper(['add', user], text);
-    if (r.code === 65) return { error: `None of ${user}'s GitHub keys are a type SSH accepts here` };
+    if (r.code === 65) return { error: L.srvTeam.badKeys(user) };
     if (r.code) return { error: `Couldn't add ${user}'s keys: ${r.err}` };
     return { name: user, keys: Number(r.out.trim()) || 0 };
   }
 
   /** Removes their keys. Open tunnels drop for everyone (they just re-run the command). */
   async remove(name: string): Promise<string | undefined> {
-    if (!this.available) return 'Invites work on offices set up with deploy/provision.sh or deploy/aws.sh';
-    if (!MEMBER.test(name)) return `"${name}" isn't a teammate name`;
+    if (!this.available) return L.srvTeam.invitesNeedDeploy;
+    if (!MEMBER.test(name)) return L.srvTeam.badName(name);
     const r = await helper(['remove', name]);
     if (r.code === 66) return `${name} isn't invited`;
     if (r.code) return `Couldn't remove ${name}: ${r.err}`;

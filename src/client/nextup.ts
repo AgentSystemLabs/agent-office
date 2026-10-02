@@ -5,6 +5,7 @@
 import type { WorkerInfo } from '../shared/protocol';
 import { isAsleep, isBusy } from '../shared/status';
 import { waitingOnSomeone } from './notify';
+import { L } from './i18n';
 
 type Waiting = WorkerInfo & { status: 'needs_input' | 'done' };
 
@@ -50,7 +51,7 @@ export function byUrgency(workers: Iterable<WorkerInfo>): WorkerInfo[] {
 export function waitingLabel(waiting: readonly WorkerInfo[]): string {
   const needs = waiting.filter((w) => w.status === 'needs_input').length;
   const done = waiting.length - needs;
-  return [needs && `🙋 ${needs} ${needs === 1 ? 'needs' : 'need'} you`, done && `✅ ${done} done`].filter(Boolean).join(' · ');
+  return [needs && L.main.nWaiting(needs), done && L.main.nDone(done)].filter(Boolean).join(' · ');
 }
 
 /**

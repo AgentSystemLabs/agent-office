@@ -6,6 +6,8 @@ import { DESK_BY_ID, SEATS, nextFreeSeat } from '../shared/layout.js';
 import { validateWorkerEffort, validateWorkerModel } from './agents.js';
 import { savedEffort, savedModel, takesEffort, takesModel } from '../shared/providers.js';
 import { PROMPTS } from '../shared/prompts.js';
+import { L } from './i18n.js';
+import { placeName } from '../shared/i18n.js';
 
 /** What the queue needs from the worker manager. Narrow on purpose, so a smoke test can fake it. */
 export interface QueueWorkers {
@@ -88,15 +90,15 @@ export class TaskQueue {
   /** Queues a task; `owner` is the account adding it, whose sign-ins its worker will run on. */
   add(prompt: string, by: string, title?: string, issue?: number, provider?: AgentProvider, model?: string, effort?: AgentEffort, owner?: string): string | undefined {
     if (provider === undefined) ({ provider, model, effort } = this.workers.officeDefault ?? { provider: this.workers.defaultProvider });
-    if (!isAgentProvider(provider) || (provider === 'custom' && this.workers.defaultProvider !== 'custom')) return 'Unknown agent provider';
+    if (!isAgentProvider(provider) || (provider === 'custom' && this.workers.defaultProvider !== 'custom')) return L.srv.unknownProvider;
     const modelError = validateWorkerModel('agent', provider, model);
     if (modelError) return modelError;
     const effortError = validateWorkerEffort('agent', provider, effort);
     if (effortError) return effortError;
     const clean = prompt.replace(/\r\n?/g, '\n').trim();
-    if (!clean) return 'Empty task';
-    if (issue !== undefined && this.tasks.some((t) => t.issue === issue && t.status !== 'done')) return `Issue #${issue} is already on the queue`;
-    if (this.tasks.filter((t) => t.status !== 'done').length >= MAX_TASKS) return `The queue is full (${MAX_TASKS} tasks)`;
+    if (!clean) return L.srvQueue.empty;
+    if (issue !== undefined && this.tasks.some((t) => t.issue === issue && t.status !== 'done')) return L.main.alreadyQueued(issue);
+    if (this.tasks.filter((t) => t.status !== 'done').length >= MAX_TASKS) return L.srvQueue.full(MAX_TASKS);
     const task: QueueTask = {
       id: randomBytes(6).toString('hex'),
       provider,
@@ -118,8 +120,8 @@ export class TaskQueue {
 
   remove(taskId: string): string | undefined {
     const t = this.tasks.find((x) => x.id === taskId);
-    if (!t) return 'No such task';
-    if (t.status === 'running') return `${t.workerName ?? 'Its worker'} is on it — send the worker home to stop it`;
+    if (!t) return L.srvQueue.noTask;
+    if (t.status === 'running') return L.srvQueue.onIt(t.workerName ?? L.srvQueue.itsWorker);
     this.tasks.splice(this.tasks.indexOf(t), 1);
     this.changed();
     this.pump();
@@ -151,9 +153,9 @@ export class TaskQueue {
   /** Puts a finished task back at the end of the queue. */
   retry(taskId: string): string | undefined {
     const t = this.tasks.find((x) => x.id === taskId);
-    if (!t) return 'No such task';
-    if (t.status !== 'done') return 'That task is still on the queue';
-    if (t.issue !== undefined && this.tasks.some((x) => x !== t && x.issue === t.issue && x.status !== 'done')) return `Issue #${t.issue} is already on the queue`;
+    if (!t) return L.srvQueue.noTask;
+    if (t.status !== 'done') return L.srvQueue.stillQueued;
+    if (t.issue !== undefined && this.tasks.some((x) => x !== t && x.issue === t.issue && x.status !== 'done')) return L.main.alreadyQueued(t.issue);
     this.tasks.splice(this.tasks.indexOf(t), 1);
     const fresh: QueueTask = { id: t.id, provider: t.provider, model: t.model, effort: t.effort, issue: t.issue, title: t.title, prompt: t.prompt, addedBy: t.addedBy, owner: t.owner, addedAt: Date.now(), status: 'queued' };
     this.tasks.push(fresh);
@@ -261,12 +263,12 @@ export class TaskQueue {
     t.status = 'done';
     t.outcome = outcome;
     t.finishedAt = Date.now();
-    const who = t.workerName ?? 'Its worker';
+    const who = t.workerName ?? L.srvQueue.itsWorker;
     if (outcome === 'done') {
-      this.events.toast(`📋 ${who} finished ${label(t)}`, 'info');
+      this.events.toast(L.srvQueue.finished(who, label(t)), 'info');
       // The worker most likely just opened the PR; go and link it.
       this.events.refreshGitHub();
-    } else if (outcome === 'exited') this.events.toast(`📋 ${who} stopped before finishing ${label(t)} — requeue it from the queue board`, 'warn');
+    } else if (outcome === 'exited') this.events.toast(L.srvQueue.stopped(who, label(t)), 'warn');
     return outcome === 'done';
   }
 
@@ -293,7 +295,7 @@ export class TaskQueue {
     const pick = this.recyclable();
     if (!pick) return undefined;
     const done = this.workers.kill(pick.w.id);
-    this.events.toast(`📋 ${pick.w.name} went home after ${label(pick.t)} to make room for the next task`, 'info');
+    this.events.toast(L.srvQueue.wentHome(pick.w.name, label(pick.t)), 'info');
     void done.then(({ note, error }) => {
       if (note) this.events.toast(note, 'info');
       if (error) this.events.toast(error, 'warn');
@@ -351,11 +353,12 @@ export class TaskQueue {
       t.startedAt = Date.now();
       t.error = undefined;
       this.lastStatus.set(r.id, r.status);
-      this.events.toast(`📋 ${r.name} sat down at ${DESK_BY_ID.get(desk)?.label ?? 'a desk'} to work on ${label(t)}`, 'info');
+      const seat = DESK_BY_ID.get(desk);
+      this.events.toast(L.srvQueue.satDown(r.name, seat ? placeName(L, seat) : L.boards.aDesk, label(t)), 'info');
       if (t.issue !== undefined) {
         const issue = t.issue;
         void this.events.claimIssue(issue, t.owner).then((err) => {
-          if (err) this.events.toast(`Couldn't assign issue #${issue} on GitHub: ${err}`, 'warn');
+          if (err) this.events.toast(L.srv.couldntAssign(issue, err), 'warn');
         });
       }
     }
@@ -409,7 +412,7 @@ export class TaskQueue {
           t.status = 'done';
           t.outcome = 'exited';
           t.finishedAt = Date.now();
-          t.error = 'The office restarted while it was running';
+          t.error = L.srvQueue.restarted;
         }
         this.tasks.push(t);
       }

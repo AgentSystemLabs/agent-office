@@ -2,6 +2,7 @@ import { BALCONY } from '../../../shared/layout';
 import type { Ctx } from '../../core/context';
 import { hintTitle, key, onE } from '../../core/hint';
 import { toast } from '../../ui/dom';
+import { L } from '../../i18n';
 
 // The kinds of thing you can use that this defines (see InteractKinds in world/types.ts).
 declare module '../../world/types' {
@@ -35,23 +36,23 @@ export function installSmoke(ctx: Ctx) {
     if (!smokeBreakUntil) return;
     if (!onBalcony()) {
       setSmoking(false);
-      toast('🚭 No smoking inside, so you put it out');
+      toast(L.main.noSmoking);
     } else if (now > smokeBreakUntil) {
       setSmoking(false);
-      toast("That one's done. Back to work!");
+      toast(L.main.backToWork);
     }
   }
   ctx.ticks.add('world', ({ now }) => checkSmokeBreak(now));
   ctx.interactions.define('smoke', {
     reach: 3,
-    hint: () => ({ k: String(smokeBreakUntil > 0), parts: [hintTitle('🚬 Ashtray'), key('E', smokeBreakUntil ? 'Stub it out' : 'Take a smoke break')] }),
+    hint: () => ({ k: String(smokeBreakUntil > 0), parts: [hintTitle(L.hints.ashtray), key('E', smokeBreakUntil ? L.hints.stubOut : L.hints.smokeBreak)] }),
     use: onE(() => {
       if (smokeBreakUntil) {
         setSmoking(false);
-        toast('You stub it out in the ashtray');
+        toast(L.main.stubOut);
       } else {
         setSmoking(true);
-        toast('🚬 Smoke break');
+        toast(L.main.smokeBreak);
       }
     }),
   });

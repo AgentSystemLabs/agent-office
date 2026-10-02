@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import type { Office } from './office.js';
+import { L } from '../i18n.js';
 
 // The SSH half of `agent-office tunnel office@<address>`: localhost:<port> here to the office's
 // port on its machine, the one thing an invited key may forward to. Everything else the client
@@ -71,8 +72,8 @@ export class SshTunnel {
         over = true;
         resolve(err);
       };
-      child.on('error', (err) => finish((err as NodeJS.ErrnoException).code === 'ENOENT' ? "ssh isn't installed on this computer" : `couldn't run ssh: ${err.message}`));
-      child.on('exit', (code) => finish(`ssh couldn't open the tunnel${code ? ` (it exited with ${code})` : ''}`));
+      child.on('error', (err) => finish((err as NodeJS.ErrnoException).code === 'ENOENT' ? L.tunnel.noSsh : L.tunnel.sshRun(err.message)));
+      child.on('exit', (code) => finish(L.tunnel.sshExit(code)));
       void (async () => {
         while (!over && !(await this.office.up())) await sleep(LOOK_MS);
         finish('');

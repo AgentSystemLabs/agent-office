@@ -4,6 +4,7 @@
  */
 import type { WorkerInfo, WorkerStatus } from '../../../shared/protocol';
 import { alertDetail } from '../../../shared/status';
+import { L } from '../../i18n';
 
 /** How long between reminders while a worker's still waiting on an answer nobody's looking at (ms). */
 export const REMIND_EVERY = 30_000;
@@ -39,8 +40,8 @@ export function bannerText(asking: readonly WorkerInfo[], now: number): BannerTe
   if (!w) return null;
   const ask = alertDetail(w)?.replace(/\s+/g, ' ').trim();
   const detail = [ask && (ask.length > 90 ? `${ask.slice(0, 89)}…` : ask), waited(w.waitingSince, now)].filter(Boolean).join(' · ');
-  const more = asking.length > 1 ? `+${asking.length - 1} more` : '';
-  const title = `${w.name} needs you`;
+  const more = asking.length > 1 ? L.needsYou.more(asking.length - 1) : '';
+  const title = L.needsYou.title(w.name);
   return { id: w.id, title, detail, more, key: `${w.id}|${title}|${detail}|${more}` };
 }
 

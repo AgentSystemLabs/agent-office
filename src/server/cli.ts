@@ -4,6 +4,7 @@ import { loadConfig, ensureSelfSigned } from './config.js';
 import { startServer } from './server.js';
 import { tildify } from './building.js';
 import { openBrowser } from './browser.js';
+import { L } from './i18n.js';
 
 const argv = process.argv.slice(2);
 if (argv[0] === 'prune') {
@@ -35,7 +36,7 @@ try {
   office = await startServer(cfg);
 } catch (err) {
   const e = err as NodeJS.ErrnoException;
-  if (e.code === 'EADDRINUSE') console.error(`agent-office: port ${cfg.port} is already in use (try --port)`);
+  if (e.code === 'EADDRINUSE') console.error(`agent-office: ${L.cli.portInUse(cfg.port)}`);
   else console.error(`agent-office: ${e.message}`);
   process.exit(1);
 }
@@ -55,16 +56,16 @@ if (everywhere) {
 const agent = office.resolvedAgent;
 function floorsLine() {
   const floors = office.floors();
-  const where = `new ones are cloned into ${tildify(office.projectsDir())}`;
-  if (!floors.length) return `🛗 no floors yet — ride the elevator in the office to add a project (${where})`;
-  return `🛗 ${floors.length} floor${floors.length === 1 ? '' : 's'}: ${floors.map((f) => f.def.name).join(', ')} (${where})`;
+  const where = L.cli.clonedInto(tildify(office.projectsDir()));
+  if (!floors.length) return L.cli.noFloors(where);
+  return L.cli.floors(floors.map((f) => f.def.name), where);
 }
 
 function passwordLine() {
-  if (!office.accounts.sharedPassword) return 'off — everyone signs in with their own account (agent-office accounts)';
-  if (!cfg.passwordGenerated) return '(from --password / AGENT_OFFICE_PASSWORD)';
-  if (cfg.claimToken && !cfg.claimed) return 'shown exactly once to whoever opens the claim link (/claim?t=…)';
-  if (cfg.claimed || !cfg.password) return '(already claimed — never shown again; reset with --reset-password)';
+  if (!office.accounts.sharedPassword) return L.cli.passwordOff;
+  if (!cfg.passwordGenerated) return L.cli.passwordGiven;
+  if (cfg.claimToken && !cfg.claimed) return L.cli.passwordClaim;
+  if (cfg.claimed || !cfg.password) return L.cli.passwordClaimed;
   return cfg.password;
 }
 
@@ -81,16 +82,16 @@ if (atTerminal && office.accounts.sharedPassword && !cfg.claimToken) {
 // Started in a project that's still one of the floors (it can be taken off like any other).
 const local = cfg.project && office.floors().some((f) => path.resolve(f.def.dir) === cfg.project);
 console.log(`
-  🏢  agent-office is open${local ? ` for ${cfg.project}` : ''}
+  🏢  ${L.cli.open(local ? cfg.project : undefined)}
 
   ${floorsLine()}
 
-  ${[...urls].join('\n  ')}${loopback ? '\n  (only this computer can open it: --host 0.0.0.0 lets your network in)' : ''}
-${signIn ? `\n  sign in: ${signIn}\n           ${opened ? 'opened in your browser; ' : ''}the link works once\n` : ''}
-  password: ${passwordLine()}
-  default agent: ${[agent ?? `${cfg.agentCmd} (via login shell)`, ...cfg.agentArgs].join(' ')}
-  choose a provider (including Pi and Cursor) when hiring or queueing a task
-${cfg.tls || loopback ? '' : '\n  tip: voice & screen share need https off localhost — use a reverse proxy or --self-signed\n'}`);
+  ${[...urls].join('\n  ')}${loopback ? `\n  ${L.cli.loopback}` : ''}
+${signIn ? `\n  ${L.cli.signIn}: ${signIn}\n           ${opened ? L.cli.openedBrowser : ''}${L.cli.linkOnce}\n` : ''}
+  ${L.cli.password}: ${passwordLine()}
+  ${L.cli.defaultAgent}: ${[agent ?? L.cli.viaLoginShell(cfg.agentCmd), ...cfg.agentArgs].join(' ')}
+  ${L.cli.chooseProvider}
+${cfg.tls || loopback ? '' : `\n  ${L.cli.tip}\n`}`);
 
 let closing = false;
 // SIGTERM is a restart (tsx watch reloading, a plain `kill`, systemd): workers keep running in their
@@ -101,7 +102,7 @@ const stop = (signal: NodeJS.Signals) => {
   if (closing) process.exit(1);
   closing = true;
   const keep = signal === 'SIGTERM';
-  console.log(keep ? '\n  closing the office — workers keep running for the next one…' : '\n  closing the office…');
+  console.log(`\n  ${keep ? L.cli.closingKeep : L.cli.closing}`);
   office.shutdown(keep);
   setTimeout(() => process.exit(0), 300);
 };

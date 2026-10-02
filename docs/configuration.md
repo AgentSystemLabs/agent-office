@@ -62,3 +62,5 @@ agent-office tunnel [office@address | url] [--port <n>] [--office-port <n>] [--n
   the worker stops it. Given an SSH address it opens the tunnel to the office too.
   See docs/tunnel.md.
 ```
+
+**Language.** The office speaks the language in `AGENT_OFFICE_LANG` (`en` or `pt-BR`), else English (not the terminal's `LANG`, so an office already running doesn't switch on an upgrade), in its notices and errors, its console and what it posts to Slack or Discord. An admin can change it in ⚙️ Settings → Building. Each page is in the language its person picked in ⚙️ Settings → You, or else their browser's.

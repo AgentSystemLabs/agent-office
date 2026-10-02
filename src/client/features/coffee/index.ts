@@ -2,6 +2,7 @@ import { Caffeine } from './caffeine';
 import type { Ctx } from '../../core/context';
 import { hintTitle, key, onE } from '../../core/hint';
 import { toast } from '../../ui/dom';
+import { L } from '../../i18n';
 
 // The kinds of thing you can use that this defines (see InteractKinds in world/types.ts).
 declare module '../../world/types' {
@@ -24,16 +25,16 @@ export function installCoffee(ctx: Ctx) {
     const jittery = caffeine.drink(performance.now() / 1000);
     ctx.sound.coffee();
     if (ctx.player.view === 'first') ctx.hands.sip();
-    if (jittery) toast('☕ One cup too many… you’ve got the jitters!', 'warn');
-    else if (caffeine.cups > 1) toast('☕ Another cup: back to a full minute of buzz');
-    else toast('☕ Fresh coffee! A minute of quicker feet and higher jumps');
+    if (jittery) toast(L.main.jitters, 'warn');
+    else if (caffeine.cups > 1) toast(L.main.anotherCup);
+    else toast(L.main.freshCoffee);
   }
 
   ctx.interactions.define('coffee', {
     reach: 3,
     hint: (it) => {
       const buzzed = caffeine.buzzed(performance.now() / 1000);
-      return { k: String(buzzed), parts: [hintTitle(it.label ?? '☕ Coffee machine'), key('E', buzzed ? 'Another cup' : 'Grab a cup')] };
+      return { k: String(buzzed), parts: [hintTitle(it.label ?? L.hints.coffee), key('E', buzzed ? L.hints.anotherCup : L.hints.grabCup)] };
     },
     use: onE(() => drinkCoffee()),
   });

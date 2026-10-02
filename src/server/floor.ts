@@ -27,6 +27,7 @@ import { landedWork, landedWorkers, type Landed } from './leave-on-merge.js';
 import type { Ledger } from './usage.js';
 import type { Capacity } from './machine.js';
 import { officePrompt, type PromptSource } from './prompts.js';
+import { L } from './i18n.js';
 
 type ToastLevel = 'info' | 'warn' | 'error';
 
@@ -216,7 +217,7 @@ export class Floor {
         // A worker may have opened one from a branch it made itself, mid-turn or from a shell.
         void this.workers.syncBranches();
         for (const p of this.merges.look(state.items)) {
-          ctx.toast(this, `🎉 PR #${p.number} merged: ${p.title}`);
+          ctx.toast(this, `🎉 ${L.srvFloor.prMerged(p.number, p.title)}`);
           this.merged(p.number);
         }
         this.sendLandedHome();
@@ -239,7 +240,7 @@ export class Floor {
       hiringPaused: () => ctx.ledger.hiringPaused,
       room: () => ctx.capacity.room(),
       emptied: () => {
-        ctx.toast(this, '📋 The queue is empty: every task is done 🎉');
+        ctx.toast(this, L.srvFloor.queueEmpty);
         ctx.emit(this, { t: 'gong', why: 'queue' });
       },
       worktreeNote: () => officePrompt(ctx.prompts, 'queue.worktree'),
@@ -336,7 +337,7 @@ export class Floor {
       for (const landed of landedWorkers(this.workers.list(), this.github.pulls.items, this.queue.state().tasks, pullsOf)) {
         const { worker, head, heads } = landed;
         if (!worker.repos?.length) {
-          this.goHome(worker, `PR #${landed.pr} merged`, head);
+          this.goHome(worker, L.srvFloor.prLanded(landed.pr), head);
           continue;
         }
         // Across repositories, one PR can merge before another repository's work even has one:
@@ -345,7 +346,7 @@ export class Floor {
         this.landing.add(worker.id);
         void this.workers.holdsWork(worker.id, head, heads).catch(() => true).then((held) => {
           this.landing.delete(worker.id);
-          if (!held && this.workers.get(worker.id) === worker) this.goHome(worker, `its pull requests merged (${landed.prs?.join(', ')})`, head, heads);
+          if (!held && this.workers.get(worker.id) === worker) this.goHome(worker, L.srvFloor.prsLanded(landed.prs?.join(', ') ?? ''), head, heads);
         });
       }
     }, LANDED_DELAY_MS);
@@ -372,7 +373,7 @@ export class Floor {
 
   private goHome(worker: WorkerInfo, why: string, head?: string, heads?: Record<string, string | undefined>) {
     const done = this.workers.kill(worker.id, undefined, head, heads);
-    this.ctx.toast(this, `🏠 ${worker.name} went home: ${why}`);
+    this.ctx.toast(this, `🏠 ${L.srvFloor.wentHomeWhy(worker.name, why)}`);
     void done.then(({ note, error }) => {
       if (note) this.ctx.toast(this, note);
       if (error) this.ctx.toast(this, error, 'warn');

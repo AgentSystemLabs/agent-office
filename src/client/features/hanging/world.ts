@@ -3,6 +3,7 @@ import { FRAMES, FRAME_BORDER, WALLS, frameRect, wallPose, wallTop, type Decorat
 import { FLOOR, LOFT } from '../../../shared/layout';
 import type { Interactable } from '../../world/types';
 import { toon } from '../../world/toon';
+import { L } from '../../i18n';
 
 // ---- Pictures -------------------------------------------------------------------------------------
 
@@ -30,10 +31,10 @@ async function fetchPicture(url: string): Promise<Picture> {
   try {
     res = await fetch(imageUrl(url));
   } catch {
-    throw new Error("Couldn't reach the office to load that image");
+    throw new Error(L.decor.unreachable);
   }
   if (!res.ok) {
-    let error = `The office couldn't load that image (${res.status})`;
+    let error = L.decor.officeCouldnt(res.status);
     try {
       error = (await res.json()).error ?? error;
     } catch {
@@ -60,7 +61,7 @@ async function fetchPicture(url: string): Promise<Picture> {
     return { url, texture, aspect: iw / ih, src };
   } catch {
     URL.revokeObjectURL(src);
-    throw new Error("Your browser can't show that image");
+    throw new Error(L.decor.browserCant);
   }
 }
 
@@ -125,8 +126,8 @@ function notice(text: string, bg: string, fg: string): THREE.CanvasTexture {
 
 let loadingTex: THREE.CanvasTexture | null = null;
 let brokenTex: THREE.CanvasTexture | null = null;
-const loadingTexture = () => (loadingTex ??= notice('🖼️ Loading…', '#e9ecef', '#7a6f65'));
-export const brokenTexture = () => (brokenTex ??= notice('⚠️ Image unavailable', '#ffd6e0', '#2b2d42'));
+const loadingTexture = () => (loadingTex ??= notice(`🖼️ ${L.common.loading}`, '#e9ecef', '#7a6f65'));
+export const brokenTexture = () => (brokenTex ??= notice(L.signs.imageUnavailable, '#ffd6e0', '#2b2d42'));
 
 // ---- Frames ---------------------------------------------------------------------------------------
 

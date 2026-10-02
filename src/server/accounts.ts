@@ -3,6 +3,7 @@ import { existsSync, readFileSync, renameSync, statSync, writeFileSync } from 'n
 import path from 'node:path';
 import { officeHome } from './config.js';
 import type { AccountInvite, AccountRole, AccountsState } from '../shared/protocol.js';
+import { L } from './i18n.js';
 
 export const NAME_MAX = 24;
 export const PASSWORD_MIN = 8;
@@ -114,12 +115,12 @@ export class Accounts {
     this.sync();
     this.dropExpired();
     const n = cleanName(name);
-    if (name && !n) return 'That name has no letters in it';
+    if (name && !n) return L.srvAccounts.noLetters;
     if (n) {
       const taken = this.nameTaken(n);
       if (taken) return taken;
     }
-    if (this.data.invites.length >= MAX_INVITES) return 'Too many open invites — cancel some first';
+    if (this.data.invites.length >= MAX_INVITES) return L.srvAccounts.tooManyInvites;
     const now = Date.now();
     const invite: AccountInvite = {
       id: randomBytes(5).toString('hex'),
@@ -156,17 +157,17 @@ export class Accounts {
   /** Uses up an invite: makes the account and returns it, or says what's wrong. */
   async join(token: string, name: string, password: string): Promise<Account | string> {
     const invite = this.findInvite(token);
-    if (!invite) return 'This invite link has expired or was already used. Ask for a new one.';
+    if (!invite) return L.srvAccounts.expired;
     const n = invite.name ?? cleanName(name);
-    if (!n) return 'Pick a name';
-    if (password.length < PASSWORD_MIN) return `Pick a password of at least ${PASSWORD_MIN} characters`;
-    if (password.length > PASSWORD_MAX) return 'That password is too long';
+    if (!n) return L.srvAccounts.pickName;
+    if (password.length < PASSWORD_MIN) return L.srvAccounts.shortPassword(PASSWORD_MIN);
+    if (password.length > PASSWORD_MAX) return L.srvAccounts.longPassword;
     const salt = randomBytes(16);
     const derived = await hash(password, salt);
     // Hashing took a moment: someone else may have used the link or taken the name meanwhile.
     this.sync();
     const i = this.data.invites.findIndex((v) => v.id === invite.id);
-    if (i < 0) return 'This invite link was just used. Ask for a new one.';
+    if (i < 0) return L.srvAccounts.justUsed;
     const taken = this.nameTaken(n, invite.id);
     if (taken) return taken;
     const account: Account = {
@@ -217,8 +218,8 @@ export class Accounts {
   }
 
   private nameTaken(n: string, exceptInvite?: string): string | undefined {
-    if (this.data.accounts.some((a) => sameName(a.name, n))) return `There's already an account called ${n}`;
-    if (this.data.invites.some((v) => v.id !== exceptInvite && v.name && sameName(v.name, n))) return `${n} already has an open invite`;
+    if (this.data.accounts.some((a) => sameName(a.name, n))) return L.srvAccounts.nameTaken(n);
+    if (this.data.invites.some((v) => v.id !== exceptInvite && v.name && sameName(v.name, n))) return L.srvAccounts.hasInvite(n);
     return undefined;
   }
 
@@ -256,13 +257,13 @@ export class Accounts {
       this.unreadable = false;
     } catch (err) {
       this.unreadable = true;
-      console.error(`agent-office: couldn't read ${this.file}: ${(err as Error).message}`);
+      console.error(`agent-office: ${L.logs.readFailed(this.file, (err as Error).message)}`);
     }
   }
 
   private save() {
     if (this.unreadable) {
-      console.error(`agent-office: not saving accounts over ${this.file}, which couldn't be read — fix or move it`);
+      console.error(`agent-office: ${L.logs.notSaving(this.file)}`);
       return;
     }
     // Written whole and renamed into place, so the office and the `accounts` command never read half a file.
@@ -271,7 +272,7 @@ export class Accounts {
       writeFileSync(tmp, JSON.stringify(this.data, null, 2), { mode: 0o600 });
       renameSync(tmp, this.file);
     } catch (err) {
-      console.error(`agent-office: couldn't save ${this.file}: ${(err as Error).message}`);
+      console.error(`agent-office: ${L.logs.saveFailed(this.file, (err as Error).message)}`);
       return;
     }
     try {
@@ -283,24 +284,7 @@ export class Accounts {
   }
 }
 
-const HELP = `agent-office accounts — who can sign in to the office
-
-Usage:
-  agent-office accounts [list]                 Accounts, open invites, and the shared password
-  agent-office accounts invite [name] [--admin]
-                                               Make a single-use invite link (valid 7 days)
-  agent-office accounts revoke <name>          Delete an account; it's signed out at once
-  agent-office accounts role <name> admin|member
-  agent-office accounts password on|off        Whether the shared office password still works
-
-Options:
-  -d, --dir <dir>   The office's directory: the project it was started in, or its
-                    home (default: the current directory if an office ran there,
-                    else ~/agent-office or $AGENT_OFFICE_HOME)
-  -h, --help        Show this help
-
-Works while the office runs: it picks up the changes within seconds.
-`;
+const HELP = L.accountsCli.help;
 
 const day = (t: number) => new Date(t).toISOString().slice(0, 16).replace('T', ' ');
 
@@ -316,70 +300,70 @@ export function accountsCommand(argv: string[]): number {
       process.stdout.write(HELP);
       return 0;
     } else if (a === '-d' || a === '--dir') {
-      if (!argv[i + 1]) return usage('--dir needs a value');
+      if (!argv[i + 1]) return usage(L.accountsCli.dirValue);
       dir = path.resolve(argv[++i]);
     } else if (a === '--admin') admin = true;
-    else if (a.startsWith('-')) return usage(`unknown option ${a}`);
+    else if (a.startsWith('-')) return usage(L.cli.unknownOption(a));
     else args.push(a);
   }
   const dataDir = path.join(dir, '.agent-office');
   try {
     statSync(dataDir);
   } catch {
-    console.error(`agent-office accounts: no office has run in ${dir} yet — start it once with \`agent-office\` there`);
+    console.error(`agent-office accounts: ${L.accountsCli.noOffice(dir)}`);
     return 1;
   }
   const accounts = new Accounts(dataDir);
-  if (accounts.unreadableFile) return fail(`${accounts.unreadableFile} couldn't be read (see above) — fix or move it first`);
+  if (accounts.unreadableFile) return fail(L.accountsCli.unreadable(accounts.unreadableFile));
   const [cmd = 'list', arg, arg2] = args;
   switch (cmd) {
     case 'list': {
       const s = accounts.state(new Set());
-      console.log(`Shared office password: ${s.sharedPassword ? 'on' : 'off'}`);
-      console.log(`\nAccounts (${s.accounts.length}):`);
+      console.log(L.accountsCli.shared(s.sharedPassword));
+      console.log(`\n${L.accountsCli.accounts(s.accounts.length)}`);
       for (const a of s.accounts) {
-        console.log(`  ${a.name.padEnd(NAME_MAX)}  ${a.role.padEnd(6)}  since ${day(a.createdAt)}  ${a.lastSeenAt ? `last seen ${day(a.lastSeenAt)}` : 'never signed in'}`);
+        console.log(`  ${a.name.padEnd(NAME_MAX)}  ${a.role.padEnd(6)}  ${L.accountsCli.since(day(a.createdAt))}  ${a.lastSeenAt ? L.accountsCli.lastSeen(day(a.lastSeenAt)) : L.accountsCli.never}`);
       }
-      if (!s.accounts.length) console.log('  none yet: `agent-office accounts invite <name> --admin` makes you one');
+      if (!s.accounts.length) console.log(`  ${L.accountsCli.noneYet}`);
       if (s.invites.length) {
-        console.log(`\nOpen invites (${s.invites.length}):`);
-        for (const v of s.invites) console.log(`  ${(v.name ?? '(they pick)').padEnd(NAME_MAX)}  ${v.role.padEnd(6)}  by ${v.createdBy}, until ${day(v.expiresAt)}  /join#${v.token}`);
+        console.log(`\n${L.accountsCli.openInvites(s.invites.length)}`);
+        for (const v of s.invites) console.log(`  ${(v.name ?? L.accountsCli.theyPick).padEnd(NAME_MAX)}  ${v.role.padEnd(6)}  ${L.accountsCli.byUntil(v.createdBy, day(v.expiresAt))}  /join#${v.token}`);
       }
       return 0;
     }
     case 'invite': {
-      const v = accounts.invite('the terminal', admin ? 'admin' : 'member', arg);
+      const v = accounts.invite(L.accountsCli.theTerminal, admin ? 'admin' : 'member', arg);
       if (typeof v === 'string') return fail(v);
-      console.log(`Invite ${v.name ? `for ${v.name} ` : ''}(${v.role}), single use, valid for 7 days:\n\n  /join#${v.token}\n`);
-      console.log(`Open it on the office's own address, e.g. http://localhost:4600/join#${v.token}`);
+      console.log(`${L.accountsCli.invite(v.name, v.role)}\n\n  /join#${v.token}\n`);
+      console.log(L.accountsCli.openIt(v.token));
       return 0;
     }
     case 'revoke':
     case 'role': {
-      if (!arg) return usage(`${cmd} needs a name`);
+      if (!arg) return usage(L.accountsCli.needsName(cmd));
       const a = accounts.byName(arg);
-      if (!a) return fail(`there's no account called ${arg}`);
+      if (!a) return fail(L.accountsCli.noAccount(arg));
       if (cmd === 'revoke') {
         accounts.revoke(a.id);
-        console.log(`Revoked ${a.name}'s account. They're signed out of the office within seconds.`);
+        console.log(L.accountsCli.revoked(a.name));
         return 0;
       }
-      if (arg2 !== 'admin' && arg2 !== 'member') return usage('role takes admin or member');
+      if (arg2 !== 'admin' && arg2 !== 'member') return usage(L.accountsCli.roleTakes);
       accounts.setRole(a.id, arg2);
-      console.log(`${a.name} is ${arg2 === 'admin' ? 'an admin' : 'a member'} now.`);
+      console.log(L.accountsCli.isNow(a.name, arg2 === 'admin'));
       return 0;
     }
     case 'password': {
-      if (arg !== 'on' && arg !== 'off') return usage('password takes on or off');
+      if (arg !== 'on' && arg !== 'off') return usage(L.accountsCli.passwordTakes);
       if (arg === 'off' && !accounts.state(new Set()).accounts.some((a) => a.role === 'admin')) {
-        return fail('make an admin account first (`agent-office accounts invite <name> --admin`), or nobody could manage the office');
+        return fail(L.accountsCli.adminFirst);
       }
       accounts.setSharedPassword(arg === 'on');
-      console.log(arg === 'on' ? 'The shared office password works again.' : 'The shared office password no longer signs anyone in; people who used it are signed out within seconds.');
+      console.log(arg === 'on' ? L.accountsCli.sharedWorks : L.accountsCli.sharedNoLonger);
       return 0;
     }
     default:
-      return usage(`unknown command ${cmd}`);
+      return usage(L.accountsCli.unknownCommand(cmd));
   }
 }
 

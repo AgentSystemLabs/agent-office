@@ -6,6 +6,7 @@ import type { Ctx } from '../../office/context.js';
 import { throttle, type Client } from '../../office/client.js';
 import { here } from './common.js';
 import type { FeatureHooks, HandlerMap, ViewPieces } from './types.js';
+import { L } from '../../i18n.js';
 
 /** At the arcade cabinet on their floor, playing `game` (see Arcade); `frame` is it as it looks now. */
 interface Player {
@@ -54,14 +55,14 @@ export const cabinetHandlers = {
     if (!floor || (p.playing && msg.game === p.game)) return;
     const at = cabinetPlayer(ctx, floor);
     if (at && at !== c) {
-      ctx.warn(c, `${at.peer.name} is on the arcade — press E there to watch`);
+      ctx.warn(c, L.srv.onArcade(at.peer.name));
       ctx.sendTo(c, { t: 'cabinet', state: cabinetState(ctx, floor) });
       return;
     }
     // Already at it: that game's over, and this is the next one.
     if (p.playing) ctx.arcade.leave(p.game, floor.id);
     p.game = ctx.arcade.start({ owner: c.accountId ? `account:${c.accountId}` : `name:${who}`, name: who, color: c.peer.color, connection: c.id }, msg.game);
-    if (p.game !== msg.game && !ctx.arcade.counts(p.game)) ctx.warn(c, "🕹️ That's a lot of new games in a row, so this one won't go on the high-score table");
+    if (p.game !== msg.game && !ctx.arcade.counts(p.game)) ctx.warn(c, L.srv.tooManyGames);
     p.playing = true;
     p.frame = undefined;
     cabinetChanged(ctx, floor);
@@ -75,7 +76,7 @@ export const cabinetHandlers = {
     const p = player(c);
     if (!p.playing || !floor || !frame) return;
     // Every frame counts towards the score, even one that comes too soon after the last to pass on.
-    if (ctx.arcade.frame(p.game, frame, floor.id) === 'void') ctx.warn(c, "🕹️ The office couldn't follow this game, so its score won't go on the high-score table");
+    if (ctx.arcade.frame(p.game, frame, floor.id) === 'void') ctx.warn(c, L.srv.lostGame);
     p.frame = frame;
     if (!throttle(c, 'cabinet.frame', 40)) return;
     ctx.toNeighbors(c, { t: 'cabinet.frame', frame }, true);

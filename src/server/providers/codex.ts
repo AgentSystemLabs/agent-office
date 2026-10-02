@@ -8,6 +8,7 @@ import { codexMcpArgs } from '../office-workers.js';
 import { reduceLifecycle, type ToolTracker } from '../workers/lifecycle.js';
 import type { WorkerHandle } from '../workers/types.js';
 import type { ProviderAdapter } from './types.js';
+import { L } from '../i18n.js';
 
 interface CodexState {
   usage: CodexUsageReader;
@@ -99,7 +100,7 @@ export const codex: ProviderAdapter<CodexState, CodexSetup> = {
     tracker(h.state).clear();
     return { args, rotateToken: true };
   },
-  bootHint: 'Open the terminal: complete login and review Office hooks in /hooks',
+  bootHint: L.workers.codexSetup,
   hook: { strictJson: true, handle: codexHook },
   usage: {
     persisted: true,

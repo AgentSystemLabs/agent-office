@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
+import { L } from './i18n.js';
 
 // On an office set up with `deploy/provision.sh --tailscale`, Tailscale Serve puts the office on
 // https://<office>.ts.net for everyone on the tailnet. Each worker's web server gets its own port
@@ -51,7 +52,7 @@ export class Tailnet {
         const want = this.wanted.join(' ');
         const err = await helper(['sync', ...this.wanted.map(String)]);
         if (err) {
-          if (err !== this.lastError) console.warn(`[agent-office] couldn't serve workers' servers on the tailnet: ${err}`);
+          if (err !== this.lastError) console.warn(`[agent-office] ${L.srvFloor.tailnetFailed(String(err))}`);
           this.lastError = err;
           break; // the next change tries again
         }

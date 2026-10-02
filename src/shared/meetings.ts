@@ -2,6 +2,7 @@
 // The server runs them (server/meetings.ts); the client offers them when a meeting is called.
 
 import { fmtCost, fmtTokens, type Meeting, type MeetingPattern, type MeetingRecord } from './protocol.js';
+import { messages, type Messages } from './i18n.js';
 
 export interface PatternDef {
   icon: string;
@@ -110,16 +111,34 @@ export function slugify(s: string, max = 40): string {
  * Why an output path can't be used, or undefined when it's fine: a file inside the checkout, not in
  * the office's own folder or git's.
  */
-export function outputProblem(p: string): string | undefined {
-  if (!p.trim()) return 'Say which file the meeting writes';
-  if (p.length > 200) return 'That output path is too long';
-  if (/^[/\\]|^[a-zA-Z]:/.test(p)) return 'The output file goes inside the project: give a path relative to it';
+export function outputProblem(p: string, m: Messages = messages('en')): string | undefined {
+  if (!p.trim()) return m.shared.sayFile;
+  if (p.length > 200) return m.shared.pathTooLong;
+  if (/^[/\\]|^[a-zA-Z]:/.test(p)) return m.shared.relativePath;
   const parts = p.split(/[/\\]/);
-  if (parts.some((x) => x === '..' || x === '.' || x === '')) return 'The output path can’t have empty, . or .. parts';
-  if (parts[0] === '.git' || parts[0] === '.agent-office' || parts[0] === MEETING_NOTES_DIR) return `The output can’t go in ${parts[0]}/`;
-  if (/[\0-\x1f]/.test(p)) return 'The output path has control characters in it';
+  if (parts.some((x) => x === '..' || x === '.' || x === '')) return m.shared.badParts;
+  if (parts[0] === '.git' || parts[0] === '.agent-office' || parts[0] === MEETING_NOTES_DIR) return m.shared.cantGoIn(parts[0]);
+  if (/[\0-\x1f]/.test(p)) return m.shared.controlChars;
   return undefined;
 }
+
+/** What each seat is doing in a round, in English: it goes into the workers' prompts as it is, and the windows translate it (meetings.doing in shared/locales). */
+export const MEETING_DOING = {
+  decide: 'writing the decision',
+  propose: 'proposing',
+  critique: 'critiquing',
+  plan: 'planning',
+  part: 'doing their part',
+  merge: 'merging the work',
+  map: 'mapping',
+  reduce: 'reducing',
+  attack: 'attacking',
+  writeup: 'writing it up',
+  fixWriteup: 'fixing and writing it up',
+  fix: 'fixing',
+  review: 'reviewing',
+  combine: 'writing the review',
+} as const;
 
 /** "3 rounds" / "round 2 of 3". */
 const rounds = (n: number) => `${n} round${n === 1 ? '' : 's'}`;
@@ -129,11 +148,13 @@ const rounds = (n: number) => `${n} round${n === 1 ? '' : 's'}`;
  * the line ("3 rounds · fixed by the Lead & team workflow"), its rounds by name, and why, for the
  * tooltip. Undefined when the limit is a range to pick from.
  */
-export function fixedRounds(p: PatternDef): { line: string; stages: string; why: string } | undefined {
+export function fixedRounds(p: PatternDef, t: Messages = messages('en')): { line: string; stages: string; why: string } | undefined {
   if (p.rounds.min !== p.rounds.max) return undefined;
-  const n = rounds(p.rounds.max);
-  const stages = (p.stages ?? []).join(' → ');
-  return { line: `${n} · fixed by the ${p.label} workflow`, stages, why: `${p.label} always runs ${n}${stages ? `: ${stages}` : ''}. Each one is a step of the pattern, so there’s none to add or take away.` };
+  const n = t.shared.rounds(p.rounds.max);
+  const stages = (p.stages ?? []).map((s) => t.meetings.stages[s] ?? s).join(' → ');
+  const id = Object.keys(MEETING_PATTERNS).find((k) => MEETING_PATTERNS[k as MeetingPattern] === p);
+  const label = (id && t.meetings.patterns[id]?.label) || p.label;
+  return { line: t.meetings.fixedLine(n, label), stages, why: t.meetings.fixedWhy(label, n, stages) };
 }
 
 /** The spend, e.g. "1.2M tokens · $2.40" (or without the cost when a provider doesn't report it). */
@@ -142,25 +163,25 @@ export function meetingSpend(m: Pick<Meeting, 'tokens' | 'cost' | 'costKnown'>):
 }
 
 /** What's on the table in a line: "Round 2 of 3 · critiquing". */
-export function meetingStage(m: Meeting): string {
-  const doing = [...new Set(m.turns.filter((t) => t.state !== 'done').map((t) => t.doing))].join(', ');
-  return `Round ${m.round} of ${m.rounds}${doing ? ` · ${doing}` : ''}`;
+export function meetingStage(m: Meeting, t: Messages = messages('en')): string {
+  const doing = [...new Set(m.turns.filter((s) => s.state !== 'done').map((s) => t.meetings.doing[s.doing] ?? s.doing))].join(', ');
+  return `${t.meeting.roundOf(m.round, m.rounds)}${doing ? ` · ${doing}` : ''}`;
 }
 
 /**
  * The line on the room's door once a meeting is over: pattern, rounds, tokens, cost, and the output
  * file it wrote (and where), or why it stopped.
  */
-export function meetingSummary(m: Meeting): string {
+export function meetingSummary(m: Meeting, t: Messages = messages('en')): string {
   const p = MEETING_PATTERNS[m.pattern];
-  const ran = m.status === 'done' ? rounds(m.round) : `${m.status === 'stopped' ? 'in ' : ''}round ${m.round} of ${m.rounds}`;
-  const head = `${p.icon} ${p.label} · ${ran} · ${meetingSpend(m)}`;
-  if (m.status === 'stopped') return `${head} · ⛔ ${m.reason ?? 'stopped'}`;
+  const ran = m.status === 'done' ? t.shared.rounds(m.round) : m.status === 'stopped' ? t.shared.inRoundOf(m.round, m.rounds) : t.shared.roundOf(m.round, m.rounds);
+  const head = `${p.icon} ${t.meetings.patterns[m.pattern]?.label ?? p.label} · ${ran} · ${meetingSpend(m)}`;
+  if (m.status === 'stopped') return `${head} · ⛔ ${m.reason ?? t.shared.stopped}`;
   if (m.status === 'running') return head;
-  const where = m.review?.url ? ' · posted on the PR' : m.review?.error ? ` · couldn't post it: ${m.review.error}` : m.commit ? ` on ${m.worktree?.branch}` : m.worktree ? ` in ${m.worktree.branch}'s worktree` : '';
+  const where = m.review?.url ? ` · ${t.shared.postedOnPr}` : m.review?.error ? ` · ${t.shared.couldntPost(m.review.error)}` : m.commit ? ` ${t.shared.onBranch(m.worktree?.branch ?? '')}` : m.worktree ? ` ${t.shared.inWorktree(m.worktree.branch)}` : '';
   return `${head} · ✅ ${m.output}${where}`;
 }
 
-export function meetingRecord(m: Meeting): MeetingRecord {
-  return { id: m.id, pattern: m.pattern, title: m.title, status: m.status, summary: meetingSummary(m), calledBy: m.calledBy, finishedAt: m.finishedAt ?? Date.now(), branch: m.worktree?.branch, output: m.output };
+export function meetingRecord(m: Meeting, t: Messages = messages('en')): MeetingRecord {
+  return { id: m.id, pattern: m.pattern, title: m.title, status: m.status, summary: meetingSummary(m, t), calledBy: m.calledBy, finishedAt: m.finishedAt ?? Date.now(), branch: m.worktree?.branch, output: m.output };
 }

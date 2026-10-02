@@ -3,6 +3,7 @@
 import { store } from '../state';
 import type { ChatLine } from '../../shared/protocol';
 import { $, h } from './dom';
+import { L } from '../i18n';
 
 /** How long a chat line stays up before it fades away. Hovering the chat, or typing in it, brings them all back. */
 const CHAT_LINGER = 12_000;
@@ -20,7 +21,7 @@ export function renderChat() {
       return h(
         'li',
         { style: `animation-delay:${Math.round(CHAT_LINGER - (now - seen))}ms` },
-        h('b', { style: `color:${c.color}`, title: c.account ? `${c.name}, signed in with their own account` : undefined }, c.name),
+        h('b', { style: `color:${c.color}`, title: c.account ? L.hud.chatAccount(c.name) : undefined }, c.name),
         c.account ? h('span.acct', {}, ' ✓') : null,
         ': ',
         c.text,

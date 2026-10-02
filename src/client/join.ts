@@ -1,4 +1,6 @@
-export {}; // a module, so its names don't clash with the other pages' scripts
+import { L, translatePage } from './i18n';
+
+translatePage();
 
 // An invite link, /join#<token>: make your own account, then walk in. The token rides in the
 // fragment, so it never reaches a server log or a Referer header.
@@ -24,30 +26,30 @@ async function post(body: Record<string, unknown>): Promise<{ ok: boolean; body:
 }
 
 async function peek() {
-  if (!token) return fail('This link is missing its invite code. Ask whoever sent it for the whole link.');
+  if (!token) return fail(L.auth.noInviteCode);
   try {
     const r = await post({ peek: true });
-    if (!r.ok) return fail(r.body.error ?? 'This invite link does not work.');
+    if (!r.ok) return fail(r.body.error ?? L.auth.badInvite);
     const { name: invited, role, by, project } = r.body as { name?: string; role: string; by: string; project: string };
-    $('title').textContent = `Join the ${project} office`;
+    $('title').textContent = L.auth.joinOffice(project);
     const sub = $('sub');
-    sub.replaceChildren(`${by} invited you${role === 'admin' ? ' as an ' : '. '}`);
+    sub.replaceChildren(role === 'admin' ? L.auth.invitedAs(by) : L.auth.invitedYou(by));
     if (role === 'admin') {
       const pill = document.createElement('span');
       pill.className = 'role';
       pill.textContent = 'admin';
       sub.append(pill, '.');
     }
-    sub.append(' Make your own account to come in.');
+    sub.append(L.auth.makeYourOwn);
     if (invited) {
       name.value = invited;
       name.readOnly = true;
-      name.title = 'The name you were invited under';
+      name.title = L.auth.invitedName;
     }
     form.hidden = false;
     (invited ? password : name).focus();
   } catch {
-    fail('Server unreachable.');
+    fail(`${L.auth.unreachable}.`);
   }
 }
 
@@ -55,7 +57,7 @@ form.addEventListener('submit', async (e) => {
   e.preventDefault();
   error.textContent = '';
   if (password.value !== again.value) {
-    error.textContent = "Those passwords don't match";
+    error.textContent = L.auth.noMatch;
     again.select();
     return;
   }
@@ -63,7 +65,7 @@ form.addEventListener('submit', async (e) => {
   try {
     const r = await post({ name: name.value.trim(), password: password.value });
     if (!r.ok) {
-      error.textContent = r.body.error ?? 'Could not make your account';
+      error.textContent = r.body.error ?? L.auth.couldNotMake;
       return;
     }
     try {
@@ -73,7 +75,7 @@ form.addEventListener('submit', async (e) => {
     }
     location.replace('/');
   } catch {
-    error.textContent = 'Server unreachable';
+    error.textContent = L.auth.unreachable;
   } finally {
     submit.disabled = false;
   }

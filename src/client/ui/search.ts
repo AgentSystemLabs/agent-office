@@ -4,6 +4,7 @@ import { SEARCH_MAX, SEARCH_MIN, searchKey } from '../../shared/search';
 import { store } from '../state';
 import { h, openModal, timeAgo } from './dom';
 import type { TerminalFind } from './terminal';
+import { L } from '../i18n';
 
 // The 🔎 window: words in the office chat and in every worker's terminal, including what was said
 // and shown before the office last restarted. A terminal line opens that terminal right at it.
@@ -38,20 +39,20 @@ function highlight(text: string, needle: string): (string | HTMLElement)[] {
 export function openSearch(openTerminal: (workerId: string, find: TerminalFind) => void) {
   const input = h('input', {
     type: 'text',
-    placeholder: 'Search the chat and every terminal…',
+    placeholder: L.search.placeholder,
     maxlength: SEARCH_MAX,
     autocomplete: 'off',
     spellcheck: 'false',
-    'aria-label': 'Search the chat and every terminal',
+    'aria-label': L.menu.searchTip,
   });
   input.value = lastQuery;
   const status = h('p.note.search-status');
   const results = h('div.search-results');
-  const close = h('button.btn.close', { 'aria-label': 'Close' }, '✕');
+  const close = h('button.btn.close', { 'aria-label': L.common.close }, '✕');
   const el = h(
     'div.modal.search',
-    { role: 'dialog', 'aria-label': 'Search' },
-    h('header', {}, h('h2', {}, '🔎 Search'), close),
+    { role: 'dialog', 'aria-label': L.menu.search },
+    h('header', {}, h('h2', {}, `🔎 ${L.menu.search}`), close),
     h('div.body', {}, input, status, results),
   );
 
@@ -70,7 +71,7 @@ export function openSearch(openTerminal: (workerId: string, find: TerminalFind) 
       error = '';
       return render();
     }
-    status.textContent = 'Searching…';
+    status.textContent = L.search.searching;
     try {
       const r = await search(q);
       if (mine !== seq) return;
@@ -97,7 +98,7 @@ export function openSearch(openTerminal: (workerId: string, find: TerminalFind) 
     );
 
   const termRow = (hit: TerminalHit, needle: string) => {
-    const li = h('li.search-hit.term', { tabindex: 0, role: 'button', title: 'Open the terminal at this line' }, h('code', {}, ...highlight(hit.text, needle)));
+    const li = h('li.search-hit.term', { tabindex: 0, role: 'button', title: L.search.openAt }, h('code', {}, ...highlight(hit.text, needle)));
     li.addEventListener('click', () => jump(hit, needle));
     li.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' || e.key === ' ') {
@@ -110,12 +111,12 @@ export function openSearch(openTerminal: (workerId: string, find: TerminalFind) 
 
   const render = () => {
     if (error) {
-      status.textContent = `Couldn't search: ${error}`;
+      status.textContent = L.search.failed(error);
       results.replaceChildren();
       return;
     }
     if (!found) {
-      status.textContent = `Finds words in the office chat and in every worker's terminal, including what they showed before the office restarted.`;
+      status.textContent = L.search.intro;
       results.replaceChildren();
       return;
     }
@@ -130,8 +131,8 @@ export function openSearch(openTerminal: (workerId: string, find: TerminalFind) 
     }
     const count = found.chat.length + [...byWorker.values()].reduce((n, l) => n + l.length, 0);
     status.textContent = !count
-      ? `Nothing in the chat or any terminal matches “${found.q.trim()}”.`
-      : `${count} ${count === 1 ? 'line' : 'lines'}, newest first${found.more ? ' (only the newest are shown; add words to narrow it down)' : ''}.`;
+      ? L.search.nothing(found.q.trim())
+      : L.search.lines(count, !!found.more);
     const groups: HTMLElement[] = [];
     if (found.chat.length) groups.push(h('section.search-group', {}, h('h4', {}, '💬 Chat'), h('ul', {}, ...found.chat.map((c) => chatRow(c, needle)))));
     for (const [workerId, hits] of byWorker) {
@@ -174,7 +175,7 @@ export function openSearch(openTerminal: (workerId: string, find: TerminalFind) 
     (next ?? (e.key === 'ArrowUp' ? input : at)).focus();
   });
 
-  const modal = openModal(el, { doing: '🔎 searching the office', onClose: () => clearTimeout(timer) });
+  const modal = openModal(el, { doing: L.search.doing, onClose: () => clearTimeout(timer) });
   close.addEventListener('click', () => modal.close());
   render();
   void run();

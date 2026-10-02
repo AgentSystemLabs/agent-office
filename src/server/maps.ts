@@ -2,6 +2,7 @@ import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { MapState } from '../shared/protocol.js';
 import { OFFICE_MAP, checkCustomMaps, isMapChoice, planOf, type CustomMap, type MapPlan } from '../shared/maps/index.js';
+import { L } from './i18n.js';
 
 /** The most custom maps read, and the biggest file that's read as one. */
 const MAX_FILES = 24;
@@ -92,12 +93,12 @@ export class Maps {
       try {
         return { file: f, json: JSON.parse(readFileSync(path.join(this.dir, f), 'utf8')) as unknown };
       } catch (e) {
-        return { file: f, json: undefined, error: `it isn't valid JSON (${(e as Error).message})` };
+        return { file: f, json: undefined, error: L.srvFloor.badJson((e as Error).message) };
       }
     });
     const checked = checkCustomMaps(files.filter((f) => !f.error));
     this.custom = files.map((f) => (f.error ? { file: f.file, error: f.error } : checked.find((c) => c.file === f.file)!));
-    for (const f of extra) this.custom.push({ file: f, error: `only the first ${MAX_FILES} maps in the folder are read` });
+    for (const f of extra) this.custom.push({ file: f, error: L.srvFloor.tooManyMaps(MAX_FILES) });
     return true;
   }
 

@@ -12,6 +12,7 @@ import type { Person } from '../../world/character';
 import { Basketball, IN_HANDS } from './world';
 import type { Interactable } from '../../world/types';
 import { disposeSprite, textSprite } from '../../world/toon';
+import { L } from '../../i18n';
 
 // The kinds of thing you can use that this defines (see InteractKinds in world/types.ts).
 declare module '../../world/types' {
@@ -67,7 +68,7 @@ export function installBasketball(ctx: Ctx, deps: BasketballDeps) {
 
   /** E at the ball: it's yours, if nobody beats you to it. */
   function takeBall() {
-    if (ctx.carrying()) return toast('🗂️ Your hands are full: put the card back first (Q)', 'warn');
+    if (ctx.carrying()) return toast(L.main.cardInHand, 'warn');
     if (ball.holder) return;
     deps.reach();
     ctx.sound.ball('bounce', ball.at, 1.5);
@@ -79,7 +80,7 @@ export function installBasketball(ctx: Ctx, deps: BasketballDeps) {
 
   ctx.interactions.define('ball', {
     reach: 3.2,
-    hint: () => ({ k: String(ball.still), parts: [hintTitle('🏀 Basketball'), ball.still ? aside('shoot some hoops') : '', key('E', ball.still ? 'Pick it up' : 'Catch it!')] }),
+    hint: () => ({ k: String(ball.still), parts: [hintTitle(L.hints.basketball), ball.still ? aside(L.hints.shootHoops) : '', key('E', ball.still ? L.hints.pickUp : L.hints.catchIt)] }),
     use: onE(() => takeBall()),
   });
 
@@ -169,12 +170,12 @@ export function installBasketball(ctx: Ctx, deps: BasketballDeps) {
     const mine = b.by === store.you;
     const points = b.three ? 3 : 2;
     const peer = store.peers.get(b.by);
-    const how = b.swish ? 'SWISH! ' : b.bank ? 'BANK! ' : '';
-    popScore(mine ? `${how}+${points}` : `${clip(peer?.name ?? 'Someone', 16)} ${how}+${points}`, mine ? store.profile.color : (peer?.color ?? '#ff6b1a'));
+    const how = b.swish ? L.main.swishBig : b.bank ? L.main.bankBig : '';
+    popScore(mine ? `${how}+${points}` : `${clip(peer?.name ?? L.main.someone, 16)} ${how}+${points}`, mine ? store.profile.color : (peer?.color ?? '#ff6b1a'));
     if (mine) {
       streak++;
-      const said = b.swish ? 'Swish!' : b.bank ? 'Off the glass!' : 'In off the rim!';
-      toast(`🏀 ${said} +${points} from ${b.distance.toFixed(1)} m${streak > 1 ? ` · 🔥 ${streak} in a row` : ''}`);
+      const said = b.swish ? L.main.swish : b.bank ? L.main.offGlass : L.main.offRim;
+      toast(`🏀 ${said} ${L.main.pointsFrom(points, b.distance.toFixed(1))}${streak > 1 ? ` · ${L.main.inARow(streak)}` : ''}`);
     }
     if (b.three || (mine && streak >= 3)) ctx.confetti.burst(HOOP.rim.x + 0.3, HOOP.rim.y, HOOP.rim.z, 140, 0.7);
   };
@@ -240,10 +241,10 @@ export function installBasketball(ctx: Ctx, deps: BasketballDeps) {
     return {
       k: `${streak}|${first}|${!!windFrom}`,
       parts: [
-        h('span.title', {}, '🏀 Ball in hand'),
-        streak > 1 ? aside(`🔥 ${streak} in a row`) : '',
-        windFrom ? aside('let go in the green!') : key(first ? 'E / Click' : 'E', 'Hold to shoot'),
-        key('Q', 'Drop it'),
+        h('span.title', {}, L.main.ballInHand),
+        streak > 1 ? aside(L.main.inARow(streak)) : '',
+        windFrom ? aside(L.main.letGoGreen) : key(first ? `E / ${L.hints.click}` : 'E', L.main.holdShoot),
+        key('Q', L.main.dropIt),
       ],
     };
   }

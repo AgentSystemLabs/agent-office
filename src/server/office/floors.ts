@@ -6,6 +6,7 @@ import { ROOF } from '../../shared/rooftop.js';
 import type { FloorInfo, ServerMsg } from '../../shared/protocol.js';
 import type { Ctx, FloorHelpers, FloorsOpen } from './context.js';
 import { SLOW_CLIENT_BYTES, type Client } from './client.js';
+import { L } from '../i18n.js';
 
 /** Finding floors, the elevator's list of them, and taking one off the building. */
 export function floorHelpers(ctx: Ctx): FloorHelpers {
@@ -50,8 +51,8 @@ export function floorHelpers(ctx: Ctx): FloorHelpers {
       if (c.peer.floor === floor.id || (!next && c.peer.floor === ROOF)) {
         if (next) ctx.goToFloor(c, next);
         else ctx.toLobby(c);
-        ctx.sendTo(c, { t: 'toast', text: next ? `🛗 ${who} took ${name} off the building, so you rode the elevator to ${next.def.name}` : `🛗 ${who} took ${name}, the last floor, off the building`, level: 'warn' });
-      } else ctx.sendTo(c, { t: 'toast', text: `🛗 ${who} took ${name} off the building`, level: 'info' });
+        ctx.sendTo(c, { t: 'toast', text: next ? L.srv.floorRemovedRode(who, name, next.def.name) : L.srv.lastFloorRemoved(who, name), level: 'warn' });
+      } else ctx.sendTo(c, { t: 'toast', text: L.srv.floorRemoved(who, name), level: 'info' });
     }
     ctx.floors.delete(floor.id);
     floor.shutdown();
@@ -124,7 +125,7 @@ export async function openFloors(ctx: Ctx, hookPort: number): Promise<FloorsOpen
   const worksIn = (from: Floor, on: Floor) => from.workers.list().some((w) => w.repos?.some((r) => r.floor === on.id));
   const openFloor = (def: FloorDef): Floor | undefined => {
     if (!existsSync(def.dir)) {
-      console.error(`agent-office: the ${def.name} floor's checkout is gone (${def.dir}) — it stays closed until it's back`);
+      console.error(`agent-office: ${L.srv.checkoutGone(def.name, def.dir)}`);
       return undefined;
     }
     try {
@@ -132,12 +133,12 @@ export async function openFloors(ctx: Ctx, hookPort: number): Promise<FloorsOpen
       floors.set(def.id, floor);
       return floor;
     } catch (err) {
-      console.error(`agent-office: couldn't open the ${def.name} floor: ${(err as Error).message}`);
+      console.error(`agent-office: ${L.srv.couldntOpen(def.name, (err as Error).message)}`);
       return undefined;
     }
   };
   // Started in a project: it's a floor too (the one it has always been).
-  if (cfg.project) ctx.building.ensureLocal(cfg.project, 'the office');
+  if (cfg.project) ctx.building.ensureLocal(cfg.project, L.srv.theOffice);
   for (const def of ctx.building.list()) openFloor(def);
   // Clones keep the elevator's progress up to date, and ones the last office left running carry on.
   ctx.building.watchClones(ctx.floorsChanged);

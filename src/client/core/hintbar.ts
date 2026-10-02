@@ -7,6 +7,7 @@ import type { Ctx } from './context';
 import type { CoreState } from './ctx';
 import { key } from './hint';
 import type { Parts } from './parts';
+import { L } from '../i18n';
 
 export function installHintBar(ctx: Ctx, core: CoreState, parts: Pick<Parts, 'pointer' | 'focus' | 'place' | 'hoops' | 'cards'>) {
   const { player } = ctx;
@@ -33,7 +34,7 @@ export function installHintBar(ctx: Ctx, core: CoreState, parts: Pick<Parts, 'po
     const throne = parts.place.onThrone() && !carrying && !withBall;
     if (throne) {
       if (ctx.world().herald && target?.kind !== 'herald') hint.parts.push(key('K', ctx.plan().herald!.name));
-      if (target?.kind !== 'seat') hint.parts.push(key('W A S D', 'Get up'));
+      if (target?.kind !== 'seat') hint.parts.push(key('W A S D', L.hints.getUp));
     }
     const k = `${withBall ? 'ball!' : `${target?.kind}${target?.deskId ?? ''}`}|${carrying?.issue ?? ''}|${throne}|${hint.k}`;
     if (k === core.hintKey) return;
@@ -56,7 +57,7 @@ export function installHintBar(ctx: Ctx, core: CoreState, parts: Pick<Parts, 'po
     el.classList.toggle('hidden', !show);
     el.classList.toggle('on', !!target);
     el.classList.toggle('free', free);
-    el.querySelector('.look-hint')!.textContent = relookOnKey ? 'Press a key or click to look around' : 'Click to look around';
+    el.querySelector('.look-hint')!.textContent = relookOnKey ? L.hints.keyToLook : L.page.look;
   }
 
   return { renderHint, renderCrosshair };

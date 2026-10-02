@@ -5,6 +5,7 @@ import type { ChangesClientMsg } from '../../../shared/protocol.js';
 import { repoOf, str } from '../../office/input.js';
 import { workerOf } from './common.js';
 import type { FeatureHooks, HandlerMap } from './types.js';
+import { L } from '../../i18n.js';
 
 export const changesHandlers = {
   'changes.watch'(ctx, c, msg) {
@@ -22,7 +23,7 @@ export const changesHandlers = {
     const repo = repoOf(msg.repo);
     const floor = ctx.workerFloor(workerId);
     if (!floor) {
-      ctx.sendTo(c, { t: 'changes.diff', workerId, repo, path: file, diff: '', truncated: false, error: 'No such worker' });
+      ctx.sendTo(c, { t: 'changes.diff', workerId, repo, path: file, diff: '', truncated: false, error: L.srv.noSuchWorker });
       return;
     }
     void floor.changes.diff(workerId, file, repo).then((r) => {

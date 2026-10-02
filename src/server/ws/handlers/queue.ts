@@ -4,6 +4,7 @@ import { OPEN_CODE_MODEL_MAX } from '../../../shared/providers.js';
 import { num, str } from '../../office/input.js';
 import { here } from './common.js';
 import type { HandlerMap, ViewPieces } from './types.js';
+import { L } from '../../i18n.js';
 
 export const queueView: ViewPieces['queue'] = (_ctx, floor) => floor?.queue.state() ?? { tasks: [], maxWorkers: 0 };
 
@@ -13,7 +14,7 @@ export const queueHandlers = {
     const floor = here(ctx, c);
     if (!floor) return;
     if (msg.provider !== undefined && (!isAgentProvider(msg.provider) || !floor.project.agentProviders.includes(msg.provider))) {
-      ctx.warn(c, 'Unknown agent provider');
+      ctx.warn(c, L.srv.unknownProvider);
       return;
     }
     const issue = Number.isInteger(msg.issue) && (msg.issue as number) > 0 ? (msg.issue as number) : undefined;
@@ -23,7 +24,7 @@ export const queueHandlers = {
     ctx.withSignIn(c, ctx.claudeFor(msg.provider ?? floor.workers.officeDefault.provider), () => {
       const err = floor.queue.add(str(msg.prompt, 20000), who, str(msg.title, 200), issue, msg.provider, model, effort, c.accountId);
       if (err) ctx.warn(c, err);
-      else ctx.toastFloor(floor, `📋 ${who} queued ${issue !== undefined ? `issue #${issue}` : 'a task'}`);
+      else ctx.toastFloor(floor, `📋 ${L.srv.queuedBy(who, issue !== undefined ? L.srv.issueN(issue) : L.srv.aTask)}`);
     });
   },
   'queue.remove'(ctx, c, msg) {

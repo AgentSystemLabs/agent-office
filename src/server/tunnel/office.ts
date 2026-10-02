@@ -4,6 +4,7 @@ import net from 'node:net';
 import tls from 'node:tls';
 import { COOKIE_NAME } from '../auth.js';
 import { FORWARDS_PATH, LOOPBACK_NAME, type ForwardList } from './wire.js';
+import { L } from '../i18n.js';
 
 const TIMEOUT_MS = 10_000;
 
@@ -82,7 +83,7 @@ export class Office {
         res.on('end', () => resolve({ status: res.statusCode ?? 0, headers: res.headers, body: text }));
         res.on('error', reject);
       });
-      req.setTimeout(TIMEOUT_MS, () => req.destroy(new Error('timed out')));
+      req.setTimeout(TIMEOUT_MS, () => req.destroy(new Error(L.tunnel.timedOut)));
       req.on('error', reject);
       req.end(json);
     });
@@ -107,7 +108,7 @@ export class Office {
   /** Signs in; resolves to why it didn't work, or '' when it did (and `token` is set). */
   async signIn(name: string, password: string): Promise<string> {
     const r = await this.call('POST', '/api/login', { name, password });
-    if (r.status !== 200) return (parse(r.body) as { error?: string } | undefined)?.error || `Sign-in failed (${r.status})`;
+    if (r.status !== 200) return (parse(r.body) as { error?: string } | undefined)?.error || L.tunnel.failedStatus(r.status);
     for (const c of r.headers['set-cookie'] ?? []) {
       const m = new RegExp(`^${COOKIE_NAME}(?:_\\d+)?=([^;]+)`).exec(c);
       if (m) {
@@ -115,7 +116,7 @@ export class Office {
         return '';
       }
     }
-    return "The office didn't answer with a session";
+    return L.tunnel.noSession;
   }
 
   /**
@@ -128,7 +129,7 @@ export class Office {
     const list = r.status === 200 ? (parse(r.body) as Partial<ForwardList> | undefined) : undefined;
     if (!list || !Array.isArray(list.items)) {
       if (r.status === 200 || r.status === 404) return 'old';
-      throw new Error(`the office answered ${r.status}`);
+      throw new Error(L.tunnel.answered(r.status));
     }
     const items = list.items.filter((f) => Number.isInteger(f?.port) && f.port > 0 && f.port < 65536);
     return { port: Number(list.port) || 0, items };

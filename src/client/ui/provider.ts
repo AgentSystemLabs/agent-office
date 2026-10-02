@@ -4,16 +4,14 @@ import { AGENT_EFFORTS, isAgentEffort } from '../../shared/protocol';
 import { AGENT_PROVIDERS, CLAUDE_MODEL_NAMES, PROVIDER_META, claudeModelName, isAgentProvider, isClaudeModel, takesEffort, type ModelOption } from '../../shared/providers';
 import { store } from '../state';
 import { h } from './dom';
+import { L } from '../i18n';
 
-export const PROVIDER_LABEL = Object.fromEntries(AGENT_PROVIDERS.map((p) => [p, PROVIDER_META[p].label])) as Record<AgentProvider, string>;
+export const PROVIDER_LABEL = Object.fromEntries(AGENT_PROVIDERS.map((p) => [p, p === 'custom' ? L.provider.custom : PROVIDER_META[p].label])) as Record<AgentProvider, string>;
 
-export const EFFORT_LABEL: Record<AgentEffort, string> = {
-  low: 'Low',
-  medium: 'Medium',
-  high: 'High',
-  xhigh: 'Extra high',
-  max: 'Max',
-};
+export const EFFORT_LABEL: Record<AgentEffort, string> = L.provider.efforts;
+
+/** What a provider's picker and cards say, in the page's language (see provider.meta in shared/locales), over shared/providers.ts's English. */
+const said = (p: AgentProvider) => L.provider.meta[p] ?? {};
 
 /** Claude Code's models go by their names, and so does a custom --agent's, which is read the same way. */
 const namesClaude = (provider: AgentProvider | undefined) => provider === 'claude' || provider === 'custom';
@@ -79,11 +77,12 @@ export function providerUsageState(provider: AgentProvider | undefined, project:
  * workers list and the queue so all three say the same thing.
  */
 export function providerWaitingLabel(provider: AgentProvider | undefined, project: ProjectInfo | null): string {
-  return PROVIDER_META[resolvedProvider(provider, project)].usage.waiting ?? '';
+  const p = resolvedProvider(provider, project);
+  return said(p).waiting ?? PROVIDER_META[p].usage.waiting ?? '';
 }
 
 export function providerUsageNote(provider: AgentProvider): string {
-  return PROVIDER_META[provider].usage.note;
+  return said(provider).note ?? PROVIDER_META[provider].usage.note;
 }
 
 /**
@@ -158,20 +157,20 @@ function loadCatalogue(provider: AgentProvider): Promise<void> | undefined {
  * takes, and how its model is asked for, is its row in the provider table (shared/providers.ts), so
  * a provider added there gets its fields here.
  */
-export function agentFields(project: ProjectInfo | null, id: string, initial: AgentChoice, label = 'Provider'): AgentFields {
+export function agentFields(project: ProjectInfo | null, id: string, initial: AgentChoice, label: string = L.provider.provider): AgentFields {
   const options = supportedProviders(project);
   const fallback = resolvedProvider(project?.defaultProvider, project);
-  const select = h('select.provider-select', { id, 'aria-label': 'Worker provider' }) as HTMLSelectElement;
+  const select = h('select.provider-select', { id, 'aria-label': L.provider.workerProvider }) as HTMLSelectElement;
   for (const provider of options) select.append(h('option', { value: provider }, PROVIDER_LABEL[provider]));
   const note = h('small.provider-note');
   // A model is picked from a list or typed in, by provider: the two controls take turns.
-  const modelLabel = h('label', {}, 'Model') as HTMLLabelElement;
+  const modelLabel = h('label', {}, L.provider.model) as HTMLLabelElement;
   const modelSelect = h('select', { id: `${id}-model` }) as HTMLSelectElement;
   const modelInput = h('input', { type: 'text', id: `${id}-model-id`, list: `${id}-models`, autocomplete: 'off', spellcheck: 'false' }) as HTMLInputElement;
   const suggestions = h('datalist', { id: `${id}-models` });
-  const effortLabel = h('label', { for: `${id}-effort` }, 'Effort');
+  const effortLabel = h('label', { for: `${id}-effort` }, L.provider.effort);
   const effortSelect = h('select', { id: `${id}-effort` }) as HTMLSelectElement;
-  effortSelect.append(h('option', { value: '' }, 'Default'));
+  effortSelect.append(h('option', { value: '' }, L.provider.default));
   for (const e of AGENT_EFFORTS) effortSelect.append(h('option', { value: e }, EFFORT_LABEL[e]));
   const hint = h('small.provider-model-hint');
   const fields = h('div.provider-model', {}, modelLabel, modelSelect, modelInput, suggestions, effortLabel, effortSelect, hint);
@@ -192,7 +191,7 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
   const pick = (id: string) => {
     const models = known();
     chosen = id;
-    modelSelect.replaceChildren(h('option', { value: '' }, meta().models?.unset ?? 'Default'), ...models.map((m) => h('option', { value: m.id }, m.name ?? m.id)));
+    modelSelect.replaceChildren(h('option', { value: '' }, said(value()).unset ?? meta().models?.unset ?? L.provider.default), ...models.map((m) => h('option', { value: m.id }, m.name ?? m.id)));
     if (id && !models.some((m) => m.id === id)) modelSelect.append(h('option', { value: id }, id));
     modelSelect.value = id;
     if (modelInput.value.trim() !== id) modelInput.value = id;
@@ -204,7 +203,7 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
     for (const option of effortSelect.options) option.disabled = !!option.value && !!efforts && !efforts.includes(option.value as AgentEffort);
     if (effortSelect.selectedOptions[0]?.disabled) effortSelect.value = '';
     effortSelect.disabled = efforts?.length === 0;
-    effortSelect.title = efforts?.length === 0 ? 'This model has no reasoning effort to pick' : '';
+    effortSelect.title = efforts?.length === 0 ? L.provider.noEffort : '';
   };
   /** Shows the fields the provider takes. */
   const paint = () => {
@@ -216,17 +215,18 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
     modelSelect.classList.toggle('hidden', !field || typed());
     modelInput.classList.toggle('hidden', !field || !typed());
     modelLabel.htmlFor = typed() ? modelInput.id : modelSelect.id;
-    for (const control of [modelSelect, modelInput]) control.setAttribute('aria-label', `${m.label} model`);
-    modelInput.placeholder = field?.unset ?? '';
+    const t = said(value());
+    for (const control of [modelSelect, modelInput]) control.setAttribute('aria-label', L.provider.modelOf(m.label));
+    modelInput.placeholder = field ? (t.unset ?? field.unset) : '';
     modelInput.maxLength = field?.max ?? 256;
-    effortLabel.textContent = m.effortLabel ?? 'Effort';
+    effortLabel.textContent = t.effortLabel ?? m.effortLabel ?? L.provider.effort;
     effortLabel.classList.toggle('hidden', !m.takesEffort);
     effortSelect.classList.toggle('hidden', !m.takesEffort);
-    effortSelect.setAttribute('aria-label', m.effortLabel ? `${m.label} ${m.effortLabel.toLowerCase()} level` : `${m.label} reasoning effort`);
-    if (!field) hint.textContent = m.unpicked ?? '';
-    else if (field.catalog && catalogue?.request) hint.textContent = `Loading ${m.label} models…`;
-    else if (field.catalog && catalogue?.failed) hint.textContent = `${m.label}’s models couldn’t be listed: leave it empty for its default, or type a model id.`;
-    else hint.textContent = field.hint;
+    effortSelect.setAttribute('aria-label', m.effortLabel ? L.provider.levelOf(m.label, (t.effortLabel ?? m.effortLabel).toLowerCase()) : L.provider.effortOf(m.label));
+    if (!field) hint.textContent = t.unpicked ?? m.unpicked ?? '';
+    else if (field.catalog && catalogue?.request) hint.textContent = L.provider.loadingModels(m.label);
+    else if (field.catalog && catalogue?.failed) hint.textContent = L.provider.modelsUnlisted(m.label);
+    else hint.textContent = t.hint ?? field.hint;
     fields.classList.toggle('hidden', !field && !m.takesEffort && !hint.textContent);
     paintEffort();
   };
@@ -278,7 +278,7 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
     choice: () => ({ provider: value(), ...(model() ? { model: model() } : {}), ...(effort() ? { effort: effort() } : {}) }),
     valid: () => {
       const okay = !chosen || !!meta().validModel?.(chosen);
-      modelInput.setCustomValidity(okay ? '' : (meta().models?.invalid ?? 'That isn’t a model id this provider takes.'));
+      modelInput.setCustomValidity(okay ? '' : (said(value()).invalid ?? meta().models?.invalid ?? L.provider.notAModel));
       if (!okay) modelInput.reportValidity();
       return okay;
     },
@@ -289,7 +289,7 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
  * Which worker to start: the office's default (⚙️ Settings), shown as a line, with an ✏️ Edit button
  * that opens the provider, model and effort fields to pick another for this one.
  */
-export function providerPicker(project: ProjectInfo | null, id: string, label = 'Worker'): ProviderPicker {
+export function providerPicker(project: ProjectInfo | null, id: string, label: string = L.provider.worker): ProviderPicker {
   let editing = false;
   const fields = agentFields(project, id, officeChoice(project));
   fields.element.classList.add('hidden');
@@ -299,10 +299,10 @@ export function providerPicker(project: ProjectInfo | null, id: string, label = 
   const paint = () => {
     const def = officeChoice(project);
     current.textContent = choiceLabel(def);
-    current.title = store.prompts.agent ? 'The office’s default worker, set in ⚙️ Settings' : 'The office’s default worker (its --agent); an admin can pick another in ⚙️ Settings';
+    current.title = store.prompts.agent ? L.provider.defaultSet : L.provider.defaultAgent;
     current.classList.toggle('hidden', editing);
-    edit.textContent = editing ? '↺ Use the default' : '✏️ Edit';
-    edit.title = editing ? `Back to ${choiceLabel(def)}` : 'Pick another provider, model or effort for this one';
+    edit.textContent = editing ? L.provider.useDefault : L.provider.edit;
+    edit.title = editing ? L.settings.backTo(choiceLabel(def)) : L.provider.editTip;
     edit.setAttribute('aria-expanded', String(editing));
     fields.element.classList.toggle('hidden', !editing);
   };

@@ -2,6 +2,7 @@
 // in frames, loading each image through the office (GET /api/image), so any image host works.
 
 import { FLOOR, LOFT, WALL_HEIGHT } from './layout.js';
+import { messages, type Messages } from './i18n.js';
 
 export type WallId = 'north' | 'south' | 'east' | 'west';
 
@@ -180,38 +181,38 @@ export function pictureSize(size: number, aspect: number): { w: number; h: numbe
 }
 
 /** Checks a link someone wants to hang. Returns the tidied URL, or why it won't do. */
-export function checkImageUrl(raw: unknown): { url: string } | { error: string } {
+export function checkImageUrl(raw: unknown, m: Messages = messages('en')): { url: string } | { error: string } {
   const s = typeof raw === 'string' ? raw.trim() : '';
-  if (!s) return { error: 'Paste a link to an image' };
-  if (s.length > 2048) return { error: 'That link is too long' };
+  if (!s) return { error: m.shared.pasteImage };
+  if (s.length > 2048) return { error: m.shared.linkTooLong };
   let u: URL;
   try {
     u = new URL(s);
   } catch {
-    return { error: "That isn't a web link. Paste an address that starts with https://" };
+    return { error: m.shared.notWebLink };
   }
-  if (u.protocol !== 'https:' && u.protocol !== 'http:') return { error: 'Only http and https links can hang on the wall' };
+  if (u.protocol !== 'https:' && u.protocol !== 'http:') return { error: m.shared.httpWall };
   return { url: u.href };
 }
 
 const WALL_IDS = new Set<string>(Object.keys(WALLS));
 
 /** Checks and tidies a placement from a client: moves it onto its wall, or says why it can't hang. */
-export function sanitizePlacement(x: unknown): DecorPlacement | string {
+export function sanitizePlacement(x: unknown, m: Messages = messages('en')): DecorPlacement | string {
   const o = (x && typeof x === 'object' ? x : {}) as Record<string, unknown>;
   const url = checkImageUrl(o.url);
   if ('error' in url) return url.error;
-  if (typeof o.wall !== 'string' || !WALL_IDS.has(o.wall)) return 'Pick a wall to hang it on';
+  if (typeof o.wall !== 'string' || !WALL_IDS.has(o.wall)) return m.shared.pickWall;
   const wall = o.wall as WallId;
   const n = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : NaN);
   let w = n(o.w);
   let h = n(o.h);
   const u = n(o.u);
   const y = n(o.y);
-  if ([w, h, u, y].some(Number.isNaN) || w <= 0 || h <= 0) return 'That picture has no size';
+  if ([w, h, u, y].some(Number.isNaN) || w <= 0 || h <= 0) return m.shared.noSize;
   ({ w, h } = pictureSize(Math.max(w, h), w / h));
   const at = clampToWall(wall, u, y, w, h);
-  if (!at) return "That picture is too big for the wall";
+  if (!at) return m.shared.tooBigWall;
   const title = typeof o.title === 'string' ? o.title.replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 80) : '';
   const frame = Number.isInteger(o.frame) && (o.frame as number) >= 0 && (o.frame as number) < FRAMES.length ? (o.frame as number) : 0;
   const round = (v: number) => Math.round(v * 1000) / 1000;

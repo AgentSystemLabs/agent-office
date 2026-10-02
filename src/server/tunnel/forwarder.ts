@@ -3,6 +3,7 @@ import net from 'node:net';
 import type { Duplex } from 'node:stream';
 import type { Office } from './office.js';
 import { LOOPBACK_NAME, SERVICE_HEADER, type Forward } from './wire.js';
+import { L } from '../i18n.js';
 
 // The listening half of `agent-office tunnel`: for every web server a worker runs, the same port
 // on this computer. What arrives there goes to the office with this client's session and the port
@@ -172,7 +173,7 @@ export class Forwarder {
 
   private relay(port: number, req: http.IncomingMessage, res: http.ServerResponse) {
     const headers = this.headers(port, req);
-    if (!headers) return refuse(res, 421, `This is localhost:${port}, forwarded by agent-office tunnel. Open it as http://localhost:${port}.`);
+    if (!headers) return refuse(res, 421, L.tunnel.openAs(port));
     const up = this.office.request(req.method, req.url, headers, (ur) => {
       res.writeHead(ur.statusCode ?? 502, ur.statusMessage, ur.headers);
       ur.pipe(res);
@@ -182,7 +183,7 @@ export class Forwarder {
       });
     });
     up.on('error', () => {
-      if (!res.headersSent) refuse(res, 502, `agent-office tunnel couldn't reach the office at ${this.office.origin}. It keeps trying — reload in a moment.`);
+      if (!res.headersSent) refuse(res, 502, L.tunnel.unreachable(this.office.origin));
       else res.destroy();
     });
     res.on('close', () => up.destroy());

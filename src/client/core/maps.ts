@@ -11,6 +11,7 @@ import type { CoreState } from './ctx';
 import { builtFloors } from './floors';
 import type { Parts } from './parts';
 import { streetOf } from './worlds';
+import { L } from '../i18n';
 
 export type MapsParts = Pick<Parts, 'stage' | 'worlds' | 'place' | 'travel' | 'arrival' | 'views' | 'walking' | 'peers' | 'telescope' | 'smoking' | 'hoops' | 'arcade' | 'cabinet' | 'dog' | 'jukebox' | 'boards'>;
 
@@ -108,7 +109,7 @@ export function installMaps(ctx: Ctx, core: CoreState, parts: MapsParts) {
     const f = builtFloors()[0];
     if (!f) return;
     parts.travel.leaveRoofFor(f.id);
-    toast(`The building's ${plan().icon} ${plan().name} now, with no rooftop bar: down you go`);
+    toast(L.game.noRoofNow(`${plan().icon} ${plan().name}`));
   }
 
   ctx.messages.on('floors', () => noticeWaiting());
@@ -123,14 +124,14 @@ export function installMaps(ctx: Ctx, core: CoreState, parts: MapsParts) {
       if (f.id === store.floor) continue;
       elsewhere += f.waiting;
       if (before !== undefined && f.waiting > before) {
-        toast(`🙋 A worker on the ${f.name} floor is waiting on someone — take the elevator up`, 'warn');
+        toast(L.main.waitingUpstairs(f.name), 'warn');
         sound.ding('needs_input');
       }
     }
     const badge = $('floors-waiting');
     badge.textContent = elsewhere ? String(elsewhere) : '';
     badge.classList.toggle('hidden', !elsewhere);
-    $('project').title = elsewhere ? `${elsewhere} worker${elsewhere === 1 ? '' : 's'} on other floors waiting on someone — click to go there` : 'Floors: go to another project';
+    $('project').title = elsewhere ? L.main.waitingOtherFloors(elsewhere) : L.page.floorsTip;
   }
 
   return { paintFloor, applyMap, offTheRoof, noticeWaiting };

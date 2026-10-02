@@ -13,6 +13,7 @@ import { DANCE, groove, type Dancing, type Stage } from './worker-dance';
 import { DEAD, STARVED, bones, crossedEyes, slump } from './worker-jail';
 import { packUp, waddle, type Leaving } from './worker-leave';
 import { dressUp, growBeard, wearGarb } from './worker-dress';
+import { workerName } from '../../i18n';
 
 /** The little Claude worker that sits at a desk. Forward is +z. */
 export class Worker {
@@ -244,7 +245,7 @@ export class Worker {
       this.root.remove(this.nameTag);
       disposeSprite(this.nameTag);
     }
-    this.nameTag = textSprite(name, { bg: '#2b2d42', color: '#fffaf3', size: 36, border: '#fffaf3' });
+    this.nameTag = textSprite(workerName(name), { bg: '#2b2d42', color: '#fffaf3', size: 36, border: '#fffaf3' });
     this.nameTag.position.y = 1.55;
     this.root.add(this.nameTag);
   }

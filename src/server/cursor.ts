@@ -8,6 +8,7 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmdirSync, unlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { excludeFromGit } from './config.js';
+import { L } from './i18n.js';
 
 /** Cursor's hook events the office listens to, and the lifecycle event each one is (see workers/lifecycle.ts). */
 export const CURSOR_HOOK_EVENTS = {
@@ -234,7 +235,7 @@ export function withoutCursorLaunchArgs(args: string[]): string[] {
 
 /** What a Cursor worker's desk says when its screen shows it can't be used yet. */
 export function cursorBlocked(text: string): string | undefined {
-  return /Press any key to log in/i.test(text) ? "Cursor isn't signed in on this machine — open the terminal and log in" : undefined;
+  return /Press any key to log in/i.test(text) ? L.workers.cursorNotSignedIn : undefined;
 }
 
 /**

@@ -2,6 +2,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { NotifyState, WebhookKind, WorkerInfo, WorkerStatus } from '../shared/protocol.js';
 import { alertDetail } from '../shared/status.js';
+import { L } from './i18n.js';
 
 /** A worker has to stay put this long before the channel hears about it, so a flicker never posts. */
 const SETTLE_MS = 5_000;
@@ -80,10 +81,10 @@ export class Webhook {
       try {
         url = new URL(text);
       } catch {
-        return "That isn't a link. Paste the webhook URL from Slack or Discord.";
+        return L.webhook.notLink;
       }
-      if (url.protocol !== 'https:' && url.protocol !== 'http:') return 'The webhook has to be an http(s) link';
-      if (text.length > 2000) return 'That link is too long';
+      if (url.protocol !== 'https:' && url.protocol !== 'http:') return L.webhook.httpOnly;
+      if (text.length > 2000) return L.shared.linkTooLong;
       this.saved = { url: url.toString(), by, at: Date.now() };
     }
     this.error = undefined;
@@ -119,8 +120,8 @@ export class Webhook {
 
   /** Posts a test message. Resolves to an error message if it didn't get through. */
   test(by: string): Promise<string | undefined> {
-    if (!this.saved) return Promise.resolve('No webhook is set');
-    return this.post({ kind: 'test', title: `🔔 ${by} connected ${this.project()} to this channel`, detail: 'Workers that need input or finish will show up here.' });
+    if (!this.saved) return Promise.resolve(L.webhook.none);
+    return this.post({ kind: 'test', title: L.webhook.connected(by, this.project()), detail: L.webhook.willShow });
   }
 
   stop() {
@@ -135,15 +136,15 @@ export class Webhook {
   }
 
   private alert(w: WorkerInfo, status: Alert) {
-    const what = status === 'needs_input' ? `🙋 ${w.name} needs input` : `✅ ${w.name} is done`;
+    const what = status === 'needs_input' ? L.main.needsInput(w.name) : L.main.isDone(w.name);
     const task = w.task?.name ? ` — ${oneLine(w.task.name, 80)}` : '';
     const detail = alertDetail(w);
-    return this.post({ kind: status, title: `${what} in ${this.project(w.id)}${task}`, detail: detail ? oneLine(detail, 300) : undefined, worker: w });
+    return this.post({ kind: status, title: `${L.webhook.inProject(what, this.project(w.id))}${task}`, detail: detail ? oneLine(detail, 300) : undefined, worker: w });
   }
 
   private post(msg: { kind: Alert | 'test'; title: string; detail?: string; worker?: WorkerInfo }): Promise<string | undefined> {
-    if (!this.saved) return Promise.resolve('No webhook is set');
-    if (this.backlog >= MAX_BACKLOG) return Promise.resolve('Too many messages are waiting to be posted');
+    if (!this.saved) return Promise.resolve(L.webhook.none);
+    if (this.backlog >= MAX_BACKLOG) return Promise.resolve(L.webhook.backlog);
     const saved = this.saved;
     this.backlog++;
     const run = this.chain.then(async () => {
@@ -187,11 +188,11 @@ export class Webhook {
       });
       if (!res.ok) {
         const why = oneLine((await res.text().catch(() => '')) || res.statusText, 120);
-        error = `The webhook answered ${res.status}${why ? `: ${why}` : ''}`;
+        error = L.webhook.answered(res.status, why);
       }
     } catch (err) {
       const e = err as Error;
-      error = e.name === 'TimeoutError' ? 'The webhook did not answer in time' : `Couldn't reach the webhook: ${(e.cause as Error | undefined)?.message ?? e.message}`;
+      error = e.name === 'TimeoutError' ? L.webhook.timeout : L.webhook.unreachable((e.cause as Error | undefined)?.message ?? e.message);
     }
     // The link was changed while this was on its way; its outcome says nothing about the new one.
     if (this.saved !== saved) return error;

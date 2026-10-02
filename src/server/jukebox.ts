@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { JUKEBOX_TUNES, STREAM, checkStreamUrl, trackTitle, tuneById, type JukeboxState } from '../shared/jukebox.js';
+import { L } from './i18n.js';
 
 interface Saved {
   on: boolean;
@@ -41,7 +42,7 @@ export class Jukebox {
       if ('error' in u) return u;
       this.set({ on: true, track: STREAM, url: u.url, by });
     } else if (input.track !== undefined) {
-      if (typeof input.track !== 'string' || !tuneById(input.track)) return { error: "The jukebox doesn't have that one" };
+      if (typeof input.track !== 'string' || !tuneById(input.track)) return { error: L.srvFloor.noTune };
       this.set({ on: true, track: input.track, by });
     } else {
       if (this.s.on) return { changed: false };

@@ -78,6 +78,7 @@ A new feature adds files of its own and one line in each list it joins. For some
 6. **A help row** in `HELP_ROWS` in `src/client/ui/help.ts`.
 7. **A sound recipe** in its `sound.ts` (a function or class that takes the `AudioCore`), and the method on `OfficeSound` that plays it.
 8. **Its CSS** next to its ui module, imported from there.
+9. **Its words**, every one a person reads (titles, hints, buttons, toasts, errors), in `src/shared/locales/en.ts` and `pt-BR.ts`, never written into the code: the page reads them as `t.<section>.<name>` (`src/client/i18n.ts`), the server as `L.<section>.<name>` (`src/server/i18n.ts`), looked up when they're used rather than kept in a constant, since an admin can change the office's language while it runs. Every dictionary has the type of `en.ts`, so once a message is there the typecheck fails until `pt-BR.ts` has it too (the English, if you can't translate it, until someone can). The prompts an agent is given stay in English and out of the dictionaries, all but one line: in Portuguese the task namer is asked to name tasks in Portuguese (`tasks.namerSystem`), since people read the names.
 
 Its HTTP routes, if it has any, go in `http/routes/`, and its tests in `tests/`.
 

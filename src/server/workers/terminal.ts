@@ -7,6 +7,7 @@ import { FLAG_BOLD, FLAG_DIM, FLAG_INVERSE, RGB_FLAG } from '../../shared/protoc
 import { SCROLLBACK } from '../ptys.js';
 import { screenSnapshot } from '../screen.js';
 import type { Worker, WorkerEvents } from './types.js';
+import { L } from '../i18n.js';
 
 export type HeadlessTerminal = InstanceType<typeof headless.Terminal>;
 
@@ -134,6 +135,6 @@ export function screenText(term: HeadlessTerminal, from = 0): string {
 
 /** What a browser opening the terminal of a worker that isn't running sees. */
 export function offlineBanner(info: WorkerInfo): string {
-  const hint = info.kind === 'shell' ? ' Press R to restart it.' : info.sessionId ? ' Press R to resume the session.' : '';
-  return `\x1b[2m${info.name} is not running.${hint}\x1b[0m\r\n`;
+  const hint = info.kind === 'shell' ? L.workers.restartIt : info.sessionId ? L.workers.resumeSession : '';
+  return `\x1b[2m${L.workers.isNotRunning(info.name)}${hint}\x1b[0m\r\n`;
 }

@@ -1,4 +1,5 @@
 import type { ModelsProgress } from '../world/models';
+import { L } from '../i18n';
 
 /**
  * The loading screen: the card in index.html, up from the page's first paint while the code downloads,
@@ -78,7 +79,7 @@ export function loadingScreen(watchModels: (fn: (p: ModelsProgress) => void) => 
 
   let files: ModelsProgress = { asked: 0, done: 0 };
   let frameDrawn = () => {};
-  const frame: Step = { say: 'Loading the office', done: new Promise<void>((resolve) => (frameDrawn = resolve)) };
+  const frame: Step = { say: L.loadingSteps.loadingOffice, done: new Promise<void>((resolve) => (frameDrawn = resolve)) };
   /** Every step and whether it has settled, the first frame's first. */
   const steps = [{ step: frame, settled: false }];
   let drawn = false;
@@ -98,7 +99,7 @@ export function loadingScreen(watchModels: (fn: (p: ModelsProgress) => void) => 
     fillTo((files.done + steps.filter((s) => s.settled).length) / (files.asked + steps.length));
     // Files still coming in before the office is built, then whichever step is next.
     const unpacking = !given && files.done < files.asked;
-    const say = (unpacking ? 'Unpacking the office' : steps.find((s) => !s.settled)?.step.say) ?? 'Opening the doors';
+    const say = (unpacking ? L.loadingSteps.unpacking : steps.find((s) => !s.settled)?.step.say) ?? L.loadingSteps.opening;
     if (line && line.textContent !== say) line.textContent = say;
   };
   const gate = new Gate((why) => {

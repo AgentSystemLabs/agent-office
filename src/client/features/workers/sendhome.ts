@@ -6,6 +6,7 @@ import type { Jail } from './jail';
 import type { Laptop } from './laptop';
 import type { DeskView } from '../../world/types';
 import type { World } from '../../world/world';
+import { L } from '../../i18n';
 
 /*
  * Workers sent home on a map with a script for it (MapPlan.sendHome, see shared/maps/dungeon.ts),
@@ -35,7 +36,7 @@ const GUARDS = 4;
 /** Thrown into its cell: the door swinging open, a step up to it, the throw, and the door slamming. */
 const JAIL = { open: 0.5, step: 0.35, fly: 0.75, shut: 0.3 } as const;
 
-const FAREWELLS = ['😢 bye, everyone', '🥲 it was fun', '📦 welp', '😞 cleaning out my desk', '🥺 but my PR…'];
+const FAREWELLS = L.leaving.farewells.slice(0, 5);
 
 const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 const pick = <T>(xs: readonly T[]): T => xs[Math.floor(Math.random() * xs.length)];

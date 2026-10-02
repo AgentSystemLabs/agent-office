@@ -4,6 +4,7 @@ import { h } from '../dom';
 import { markdown } from '../markdown';
 import { commentWaiters } from './api';
 import { DRAFT_KEY, pref, savePref } from './prefs';
+import { L } from '../../i18n';
 
 // ---- Comment box --------------------------------------------------------------------------------
 
@@ -25,18 +26,18 @@ export function commentBox(kind: 'issue' | 'pull', number: number, itemUrl: stri
   const waitKey = `${kind}#${number}`;
   let busy = false;
   let timer = 0;
-  const ta = h('textarea', { rows: 4, placeholder: 'Leave a comment. Markdown works; ⌘/Ctrl+Enter posts it.', 'aria-label': 'Comment' }) as HTMLTextAreaElement;
+  const ta = h('textarea', { rows: 4, placeholder: L.pull.commentPlaceholder, 'aria-label': L.pull.comment }) as HTMLTextAreaElement;
   ta.value = pref<string>(draftKey, '');
   const shown = h('div.gh-compose-preview.hidden');
-  const write = h('button.btn.on', { type: 'button' }, 'Write');
-  const preview = h('button.btn', { type: 'button' }, 'Preview');
-  const who = h('span.grow', {}, "Posts to GitHub as the office's gh account");
-  const post = h('button.btn.primary', { type: 'button' }, '💬 Comment');
+  const write = h('button.btn.on', { type: 'button' }, L.pull.write);
+  const preview = h('button.btn', { type: 'button' }, L.pull.preview);
+  const who = h('span.grow', {}, L.pull.postsAsOffice);
+  const post = h('button.btn.primary', { type: 'button' }, L.pull.postComment);
   const result = h('div.gh-merge-result.error.hidden');
   const el = h(
     'article.gh-card.gh-compose',
     {},
-    h('header', {}, h('b', {}, 'Add a comment'), h('span.grow'), h('div.seg', {}, write, preview)),
+    h('header', {}, h('b', {}, L.pull.addComment), h('span.grow'), h('div.seg', {}, write, preview)),
     h('div.gh-compose-body', {}, ta, shown),
     result,
     h('div.gh-compose-foot', {}, who, post),
@@ -45,7 +46,7 @@ export function commentBox(kind: 'issue' | 'pull', number: number, itemUrl: stri
   const sync = () => {
     post.disabled = busy || !ta.value.trim();
     ta.readOnly = busy;
-    post.textContent = busy ? 'Posting…' : '💬 Comment';
+    post.textContent = busy ? L.pull.posting : L.pull.postComment;
   };
   const saveDraft = () => {
     if (ta.value) savePref(draftKey, ta.value);
@@ -61,7 +62,7 @@ export function commentBox(kind: 'issue' | 'pull', number: number, itemUrl: stri
     preview.classList.toggle('on', on);
     ta.classList.toggle('hidden', on);
     shown.classList.toggle('hidden', !on);
-    if (on) shown.replaceChildren(ta.value.trim() ? markdown(ta.value, itemUrl) : h('p.gh-quiet', {}, 'Nothing to preview.'));
+    if (on) shown.replaceChildren(ta.value.trim() ? markdown(ta.value, itemUrl) : h('p.gh-quiet', {}, L.pull.nothingPreview));
     else ta.focus();
   };
   const fail = (text: string) => {
@@ -86,13 +87,13 @@ export function commentBox(kind: 'issue' | 'pull', number: number, itemUrl: stri
         saveDraft();
         setPreview(false);
         onPosted(msg.comment);
-      } else fail(msg.error ?? 'GitHub did not take the comment');
+      } else fail(msg.error ?? L.pull.commentRejected);
       sync();
     });
     // The office drops messages while it's disconnected, and then no answer comes.
     timer = window.setTimeout(() => {
       settle();
-      fail('No answer from the office. Reload the conversation to see whether the comment went through before posting it again.');
+      fail(L.pull.commentNoAnswer);
       sync();
     }, 45_000);
     net.send({ t: 'gh.comment', kind, number, body });
@@ -112,7 +113,7 @@ export function commentBox(kind: 'issue' | 'pull', number: number, itemUrl: stri
   return {
     el,
     setViewer(login) {
-      if (login) who.textContent = `Posts to GitHub as @${login}`;
+      if (login) who.textContent = L.pull.postsAs(login);
     },
     dispose: settle,
   };

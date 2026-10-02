@@ -11,6 +11,7 @@ import { store } from '../../state';
 import { h, toast } from '../../ui/dom';
 import { openPrompt } from '../../ui/prompt';
 import { hiringPaused } from '../../ui/usage';
+import { L } from '../../i18n';
 
 // The kinds of thing you can use that this defines (see InteractKinds in world/types.ts).
 declare module '../../world/types' {
@@ -40,10 +41,10 @@ export function installHerald(ctx: Ctx, parts: Pick<Parts, 'place' | 'you' | 'ac
     const { actions, views } = parts;
     const h = plan().herald;
     if (!h || actions.officeIsFull()) return;
-    if (!actions.firstFreeSeat()) return toast(`${h.name}: every seat at the tables is taken — send someone home first`, 'warn');
+    if (!actions.firstFreeSeat()) return toast(L.game.heraldFull(h.name), 'warn');
     openPrompt({
-      title: `${plan().icon} ${h.name}: send out a worker`,
-      subtitle: `Say what it’s to do. A new worker runs off to a free seat and gets started${plan().lineup.length ? `, and comes back to line up${plan().throne ? ' before your throne' : ''} once it’s done or needs you` : ''}.`,
+      title: `${plan().icon} ${L.game.heraldTitle(h.name)}`,
+      subtitle: L.game.heraldSubtitle(plan().lineup.length > 0, !!plan().throne),
       warning: pressureNote(store.machine),
       placeholder: h.ask,
       submitLabel: h.button,
@@ -54,7 +55,7 @@ export function installHerald(ctx: Ctx, parts: Pick<Parts, 'place' | 'you' | 'ac
       onSubmit: (text, o) => {
         // Whichever seat is free now (someone may have sat down while you were thinking).
         const deskId = views.heraldSeat();
-        if (!deskId) return toast('Every seat at the tables is taken now', 'warn');
+        if (!deskId) return toast(L.game.seatsTakenNow, 'warn');
         views.heraldHires.set(deskId, { floor: store.floor, at: performance.now() });
         actions.hire(deskId, text || undefined, o.worktree, o.provider, o.model, o.effort, undefined, o.repos, 'herald');
       },
@@ -67,8 +68,8 @@ export function installHerald(ctx: Ctx, parts: Pick<Parts, 'place' | 'you' | 'ac
       const hd = plan().herald;
       const full = !parts.actions.firstFreeSeat();
       const m = store.machine;
-      const why = full ? 'every seat is taken' : officeFull(m) ? `🚫 Office full · ${m.workers} of ${m.limit} workers` : hiringPaused() ? '💸 Budget spent — hiring resumes tomorrow' : '';
-      return { k: `${hd?.name}|${why}`, parts: [hintTitle(`${plan().icon} ${hd?.name ?? 'Herald'}`), why ? h('span.cost', {}, why) : aside(hd?.says ?? ''), why ? '' : key('E', 'Send out a new worker')] };
+      const why = full ? L.game.everySeat : officeFull(m) ? L.game.officeFull(m.workers, m.limit ?? 0) : hiringPaused() ? L.hints.budgetSpent : '';
+      return { k: `${hd?.name}|${why}`, parts: [hintTitle(`${plan().icon} ${hd?.name ?? L.game.herald}`), why ? h('span.cost', {}, why) : aside(hd?.says ?? ''), why ? '' : key('E', L.game.sendOutNew)] };
     },
     use: onE(() => hireFromHerald()),
   });

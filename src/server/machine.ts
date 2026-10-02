@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { MachineState } from '../shared/protocol.js';
+import { L } from './i18n.js';
 
 /** How often the CPU and memory are read. */
 const SAMPLE_MS = 5_000;
@@ -119,7 +120,7 @@ export class Machine implements Capacity {
   full(): string | undefined {
     const limit = this.limit;
     if (limit === undefined || this.count() < limit) return undefined;
-    return `The office is at its limit of ${limit} worker${limit === 1 ? '' : 's'} on this machine — send one home before hiring another`;
+    return L.srvMachine.atLimit(limit);
   }
 
   state(): MachineState {
@@ -141,7 +142,7 @@ export class Machine implements Capacity {
   /** Sets the limit from ⚙️ Settings (undefined takes it off). Returns why it can't, if it can't. */
   setLimit(limit: number | undefined, by: string): string | undefined {
     if (limit !== undefined && this.ceiling !== undefined && limit > this.ceiling) {
-      return `The office was started with --max-workers ${this.ceiling}, so the limit can't go above ${this.ceiling}`;
+      return L.srvMachine.ceiling(this.ceiling);
     }
     this.saved = limit === undefined ? undefined : { limit, by, at: Date.now() };
     this.persist();
@@ -157,14 +158,14 @@ export class Machine implements Capacity {
   private pressure(memTotal: number): string | undefined {
     const why: string[] = [];
     const mem = memTotal ? Math.round((this.memUsed / memTotal) * 100) : 0;
-    if (mem >= MEM_PRESSURE) why.push(`memory is ${mem}% used`);
+    if (mem >= MEM_PRESSURE) why.push(L.srvMachine.memory(mem));
     // Busy for a while, not a single build step.
     const recent = this.history.slice(-CPU_WINDOW);
     if (recent.length === CPU_WINDOW) {
       const cpu = Math.round(recent.reduce((n, [c]) => n + c, 0) / recent.length);
-      if (cpu >= CPU_PRESSURE) why.push(`the CPU has been ${cpu}% busy for the last ${(CPU_WINDOW * SAMPLE_MS) / 1000} seconds`);
+      if (cpu >= CPU_PRESSURE) why.push(L.srvMachine.cpu(cpu, (CPU_WINDOW * SAMPLE_MS) / 1000));
     }
-    return why.length ? why.join(' and ') : undefined;
+    return why.length ? why.join(L.srvMachine.and) : undefined;
   }
 
   private async sample(cpu = true) {

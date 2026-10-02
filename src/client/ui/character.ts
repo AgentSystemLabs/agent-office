@@ -6,6 +6,7 @@ import { AVATAR_COLORS, saveProfile, store, type Profile } from '../state';
 import { Person } from '../world/character';
 import { toonUnique } from '../world/toon';
 import { h, openModal } from './dom';
+import { L } from '../i18n';
 
 /** A turntable with your character on it, drawn with its own small renderer. */
 class Preview {
@@ -133,13 +134,13 @@ class Preview {
  */
 export function openCharacter(first: boolean, onSave: (p: Profile) => void) {
   const pick: Profile = { ...store.profile, look: { ...store.profile.look } };
-  const canvas = h('canvas', { 'aria-label': 'Your character, drag to spin' }) as HTMLCanvasElement;
+  const canvas = h('canvas', { 'aria-label': L.character.preview }) as HTMLCanvasElement;
   const preview = new Preview(canvas, pick);
 
   // Leave the name blank (or skip this) and you go by the made-up one in the box; 🎲 deals another.
   // Guest is what you were before you picked one, so it isn't a name to keep.
-  const input = h('input', { type: 'text', maxlength: 24, value: pick.name === 'Guest' ? '' : pick.name, placeholder: randomName(), 'aria-label': 'Your name' }) as HTMLInputElement;
-  const reroll = h('button.btn', { type: 'button', title: 'Random name', 'aria-label': 'Random name' }, '🎲');
+  const input = h('input', { type: 'text', maxlength: 24, value: pick.name === 'Guest' ? '' : pick.name, placeholder: randomName(), 'aria-label': L.character.name }) as HTMLInputElement;
+  const reroll = h('button.btn', { type: 'button', title: L.character.randomName, 'aria-label': L.character.randomName }, '🎲');
   reroll.addEventListener('click', () => {
     let name = randomName();
     while (name === input.value || name === input.placeholder) name = randomName();
@@ -152,13 +153,13 @@ export function openCharacter(first: boolean, onSave: (p: Profile) => void) {
   if (account) {
     input.value = account.name;
     input.readOnly = true;
-    input.title = 'Your account name';
+    input.title = L.character.accountName;
   }
 
-  const skinRow = h('div.swatches', { role: 'radiogroup', 'aria-label': 'Skin tone' });
-  const styleRow = h('div.seg', { role: 'radiogroup', 'aria-label': 'Hair style' });
-  const hairRow = h('div.swatches', { role: 'radiogroup', 'aria-label': 'Hair color' });
-  const shirtRow = h('div.swatches', { role: 'radiogroup', 'aria-label': 'Shirt color' });
+  const skinRow = h('div.swatches', { role: 'radiogroup', 'aria-label': L.character.skinTone });
+  const styleRow = h('div.seg', { role: 'radiogroup', 'aria-label': L.character.hairStyle });
+  const hairRow = h('div.swatches', { role: 'radiogroup', 'aria-label': L.character.hairColor });
+  const shirtRow = h('div.swatches', { role: 'radiogroup', 'aria-label': L.character.shirtColor });
 
   const swatch = (color: string, label: string, on: boolean, choose: () => void) =>
     h('button.swatch', { type: 'button', role: 'radio', 'aria-checked': String(on), style: `background:${color}`, class: on ? 'sel' : '', 'aria-label': label, title: label, onclick: choose });
@@ -174,43 +175,43 @@ export function openCharacter(first: boolean, onSave: (p: Profile) => void) {
 
   const paint = () => {
     const { skin, hair, style } = pick.look;
-    skinRow.replaceChildren(...SKIN_TONES.map((c, i) => swatch(c, `Skin tone ${i + 1} of ${SKIN_TONES.length}`, i === skin, () => change({ skin: i }))));
+    skinRow.replaceChildren(...SKIN_TONES.map((c, i) => swatch(c, L.character.skinToneN(i + 1, SKIN_TONES.length), i === skin, () => change({ skin: i }))));
     styleRow.replaceChildren(
       ...HAIR_STYLES.map((name, i) =>
-        h('button.btn', { type: 'button', role: 'radio', 'aria-checked': String(i === style), class: i === style ? 'on' : '', onclick: () => change({ style: i }) }, name),
+        h('button.btn', { type: 'button', role: 'radio', 'aria-checked': String(i === style), class: i === style ? 'on' : '', onclick: () => change({ style: i }) }, L.character.hairStyles[i] ?? name),
       ),
     );
-    hairRow.replaceChildren(...HAIR_COLORS.map((c, i) => swatch(c, HAIR_COLOR_NAMES[i], i === hair, () => change({ hair: i }))));
-    shirtRow.replaceChildren(...AVATAR_COLORS.map((c) => swatch(c, `Shirt ${c}`, c === pick.color, () => change({}, c))));
+    hairRow.replaceChildren(...HAIR_COLORS.map((c, i) => swatch(c, L.character.hairColors[i], i === hair, () => change({ hair: i }))));
+    shirtRow.replaceChildren(...AVATAR_COLORS.map((c) => swatch(c, L.character.shirtN(c), c === pick.color, () => change({}, c))));
   };
   paint();
 
-  const surprise = h('button.btn', { type: 'button', title: 'Random look' }, '🎲 Surprise me');
+  const surprise = h('button.btn', { type: 'button', title: L.character.randomLook }, L.character.surprise);
   surprise.addEventListener('click', () => change(randomLook(), AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)]));
-  const save = h('button.btn.primary', { type: 'submit' }, first ? 'Enter the office 🚪' : 'Save');
-  const close = h('button.btn.close', { type: 'button', 'aria-label': 'Close', title: first ? 'Skip: go in with this look (Esc)' : 'Close (Esc)' }, '✕');
+  const save = h('button.btn.primary', { type: 'submit' }, first ? L.character.enter : L.character.save);
+  const close = h('button.btn.close', { type: 'button', 'aria-label': L.character.close, title: first ? L.character.skip : L.common.closeEsc }, '✕');
 
   const form = h(
     'form.modal.charsel',
-    { role: 'dialog', 'aria-label': 'Pick your character' },
-    h('header', {}, h('h2', {}, first ? '👋 Pick your character' : '🧍 Your character'), close),
+    { role: 'dialog', 'aria-label': L.character.dialog },
+    h('header', {}, h('h2', {}, first ? L.character.titleFirst : L.character.title), close),
     h(
       'div.body',
       {},
-      h('div.charsel-stage', {}, canvas, h('span.tip', {}, 'Drag to spin')),
+      h('div.charsel-stage', {}, canvas, h('span.tip', {}, L.character.dragToSpin)),
       h(
         'div.charsel-opts',
         {},
-        h('label', {}, 'Your name'),
+        h('label', {}, L.character.name),
         account ? input : h('div.webhook', {}, input, reroll),
-        account ? h('p.setting-note', {}, `🔑 Signed in as ${account.name}, so that's your name here.`) : null,
-        h('label', {}, 'Skin tone'),
+        account ? h('p.setting-note', {}, L.character.signedInAs(account.name)) : null,
+        h('label', {}, L.character.skinTone),
         skinRow,
-        h('label', {}, 'Hair'),
+        h('label', {}, L.character.hair),
         styleRow,
-        h('label', {}, 'Hair color'),
+        h('label', {}, L.character.hairColor),
         hairRow,
-        h('label', {}, 'Shirt'),
+        h('label', {}, L.character.shirt),
         shirtRow,
       ),
     ),
@@ -228,7 +229,7 @@ export function openCharacter(first: boolean, onSave: (p: Profile) => void) {
   const modal = openModal(form, {
     // A stray click shouldn't skip the first one; ✕ and Esc still do.
     backdropCloses: !first,
-    doing: '🪞 picking a new look',
+    doing: L.character.doing,
     onClose: () => {
       preview.dispose();
       // The office only lets you in with a character: skipping it goes in with this one, and the name in the box.

@@ -3,6 +3,7 @@ import { readFile, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
 import type { ImageResult } from './decor.js';
 import { changedImageType, type ChangedFile, type ChangeStatus, type ChangesState } from '../shared/protocol.js';
+import { L } from './i18n.js';
 
 // What a worker changed, for the Changes window at its desk: the files it touched and their diff,
 // against the branch the office was opened on. While anyone has the window open, the office polls
@@ -72,8 +73,8 @@ function run(cmd: string, args: string[], cwd: string, timeout = 30_000, env?: R
       if (!err) return resolve({ out: stdout, err: stderr, code: 0 });
       const e = err as NodeJS.ErrnoException & { code?: number | string; killed?: boolean };
       if (typeof e.code === 'number') return resolve({ out: stdout, err: stderr, code: e.code });
-      if (e.code === 'ENOENT') return reject(new GitError(`${cmd} is not installed on the server`));
-      if (e.killed) return reject(new GitError(`${cmd} ${args[0]} took more than ${Math.round(timeout / 1000)}s and was stopped`));
+      if (e.code === 'ENOENT') return reject(new GitError(L.srvChanges.notInstalled(cmd)));
+      if (e.killed) return reject(new GitError(L.srvChanges.tooSlow(`${cmd} ${args[0]}`, Math.round(timeout / 1000))));
       reject(new GitError(String(e.message || err)));
     });
   });
@@ -86,8 +87,8 @@ function runBytes(cmd: string, args: string[], cwd: string, maxBytes: number, ti
       if (!err) return resolve(stdout);
       const e = err as NodeJS.ErrnoException & { code?: number | string; killed?: boolean };
       if (typeof e.code === 'number') return reject(new GitError(reason({ out: '', err: stderr.toString('utf8'), code: e.code }, `${cmd} ${args[0]} failed`)));
-      if (e.code === 'ENOENT') return reject(new GitError(`${cmd} is not installed on the server`));
-      if (e.killed) return reject(new GitError(`${cmd} ${args[0]} took more than ${Math.round(timeout / 1000)}s and was stopped`));
+      if (e.code === 'ENOENT') return reject(new GitError(L.srvChanges.notInstalled(cmd)));
+      if (e.killed) return reject(new GitError(L.srvChanges.tooSlow(`${cmd} ${args[0]}`, Math.round(timeout / 1000))));
       reject(new GitError(String(e.message || err)));
     });
   });
@@ -214,7 +215,7 @@ export class Changes {
   /** The diff of one changed file, as `git diff` prints it. */
   async diff(workerId: string, filePath: string, repo?: string): Promise<{ diff: string; truncated: boolean } | string> {
     const t = this.target(workerId, repo);
-    if (!t) return 'No such worker';
+    if (!t) return L.srv.noSuchWorker;
     const file = await this.changedFile(workerId, repo, t, filePath);
     if (typeof file === 'string') return file;
     try {
@@ -243,34 +244,34 @@ export class Changes {
    * list of changes are served, and only pictures.
    */
   async file(workerId: string, filePath: string, side: 'old' | 'new', repo?: string): Promise<ImageResult> {
-    if (!changedImageType(filePath)) return { status: 415, error: 'Only pictures can be previewed' };
+    if (!changedImageType(filePath)) return { status: 415, error: L.srvChanges.onlyPictures };
     const t = this.target(workerId, repo);
-    if (!t) return { status: 404, error: 'No such worker' };
+    if (!t) return { status: 404, error: L.srv.noSuchWorker };
     const file = await this.changedFile(workerId, repo, t, filePath);
     if (typeof file === 'string') return { status: 404, error: file };
     // A renamed file was something else before; its old side is only a picture if that name was one.
     const name = side === 'old' ? file.from ?? file.path : file.path;
     const type = changedImageType(name);
-    if (!type) return { status: 415, error: 'Only pictures can be previewed' };
+    if (!type) return { status: 415, error: L.srvChanges.onlyPictures };
     try {
       if (side === 'new') {
-        if (file.status === 'D') return { status: 404, error: 'That file was deleted' };
+        if (file.status === 'D') return { status: 404, error: L.srvChanges.deleted };
         const abs = await insideCheckout(t.cwd, name);
-        if (!abs) return { status: 404, error: 'That file is not in the checkout' };
+        if (!abs) return { status: 404, error: L.srvChanges.notInCheckout };
         const s = await stat(abs);
-        if (!s.isFile()) return { status: 404, error: 'That is not a file' };
-        if (s.size > MAX_IMAGE_BYTES) return { status: 413, error: `That picture is over ${MAX_IMAGE_BYTES / 1024 / 1024} MB` };
+        if (!s.isFile()) return { status: 404, error: L.srvFiles.notFile };
+        if (s.size > MAX_IMAGE_BYTES) return { status: 413, error: L.srvFiles.pictureOver(MAX_IMAGE_BYTES / 1024 / 1024) };
         return { type, body: await readFile(abs) };
       }
-      if (file.status === '?' || file.status === 'A') return { status: 404, error: 'That file is new' };
+      if (file.status === '?' || file.status === 'A') return { status: 404, error: L.srvChanges.isNew };
       // `cat-file`, not `show`: show would run the file through any textconv filter the repo sets.
       const object = `${(await this.baseCommit(t)).commit}:${name}`;
       const size = Number(await git(['cat-file', '-s', object], t.cwd));
-      if (size > MAX_IMAGE_BYTES) return { status: 413, error: `That picture is over ${MAX_IMAGE_BYTES / 1024 / 1024} MB` };
+      if (size > MAX_IMAGE_BYTES) return { status: 413, error: L.srvFiles.pictureOver(MAX_IMAGE_BYTES / 1024 / 1024) };
       return { type, body: await runBytes('git', ['cat-file', 'blob', object], t.cwd, MAX_IMAGE_BYTES + 1) };
     } catch (err) {
       // It went away between the last poll and this request.
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return { status: 404, error: 'That file is gone' };
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return { status: 404, error: L.srvFiles.gone };
       return { status: 500, error: (err as Error).message };
     }
   }
@@ -278,29 +279,29 @@ export class Changes {
   /** Stages everything in the checkout and commits it; with `env`, as whoever pressed the button (their git name and email). */
   async commit(workerId: string, message: string, who: string, env?: Record<string, string>, repo?: string): Promise<string | undefined> {
     const msg = message.trim();
-    if (!msg) return 'The commit needs a message';
-    return this.action(workerId, repo, 'Committing…', async (t) => {
+    if (!msg) return L.srvChanges.needsMessage;
+    return this.action(workerId, repo, L.srvChanges.committing, async (t) => {
       await git(['add', '-A'], t.cwd);
       await git(['commit', '-q', '-m', msg], t.cwd, 120_000, env);
       const subject = msg.split('\n')[0];
-      this.events.toast(`${who} committed “${subject.length > 60 ? `${subject.slice(0, 59)}…` : subject}” at ${t.name}'s desk`, 'info');
+      this.events.toast(L.srvChanges.committed(who, subject.length > 60 ? `${subject.slice(0, 59)}…` : subject, t.name), 'info');
     });
   }
 
   /** Throws away uncommitted changes: one file's, or every one in the checkout. */
   async discard(workerId: string, filePath: string | undefined, who: string, repo?: string): Promise<string | undefined> {
-    return this.action(workerId, repo, 'Discarding…', async (t, w) => {
+    return this.action(workerId, repo, L.srvChanges.discarding, async (t, w) => {
       if (filePath !== undefined) {
         const file = w.last?.files.find((f) => f.path === filePath);
-        if (!file?.uncommitted) return 'That file has no uncommitted changes';
+        if (!file?.uncommitted) return L.srvChanges.noUncommitted;
         if (file.status === '?') await git(['clean', '-f', '--', file.path], t.cwd);
         else await git(['restore', '--source=HEAD', '--staged', '--worktree', '--', ...(file.from ? [file.from] : []), file.path], t.cwd);
-        this.events.toast(`${who} discarded the changes to ${path.basename(file.path)} at ${t.name}'s desk`, 'info');
+        this.events.toast(L.srvChanges.discardedFile(who, path.basename(file.path), t.name), 'info');
       } else {
         const n = w.last?.files.filter((f) => f.uncommitted).length ?? 0;
         await git(['reset', '-q', '--hard'], t.cwd);
         await git(['clean', '-fd'], t.cwd);
-        this.events.toast(`${who} discarded ${n ? `${n} uncommitted change${n > 1 ? 's' : ''}` : 'the uncommitted changes'} at ${t.name}'s desk`, 'info');
+        this.events.toast(L.srvChanges.discardedAll(who, n ? L.workers.uncommitted(n) : L.srvChanges.theUncommitted, t.name), 'info');
       }
       return undefined;
     });
@@ -308,23 +309,23 @@ export class Changes {
 
   /** Pushes the branch and opens a pull request for it with `gh`; with `env`, as whoever pressed the button. */
   async pullRequest(workerId: string, title: string, body: string, who: string, env?: Record<string, string>, repo?: string): Promise<string | undefined> {
-    if (!title.trim()) return 'The pull request needs a title';
-    return this.action(workerId, repo, 'Pushing the branch and opening a pull request…', async (t, w) => {
+    if (!title.trim()) return L.srvChanges.needsTitle;
+    return this.action(workerId, repo, L.srvChanges.pushing, async (t, w) => {
       const s = w.last ?? (await this.compute(w, t));
-      if (!s.branch || !s.prBase) return "This checkout isn't on a branch of its own";
-      if (s.pr) return `There's already a pull request for ${s.branch}: ${s.pr.url}`;
-      if (s.files.some((f) => f.uncommitted)) return 'Commit the changes first';
-      if (!s.ahead) return `${s.branch} has no commits that ${s.prBase} lacks`;
+      if (!s.branch || !s.prBase) return L.srvChanges.noBranch;
+      if (s.pr) return L.srvChanges.hasPr(s.branch, s.pr.url);
+      if (s.files.some((f) => f.uncommitted)) return L.srvChanges.commitFirst;
+      if (!s.ahead) return L.srvChanges.nothingNew(s.branch, s.prBase);
       const remotes = (await git(['remote'], t.cwd)).split('\n').filter(Boolean);
       const remote = remotes.includes('origin') ? 'origin' : remotes[0];
-      if (!remote) return 'This project has no git remote to push to';
+      if (!remote) return L.srvChanges.noRemote;
       await git(['push', '-u', remote, s.branch], t.cwd, 120_000, env);
       const r = await run('gh', ['pr', 'create', '--head', s.branch, '--base', s.prBase, '--title', title.trim(), '--body', body], t.cwd, 120_000, env);
       const url = r.out.trim().split('\n').pop() ?? '';
       if (r.code !== 0 || !/^https?:\/\//.test(url)) throw new GitError(reason(r, url || 'gh pr create failed'));
       const number = Number(/\/(\d+)$/.exec(url)?.[1] ?? 0);
       this.opened.set(openedKey(repo, s.branch), { number, url });
-      this.events.toast(`${who} opened a pull request for ${t.name}: ${url}`, 'info');
+      this.events.toast(L.srvChanges.openedPr(who, t.name, url), 'info');
       (t.refreshGitHub ?? this.events.refreshGitHub)();
       return undefined;
     });
@@ -362,16 +363,16 @@ export class Changes {
   private async changedFile(workerId: string, repo: string | undefined, t: ChangesTarget, filePath: string): Promise<ChangedFile | string> {
     let state = this.watches.get(watchKey(workerId, repo))?.last;
     if (!state?.files.some((f) => f.path === filePath)) state = await this.compute({ workerId, repo }, t);
-    return state.files.find((f) => f.path === filePath) ?? state.error ?? 'That file has no changes';
+    return state.files.find((f) => f.path === filePath) ?? state.error ?? L.srvChanges.noChanges;
   }
 
   /** Runs one commit / discard / PR at a time per checkout, showing watchers that it's in progress. */
   private async action(workerId: string, repo: string | undefined, label: string, fn: (t: ChangesTarget, w: Watch) => Promise<string | undefined>): Promise<string | undefined> {
     const t = this.target(workerId, repo);
-    if (!t) return 'No such worker';
+    if (!t) return L.srv.noSuchWorker;
     const key = watchKey(workerId, repo);
     const w = this.entry(workerId, repo);
-    if (w.busy) return `Hold on — still ${w.busy.toLowerCase().replace(/…$/, '')}`;
+    if (w.busy) return L.srvChanges.holdOn(w.busy);
     w.busy = label;
     if (w.last) this.push(w, { ...w.last, busy: label });
     let error: string | undefined;
@@ -393,7 +394,7 @@ export class Changes {
     w.polling = true;
     try {
       const t = this.target(w.workerId, w.repo);
-      const state = t ? await this.compute(w, t) : errorState(w, '', 'No such worker');
+      const state = t ? await this.compute(w, t) : errorState(w, '', L.srv.noSuchWorker);
       if (w.busy) state.busy = w.busy;
       const key = JSON.stringify({ ...state, at: 0 });
       if (key !== w.lastKey) {
@@ -414,7 +415,7 @@ export class Changes {
   /** The commit the diff is taken from, and what to call it. */
   private async baseCommit(t: ChangesTarget): Promise<{ commit: string; label: string; branch?: string; prBase?: string }> {
     const head = await git(['rev-parse', '--verify', '--quiet', 'HEAD'], t.cwd).catch(() => {
-      throw new GitError('No commits yet');
+      throw new GitError(L.srvChanges.noCommits);
     });
     const branch = (await gitMaybe(['rev-parse', '--abbrev-ref', 'HEAD'], t.cwd)) || 'HEAD';
     const onBranch = branch !== 'HEAD';

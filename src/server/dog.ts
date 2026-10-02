@@ -4,6 +4,7 @@ import { DESK_BY_ID, FLOOR, KIOSK, type DeskDef } from '../shared/layout.js';
 import { DOG_BREEDS, DOG_COATS, cleanDogName, dogAt, dogDefaults, legSeconds, type DogAct, type DogBreed, type DogState } from '../shared/dog.js';
 import { deskPoint, nearestWalkable, route, walkable, type Pt } from '../shared/nav.js';
 import type { PeerInfo, WorkerInfo } from '../shared/protocol.js';
+import { L } from './i18n.js';
 
 // ---- Its day ------------------------------------------------------------------------------------
 
@@ -179,7 +180,7 @@ export class Dog {
     try {
       writeFileSync(this.file, JSON.stringify({ name: this.name, breed: this.breed, coat: this.coat }, null, 2), { mode: 0o600 });
     } catch (err) {
-      console.error(`agent-office: couldn't save the dog's name: ${(err as Error).message}`);
+      console.error(`agent-office: ${L.logs.dogName((err as Error).message)}`);
     }
   }
 

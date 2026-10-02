@@ -3,6 +3,7 @@ import net from 'node:net';
 import type { Duplex } from 'node:stream';
 import type { ServiceInfo } from '../shared/protocol.js';
 import { withoutOfficeCookies } from './auth.js';
+import { L, locale } from './i18n.js';
 import { SERVICE_HEADER } from './tunnel/wire.js';
 
 // Service tunnels: `ssh -L 5173:localhost:4600 office@box` lands on the office's own port, and the
@@ -72,7 +73,7 @@ export function relayRequest(req: http.IncomingMessage, res: http.ServerResponse
     ur.pipe(res);
   });
   up.on('error', () => {
-    if (!res.headersSent) page(res, 502, 'Not answering', `The server on port ${svc.port} (<code>${esc(svc.command)}</code>) didn't answer. It may be restarting — try again in a moment.`);
+    if (!res.headersSent) page(res, 502, L.relay.notAnswering, esc(L.relay.notAnsweringBody(svc.port, '\u0000')).replace('\u0000', `<code>${esc(svc.command)}</code>`));
     else res.destroy();
   });
   res.on('close', () => up.destroy());
@@ -106,6 +107,9 @@ function esc(s: string): string {
   return s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 }
 
+/** A string for the page's script: JSON, with nothing in it that could close the <script>. */
+const jsString = (s: string) => JSON.stringify(s).replace(/</g, '\\u003c');
+
 const STYLE = `body{margin:0;min-height:100vh;display:grid;place-items:center;background:#bfe3ff;font:16px/1.5 Nunito,ui-rounded,system-ui,sans-serif;color:#2b2d42}
 main{background:#fffaf3;border:3px solid #2b2d42;border-radius:18px;box-shadow:0 6px 0 #2b2d42;padding:28px 32px;max-width:440px;margin:16px}
 h1{margin:0 0 8px;font-size:22px}p{margin:0 0 14px}code{background:#f1e7d8;border-radius:6px;padding:1px 5px}
@@ -129,19 +133,19 @@ export const RELAY_LOGIN = '/__agent-office/login';
 /** `opts` says which fields to ask for: a name when there are accounts, a password always. */
 export function signInPage(res: http.ServerResponse, port: number, opts: { accounts: boolean; shared: boolean }) {
   const askName = opts.accounts || !opts.shared;
-  const how = !askName ? 'the office password' : opts.shared ? 'your name and password (or just the office password)' : 'your name and password';
+  const how = !askName ? L.relay.howShared : opts.shared ? L.relay.howBoth : L.relay.howAccount;
   page(
     res,
     401,
-    '🔒 Sign in to the office',
-    `<p>This is a worker's server on port ${port}, reached through the office. Sign in with ${how} to see it.</p>
-<form id="f">${askName ? `<input id="name" placeholder="${opts.shared ? 'Your name (optional)' : 'Your name'}" autocomplete="username"${opts.shared ? '' : ' required'} autofocus>` : ''}<input id="pw" type="password" placeholder="${askName ? 'Password' : 'Office password'}" autocomplete="current-password"${askName ? '' : ' autofocus'}><button>Sign in</button></form><p class="err" id="err"></p>`,
+    L.relay.signInTitle,
+    `<p>${esc(L.relay.intro(port, how))}</p>
+<form id="f">${askName ? `<input id="name" placeholder="${esc(opts.shared ? L.relay.nameOptional : L.auth.yourName)}" autocomplete="username"${opts.shared ? '' : ' required'} autofocus>` : ''}<input id="pw" type="password" placeholder="${esc(askName ? L.auth.password : L.relay.officePassword)}" autocomplete="current-password"${askName ? '' : ' autofocus'}><button>${esc(L.relay.signIn)}</button></form><p class="err" id="err"></p>`,
     `document.getElementById('f').addEventListener('submit',async(e)=>{e.preventDefault();const err=document.getElementById('err');err.textContent='';const n=document.getElementById('name');
 try{const r=await fetch(${JSON.stringify(RELAY_LOGIN)},{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({name:n?n.value:'',password:document.getElementById('pw').value})});
-if(r.ok)location.reload();else err.textContent=(await r.json().catch(()=>({}))).error||'Sign-in failed'}catch{err.textContent='Could not reach the office'}})`,
+if(r.ok)location.reload();else err.textContent=(await r.json().catch(()=>({}))).error||${jsString(L.relay.failed)}}catch{err.textContent=${jsString(L.relay.unreachable)}}})`,
   );
 }
 
 export function stoppedPage(res: http.ServerResponse, port: number) {
-  page(res, 503, '💤 Not running', `<p>Nothing is serving port ${port} right now. The worker may have stopped its server — check the 🌐 Services board in the office, or ask the worker to start it again.</p>`);
+  page(res, 503, L.relay.notRunning, `<p>${esc(L.relay.notRunningBody(port))}</p>`);
 }

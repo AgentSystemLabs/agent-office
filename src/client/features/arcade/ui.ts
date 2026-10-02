@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { h, openModal, type Modal } from '../../ui/dom';
 import { H, Minesweeper, W } from './minesweeper';
+import { L } from '../../i18n';
 
 /** How much of the view (across or down, whichever runs out first) a screen fills while you play on it. */
 const FILL = 0.8;
@@ -97,13 +98,13 @@ export class Arcade {
     const game = this.game;
     // A finished game stays up on the monitor until the next player sits down to a fresh one.
     if (game.state === 'won' || game.state === 'lost') game.reset();
-    const board = h('canvas', { 'aria-label': 'Minesweeper board' });
-    const stop = h('button.btn', { type: 'button' }, '✕ Stop playing');
+    const board = h('canvas', { 'aria-label': L.arcade.minesBoard });
+    const stop = h('button.btn', { type: 'button' }, L.arcade.stopPlaying);
     const box = h(
       'div.arcade',
-      { role: 'dialog', 'aria-label': 'Minesweeper' },
+      { role: 'dialog', 'aria-label': L.arcade.mines },
       h('div.arcade-screen', {}, board),
-      h('div.arcade-bar', {}, h('span', {}, '💣 Minesweeper'), h('span.tip', {}, 'Click to dig · right-click to flag'), stop),
+      h('div.arcade-bar', {}, h('span', {}, `💣 ${L.arcade.mines}`), h('span.tip', {}, L.arcade.minesTip), stop),
     );
 
     // Where the mouse is, in the game's 960×540.
@@ -172,7 +173,7 @@ export class Arcade {
     window.addEventListener('resize', fit);
     this.modal = openModal(box, {
       backdropCloses: false,
-      doing: '💣 playing Minesweeper',
+      doing: L.arcade.playingMines,
       onClose: () => {
         window.removeEventListener('resize', fit);
         clearInterval(clock);

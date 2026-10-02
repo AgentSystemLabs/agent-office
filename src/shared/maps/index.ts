@@ -77,6 +77,30 @@ function officePlan(): MapPlan {
 
 export const OFFICE_PLAN: MapPlan = officePlan();
 
+/**
+ * How the maps are worded for people: in English as written, unless the page (see localizeMaps)
+ * says otherwise. The server leaves them be, so what it tells the agents stays the same.
+ */
+const words = {
+  map: (config: MapConfig) => config,
+  seat: (table: string, k: number) => `${table}, seat ${k}`,
+  table: (i: number) => `Table ${i + 1}`,
+};
+const worded = new WeakMap<MapConfig, MapConfig>();
+
+/** The page's words for the built-in maps' names, lines and seats, and the office's name and description. */
+export function localizeMaps(o: { map?: (config: MapConfig) => MapConfig; seat?: (table: string, k: number) => string; table?: (i: number) => string; office?: { name: string; description: string } }) {
+  Object.assign(words, { ...(o.map && { map: o.map }), ...(o.seat && { seat: o.seat }), ...(o.table && { table: o.table }) });
+  if (o.office) Object.assign(OFFICE_PLAN, o.office);
+}
+
+/** A built-in map, worded for the page. */
+function builtin(config: MapConfig): MapConfig {
+  let w = worded.get(config);
+  if (!w) worded.set(config, (w = words.map(config)));
+  return w;
+}
+
 // ---- Checking a map ---------------------------------------------------------------------------------
 
 /** Keys a JSON object could use to reach an object's prototype, which a merge skips. */

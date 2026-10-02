@@ -2,23 +2,24 @@
 // on the floor (see server/dog.ts).
 import type { Net } from '../net';
 import { store } from '../state';
-import { DOG_BREEDS, DOG_BREED_NAMES, DOG_COATS, DOG_COAT_NAMES, DOG_NAME_MAX, cleanDogName, dogBreed } from '../../shared/dog';
+import { DOG_BREEDS, DOG_COATS, DOG_NAME_MAX, cleanDogName, dogBreed } from '../../shared/dog';
 import { h } from './dom';
+import { L } from '../i18n';
 
 /** The setting, made by `frame` from what goes in it, and how to paint it afresh when the dog changes. */
 export function dogSetting(net: Net, frame: (body: Node[]) => HTMLElement): { section: HTMLElement; paint: () => void } {
-  const dogInput = h('input', { type: 'text', maxlength: DOG_NAME_MAX, 'aria-label': 'The dog’s name', spellcheck: 'false', autocomplete: 'off' }) as HTMLInputElement;
-  const dogSave = h('button.btn.primary', { type: 'button' }, 'Rename');
+  const dogInput = h('input', { type: 'text', maxlength: DOG_NAME_MAX, 'aria-label': L.settings.dogName, spellcheck: 'false', autocomplete: 'off' }) as HTMLInputElement;
+  const dogSave = h('button.btn.primary', { type: 'button' }, L.settings.rename);
   const dogNote = h('p.setting-note');
-  const breedRow = h('div.seg', { role: 'radiogroup', 'aria-label': 'Breed' });
-  const coatRow = h('div.swatches', { role: 'radiogroup', 'aria-label': 'Coat' });
+  const breedRow = h('div.seg', { role: 'radiogroup', 'aria-label': L.settings.dogBreed });
+  const coatRow = h('div.swatches', { role: 'radiogroup', 'aria-label': L.settings.dogCoat });
   const dogSection = frame([h('div.webhook', {}, dogInput, dogSave), breedRow, coatRow, dogNote]);
   const paintDog = () => {
     const dog = store.dog;
     dogSection.classList.toggle('hidden', !dog);
     if (!dog) return;
     dogInput.placeholder = dog.name;
-    dogNote.textContent = `${dog.name} lives on this floor. When a worker needs input, ${dog.name} runs to its desk and barks. Walk up and press E to pet it. Its name, breed and coat are for everyone on this floor.`;
+    dogNote.textContent = L.settings.dogNote(dog.name);
     const breed = dogBreed(dog.breed);
     breedRow.replaceChildren(
       ...DOG_BREEDS.map((b) =>
@@ -31,7 +32,7 @@ export function dogSetting(net: Net, frame: (body: Node[]) => HTMLElement): { se
             class: b === breed ? 'on' : '',
             onclick: () => b !== dogBreed(store.dog?.breed) && net.send({ t: 'dog.breed', breed: b }),
           },
-          DOG_BREED_NAMES[b],
+          L.settings.dogBreeds[b],
         ),
       ),
     );
@@ -40,8 +41,8 @@ export function dogSetting(net: Net, frame: (body: Node[]) => HTMLElement): { se
         h('button.swatch', {
           type: 'button',
           role: 'radio',
-          title: DOG_COAT_NAMES[i],
-          'aria-label': DOG_COAT_NAMES[i],
+          title: L.settings.dogCoats[i],
+          'aria-label': L.settings.dogCoats[i],
           'aria-checked': String(i === dog.coat),
           class: i === dog.coat ? 'sel' : '',
           style: `background:linear-gradient(135deg, ${body} 55%, ${light} 55%)`,

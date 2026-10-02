@@ -8,10 +8,11 @@ import type { Ctx } from '../../core/context';
 import { aside, hintTitle, key, onE } from '../../core/hint';
 import { djFrame } from '../../dnb';
 import { store } from '../../state';
-import { openBar } from './ui';
 import { toast } from '../../ui/dom';
 import { DrunkVision } from './drunk';
 import type { Rooftop } from '../rooftop/world';
+import { L } from '../../i18n';
+import { drinkName, openBar } from './ui';
 
 // The kinds of thing you can use that this defines (see InteractKinds in world/types.ts).
 declare module '../../world/types' {
@@ -38,15 +39,7 @@ export function installBar(ctx: Ctx, deps: BarDeps) {
   const drunkVision = new DrunkVision(ctx.renderer);
 
   /** What the bartender says as they slide it over. */
-  const CHEERS: Record<string, string> = {
-    beer: 'Cheers! 🍻',
-    wine: 'Salud!',
-    martini: 'Shaken, not stirred',
-    maitai: 'Aloha!',
-    shot: 'Salt, shot, lime… whoa',
-    mojito: 'Fresh and minty',
-    water: 'Good call. Stay hydrated',
-  };
+  const CHEERS: Record<string, string> = L.main.cheers;
 
   /** E at the bar: the menu. */
   function showBar() {
@@ -61,20 +54,20 @@ export function installBar(ctx: Ctx, deps: BarDeps) {
     const drink = cut ? DRINK_BY_ID.get('water')! : d;
     r.serve(ctx.player.pos.z);
     ctx.sound.pour(r.pourAt);
-    if (cut) toast("🙅 The bartender slides you a water instead: you've had enough", 'warn');
+    if (cut) toast(L.main.waterInstead, 'warn');
     setTimeout(() => {
       if (!ctx.upTop()) return;
       booze.drink(drink, performance.now() / 1000);
       deps.reach();
       if (ctx.player.view === 'first') ctx.hands.sip();
-      if (!cut) toast(`${drink.emoji} ${drink.name}. ${CHEERS[drink.id] ?? 'Enjoy!'}`);
+      if (!cut) toast(`${drink.emoji} ${drinkName(drink)}. ${CHEERS[drink.id] ?? L.main.enjoy}`);
     }, 1500);
   }
 
   ctx.messages.on('horn', (msg) => {
     if (!ctx.upTop()) return;
     ctx.sound.horn();
-    if (msg.by !== store.profile.name) toast(`📯 ${msg.by} blew the air horn!`);
+    if (msg.by !== store.profile.name) toast(L.main.airHorn(msg.by));
   });
   let lastHorn = 0;
   /** E at the DJ booth: the air horn, for everyone on the roof. */
@@ -89,7 +82,7 @@ export function installBar(ctx: Ctx, deps: BarDeps) {
     reach: 3.5,
     hint: () => {
       const cut = booze.cutOff(performance.now() / 1000);
-      return { k: String(cut), parts: [hintTitle('🍸 Sky Bar'), aside(cut ? "you've had enough" : 'drinks on the house'), key('E', cut ? 'Ask for water' : 'Order a drink')] };
+      return { k: String(cut), parts: [hintTitle(L.bar.title), aside(cut ? L.hints.hadEnough : L.hints.onTheHouse), key('E', cut ? L.hints.askWater : L.hints.orderDrink)] };
     },
     use: onE(() => showBar()),
   });
@@ -97,8 +90,8 @@ export function installBar(ctx: Ctx, deps: BarDeps) {
     reach: 6,
     hint: () => {
       const f = djFrame(deps.djAt());
-      const what = f.part === 'drop' ? '🔥 the drop' : f.part === 'build' ? 'building up…' : f.part === 'breakdown' ? 'the breakdown' : 'mixing in the next track';
-      return { k: what, parts: [hintTitle('🎧 DJ Merge Conflict'), aside(`drum & bass · ${what}`), key('E', '📯 Air horn!')] };
+      const what = f.part === 'drop' ? L.hints.drop : f.part === 'build' ? L.hints.build : f.part === 'breakdown' ? L.hints.breakdown : L.hints.mixing;
+      return { k: what, parts: [hintTitle('🎧 DJ Merge Conflict'), aside(`drum & bass · ${what}`), key('E', L.hints.airHorn)] };
     },
     use: onE(() => blowHorn()),
   });
@@ -109,7 +102,7 @@ export function installBar(ctx: Ctx, deps: BarDeps) {
   let nextSip = 0;
   /** The drink in your hand everyone else was last told about. */
   let shownDrink: DrinkId | null = null;
-  const FEELINGS = ['😌 You feel sober again', '🥴 You’re feeling a little tipsy', '🌀 Whoa… is the city spinning?', '🤪 You’re wasted. Maybe have some water'];
+  const FEELINGS = L.main.feelings;
 
   /** Every frame: how drunk you are, the glass in your hand, hiccups and the odd sip. */
   function drinking(now: number) {

@@ -5,6 +5,7 @@ import type { Ctx } from '../../office/context.js';
 import { str } from '../../office/input.js';
 import { here } from './common.js';
 import type { HandlerMap, ViewPieces } from './types.js';
+import { L } from '../../i18n.js';
 
 export const decorView: ViewPieces['decor'] = (_ctx, floor) => floor?.decor.list() ?? [];
 export const decorChanged = (ctx: Ctx, floor: Floor) => ctx.toFloor(floor, { t: 'decor', items: floor.decor.list() });
@@ -33,6 +34,6 @@ export const decorHandlers = {
     const d = floor.decor.remove(str(msg.id, 32));
     if (!d) return;
     decorChanged(ctx, floor);
-    ctx.toastFloor(floor, `${who} took down ${d.title ? `“${d.title}”` : 'a picture'}`);
+    ctx.toastFloor(floor, L.srv.tookDown(who, d.title));
   },
 } satisfies HandlerMap<DecorClientMsg>;

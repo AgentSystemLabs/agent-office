@@ -12,6 +12,7 @@ import type { Stage, Worker } from '../../world/character';
 import type { Area } from '../../world/confetti';
 import type { Court } from '../../world/court';
 import type { DeskView } from '../../world/types';
+import { L } from '../../i18n';
 
 // The kinds of thing you can use that this defines (see InteractKinds in world/types.ts).
 declare module '../../world/types' {
@@ -43,7 +44,7 @@ export function installGong(ctx: Ctx, deps: GongDeps) {
 
   ctx.interactions.define('gong', {
     reach: 3.5,
-    hint: () => ({ k: '', parts: [hintTitle('🎉 Merge gong'), aside('rings when a PR merges'), key('E', 'Bang it')] }),
+    hint: () => ({ k: '', parts: [hintTitle(L.hints.gong), aside(L.hints.gongAbout), key('E', L.hints.bangIt)] }),
     use: onE(() => hitGong()),
   });
 

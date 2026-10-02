@@ -2,6 +2,7 @@
 import { PROVIDER_META, isAgentProvider } from '../../../shared/providers.js';
 import { send } from '../util.js';
 import type { Route } from '../router.js';
+import { L } from '../../i18n.js';
 
 export const agentRoutes = {
   /** GET /api/agents/<provider>/models */
@@ -16,7 +17,7 @@ export const agentRoutes = {
       try {
         return send(res, 200, { models: await catalogue.get() });
       } catch {
-        return send(res, 502, { error: `Could not load ${PROVIDER_META[provider].name} models` });
+        return send(res, 502, { error: L.srv.noModelsOf(PROVIDER_META[provider].name) });
       }
     },
   },

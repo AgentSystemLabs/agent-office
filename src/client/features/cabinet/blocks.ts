@@ -1,4 +1,5 @@
 import { CLEAR_POINTS, GAME, WELL_COLS, WELL_ROWS, levelFor, scoreText, type CabinetFrame, type HighScore, type PlayState } from '../../../shared/cabinet';
+import { L } from '../../i18n';
 
 /**
  * BLOCKFALL, the game on the arcade cabinet (ui.ts): falling blocks with the usual rotation
@@ -392,14 +393,14 @@ function paintGame(g: CanvasRenderingContext2D, f: CabinetFrame, v: ScreenView) 
   }
   label(g, 'NEXT', rx, 62);
   preview(g, f.next, rx, 112);
-  label(g, 'HIGH SCORES', rx, 196);
+  label(g, L.arcade.highScores, rx, 196);
   if (v.scores.length) table(g, v.scores, rx - 100, 200, 228, 30, 16, v.mine);
-  else value(g, 'Be the first!', rx, 228, 18);
+  else value(g, L.arcade.beFirst, rx, 228, 18);
 
   if (f.state === 'paused') {
-    banner(g, 'PAUSED', v.note ?? 'P to carry on', '#4f86f7');
+    banner(g, L.arcade.paused, v.note ?? L.arcade.pToCarryOn, '#4f86f7');
   } else if (f.state === 'over') {
-    banner(g, 'GAME OVER', v.prompt ?? scoreText(f.score), '#e63946');
+    banner(g, L.arcade.gameOver, v.prompt ?? scoreText(f.score), '#e63946');
   }
 }
 
@@ -419,17 +420,17 @@ function paintAttract(g: CanvasRenderingContext2D, v: ScreenView) {
     x += widths[i];
   });
   g.shadowBlur = 0;
-  label(g, '🏆 HIGH SCORES', W / 2, 142);
+  label(g, `🏆 ${L.arcade.highScores}`, W / 2, 142);
   if (v.scores.length) table(g, v.scores, W / 2 - 250, 500, 182, 35, 24, v.mine);
   else {
     g.fillStyle = DIM;
     g.font = `800 22px ${FONT}`;
-    g.fillText('No scores yet. Be the first!', W / 2, 300);
+    g.fillText(L.arcade.noScores, W / 2, 300);
   }
   if (Math.floor(v.t * 1.6) % 2 === 0) {
     g.fillStyle = '#ffd166';
     g.font = `900 30px ${FONT}`;
-    g.fillText(v.prompt ?? 'PRESS E TO PLAY', W / 2, 562);
+    g.fillText(v.prompt ?? L.arcade.pressPlay, W / 2, 562);
   }
 }
 

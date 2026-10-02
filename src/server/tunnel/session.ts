@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import type { Office } from './office.js';
+import { L } from '../i18n.js';
 
 // Signing `agent-office tunnel` in to the office: with the session it kept from last time, or by
 // asking for the password in the terminal. The session is what a browser's cookie is, good for two
@@ -114,14 +115,14 @@ export async function signIn(office: Office, key: string, given: Credentials, sa
     if (!err || !interactive()) return err;
     say(`  ${err}`);
   }
-  if (!interactive()) return 'Not signed in. Run it in a terminal to type the password, or set AGENT_OFFICE_PASSWORD (and --name for an account of your own).';
+  if (!interactive()) return L.tunnel.notSignedIn;
 
   const opts = await office.loginOptions();
   const askName = given.name === undefined && (opts.accounts || !opts.shared);
-  say(`  Sign in to the office at ${office.origin} (asked once: the session is kept in ${tildify(sessionsFile())})`);
+  say(L.tunnel.signInAt(office.origin, tildify(sessionsFile())));
   for (let tries = 0; tries < 3; tries++) {
-    const name = askName ? await ask(opts.shared ? '  Your name (Enter for the office password): ' : '  Your name: ') : (given.name ?? '');
-    const err = await office.signIn(name, await askHidden(name ? '  Password: ' : '  Office password: '));
+    const name = askName ? await ask(opts.shared ? L.tunnel.yourNameShared : L.tunnel.yourName) : (given.name ?? '');
+    const err = await office.signIn(name, await askHidden(name ? L.tunnel.password : L.tunnel.officePassword));
     if (!err) {
       keep(key, office.token);
       return '';
@@ -129,7 +130,7 @@ export async function signIn(office: Office, key: string, given: Credentials, sa
     say(`  ${err}`);
     if (/too many/i.test(err)) return err;
   }
-  return 'Sign-in failed';
+  return L.tunnel.failed;
 }
 
 /** The session stopped working (the password changed, the account was revoked): forget it. */
