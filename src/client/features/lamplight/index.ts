@@ -15,11 +15,13 @@ export function installLamplight(ctx: Ctx, parts: Pick<Parts, 'stage' | 'place'>
   /** 0 outdoors to 1 indoors, eased as you come in or go out. */
   let indoorness = 0;
   /**
-   * The office's outside walls (see buildWalls in world/office/shell.ts): indoors they take no shadows, or
-   * the light from overhead would streak them down from the hoop, the TV and the boards hanging on them.
+   * The office's outside walls, the back office's too (tagged `userData.wall` in world/office/shell.ts):
+   * indoors they take no shadows, or the light from overhead would streak them down from the hoop, the TV
+   * and the boards hanging on them, and speckle the wall itself, nearly side-on to it.
    */
-  let officeWalls: THREE.Object3D[] | null = null;
   let wallsShaded = true;
+  /** How far the back office was built out when the walls were last gone over: building it out makes new ones. */
+  let wing = -1;
   const from = new THREE.Vector3();
 
   ctx.ticks.add('env', ({ dt }) => {
@@ -38,15 +40,12 @@ export function installLamplight(ctx: Ctx, parts: Pick<Parts, 'stage' | 'place'>
       }
     }
     sun.shadow.intensity = 1 + (INDOOR_LIGHT.shadow - 1) * indoorness;
-    if (wallsShaded !== indoorness < 0.5) {
+    if (wallsShaded !== indoorness < 0.5 || wing !== ctx.office.wing.level) {
       wallsShaded = indoorness < 0.5;
-      if (!officeWalls) {
-        const walls: THREE.Object3D[] = (officeWalls = []);
-        ctx.office.group.traverse((o) => {
-          if (o.userData.wall) walls.push(o);
-        });
-      }
-      for (const w of officeWalls) w.receiveShadow = wallsShaded;
+      wing = ctx.office.wing.level;
+      ctx.office.group.traverse((o) => {
+        if (o.userData.wall) o.receiveShadow = wallsShaded;
+      });
     }
   });
 }
