@@ -141,7 +141,7 @@ function workerCard(w: WorkerInfo): HTMLElement {
   const desk = DESK_BY_ID.get(w.deskId);
   const waiting = waitingOnSomeone(w);
   const asleep = isAsleep(w.status);
-  const badge = w.kind === 'agent' ? modelBadge(w.provider, w.model, w.effort) : undefined;
+  const badge = w.kind === 'agent' ? modelBadge(w.provider, w.model, w.effort, w.usage?.model) : undefined;
   const task = w.task?.name ?? w.title ?? (w.prompt ? clip(w.prompt, 90) : undefined);
   // What it's asking, doing or did, in a line.
   const now = w.lost

@@ -1,7 +1,7 @@
 /**
  * Who's waiting on you: N (and the count in the Workers panel) takes you to each in turn, and the
- * compass points to the ones you can't see. Also opening a worker's terminal (waking it if it's
- * asleep) and its changes, the search over every terminal, and the task queue's window.
+ * compass points to the ones you can't see. Also going to a worker's desk, opening its terminal
+ * (waking it if it's asleep) and its changes, the search over every terminal, and the task queue's window.
  */
 import * as THREE from 'three';
 import { isAsleep } from '../../../shared/status';
@@ -27,22 +27,35 @@ export function installWaiting(ctx: Ctx, core: CoreState, parts: Pick<Parts, 'wo
   let nextToast: HTMLElement | null = null;
   const workerPos = new THREE.Vector3();
 
-  /** N: to the worker that has waited longest on someone, and on each press after, the next. */
+  /** N: to the first worker waiting on someone (the ones that need you, then the ones that are done, longest first), and on each press after, the next. */
   function goToNextWaiting() {
     if (core.trip) return;
     const w = nextUp.next(store.workers.values(), waitingBeside());
-    const desk = w && parts.worlds.plan().byId.get(w.deskId);
     nextToast?.remove();
-    if (!w || !desk) {
+    if (!w || !goToWorker(w.id)) {
       const other = store.floors.find((f) => f.id !== store.floor && f.waiting > 0);
       nextToast = toast(other ? `🛗 Nobody's waiting on this floor. ${other.waiting} on the ${other.name} floor: take the elevator` : '👍 Nobody is waiting on you');
       return;
     }
-    closeAllModals();
-    parts.actions.standAt(desk);
     const waiting = waitingInOrder(store.workers.values());
     const of = waiting.length > 1 ? ` (${waiting.findIndex((x) => x.id === w.id) + 1} of ${waiting.length})` : '';
-    nextToast = toast(`${w.status === 'needs_input' ? `🙋 ${w.name} needs input` : `✅ ${w.name} is done`}${of}. E opens its terminal`);
+    nextToast = toast(`${w.status === 'needs_input' ? `🙋 ${w.name} needs you` : `✅ ${w.name} is done`}${of}. E opens its terminal`);
+  }
+
+  /** Puts you behind worker `id`, looking over its shoulder, with any window closed. False when there's no getting there (you're between floors, or it's gone). */
+  function goToWorker(id: string): boolean {
+    const w = store.workers.get(id);
+    const desk = w && parts.worlds.plan().byId.get(w.deskId);
+    if (core.trip || !desk) return false;
+    closeAllModals();
+    parts.actions.standAt(desk);
+    return true;
+  }
+
+  /** From a notification about worker `id`: over to its desk, with its terminal open to answer it. */
+  function answerWorker(id: string) {
+    goToWorker(id);
+    openWorkerTerminal(id);
   }
 
   /** The waiting worker you're standing at, if any: N skips it while anyone else is waiting. */
@@ -66,6 +79,7 @@ export function installWaiting(ctx: Ctx, core: CoreState, parts: Pick<Parts, 'wo
     const el = $('waiting');
     el.classList.toggle('hidden', !waiting.length);
     el.classList.toggle('all-done', waiting.every((w) => w.status === 'done'));
+    el.classList.toggle('needs-you-now', waiting.some((w) => w.status === 'needs_input'));
     if (waiting.length) el.replaceChildren(h('span', {}, waitingLabel(waiting)), h('span.key', {}, 'N'));
   }
   $('waiting').addEventListener('click', () => goToNextWaiting());
@@ -130,5 +144,5 @@ export function installWaiting(ctx: Ctx, core: CoreState, parts: Pick<Parts, 'wo
     openQueue(net, { openTerminal: openWorkerTerminal });
   }
 
-  return { goToNextWaiting, renderWaiting, openWorkerTerminal, openWorkerChanges, showSearch, showQueue };
+  return { goToNextWaiting, goToWorker, answerWorker, renderWaiting, openWorkerTerminal, openWorkerChanges, showSearch, showQueue };
 }

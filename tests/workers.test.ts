@@ -451,7 +451,8 @@ test('workers reject reasoning effort for providers without one and unknown leve
   const workers = manager(f, f.claude, []);
   t.after(() => workers.shutdown());
   assert.match(workers.spawn('desk-1', 'test', 'bad', false, 'agent', 'claude', undefined, 'overdrive' as any) as string, /effort/i);
-  assert.match(workers.spawn('desk-2', 'test', 'bad', false, 'agent', 'opencode', undefined, 'high' as any) as string, /effort|Claude/i);
+  assert.match(workers.spawn('desk-2', 'test', 'bad', false, 'agent', 'custom', undefined, 'high' as any) as string, /effort can only be selected/i);
+  assert.match(workers.spawn('desk-2', 'test', 'bad', false, 'agent', 'opencode', undefined, 'overdrive' as any) as string, /Invalid effort/i);
   assert.match(workers.spawn('desk-3', 'test', 'bad', false, 'shell', undefined, undefined, 'high' as any) as string, /shell|effort/i);
 });
 

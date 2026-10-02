@@ -1,6 +1,7 @@
 import './settings.css';
 import type { Net } from '../net';
-import { store, type Settings, type ViewMode } from '../state';
+import type { OfficeSound } from '../sound';
+import { store, type NeedsYouSound, type Settings, type ViewMode } from '../state';
 import { askNotifyPermission, notifyPermission, type DesktopNotifier } from '../notify';
 import type { ThemePick, WebhookKind } from '../../shared/protocol';
 import { THEME_PICKS } from '../../shared/theme';
@@ -9,6 +10,7 @@ import { DOG_NAME_MAX, cleanDogName } from '../../shared/dog';
 import { h, openModal, timeAgo } from './dom';
 import { agentFields, choiceLabel, officeChoice } from './provider';
 import { openPromptEditor, rewrittenPrompts } from './prompts';
+import { choiceRow } from './settings-rows';
 
 const VIEWS: [ViewMode, string, string][] = [
   ['first', '👀 First person', 'See through your own eyes. Click the office to look around with the mouse and click things to use them. Esc frees the mouse.'],
@@ -46,7 +48,7 @@ const setting = (title: string, scope: Scope | null, ...body: Node[]) =>
 let lastPane: SettingsPane = 'you';
 
 /** `outside` describes the sky over the office (see describeSky), once the server has said. `first` opens on that category instead of the last one. */
-export function openSettings(net: Net, settings: Settings, onChange: (s: Settings) => void, onCharacter: () => void, previewSound: () => void, notifier: DesktopNotifier, onSignOut: () => void, outside?: { now: string; live: boolean }, first?: SettingsPane) {
+export function openSettings(net: Net, settings: Settings, onChange: (s: Settings) => void, onCharacter: () => void, sound: Pick<OfficeSound, 'ding' | 'needsYou'>, notifier: DesktopNotifier, onSignOut: () => void, outside?: { now: string; live: boolean }, first?: SettingsPane) {
   const seg = h('div.seg', { role: 'radiogroup', 'aria-label': 'Camera view' });
   const note = h('p.setting-note');
   const paint = () => {
@@ -105,70 +107,24 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
     });
     return row;
   };
-  const soundRow = volumeRow('Office sounds volume', 'volume', 'muted', previewSound);
+  const soundRow = volumeRow('Office sounds volume', 'volume', 'muted', () => sound.ding('done'));
 
-  // Voice chat: an open mic, or muted until you hold V.
-  const talkRow = h('div.seg', { role: 'radiogroup', 'aria-label': 'Voice chat' });
-  const paintTalk = () => {
-    talkRow.replaceChildren(
-      ...(
-        [
-          [false, '🎙️ Open mic'],
-          [true, '✋ Push to talk'],
-        ] as const
-      ).map(([ptt, label]) =>
-        h(
-          'button.btn',
-          {
-            type: 'button',
-            role: 'radio',
-            'aria-checked': String(settings.pushToTalk === ptt),
-            class: settings.pushToTalk === ptt ? 'on' : '',
-            onclick: () => {
-              if (settings.pushToTalk === ptt) return;
-              settings = { ...settings, pushToTalk: ptt };
-              onChange(settings);
-              paintTalk();
-            },
-          },
-          label,
-        ),
-      ),
-    );
+  /** Changes some of your own settings, and has the office take them up. */
+  const change = (some: Partial<Settings>) => {
+    settings = { ...settings, ...some };
+    onChange(settings);
   };
-  paintTalk();
+  // Voice chat: an open mic, or muted until you hold V.
+  const talkRow = choiceRow('Voice chat', [[false, '🎙️ Open mic'], [true, '✋ Push to talk']], () => settings.pushToTalk, (pushToTalk) => change({ pushToTalk }));
   const musicRow = volumeRow('Jukebox volume', 'music', 'musicMuted');
 
   // The swish of the book's pages at the bookshelf, on or off.
-  const pagesRow = h('div.seg', { role: 'radiogroup', 'aria-label': 'Page turns at the bookshelf' });
-  const paintPages = () => {
-    pagesRow.replaceChildren(
-      ...(
-        [
-          [true, '📖 On'],
-          [false, 'Off'],
-        ] as const
-      ).map(([on, label]) =>
-        h(
-          'button.btn',
-          {
-            type: 'button',
-            role: 'radio',
-            'aria-checked': String(settings.pageTurns === on),
-            class: settings.pageTurns === on ? 'on' : '',
-            onclick: () => {
-              if (settings.pageTurns === on) return;
-              settings = { ...settings, pageTurns: on };
-              onChange(settings);
-              paintPages();
-            },
-          },
-          label,
-        ),
-      ),
-    );
-  };
-  paintPages();
+  const pagesRow = choiceRow('Page turns at the bookshelf', [[true, '📖 On'], [false, 'Off']], () => settings.pageTurns, (pageTurns) => change({ pageTurns }));
+  // The alarm when a worker stops to ask you something; picking one plays it.
+  const alarmRow = choiceRow<NeedsYouSound>('When a worker needs you', [['once', '🔔 Ring once'], ['remind', '🔁 Keep reminding me'], ['off', '🔕 Off']], () => settings.needsYouSound, (needsYouSound) => {
+    change({ needsYouSound });
+    if (needsYouSound !== 'off') sound.needsYou();
+  });
 
   // The building's holiday theme, for everyone.
   const themeRow = h('div.seg', { role: 'radiogroup', 'aria-label': 'Holiday theme' });
@@ -294,7 +250,7 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
         ? 'This browser can’t show notifications from the office here. They need https or localhost (an SSH tunnel counts).'
         : perm === 'denied'
           ? 'Your browser blocks notifications from the office. Allow them in the site settings (the icon left of the address), then open this again.'
-          : 'When a worker needs input or finishes while you’re in another tab or app, you get a notification. Click it to jump to that worker’s terminal. The tab title counts the workers waiting on someone either way.';
+          : 'When a worker needs you or finishes while you’re in another tab or app, you get a notification. Click it to go straight to that worker: you’re put at its desk with its terminal open. The tab title counts the workers waiting on someone either way.';
   };
   paintNotify();
 
@@ -511,7 +467,8 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
       setting('Signed in', null, h('div.volume', {}, signOut), h('p.setting-note', {}, account ? `As ${account.name}, with your own account (${account.role}).` : 'With the shared office password.')),
     ],
     sound: [
-      setting('Office sounds', 'you', soundRow, h('p.setting-note', {}, 'Workers typing, footsteps, the coffee machine, birds and rain outside, the dog, and the ding when a worker is done. Voice chat isn’t affected.')),
+      setting('Office sounds', 'you', soundRow, h('p.setting-note', {}, 'Workers typing, footsteps, the coffee machine, birds and rain outside, the dog, the ding when a worker is done and the alarm when one needs you. Voice chat isn’t affected.')),
+      setting('When a worker needs you', 'you', alarmRow, h('p.setting-note', {}, 'An alarm the moment a worker stops to ask you something or wants a permission. Keep reminding me rings it again, softly, every 30 seconds until someone opens that worker’s terminal. It’s as loud as the office sounds are.')),
       setting('Page turns at the bookshelf', 'you', pagesRow, h('p.setting-note', {}, 'A soft swish each time the book in your hands turns a page, as you open a doc or scroll through one. The 🔈 at the top of the bookshelf turns it off too.')),
       setting('Jukebox', 'you', musicRow, h('p.setting-note', {}, 'The jukebox in the lounge. Everyone on the floor hears the same song, louder the closer they are to it; this is how loud it is for you alone.')),
       setting('Voice chat', 'you', talkRow, h('p.setting-note', {}, 'Either way, V joins voice, holding V talks and you’re muted once you let go, and M mutes or unmutes. With push to talk you join muted. Leave voice from the ☰ menu.')),

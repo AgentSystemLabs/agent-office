@@ -8,6 +8,7 @@ import {
   mergeOpenCodeConfigContent,
   writeOpenCodePlugin,
 } from '../src/server/opencode.js';
+import { opencode } from '../src/server/providers/opencode.js';
 
 test('merges the inline OpenCode config and preserves user plugins', () => {
   const plugin = 'file:///tmp/agent-office-opencode.mjs';
@@ -20,6 +21,92 @@ test('does not duplicate the generated plugin in inline config', () => {
   const plugin = 'file:///tmp/agent-office-opencode.mjs';
   const merged = JSON.parse(mergeOpenCodeConfigContent(JSON.stringify({ plugin: [plugin] }), plugin));
   assert.deepEqual(merged.plugin, [plugin]);
+});
+
+test('an OpenCode worker is told its effort and model for a fresh session, and neither for a resumed one', () => {
+  const launch = (info: { model?: string; effort?: string }, resumeSessionId?: string) => {
+    const plan = opencode.launch({ h: { info, state: opencode.createState!() } as never, args: [], setup: { plugin: '/data/agent-office-opencode.mjs' }, resumeSessionId });
+    // What it would have inherited from an office it runs inside is never passed on.
+    const env: Record<string, string> = { AGENT_OFFICE_EFFORT: 'max', AGENT_OFFICE_MODEL: 'someone/elses' };
+    plan.finishEnv!(env);
+    return { args: plan.args, effort: env.AGENT_OFFICE_EFFORT, model: env.AGENT_OFFICE_MODEL, config: JSON.parse(env.OPENCODE_CONFIG_CONTENT) };
+  };
+  const model = 'anthropic/claude-opus-5-5';
+  const fresh = launch({ model, effort: 'high' });
+  assert.deepEqual(fresh.args, ['--model', model]);
+  assert.deepEqual([fresh.effort, fresh.model], ['high', model]);
+  // The person's own agents are left alone: the effort goes through the plugin.
+  assert.equal(fresh.config.agent, undefined);
+  // An effort on OpenCode's own default model.
+  assert.deepEqual([launch({ effort: 'low' }).effort, launch({ effort: 'low' }).model], ['low', '']);
+  assert.deepEqual([launch({ model }).effort, launch({ model }).model], ['', model]);
+  const resumed = launch({ model, effort: 'high' }, 'ses_1');
+  assert.deepEqual(resumed.args, ['--session', 'ses_1']);
+  assert.deepEqual([resumed.effort, resumed.model], ['', '']);
+});
+
+/** Loads the office's plugin as a worker hired with `effort` (and `model`) would, and hands back its chat.message hook. */
+async function effortPlugin(t: { after(fn: () => void): void }, effort: string, model = '') {
+  const dir = mkdtempSync(path.join(tmpdir(), 'agent-office-opencode-'));
+  const keys = ['AGENT_OFFICE_HOOK_URL', 'AGENT_OFFICE_HOOK_TOKEN', 'AGENT_OFFICE_WORKER_ID', 'AGENT_OFFICE_SESSION_ID', 'AGENT_OFFICE_EFFORT', 'AGENT_OFFICE_MODEL'];
+  const old = keys.map((k) => process.env[k]);
+  const oldFetch = globalThis.fetch;
+  t.after(() => {
+    keys.forEach((k, i) => (old[i] === undefined ? delete process.env[k] : (process.env[k] = old[i])));
+    globalThis.fetch = oldFetch;
+    rmSync(dir, { recursive: true, force: true });
+  });
+  Object.assign(process.env, { AGENT_OFFICE_HOOK_URL: 'http://127.0.0.1:1', AGENT_OFFICE_HOOK_TOKEN: 'token', AGENT_OFFICE_WORKER_ID: 'worker', AGENT_OFFICE_SESSION_ID: '', AGENT_OFFICE_EFFORT: effort, AGENT_OFFICE_MODEL: model });
+  globalThis.fetch = (async () => new Response(null, { status: 200 })) as typeof fetch;
+  const mod = await import(`${pathToFileURL(writeOpenCodePlugin(dir)).href}?effort=${Date.now()}-${Math.random()}`) as { default: (ctx?: unknown) => Promise<any> };
+  const hooks = await mod.default({});
+  /**
+   * One message as OpenCode hands it to the hook: `tui` is the variant its TUI sent, and `variants`
+   * is false for an OpenCode from before it had any. Returns the variant it's saved with.
+   */
+  return async (sessionID: string, tui: string | undefined, modelID = 'claude-opus-5-5', variants = true) => {
+    const message: { model: { providerID: string; modelID: string; variant?: string } } = { model: { providerID: 'anthropic', modelID, ...(variants ? { variant: tui } : {}) } };
+    await hooks['chat.message']({ sessionID, ...(variants ? { variant: tui } : {}) }, { message, parts: [] });
+    return message.model.variant;
+  };
+}
+
+test('an OpenCode worker\'s first message runs at the effort picked for it, whatever variant OpenCode remembers for the model', async (t) => {
+  const send = await effortPlugin(t, 'low', 'anthropic/claude-opus-5-5');
+  // The TUI remembers "high" for this model, from another session: the worker's own effort goes out instead.
+  assert.equal(await send('ses_root', 'high'), 'low');
+  // A subagent's messages are its own.
+  assert.equal(await send('ses_child', 'high'), 'high');
+  // The TUI has taken the variant from that first message: it now sends it itself.
+  assert.equal(await send('ses_root', 'low'), 'low');
+  // And one picked in the terminal afterwards (ctrl+t) stands, back to the old one included.
+  assert.equal(await send('ses_root', 'max'), 'max');
+  assert.equal(await send('ses_root', 'high'), 'high');
+});
+
+test('an OpenCode TUI that does not take the variant up is kept on the worker\'s effort until someone picks another there', async (t) => {
+  const send = await effortPlugin(t, 'high');
+  assert.equal(await send('ses_root', undefined), 'high');
+  assert.equal(await send('ses_root', undefined), 'high');
+  assert.equal(await send('ses_root', 'low'), 'low');
+  assert.equal(await send('ses_root', undefined), undefined);
+});
+
+test('an OpenCode effort is for the model it was picked with: a first message on another model keeps its own', async (t) => {
+  const send = await effortPlugin(t, 'high', 'anthropic/claude-opus-5-5');
+  assert.equal(await send('ses_root', undefined, 'claude-haiku-4-5'), undefined);
+  assert.equal(await send('ses_root', undefined), undefined);
+  // With no model picked, the effort is for whichever model OpenCode starts on.
+  const any = await effortPlugin(t, 'high');
+  assert.equal(await any('ses_root', undefined, 'claude-haiku-4-5'), 'high');
+});
+
+test('an OpenCode from before variants is left alone, and so is a worker with no effort', async (t) => {
+  const old = await effortPlugin(t, 'high');
+  assert.equal(await old('ses_root', undefined, 'claude-opus-5-5', false), undefined);
+  const none = await effortPlugin(t, '');
+  assert.equal(await none('ses_root', 'high'), 'high');
+  assert.equal(await none('ses_root', undefined), undefined);
 });
 
 test('rejects malformed inline OpenCode config instead of dropping user settings', () => {

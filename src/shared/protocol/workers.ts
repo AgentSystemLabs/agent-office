@@ -31,9 +31,9 @@ export interface WorkerInfo {
   /** 'agent' runs the selected provider; 'shell' is a plain shared login shell. */
   kind: WorkerKind;
   provider?: AgentProvider;
-  /** Model requested for this worker, instead of the office's configured default: an OpenCode provider/model id, a Claude model alias, a Grok/Muse model id, or an opaque DeepSeek Harness catalog id. */
+  /** Model requested for this worker, instead of the office's configured default: a Claude model alias, an OpenCode provider/model id, a Codex, Grok, Muse or Pi model id, or an opaque DeepSeek Harness catalog id. What its session says it runs on is `usage.model`. */
   model?: string;
-  /** Reasoning effort requested for this worker, when one was chosen (Claude, Grok, Muse or DeepSeek Harness). */
+  /** Reasoning effort requested for this worker, when one was chosen. */
   effort?: AgentEffort;
   deskId: string;
   name: string;

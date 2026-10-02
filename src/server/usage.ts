@@ -93,14 +93,17 @@ export interface UsageTracker {
   since: Usage;
   /** Latest transcript timestamp seen. */
   at?: number;
+  /** The model the session's own latest message ran on (not a subagent's). */
+  model?: string;
 }
 
 export const newTracker = (): UsageTracker => ({ files: {}, since: zeroUsage() });
 
 export function trackerUsage(t: UsageTracker): Usage {
-  if (!t.base) return { ...t.since };
+  const model = t.model ? { model: t.model } : {};
+  if (!t.base) return { ...t.since, ...model };
   const { at: _at, ...base } = t.base;
-  return addUsage(base, t.since);
+  return { ...addUsage(base, t.since), ...model };
 }
 
 const asUsage = (v: any): Usage | undefined =>
@@ -121,6 +124,7 @@ export function restoreTracker(saved: any): UsageTracker {
   if (base) t.base = { ...base, at: num(saved.base.at) };
   t.since = asUsage(saved.since) ?? zeroUsage();
   if (num(saved.at)) t.at = saved.at;
+  if (isModelId(saved.model)) t.model = saved.model;
   return t;
 }
 
@@ -150,19 +154,24 @@ export function scanTracker(t: UsageTracker): boolean {
       } catch {
         continue;
       }
-      if (applyLine(t, cur, obj)) changed = true;
+      if (applyLine(t, cur, obj, file === t.transcript)) changed = true;
     }
   }
   return changed;
 }
 
-function applyLine(t: UsageTracker, cur: FileCursor, line: any): boolean {
+/** A model id as a session logs it: Claude Code's own placeholder messages ("<synthetic>") aren't one. */
+const isModelId = (v: unknown): v is string => typeof v === 'string' && /^[\w.:/@[\]-]{1,120}$/.test(v);
+
+/** One transcript line; `main` when it's from the session's own transcript rather than a subagent's. */
+function applyLine(t: UsageTracker, cur: FileCursor, line: any, main: boolean): boolean {
   if (!line || typeof line !== 'object') return false;
   const at = typeof line.timestamp === 'string' ? Date.parse(line.timestamp) : NaN;
   if (at > (t.at ?? 0)) t.at = at;
   if (line.type === 'assistant') {
     const msg = line.message;
     if (!msg || typeof msg !== 'object' || typeof msg.id !== 'string' || !msg.usage) return false;
+    if (main && !line.isSidechain && isModelId(msg.model)) t.model = msg.model;
     // Already inside Claude Code's own tally.
     if (t.base && at <= t.base.at) return false;
     const u = usageOfMessage(typeof msg.model === 'string' ? msg.model : '', msg.usage);
