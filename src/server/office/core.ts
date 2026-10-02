@@ -1,3 +1,5 @@
+import { Lobby } from '../lobby.js';
+import { LOBBY } from '../../shared/lobby.js';
 import path from 'node:path';
 import type { Config } from '../config.js';
 import { Auth } from '../auth.js';
@@ -26,7 +28,8 @@ export function createCore(ctx: Ctx, cfg: Config, publicDir: string): Core {
   const highScores = new HighScores(cfg.dataDir);
   const arcade = new Arcade(highScores, (first) => {
     for (const f of ctx.floors.values()) cabinetChanged(ctx, f);
-    if (first) ctx.toastFloor(ctx.floors.get(first.floor), `🏆 ${first.score.name} set a new arcade high score: ${scoreText(first.score.score)}`);
+    cabinetChanged(ctx, ctx.lobby);
+    if (first) ctx.toastFloor(first.floor === LOBBY ? ctx.lobby : ctx.floors.get(first.floor), `🏆 ${first.score.name} set a new arcade high score: ${scoreText(first.score.score)}`);
   });
   /** What the office is called where it has no project of its own to go by (webhooks, invites). */
   const officeName = cfg.project ? path.basename(cfg.project) : 'the office';
@@ -44,5 +47,6 @@ export function createCore(ctx: Ctx, cfg: Config, publicDir: string): Core {
     if (err) console.error(`agent-office: --projects: ${err}`);
   }
   const floors = new Map<string, Floor>();
-  return { cfg, publicDir, accounts, auth, clients, chat, highScores, arcade, officeName, models, building, floors };
+  const lobby = new Lobby(cfg.dataDir);
+  return { cfg, publicDir, accounts, auth, clients, chat, highScores, arcade, officeName, models, building, floors, lobby };
 }

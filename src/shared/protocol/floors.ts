@@ -1,3 +1,4 @@
+// The public lobby has no checkout and is always the ground floor.
 // The building: its floors, going between them, and what each floor holds.
 
 import type { CabinetView } from '../cabinet.js';
@@ -31,12 +32,13 @@ export interface ProjectInfo {
  * and queue. You go between them in the elevator.
  */
 export interface FloorInfo {
+  kind?: 'lobby' | 'project';
   id: string;
   /** The repository's name, or the folder's when it isn't on GitHub. */
   name: string;
   /** owner/name on GitHub. */
   repo?: string;
-  /** Its checkout on the office's machine. */
+  /** Its checkout on the office's machine; empty for the public lobby, which has no project. */
   dir: string;
   /** The branch that checkout is on ('HEAD' when detached); none when it isn't a git checkout. */
   branch?: string;
@@ -96,7 +98,7 @@ export interface RepoChoice {
 /** Everything that belongs to the floor you're on: sent when you walk in, and when you change floors. */
 
 export interface FloorView {
-  /** The floor you're on; null while the building has none. */
+  /** The place you're on: a project floor, @lobby or @roof. Null before arrival. */
   floor: string | null;
   project: ProjectInfo | null;
   workers: WorkerInfo[];

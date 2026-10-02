@@ -1,3 +1,4 @@
+import { LOBBY } from '../../shared/lobby.js';
 import type { Floor } from '../floor.js';
 import { elevatorSpot } from '../../shared/layout.js';
 import { ROOF } from '../../shared/rooftop.js';
@@ -35,12 +36,14 @@ export function navigation(ctx: Ctx): Navigation {
     ctx.floorsChanged();
   };
 
-  /** Out to the lobby, where the elevator has nowhere to go: the building's last floor was taken off. */
-  const toLobby = (c: Client) => {
-    const left = leave(c);
-    delete c.peer.floor;
+  /** Back to the permanent public lobby on the ground floor. */
+  const toLobby = (c: Client, at?: Spot) => {
+    if (c.peer.floor === LOBBY) return;
+    const left = leave(c, at);
+    c.peer.floor = LOBBY;
     ctx.sendTo(c, { t: 'floor.enter', peers: [...ctx.clients.values()].map((o) => o.peer), ...floorView(ctx, undefined) });
     arrived(c, left);
+    ctx.floorsChanged();
   };
 
   /** Off the floor (or the roof) `c` was on, to `at` on the next one, or into its elevator car. */

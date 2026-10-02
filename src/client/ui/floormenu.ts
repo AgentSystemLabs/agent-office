@@ -1,3 +1,4 @@
+import { LOBBY, LOBBY_DESCRIPTION, floorNumber } from '../../shared/lobby';
 import './floormenu.css';
 import { cloneLabel, floorPalette } from '../../shared/floors';
 import { ROOF, ROOF_NAME } from '../../shared/rooftop';
@@ -45,14 +46,14 @@ export function toggleFloorMenu(anchor: HTMLElement, opts: FloorMenuOptions): vo
     else {
       if (f.waiting) stats.push(h('span.waiting', { title: 'Workers waiting on someone' }, `🙋 ${f.waiting}`));
       if (f.busy) stats.push(h('span', { title: 'Working' }, `👷 ${f.busy}`));
-      stats.push(h('span', { title: 'Workers at desks' }, `💻 ${f.workers}`));
+      if (f.id !== LOBBY) stats.push(h('span', { title: 'Workers at desks' }, `💻 ${f.workers}`));
       if (f.people) stats.push(h('span', { title: 'People on this floor' }, `🧑 ${f.people}`));
     }
     const btn = h(
       'button.floor-item',
       { type: 'button', role: 'menuitem', class: isHere ? 'here' : '', disabled: isHere || f.cloning, title: isHere ? "You're on this floor" : f.cloning ? 'Still being cloned' : opts.indoors() ? `Go to ${f.name}, right where you're standing` : `Go to ${f.name}, in its elevator` },
-      h('span.floor-no', { style: `background:${p.trim}` }, String(i + 1)),
-      h('span.floor-text', {}, h('span.floor-name', {}, f.name), h('span.floor-sub', {}, where || (f.repo ?? f.dir))),
+      h('span.floor-no', { style: `background:${p.trim}` }, floorNumber(f, i)),
+      h('span.floor-text', {}, h('span.floor-name', {}, f.name), h('span.floor-sub', {}, where || (f.id === LOBBY ? LOBBY_DESCRIPTION : f.repo ?? f.dir))),
       h('span.floor-stats', {}, ...stats),
     );
     btn.addEventListener('click', () => {

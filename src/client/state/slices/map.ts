@@ -1,3 +1,4 @@
+import { LOBBY, LOBBY_PLAN } from '../../../shared/lobby';
 import type { MapState } from '../../../shared/protocol';
 import { OFFICE_MAP, planOf, type MapPlan } from '../../../shared/maps';
 import type { Slice } from '../store';
@@ -20,7 +21,7 @@ export const map: Slice = {
   },
   methods: {
     plan() {
-      return planOf(this.map.pick, this.map.custom);
+      return this.floor === LOBBY ? LOBBY_PLAN : planOf(this.map.pick, this.map.custom);
     },
   },
   // The map first, so the floor's workers sit down in its seats and not the last one's.
@@ -34,7 +35,7 @@ export const map: Slice = {
       // Onto another map: nobody's on a seat of the last one any more (the office forgot them too).
       const moved = m.state.pick !== s.map.pick;
       s.map = m.state;
-      if (moved) for (const p of s.peers.values()) delete p.seat;
+      if (moved) for (const p of s.peers.values()) if (p.floor !== LOBBY) delete p.seat;
       return moved ? ['map', 'peers'] : ['map'];
     },
   },

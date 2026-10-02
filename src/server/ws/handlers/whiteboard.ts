@@ -1,26 +1,25 @@
+import { socialFloor, type SocialFloor } from '../../lobby.js';
 // The whiteboard on every floor: who's drawing, and what they draw.
 import { WebSocket } from 'ws';
-import type { Floor } from '../../floor.js';
 import type { ServerMsg, WhiteboardClientMsg } from '../../../shared/protocol.js';
 import type { Ctx } from '../../office/context.js';
 import { throttle, type Client } from '../../office/client.js';
 import { num } from '../../office/input.js';
-import { here } from './common.js';
 import type { FeatureHooks, HandlerMap, ViewPieces } from './types.js';
 
 /** Everyone who has their floor's whiteboard open. */
 const drawers = new WeakSet<Client>();
 
 /** Who has a floor's whiteboard open. */
-export const drawing = (ctx: Ctx, floor: Floor): string[] => [...ctx.clients.values()].filter((c) => drawers.has(c) && c.peer.floor === floor.id).map((c) => c.id);
+export const drawing = (ctx: Ctx, floor: SocialFloor): string[] => [...ctx.clients.values()].filter((c) => drawers.has(c) && c.peer.floor === floor.id).map((c) => c.id);
 export const whiteboardView: ViewPieces['whiteboard'] = (ctx, floor) => ({ elements: floor?.whiteboard.scene() ?? [], people: floor ? drawing(ctx, floor) : [] });
-export const drawingChanged = (ctx: Ctx, floor: Floor | undefined) => {
+export const drawingChanged = (ctx: Ctx, floor: SocialFloor | undefined) => {
   if (floor) ctx.toFloor(floor, { t: 'wb.people', people: drawing(ctx, floor) });
 };
 
 /** Opening the whiteboard, or closing it. */
 function openOrClose(ctx: Ctx, c: Client, msg: Extract<WhiteboardClientMsg, { t: 'wb.open' | 'wb.close' }>) {
-  const floor = ctx.floorOf(c);
+  const floor = socialFloor(ctx, c);
   const open = msg.t === 'wb.open' && !!floor;
   if (open === drawers.has(c)) return;
   if (open) drawers.add(c);
@@ -32,7 +31,7 @@ export const whiteboardHandlers = {
   'wb.open': openOrClose,
   'wb.close': openOrClose,
   'wb.update'(ctx, c, msg) {
-    const floor = here(ctx, c);
+    const floor = socialFloor(ctx, c);
     if (!floor) return;
     const { accepted, error } = floor.whiteboard.apply(msg.elements);
     if (accepted.length) ctx.toNeighbors(c, { t: 'wb.update', elements: accepted });
@@ -52,12 +51,13 @@ export const whiteboardHandlers = {
 
 export const whiteboardHooks: FeatureHooks = {
   leaving(ctx, c, was) {
+    const source = was ?? socialFloor(ctx, c);
     // The whiteboard downstairs stays downstairs.
     const wasDrawing = drawers.has(c);
     drawers.delete(c);
-    if (wasDrawing) return () => drawingChanged(ctx, was);
+    if (wasDrawing) return () => drawingChanged(ctx, source);
   },
   closed(ctx, c) {
-    if (drawers.has(c)) drawingChanged(ctx, ctx.floorOf(c));
+    if (drawers.has(c)) drawingChanged(ctx, socialFloor(ctx, c));
   },
 };

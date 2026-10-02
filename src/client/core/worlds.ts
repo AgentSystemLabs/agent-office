@@ -1,3 +1,4 @@
+import { LOBBY, LOBBY_PLAN } from '../../shared/lobby';
 /**
  * The building's map as it's built (see shared/maps and world/world.ts): the office, or a map of its
  * own (the castle). Only one is in the scene at a time, like the office and the rooftop; core/maps.ts
@@ -32,7 +33,7 @@ export function createWorlds(ctx: Ctx) {
   /** Whether the building's on the office's own map, with everything that has (the elevator, the balcony, the lounge…). */
   const inOffice = () => world === theOffice;
   /** Where everything is on the building's map: its seats by id, and places to sit. */
-  const plan = (): MapPlan => world.plan;
+  const plan = (): MapPlan => store.floor === LOBBY ? LOBBY_PLAN : world.plan;
   /** On a castle-style map: its workers walking between their seats and the line for the throne. */
   let court: Court | null = null;
   /** The ones in the world you're in. */

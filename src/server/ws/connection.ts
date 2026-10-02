@@ -1,3 +1,4 @@
+import { LOBBY } from '../../shared/lobby.js';
 import { randomBytes } from 'node:crypto';
 import type { WebSocket } from 'ws';
 import type { Session } from '../auth.js';
@@ -21,15 +22,15 @@ export function onConnection(ctx: Ctx, ws: WebSocket, url: URL, session: Session
   const { cfg, accounts, clients, chat, building, floors, maps, team, upgrader, ledger, webhook, machine, sky, themes, prompts, leaveOnMerge, signins } = ctx;
   const { sendTo, broadcast, floorInfos, floorsChanged, arrivalFloor, meOf, accountsChanged, limitsOf } = ctx;
   const id = randomBytes(5).toString('hex');
-  // Back on the floor they were on before a reload, a restart or closing the tab, else the first floor.
+  // Back on the floor they were on before a reload, a restart or closing the tab, else the public lobby.
   const wanted = url.searchParams.get('floor');
   // Their floor's gone since (taken off the building, or its checkout deleted): up to the roof instead.
-  const gone = !!wanted && wanted !== ROOF && !floors.has(wanted);
-  // Up on the roof, as long as there's a building under it.
-  const onRoof = (wanted === ROOF || gone) && floors.size > 0;
+  const gone = !!wanted && wanted !== ROOF && wanted !== LOBBY && !floors.has(wanted);
+  // The permanent lobby keeps the building and its roof available with no projects.
+  const onRoof = wanted === ROOF || gone;
   const floor = onRoof ? undefined : arrivalFloor(wanted);
   // Back where they were standing on it too; anywhere else, they arrive by elevator.
-  const back = !gone && wanted !== null && (onRoof || floor?.id === wanted);
+  const back = !gone && wanted !== null && (onRoof || floor?.id === wanted || wanted === LOBBY);
   const spot = (back && spotFrom(url.searchParams)) || { ...elevatorSpot(), y: 0, rotY: 0 };
   const account = session.account;
   // An account's name is its own; on the shared password people pick one.
@@ -53,7 +54,7 @@ export function onConnection(ctx: Ctx, ws: WebSocket, url: URL, session: Session
     sharing: false,
     ...(account ? { account: true } : {}),
     ...(url.searchParams.get('lite') === '1' ? { lite: true } : {}),
-    ...(onRoof ? { floor: ROOF } : floor ? { floor: floor.id } : {}),
+    ...(onRoof ? { floor: ROOF } : floor ? { floor: floor.id } : { floor: LOBBY }),
   });
   // Maps of your own may have been added or edited since: everyone already in hears first.
   const mapWas = maps.pick();

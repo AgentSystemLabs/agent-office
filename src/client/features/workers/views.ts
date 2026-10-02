@@ -278,7 +278,7 @@ export function installWorkerViews(ctx: Ctx, core: CoreState, parts: WorkerViews
     const world = ctx.world();
     // Someone sent home still counts until they get up, so a bean bag stays out under them.
     const free = vacantSeats(store.workers.values(), (id) => departures.seated(id) || sendoffs.seated(id));
-    for (const [id, desk] of world.desks) desk.vacancy.visible = free.has(id) && seatBuilt(id);
+    for (const [id, desk] of world.desks) desk.vacancy.visible = !!store.project && free.has(id) && seatBuilt(id);
     const appeared = world.setBeanbags(beanbagsOut((id) => !free.has(id), store.floorPlan.wing));
     // One came out right where you're standing (on the office floor, not down in the garage): you end up on top of it.
     const p = player.pos;
