@@ -185,8 +185,9 @@ export class Floor {
         },
         remove: (workerId, info) => {
           this.changes?.forget(workerId);
-          // Sent home on a map that locks workers up: into the dungeon with it, for good (a meeting's
-          // workers aren't sent home when it's over, just let go).
+          // Sent home on a map that keeps workers (the castle locks them up, the station puts them out
+          // of its airlock): it's kept, for good (a meeting's workers aren't sent home when it's over,
+          // just let go).
           const jail = info && !info.meeting && ctx.locksUp() ? this.jail.add({ ...info, workedMs: workedMs(info) }) : undefined;
           ctx.emit(this, { t: 'worker.remove', workerId, ...(jail ? { jail } : {}) });
           this.queue?.onWorkerGone(workerId);

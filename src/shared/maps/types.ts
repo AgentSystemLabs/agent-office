@@ -4,15 +4,16 @@ import type { Bounds, Obstacles, Pt, Rect } from '../nav.js';
 /*
  * Maps: what the building looks like inside. The office (world/office/) is built in code and is
  * the default; any other map is plain data, a MapConfig, which planMap (./index.ts) checks and turns
- * into a MapPlan, and a builder for its `style` (the castle's is world/castle/) puts up. A config
- * can come from this folder (the built-in ones, like ./castle.ts) or from a JSON file in the office's
- * `.agent-office/maps/` (see docs/maps.md). Every map places the same seats (the desks, the overflow
- * seats, the board agents' kiosks and the meeting chairs, by id), so workers, the queue and meetings
- * work the same on any of them, and a worker keeps its seat when the building changes maps.
+ * into a MapPlan, and a builder for its `style` (the castle's is world/castle/, the station's
+ * world/station/) puts up. A config can come from this folder (the built-in ones, ./castle.ts and
+ * ./station.ts) or from a JSON file in the office's `.agent-office/maps/` (see docs/maps.md). Every
+ * map places the same seats (the desks, the overflow seats, the board agents' kiosks and the meeting
+ * chairs, by id), so workers, the queue and meetings work the same on any of them, and a worker keeps
+ * its seat when the building changes maps.
  */
 
 /** The styles there's a builder for (the client's world/styles.ts): a map's `style` is one of them. */
-export const MAP_STYLES = ['castle'] as const;
+export const MAP_STYLES = ['castle', 'station'] as const;
 export type MapStyle = (typeof MAP_STYLES)[number];
 
 /** The boards on the walls. */
@@ -108,11 +109,22 @@ export interface DungeonConfig {
 }
 
 /**
+ * An airlock in one of the hall's walls, on a station-style map (see ./airlock.ts): an inner door in
+ * the wall nearest (`x`, `z`), a chamber beyond it, and an outer hatch out into space. Where workers
+ * sent home are blown out, if the map's `sendHome` says so.
+ */
+export interface AirlockConfig {
+  /** Just inside its inner door: the airlock goes in the nearest wall. */
+  x: number;
+  z: number;
+}
+
+/**
  * Somewhere a send-home script can walk to: out through the `door` and away, the top of the dungeon
  * `stairs` or the foot of them down in the `dungeon`, the worker's own `cell` (its door), the
- * escort's `post`, or a spot in the hall (or, `below`, in the dungeon).
+ * `airlock`'s inner door, the escort's `post`, or a spot in the hall (or, `below`, in the dungeon).
  */
-export type SendHomePlace = 'door' | 'stairs' | 'dungeon' | 'cell' | 'post' | { x: number; z: number; below?: boolean };
+export type SendHomePlace = 'door' | 'stairs' | 'dungeon' | 'cell' | 'airlock' | 'post' | { x: number; z: number; below?: boolean };
 
 /**
  * A step of what happens to a worker sent home (see SendHomeConfig.steps and docs/maps.md):
@@ -121,6 +133,7 @@ export type SendHomePlace = 'door' | 'stairs' | 'dungeon' | 'cell' | 'post' | { 
  * - `say`: the worker, or its escort, says something (one of `text`, picked at random).
  * - `walk`: the worker walks `to` somewhere, the escort holding on to it if it has fetched it.
  * - `jail`: it's thrown into its cell, and the door's locked behind it: it's kept there, for good.
+ * - `eject`: it's shoved into the airlock and blown out into space: it's kept out there, adrift, for good.
  * - `leave`: it's gone (shrinking away, wherever it is).
  * - `wait`: a pause, `seconds` long.
  * - `return`: the escort goes back to its post (the worker's done with meanwhile).
@@ -131,6 +144,7 @@ export type SendHomeStep =
   | { do: 'say'; who?: 'worker' | 'escort'; text: string | string[] }
   | { do: 'walk'; to: SendHomePlace; run?: boolean }
   | { do: 'jail' }
+  | { do: 'eject' }
   | { do: 'leave' }
   | { do: 'wait'; seconds: number }
   | { do: 'return' };
@@ -143,10 +157,13 @@ export interface SendHomeConfig {
   /** Who comes for it: stands at `post` (down in the dungeon, with `below`) until a worker's sent home, then goes and gets it. */
   escort?: { name?: string; post: Place & { below?: boolean }; color?: string } | null;
   steps: SendHomeStep[];
-  /** In a cell: hours until it's starved to death (thinner and thinner on the way), and hours after that until it's bare bones. */
+  /** In a cell (or adrift in space): hours until it's starved to death (thinner and thinner on the way), and hours after that until it's bare bones. */
   starveHours?: number;
   rotHours?: number;
 }
+
+/** The colors a map's `palette` can give: a castle's, then a station's. */
+export type PaletteKey = 'stone' | 'floor' | 'carpet' | 'wood' | 'trim' | 'hull' | 'deck' | 'panel' | 'metal' | 'glow';
 
 /** What a map is made of: see docs/maps.md for what each part does and how to write one. */
 export interface MapConfig {
@@ -158,7 +175,7 @@ export interface MapConfig {
   description?: string;
   /** Another map's id to start from: everything given here replaces its part (objects are merged, lists replaced). */
   extends?: string;
-  /** Which builder puts it up: 'castle' is the one there is. */
+  /** Which builder puts it up: 'castle' or 'station' (see MAP_STYLES). */
   style: string;
   /** The room: x from -width/2 to width/2, z from -length/2 to length/2, walls `height` high. */
   hall: { width: number; length: number; height: number };
@@ -182,10 +199,15 @@ export interface MapConfig {
   props?: PropConfig[];
   /** How the workers look here: an outfit, and how many minutes of work until they look worn out (0: they never do). */
   agents?: { outfit?: 'peasant' | 'none'; ageMinutes?: number };
-  /** Colors: CSS colors for the stone, the floor, the carpet, the wood and the trim. */
-  palette?: Partial<Record<'stone' | 'floor' | 'carpet' | 'wood' | 'trim', string>>;
-  /** A dungeon under the hall, with cells to lock workers up in. */
+  /**
+   * Colors, as CSS colors: a castle's stone, floor, carpet, wood and trim; a station's hull, deck,
+   * panel, metal and glow.
+   */
+  palette?: Partial<Record<PaletteKey, string>>;
+  /** A dungeon under the hall, with cells to lock workers up in (a castle's). */
   dungeon?: DungeonConfig | null;
+  /** An airlock in a wall, to blow workers out of (a station's). */
+  airlock?: AirlockConfig | null;
   /** What happens to a worker sent home here: without it, it walks out of the door. */
   sendHome?: SendHomeConfig | null;
 }
@@ -237,6 +259,10 @@ export interface MapPlan {
   agents: { outfit: 'peasant' | 'none'; ageMinutes: number };
   /** The dungeon under the hall, worked out (see ./dungeon.ts). */
   dungeon?: DungeonPlan;
+  /** The airlock in one of the hall's walls, worked out (see ./airlock.ts). */
+  airlock?: AirlockPlan;
+  /** What's cut through the hall's walls, wall by wall (see ./airlock.ts): the way in, the airlock and the windows. */
+  openings?: WallOpening[];
   /** What happens to a worker sent home, checked (see ./dungeon.ts): none, and it walks out of the door. */
   sendHome?: SendHomePlan;
 }
@@ -290,10 +316,37 @@ export interface DungeonPlan {
   obstacles: Obstacles;
 }
 
+/** One of the hall's four walls. */
+export type WallSide = 'west' | 'east' | 'north' | 'south';
+
+/** Something cut through one of the hall's walls: `u` is its middle along the wall (x for a north or south wall, z for the others), `y` its sill. */
+export interface WallOpening {
+  wall: WallSide;
+  kind: 'door' | 'airlock' | 'viewport';
+  u: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** An airlock, worked out from its config: see AirlockConfig. Its chamber is outside the hall, beyond the wall. */
+export interface AirlockPlan {
+  wall: WallSide;
+  /** The way out through it: a step along x or z. */
+  out: Pt;
+  /** The middle of its inner door, in the wall's inside face. */
+  door: Pt;
+  /** Where the escort stops with a worker, in front of the inner door. */
+  front: Pt;
+  /** The middle of the chamber, where a worker waits to be blown out, and the outer hatch at its far end. */
+  chamber: Pt;
+  hatch: Pt;
+}
+
 export interface SendHomePlan {
   escort?: { name: string; color: string; post: Spot & { below: boolean } };
   steps: SendHomeStep[];
-  /** Whoever's sent home is kept, locked up in the dungeon (its steps jail it). */
+  /** Whoever's sent home is kept: locked up in the dungeon (its steps jail it), or adrift outside the airlock (they eject it). */
   keeps: boolean;
   /** How long until someone locked up has starved to death, and after that until they're bare bones (ms). */
   starveMs: number;

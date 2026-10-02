@@ -154,8 +154,9 @@ export const FLAG_INVERSE = 2;
 export const FLAG_DIM = 4;
 
 /**
- * A worker sent home on a map that locks them up (see MapPlan.sendHome): who it was, and when it was
- * locked up, which is how far it has wasted away since.
+ * A worker sent home on a map that keeps them (see MapPlan.sendHome): locked up in the castle's
+ * dungeon, or adrift outside the station's airlock. Who it was, and when it went, which is how far it
+ * has wasted away (and, adrift, how far off it has got) since.
  */
 export interface Prisoner {
   id: string;
@@ -167,7 +168,7 @@ export interface Prisoner {
   workedMs?: number;
 }
 
-/** A floor's dungeon: everyone locked up in it, first to last, and how many from before them are only bones on the heap now. */
+/** Everyone a floor has kept (in its dungeon, or adrift outside its airlock), first to last, and how many from before them are only bones on the heap now. */
 export interface JailState {
   prisoners: Prisoner[];
   bones: number;

@@ -1,18 +1,28 @@
 import { BEANBAGS, BOARDS, DESKS, ELEVATOR, ELEVATOR_CAR, EXIT_DOOR, FLOOR, MEETING_SEATS, SEATING, STATIONS, STATION_AGENT, WALL_HEIGHT, WING_DESKS, seatHere, seatPlace, type DeskDef, type SeatDef, type SeatPlace, type StationKind } from '../layout.js';
 import type { Circle, Rect } from '../nav.js';
+import { planAirlock, wallOpenings } from './airlock.js';
 import { CASTLE } from './castle.js';
 import { MapError, isObj, num, str } from './check.js';
 import { overlaps, planDungeon, planSendHome } from './dungeon.js';
-import { boxFootprint, isPropKind, propFootprint, propTop } from './props.js';
-import { BOARD_KEYS, MAP_STYLES, type BoardDef, type BoardKey, type MapChoice, type MapConfig, type MapPlan, type MapStyle, type TableConfig } from './types.js';
+import { PROP_KINDS, boxFootprint, propFootprint, propTop } from './props.js';
+import { STATION } from './station.js';
+import { STATION_PROP_KINDS, stationFootprint, stationTop } from './station-props.js';
+import { BOARD_KEYS, MAP_STYLES, type BoardDef, type BoardKey, type MapChoice, type MapConfig, type MapPlan, type MapStyle, type PropConfig, type TableConfig } from './types.js';
 
 export * from './types.js';
+export { ADRIFT, AIRLOCK, HATCH, HULL, VIEWPORT, adrift, adriftFrom, wallOut, wallPoint, type Drift } from './airlock.js';
 export { DUNGEON_SLAB, SEND_HOME_STEPS, dungeonClear, levelRoute, prisonSeat, wasting } from './dungeon.js';
 
 /** The office: built in code (world/office/), and what the building is until someone picks another map. */
 export const OFFICE_MAP = 'office';
 /** The maps that come with the office, besides the office itself. */
-export const BUILTIN_MAPS: readonly MapConfig[] = [CASTLE];
+export const BUILTIN_MAPS: readonly MapConfig[] = [CASTLE, STATION];
+
+/** The props each style of map can put up (see ./props.ts and ./station-props.ts): their kinds, the floor each takes and how high it reaches. */
+const STYLE_PROPS: Record<MapStyle, { kinds: Readonly<Record<string, string>>; footprint: typeof propFootprint; top(p: PropConfig): number }> = {
+  castle: { kinds: PROP_KINDS, footprint: propFootprint, top: propTop },
+  station: { kinds: STATION_PROP_KINDS, footprint: stationFootprint, top: stationTop },
+};
 
 const STATION_KINDS: readonly StationKind[] = ['issues', 'pulls', 'queue'];
 /** How far in from a table's edge a seat's place setting is; the worker sits 0.85 out from it (see deskSeat), on the bench. */
@@ -124,6 +134,8 @@ export function planMap(input: unknown): MapPlan {
   if (id === OFFICE_MAP) throw new MapError('"office" is the office’s own id');
   const name = str(c.name, 'name', 40);
   if (!(MAP_STYLES as readonly string[]).includes(c.style)) throw new MapError(`its style "${String(c.style)}" isn’t one there’s a builder for (${MAP_STYLES.join(', ')})`);
+  const style = c.style as MapStyle;
+  const kinds = STYLE_PROPS[style];
   if (!isObj(c.hall)) throw new MapError('it needs a hall: { width, length, height }');
   const width = num(c.hall.width, 'hall.width', 8, 110);
   const length = num(c.hall.length, 'hall.length', 8, 110);
@@ -305,7 +317,7 @@ export function planMap(input: unknown): MapPlan {
   props.forEach((p, i) => {
     const what = `props[${i}]`;
     if (!isObj(p) || typeof p.kind !== 'string') throw new MapError(`${what} should be { kind, x, z }`);
-    if (!isPropKind(p.kind)) throw new MapError(`${what} is a "${p.kind}", which isn’t a kind of prop there is`);
+    if (!Object.hasOwn(kinds.kinds, p.kind)) throw new MapError(`${what} is a "${p.kind}", which isn’t a kind of prop a ${style}-style map has (${Object.keys(kinds.kinds).join(', ')})`);
     inside(num(p.x, `${what}.x`), num(p.z, `${what}.z`), `${what} (a ${p.kind})`, 0);
     // Everything the builder reads, in sizes it can build.
     opt(p.y, `${what}.y`, 0, 100);
@@ -316,15 +328,17 @@ export function planMap(input: unknown): MapPlan {
     opt(p.length, `${what}.length`, 0.3, 120);
     if (p.light !== undefined && typeof p.light !== 'boolean') throw new MapError(`${what}.light should be true or false`);
     // What hangs on a wall, or from the roof, has to fit under the walls' top.
-    const top = propTop(p);
+    const top = kinds.top(p);
     if (top > height) throw new MapError(`props[${i}] (a ${p.kind}) reaches ${top.toFixed(1)} m up, over the hall's ${height} m walls: lower its y, or raise hall.height`);
-    const f = propFootprint(p);
+    const f = kinds.footprint(p);
     if (f?.rect) rects.push(f.rect);
     if (f?.circle) circles.push(f.circle);
   });
   if (props.filter((p) => p.kind === 'gong').length > 1) throw new MapError('it has more than one gong');
 
   // The dungeon under the hall: the hole in the floor over its stairs, with rails round it, has to be clear.
+  if (c.dungeon != null && style === 'station') throw new MapError('a station-style map has no dungeon to dig: take it away ("dungeon": null), and give it an airlock instead');
+  if (c.airlock != null && style !== 'station') throw new MapError('only a station-style map has an airlock');
   const dungeon = c.dungeon == null ? undefined : planDungeon(c.dungeon, bounds);
   if (dungeon) {
     const [x0, x1, z0, z1] = dungeon.rails;
@@ -334,10 +348,13 @@ export function planMap(input: unknown): MapPlan {
   }
 
   if (c.palette != null) {
-    if (!isObj(c.palette)) throw new MapError('palette should be { stone, floor, carpet, wood, trim }');
+    if (!isObj(c.palette)) throw new MapError('palette should be colors by name, like { stone, floor, carpet, wood, trim } for a castle');
     for (const [k, v] of Object.entries(c.palette)) if (typeof v !== 'string' || v.length > 40) throw new MapError(`palette.${k} should be a CSS color`);
   }
   const door = place(c.door, 'door');
+  // A station's walls: the way in, the airlock and the windows cut through them.
+  const airlock = c.airlock == null ? undefined : planAirlock(c.airlock, bounds);
+  const openings = style === 'station' ? wallOpenings(c, bounds, height, airlock) : undefined;
   const spawn = c.spawn ? place(c.spawn, 'spawn') : { x: door.x, z: door.z, rotY: Math.atan2(-door.x, -door.z) };
   // Where people and workers stand has to be clear of what's in the way (the herald's own spot aside).
   const free = (x: number, z: number) => !rects.some(([x0, x1, z0, z1]) => x > x0 && x < x1 && z > z0 && z < z1) && !circles.some((o) => o !== heraldAt && Math.hypot(x - o[0], z - o[1]) < o[2]);
@@ -349,7 +366,8 @@ export function planMap(input: unknown): MapPlan {
   clear(spawn.x, spawn.z, 'spawn');
   clear(door.x, door.z, 'door');
   if (dungeon) clear(dungeon.stairs.top[0], dungeon.stairs.top[1], 'the way onto the dungeon stairs');
-  const sendHome = planSendHome(c.sendHome, bounds, free, dungeon);
+  if (airlock) clear(airlock.front[0], airlock.front[1], 'the way up to the airlock');
+  const sendHome = planSendHome(c.sendHome, bounds, free, dungeon, airlock);
   const outfit = c.agents?.outfit === 'peasant' ? 'peasant' : 'none';
   const ageMinutes = c.agents?.ageMinutes === undefined ? 0 : num(c.agents.ageMinutes, 'agents.ageMinutes', 0, 100000);
   const byId = new Map([...desks, ...overflow, ...stations, ...meeting].map((d) => [d.id, d]));
@@ -359,7 +377,7 @@ export function planMap(input: unknown): MapPlan {
     name,
     icon: typeof c.icon === 'string' && c.icon.trim() ? c.icon.trim().slice(0, 8) : '🗺️',
     description: typeof c.description === 'string' ? c.description.slice(0, 400) : '',
-    style: c.style as MapStyle,
+    style,
     config: c,
     bounds,
     height,
@@ -382,6 +400,8 @@ export function planMap(input: unknown): MapPlan {
     obstacles: { rects, circles },
     agents: { outfit, ageMinutes },
     ...(dungeon ? { dungeon } : {}),
+    ...(airlock ? { airlock } : {}),
+    ...(openings ? { openings } : {}),
     ...(sendHome ? { sendHome } : {}),
   };
 }

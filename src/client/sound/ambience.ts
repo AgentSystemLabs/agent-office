@@ -135,8 +135,8 @@ export function birdsong(a: AudioCore): NowAndThen {
     () => (Math.random() < 0.35 ? rand(1.5, 4) : rand(12, 35)),
     (now) => {
       const { rain, night } = a.weather;
-      // Birds sing by day, and not in the rain.
-      if (night < 0.5 && rain < 0.1) birds(a, now);
+      // Birds sing by day, and not in the rain (or out in space).
+      if (night < 0.5 && rain < 0.1 && !a.hall?.vacuum) birds(a, now);
     },
   );
 }
@@ -148,7 +148,7 @@ export function nightCrickets(a: AudioCore): NowAndThen {
     () => rand(3, 8),
     (now) => {
       const { rain, night } = a.weather;
-      if (night > 0.6 && rain < 0.05) crickets(a, now);
+      if (night > 0.6 && rain < 0.05 && !a.hall?.vacuum) crickets(a, now);
     },
   );
 }

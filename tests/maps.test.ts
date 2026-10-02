@@ -3,9 +3,10 @@ import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { CASTLE } from '../src/shared/maps/castle.js';
+import { STATION } from '../src/shared/maps/station.js';
 import { DESK_BY_ID } from '../src/shared/layout.js';
 import { NavGrid, pathLength } from '../src/shared/nav.js';
-import { BUILTIN_MAPS, DEFAULT_DAIS, OFFICE_PLAN, checkCustomMaps, mapChoices, planMap, planOf, seatHereOn } from '../src/shared/maps/index.js';
+import { BUILTIN_MAPS, DEFAULT_DAIS, OFFICE_PLAN, checkCustomMaps, mapChoices, planMap, planOf, seatHereOn, type MapConfig } from '../src/shared/maps/index.js';
 import { clockWork, workedMs } from '../src/server/workers.js';
 import type { WorkerInfo } from '../src/shared/protocol.js';
 
@@ -162,26 +163,31 @@ function rounded(v: unknown): unknown {
   return v;
 }
 
-/** The castle as a map of your own: its own id, one table or prop a line. */
-function castleJson(): string {
-  const { tables, props, ...rest } = rounded({ ...CASTLE, id: 'my-castle', name: 'My castle', description: 'A copy of the castle, to make your own.' }) as typeof CASTLE;
+/** A built-in map as a map of your own: its own id, one table or prop a line. */
+function mapJson(map: MapConfig, id: string, name: string): string {
+  const { tables, props, ...rest } = rounded({ ...map, id, name, description: `A copy of the ${map.name.toLowerCase()}, to make your own.` }) as MapConfig;
   const list = (xs: unknown[]) => `[\n${xs.map((x) => `    ${JSON.stringify(x)}`).join(',\n')}\n  ]`;
   return `${JSON.stringify({ ...rest, tables: '@tables', props: '@props' }, null, 2).replace('"@tables"', list(tables)).replace('"@props"', list(props ?? []))}\n`;
 }
 
-test('docs/maps/castle.json is the castle, ready to copy into .agent-office/maps/ and change', () => {
-  const file = path.join(import.meta.dirname, '..', 'docs', 'maps', 'castle.json');
-  const want = castleJson();
-  // After changing the castle: UPDATE_CASTLE_JSON=1 node --import tsx --test tests/maps.test.ts
-  if (process.env.UPDATE_CASTLE_JSON) writeFileSync(file, want);
-  assert.equal(readFileSync(file, 'utf8'), want, 'docs/maps/castle.json is out of date: write it again with UPDATE_CASTLE_JSON=1');
-  const [mine] = checkCustomMaps([{ file: 'castle.json', json: JSON.parse(want) }]);
-  assert.equal(mine.error, undefined);
-  const plan = planOf('my-castle', [mine]);
-  const castle = planOf('castle');
-  assert.equal(plan.desks.length, castle.desks.length);
-  for (const d of plan.desks) assert.ok(Math.abs(d.x - castle.byId.get(d.id)!.x) < 1e-3 && Math.abs(d.z - castle.byId.get(d.id)!.z) < 1e-3, `${d.id} is where the castle has it`);
-});
+for (const [map, id, name] of [
+  [CASTLE, 'my-castle', 'My castle'],
+  [STATION, 'my-station', 'My station'],
+] as const) {
+  test(`docs/maps/${map.id}.json is the ${map.name.toLowerCase()}, ready to copy into .agent-office/maps/ and change`, () => {
+    const file = path.join(import.meta.dirname, '..', 'docs', 'maps', `${map.id}.json`);
+    const want = mapJson(map, id, name);
+    // After changing the castle or the station: UPDATE_CASTLE_JSON=1 node --import tsx --test tests/maps.test.ts
+    if (process.env.UPDATE_CASTLE_JSON) writeFileSync(file, want);
+    assert.equal(readFileSync(file, 'utf8'), want, `docs/maps/${map.id}.json is out of date: write it again with UPDATE_CASTLE_JSON=1`);
+    const [mine] = checkCustomMaps([{ file: `${map.id}.json`, json: JSON.parse(want) }]);
+    assert.equal(mine.error, undefined);
+    const plan = planOf(id, [mine]);
+    const builtin = planOf(map.id);
+    assert.equal(plan.desks.length, builtin.desks.length);
+    for (const d of plan.desks) assert.ok(Math.abs(d.x - builtin.byId.get(d.id)!.x) < 1e-3 && Math.abs(d.z - builtin.byId.get(d.id)!.z) < 1e-3, `${d.id} is where the ${map.id} has it`);
+  });
+}
 
 test('every map in docs/maps.md loads', () => {
   const doc = readFileSync(path.join(import.meta.dirname, '..', 'docs', 'maps.md'), 'utf8');
