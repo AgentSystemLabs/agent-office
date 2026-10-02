@@ -116,4 +116,6 @@ export function installGong(ctx: Ctx, deps: GongDeps) {
       }, 1700);
     }
   }
+
+  return { danceParty };
 }

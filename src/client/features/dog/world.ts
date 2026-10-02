@@ -6,7 +6,7 @@ import { dogAntlers, dogBatWings, dogRedNose, dogScarf, dogWitchHat } from '../.
 import { loadModel, type Model } from '../../world/models';
 import type { Interactable } from '../../world/types';
 import { disposeSprite, textSprite, toon, toonUnique } from '../../world/toon';
-
+import { DogDance } from './dance';
 export interface DogSounds {
   bark(x: number, z: number, times: number): void;
   /** A happy little yip, when someone pets it. */
@@ -171,6 +171,8 @@ export class Dog {
   /** Seconds since the last woof, for the jaw and the hop. */
   private woofT = 9;
   private t = 0;
+  /** How it dances at a /party (see DogDance), over the little hop it gives with each woof. */
+  readonly dance = new DogDance();
   private placed = false;
   /** Dressed up for a holiday (see setCostume): what it's wearing, its bat wings, and Rudolph's nose. */
   private costume: Theme | null = null;
@@ -494,9 +496,7 @@ export class Dog {
     this.eyes += ((act === 'nap' ? 0 : 1) - this.eyes) * k;
     const t = this.t;
     const moving = act === 'walk' || act === 'run';
-
-    // A little hop with each woof.
-    this.body.position.y = this.woofT < 0.25 ? Math.sin((this.woofT / 0.25) * Math.PI) * 0.05 : 0;
+    if (this.dance.pose(this.body, moving, act === 'nap', this.woofT < 0.25 ? Math.sin((this.woofT / 0.25) * Math.PI) * 0.05 : 0, dt, t)) act = 'wag';
     if (rig) {
       this.play(rig, dt, act, speed, snap);
       // The clips hold the jaw and eyes still, and the mixer only writes what changed since the last
