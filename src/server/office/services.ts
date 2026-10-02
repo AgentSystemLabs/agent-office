@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { childEnv, resolveCommand } from '../workers.js';
 import { SignIns } from '../signins.js';
 import { agentProviders, configuredProvider } from '../agents.js';
@@ -24,7 +25,7 @@ import type { Client } from './client.js';
 export function createServices(ctx: Ctx): BuildingServices {
   const { cfg, accounts, clients, floors } = ctx;
   // Day, night and the weather outside the windows, the same for everyone.
-  const sky = new Sky({ city: cfg.city, weather: cfg.weather }, (state) => ctx.broadcast({ t: 'sky', state }));
+  const sky = new Sky({ city: cfg.city, weather: cfg.weather, realTime: cfg.realTimeSky, placeFile: path.join(cfg.dataDir, 'sky-place.json'), clockFile: path.join(cfg.dataDir, 'sky-clock.json') }, (state) => ctx.broadcast({ t: 'sky', state }));
   sky.start();
   // Halloween or Christmas all over the building, the same for everyone (⚙️ Settings). On 'auto' it
   // goes by the calendar at the office, the sky's clock.

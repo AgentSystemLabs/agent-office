@@ -59,6 +59,8 @@ export interface Config {
   city?: string;
   /** Weather pinned for good, instead of made up or forecast. */
   weather?: Weather;
+  /** The sky keeps real time (a day a day), instead of a whole day and night every hour. */
+  realTimeSky: boolean;
 }
 
 export interface RTCIceServerLike {
@@ -154,6 +156,10 @@ Options:
                           whole day and night go by every hour
       --weather <kind>    Pin the weather: clear, cloudy, rain, storm, snow or
                           fog (env AGENT_OFFICE_WEATHER)
+      --real-time-sky     Start the sky on the office's real clock, so it's night when
+                          it's night there, instead of a day and night every hour
+                          (⚙️ Settings can switch it)
+                          (env AGENT_OFFICE_SKY_CLOCK=real)
   -h, --help              Show this help
 
 Started in a terminal, the office opens in your browser already signed in, with
@@ -233,6 +239,7 @@ export function loadConfig(argv: string[]): Config {
   let webhook = process.env.AGENT_OFFICE_WEBHOOK;
   let city = process.env.AGENT_OFFICE_CITY || '';
   let weather = process.env.AGENT_OFFICE_WEATHER || '';
+  let realTimeSky = process.env.AGENT_OFFICE_SKY_CLOCK === 'real';
   const iceServers: RTCIceServerLike[] = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }];
 
   for (let i = 0; i < argv.length; i++) {
@@ -312,6 +319,9 @@ export function loadConfig(argv: string[]): Config {
         break;
       case '--weather':
         weather = takeValue(argv, i++, a);
+        break;
+      case '--real-time-sky':
+        realTimeSky = true;
         break;
       default:
         if (a.startsWith('-')) {
@@ -449,6 +459,7 @@ export function loadConfig(argv: string[]): Config {
     webhook,
     city: city.trim() || undefined,
     weather: (weather as Weather) || undefined,
+    realTimeSky,
   };
 }
 

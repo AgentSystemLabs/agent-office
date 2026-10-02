@@ -55,6 +55,7 @@ import { installPeers } from './features/peers';
 import { installRooftop } from './features/rooftop';
 import { installSeating } from './features/seating';
 import { installSmoke } from './features/smoke';
+import { installLamplight } from './features/lamplight';
 import { installTelescope } from './features/telescope';
 import { installTv } from './features/tv';
 import { installVoice } from './features/voice';
@@ -152,6 +153,7 @@ installHerald(ctx, parts);
 parts.bar = installBar(ctx, { roof: parts.rooftop.roof, djAt: parts.rooftop.djAt, reach });
 parts.coffee = installCoffee(ctx);
 parts.smoking = installSmoke(ctx);
+installLamplight(ctx, parts);
 parts.hoops = installBasketball(ctx, { remotes: parts.peers.remotes, reach });
 parts.cards = installCarrying(ctx, {
   hold: (card) => void (core.carrying = card),

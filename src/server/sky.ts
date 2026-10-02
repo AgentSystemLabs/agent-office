@@ -1,3 +1,4 @@
+import { readFileSync, writeFileSync } from 'node:fs';
 import type { SkyState, Weather } from '../shared/protocol.js';
 import { guessPlace } from '../shared/sun.js';
 
@@ -7,7 +8,8 @@ import { guessPlace } from '../shared/sun.js';
 // spell after another, with snow only in winter. --weather pins it either way.
 
 const FORECAST_MS = 15 * 60_000;
-const RETRY_MS = 2 * 60_000;
+/** After a forecast that didn't come: soon at first (a network still waking up), then every couple of minutes. */
+const RETRY_MS = [15_000, 30_000, 60_000, 2 * 60_000];
 const GEOCODE = 'https://geocoding-api.open-meteo.com/v1/search';
 const FORECAST = 'https://api.open-meteo.com/v1/forecast';
 
@@ -105,15 +107,36 @@ export class Sky {
   private place: Place | null = null;
   /** Whether we've said the forecast is missing, so a flaky network doesn't flood the log. */
   private warned = false;
+  /** Forecasts missed in a row (see RETRY_MS). */
+  private misses = 0;
+  /** The sky keeps the real time of day, not a day every hour (see setClock). */
+  private realTime: boolean;
 
   constructor(
-    private opts: { city?: string; weather?: Weather },
+    private opts: { city?: string; weather?: Weather; realTime?: boolean; placeFile?: string; clockFile?: string },
     private onChange: (state: SkyState) => void,
   ) {
+    this.realTime = this.savedClock() ?? !!opts.realTime;
     const now = new Date();
     const here = guessPlace(now);
     const weather = opts.weather ? pinned(opts.weather) : opts.city ? pinned('clear') : wander(null, now.getMonth(), here.lat < 0);
-    this.state = { ...here, utcOffset: -now.getTimezoneOffset(), ...weather };
+    // The city where the last forecast put it, so a restart is already there before the next one comes.
+    const known = opts.city ? this.knownPlace(opts.city) : undefined;
+    this.state = known
+      ? { lat: known.lat, lon: known.lon, utcOffset: known.utcOffset, ...weather, city: known.name, ...(this.realTime ? { realTime: true } : {}) }
+      : { ...here, utcOffset: -now.getTimezoneOffset(), ...weather, ...(this.realTime ? { realTime: true } : {}) };
+    if (known) this.place = { lat: known.lat, lon: known.lon, name: known.name };
+  }
+
+  /** Where the last forecast for `city` put it (see placeFile), if it's that city. */
+  private knownPlace(city: string): { lat: number; lon: number; name: string; utcOffset: number } | undefined {
+    if (!this.opts.placeFile) return undefined;
+    try {
+      const p = JSON.parse(readFileSync(this.opts.placeFile, 'utf8'));
+      return p?.city === city && [p.lat, p.lon, p.utcOffset].every(Number.isFinite) && typeof p.name === 'string' ? p : undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   start() {
@@ -132,7 +155,35 @@ export class Sky {
     this.timer.unref();
   }
 
+  /**
+   * Which clock the sky keeps, picked in ⚙️ Settings: the real time of day (true), or a whole day and
+   * night every hour. Kept in clockFile, so it outlasts a restart; until someone picks, --real-time-sky says.
+   */
+  setClock(real: boolean) {
+    this.realTime = real;
+    if (this.opts.clockFile) {
+      try {
+        writeFileSync(this.opts.clockFile, JSON.stringify({ realTime: real }));
+      } catch {
+        // It still changes for now.
+      }
+    }
+    this.set({ ...this.state });
+  }
+
+  private savedClock(): boolean | undefined {
+    if (!this.opts.clockFile) return undefined;
+    try {
+      const saved = JSON.parse(readFileSync(this.opts.clockFile, 'utf8'));
+      return typeof saved?.realTime === 'boolean' ? saved.realTime : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
   private set(next: SkyState) {
+    const { realTime: _, ...rest } = next;
+    next = this.realTime ? { ...rest, realTime: true } : rest;
     if (JSON.stringify(next) === JSON.stringify(this.state)) return;
     this.state = next;
     this.onChange(next);
@@ -164,12 +215,23 @@ export class Sky {
       const temp = Number(f.current.temperature_2m);
       const utcOffset = Number.isFinite(f.utc_offset_seconds) ? Math.round(f.utc_offset_seconds / 60) : this.state.utcOffset;
       this.set({ lat, lon, utcOffset, ...weather, city: name, temp: Number.isFinite(temp) ? Math.round(temp) : undefined });
+      if (this.warned) console.log(`agent-office: the weather for ${name} came through`);
       this.warned = false;
+      this.misses = 0;
+      if (this.opts.placeFile) {
+        try {
+          writeFileSync(this.opts.placeFile, JSON.stringify({ city, lat, lon, name, utcOffset }));
+        } catch {
+          // Only a head start for the next restart.
+        }
+      }
       this.later(FORECAST_MS, () => void this.forecast());
     } catch (err) {
-      if (!this.warned) console.warn(`agent-office: no weather for ${city} yet (${(err as Error).message}); trying again in a couple of minutes`);
+      const e = err as Error & { cause?: { code?: string; message?: string } };
+      const why = [e.message, e.cause?.code ?? e.cause?.message].filter(Boolean).join(': ');
+      if (!this.warned) console.warn(`agent-office: no weather for ${city} yet (${why}); trying again shortly`);
       this.warned = true;
-      this.later(RETRY_MS, () => void this.forecast());
+      this.later(RETRY_MS[Math.min(this.misses++, RETRY_MS.length - 1)], () => void this.forecast());
     }
   }
 }

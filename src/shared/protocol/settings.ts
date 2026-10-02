@@ -127,6 +127,8 @@ export interface SkyState {
   city?: string;
   /** °C, from the forecast. */
   temp?: number;
+  /** The sky keeps the office's real clock (--real-time-sky), instead of a whole day going by every hour. */
+  realTime?: boolean;
 }
 
 /** A holiday the whole building dresses up for (see shared/theme.ts). */
@@ -179,6 +181,8 @@ export type SettingsClientMsg =
   | { t: 'upgrade.start' }
   /** Dress the building up for a holiday, take the decorations down ('off'), or follow the calendar ('auto'). */
   | { t: 'theme.set'; pick: ThemePick }
+  /** The sky on the real clock (true), or a whole day and night every hour (false), for everyone. */
+  | { t: 'sky.clock'; real: boolean }
   /** Change the building's map (see MapState), or with no map, read the custom maps' folder again. */
   | { t: 'map.set'; map?: string }
   /** Workers whose pull request merged go home by themselves (true), or wait to be sent home. */

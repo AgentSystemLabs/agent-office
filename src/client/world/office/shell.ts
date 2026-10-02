@@ -216,6 +216,8 @@ export function buildWalls(group: THREE.Group, colliders: Collider[], openings: 
       m.position.copy(at((u0 + u1) / 2, (y0 + y1) / 2));
       m.castShadow = y1 <= SHADE_HEIGHT;
       m.receiveShadow = true;
+      // Indoors, walls stop taking shadows (see features/lamplight): the lamps overhead would cast them down the wall from whatever hangs there.
+      m.userData.wall = true;
       group.add(m);
     };
     // Baseboard and collider run between the doors.
@@ -261,6 +263,7 @@ export function exitPlug(looks: Looks): { group: THREE.Group; collider: Collider
   const wall = new THREE.Mesh(box(WALL_T, o.y1 - o.y0, o.width), mats);
   wall.position.set(at.x, (o.y0 + o.y1) / 2, at.z);
   wall.receiveShadow = true;
+  wall.userData.wall = true;
   group.add(wall);
   group.add(mesh(box(WALL_T + 0.04, 0.25, o.width), looks.trim, at.x, 0.125, at.z, false));
   group.visible = false;
@@ -292,6 +295,7 @@ export function wallRun(into: THREE.Group, cols: Collider[], axis: 'x' | 'z', at
     m.position.set(axis === 'x' ? u : at, (y0 + y1) / 2, axis === 'x' ? at : u);
     m.castShadow = y1 <= SHADE_HEIGHT;
     m.receiveShadow = true;
+    m.userData.wall = true;
     into.add(m);
   };
   let u = u0;
