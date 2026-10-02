@@ -28,6 +28,7 @@ import { cellDoor, thud } from '../features/workers/sound';
 import { golf, type GolfSound } from '../features/golf/sound';
 import { gong } from '../features/gong/sound';
 import { Jukebox, type JukeboxPlay } from '../features/jukebox/sound';
+import { needsYou } from '../features/needsyou/sound';
 import type { Pos } from './places';
 import { Footsteps, pageTurn, paper } from './steps';
 import { toss, type TossSound } from '../features/bargames/sound';
@@ -259,6 +260,11 @@ export class OfficeSound {
 
   ding(kind: 'done' | 'needs_input') {
     ding(this.a, kind);
+  }
+
+  /** The alarm for a worker that needs you, or (`again`) the soft reminder while it still does. */
+  needsYou(again = false) {
+    needsYou(this.a, again);
   }
 
   // ---- The rooftop bar (features/bar) -------------------------------------------------------------

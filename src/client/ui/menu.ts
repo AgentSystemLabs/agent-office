@@ -101,6 +101,7 @@ export function mountHud(actions: HudAction[], settings: Settings, save: () => v
       {
         type: 'button',
         class: classOf(a, blocked),
+        'data-action': a.id,
         'aria-label': labelOf(a),
         title: blocked ?? a.title?.() ?? `${labelOf(a)}${keyOf(a) ? ` (${keyOf(a)})` : ''}`,
         onclick: () => a.run(),
