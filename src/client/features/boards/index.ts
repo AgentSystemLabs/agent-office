@@ -1,7 +1,7 @@
 /**
- * The boards on the walls: the issues board (less the cards someone's carrying around), the PR board,
- * the services board, the task queue, the machine monitor and the meeting room's two. What E does at
- * each is defined with it.
+ * The boards on the walls: the issues board (the open issues nobody has started on, less the cards
+ * someone's carrying around), the PR board, the services board, the task queue, the machine monitor
+ * and the meeting room's two. What E does at each is defined with it.
  */
 import type * as THREE from 'three';
 import type { GhIssue } from '../../../shared/protocol';
@@ -9,6 +9,7 @@ import type { Ctx } from '../../core/context';
 import { aside, boardHint, hintTitle, key, onE } from '../../core/hint';
 import { store, type Topic } from '../../state';
 import { openBoard } from '../../ui/boards';
+import { inProgress } from '../../ui/github/progress';
 import type { BoardActions } from '../../ui/github/prompts';
 import { clip } from '../../ui/dom';
 import { openIssue } from '../../ui/pull';
@@ -63,11 +64,13 @@ export function installBoards(ctx: Ctx, deps: BoardsDeps) {
     return off;
   }
   const issuesTex = new BoardTexture('issues');
+  // The cork holds the issues nobody has started on: one that's in progress comes off it, as a closed one does.
   const renderIssuesBoard = () => {
     const off = offBoard();
-    issuesTex.render(off.size ? { ...store.issues, items: store.issues.items.filter((i) => !off.has(i.number)) } : store.issues);
+    issuesTex.render({ ...store.issues, items: store.issues.items.filter((i) => !off.has(i.number) && !inProgress(i, store.taskForIssue(i.number))) });
   };
-  mountBoard(office.boardMeshes.issues, issuesTex.texture, renderIssuesBoard, ['issues']);
+  // The queue too: a task that starts running takes its issue off the board before GitHub says it's assigned.
+  mountBoard(office.boardMeshes.issues, issuesTex.texture, renderIssuesBoard, ['issues', 'queue']);
   let carriedOff = '';
   store.on('peers', () => {
     const k = [...offBoard()].join(',');

@@ -1,5 +1,6 @@
 import { chmodSync, mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import type { AgentEffort } from '../shared/providers.js';
 
 export const CODEX_HOOK_EVENTS = [
   'SessionStart',
@@ -97,6 +98,23 @@ export function codexHookArgs(hookPath: string): string[] {
     args.push('-c', config);
   }
   return args;
+}
+
+/**
+ * A worker's own model and reasoning effort on Codex's command line. Codex takes --model only once,
+ * so one the office's --agent-args set gives way to the worker's; the effort is a config override,
+ * and the last of those wins.
+ */
+export function codexModelArgs(args: string[], model?: string, effort?: AgentEffort): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (model && (arg === '-m' || arg === '--model')) i++;
+    else if (!model || !(arg.startsWith('--model=') || /^-m./.test(arg))) out.push(arg);
+  }
+  if (model) out.push('--model', model);
+  if (effort) out.push('-c', `model_reasoning_effort=${JSON.stringify(effort)}`);
+  return out;
 }
 
 /** Write the stable, self-contained helper invoked by Codex's native command hooks. */

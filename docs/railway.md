@@ -48,7 +48,7 @@ The office listens on `127.0.0.1:4600` inside its container, and everyone reache
 ssh -L 4600:localhost:4600 ssh://office@zephyr.proxy.rlwy.net:17738
 ```
 
-They leave it running, open http://localhost:4600 and sign in. Their keys log in as the `office` user, which can **only** forward to the office's port: no shell, no other ports, no `-R`. Railway's TCP proxy answers any IP, but sshd accepts only your key and invited keys, and never a password. **🌐 Services** tunnels to workers' web servers work the same way (`deploy/railway.sh service 5173` for you).
+They leave it running, open http://localhost:4600 and sign in. Their keys log in as the `office` user, which can **only** forward to the office's port: no shell, no other ports, no `-R`. Railway's TCP proxy answers any IP, but sshd accepts only your key and invited keys, and never a password. **🌐 Services** tunnels to workers' web servers work the same way (`deploy/railway.sh service 5173` for you), and [`agent-office tunnel`](tunnel.md) opens every one of them on your computer by itself.
 
 ```bash
 deploy/railway.sh open                 # tunnel + open the office in your browser
@@ -73,4 +73,4 @@ deploy/railway.sh ssh | logs           # a shell in the container / follow the o
 
 **Cost.** Railway bills the container's CPU and memory while it runs, plus the volume. Nothing pauses by itself: `deploy/railway.sh destroy` is how to stop paying. It deletes the project with the volume and everything on it; the office stops at once, and Railway purges the project a couple of days later.
 
-**Any other Docker host.** The image isn't Railway-specific: [`deploy/fly.sh`](fly.md) runs it on Fly.io and [`deploy/dokploy.sh`](dokploy.md) on Dokploy. Build it from the repository root with `docker build -f deploy/container/Dockerfile .`, mount a volume on `/data`, publish port 22, and set `AGENT_OFFICE_ADMIN_KEYS` (your public key), `AGENT_OFFICE_CLAIM_TOKEN` (any random string: open `/claim?t=<it>` through the tunnel) and `AGENT_OFFICE_PUBLIC_HOST` (`host:port` teammates SSH to).
+**Any other Docker host.** The image isn't Railway-specific: [`deploy/fly.sh`](fly.md) runs it on Fly.io, [`deploy/dokploy.sh`](dokploy.md) on Dokploy and [`deploy/coolify.sh`](coolify.md) on Coolify. Build it from the repository root with `docker build -f deploy/container/Dockerfile .`, mount a volume on `/data`, publish port 22, and set `AGENT_OFFICE_ADMIN_KEYS` (your public key), `AGENT_OFFICE_CLAIM_TOKEN` (any random string: open `/claim?t=<it>` through the tunnel) and `AGENT_OFFICE_PUBLIC_HOST` (`host:port` teammates SSH to).

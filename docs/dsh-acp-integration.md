@@ -108,7 +108,7 @@ and the adapters are both keyed by `AgentProvider`):
 
 | Piece | File |
 |---|---|
-| Its id in `AGENT_PROVIDERS`, and its row in `PROVIDER_META`: its label, its executable, which models and efforts it takes, and how its spend shows | `src/shared/providers.ts` (the wire types re-export it from `src/shared/protocol/agents.ts`) |
+| Its id in `AGENT_PROVIDERS`, and its row in `PROVIDER_META`: its label, its executable, which models and efforts it takes, how the hire dialog asks for its model (`models`), and how its spend shows | `src/shared/providers.ts` (the wire types re-export it from `src/shared/protocol/agents.ts`) |
 | Its adapter, a `ProviderAdapter`: how it's launched, its hook route, what its screen says, how its usage is read | a new `src/server/providers/<id>.ts` |
 | Its entry in `PROVIDERS` | `src/server/providers/index.ts` |
 
@@ -120,15 +120,21 @@ Everything else reads those, and needs no change of its own:
   `src/server/agents.ts`, which the queue and meetings use too) and which providers a floor offers
   (`agentProviders`, in the same file) go by the table.
 - So do the client's labels, badges, usage states and notes (`src/client/ui/provider.ts`, which
-  `terminal.ts`, `workers-panel.ts`, `queue.ts` and `usage.ts` beside it use).
+  `terminal.ts`, `workers-panel.ts`, `queue.ts` and `usage.ts` beside it use), and the hire
+  dialog's model and effort fields (`agentFields` there): a provider's `models` says whether its
+  model is picked from a list or typed, and `takesEffort` gives it an effort.
+- A provider whose CLI lists its models (`models.catalog`) also gets a lister in `MODEL_LISTERS`
+  (`src/server/models.ts`), which `GET /api/agents/<id>/models` serves; a test checks the two agree.
 - An adapter with a `hook` gets its route, `/hooks/<id>`, on the loopback hook server
   (`src/server/hooks/server.ts`).
+- An adapter whose CLI only reads its settings from the folder it runs in (Cursor's
+  `.cursor/hooks.json`) is handed that folder at `launch`, and is told by `exited` when the run is
+  over (the process ended, the worker was sent home, or the office stopped), to take them out again.
 
 Hook helpers longer than a few lines (a settings file, a plugin, a payload parser) go in a module
-of their own that the adapter imports, as `src/server/codex.ts` and `src/server/grok.ts` do. Two
-places still name providers one by one: the hire dialog's model and effort fields
-(`providerPicker` in `src/client/ui/provider.ts`), and the wording of `usageLabel` and
-`usageTitle` in `src/client/ui/usage.ts`.
+of their own that the adapter imports, as `src/server/codex.ts` and `src/server/grok.ts` do. One
+place still names providers one by one: the wording of `usageLabel` and `usageTitle` in
+`src/client/ui/usage.ts`.
 
 Two validation rules need real changes rather than a new case:
 

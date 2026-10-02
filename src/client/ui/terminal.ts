@@ -11,9 +11,10 @@ import type { ServerMsg, WorkerInfo } from '../../shared/protocol';
 import { isAsleep } from '../../shared/status';
 import { findLine } from '../../shared/search';
 import { DROP_MAX_BYTES, droppedPaths } from '../../shared/drops';
-import { providerLabel, providerUsageNote, providerUsageState, providerWaitingLabel, resolvedProvider } from './provider';
+import { engineLabel, providerUsageNote, providerUsageState, providerWaitingLabel, resolvedProvider } from './provider';
 import { naturalKey } from './termkeys';
 import { termTabs } from './termtabs';
+import { dictateField, dictation } from './dictate';
 
 /** A line to scroll to once the terminal has loaded: a search hit (see search.ts). */
 export interface TerminalFind {
@@ -107,7 +108,7 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void,
   if (!info) return;
 
   const dot = h('span.dot', { style: `background:${info.color}` });
-  const title = h('h2', {}, info.kind === 'agent' ? `${providerLabel(info.provider, store.project)} · ${info.name}` : info.name);
+  const title = h('h2', {}, info.kind === 'agent' ? `${engineLabel(info, store.project)} · ${info.name}` : info.name);
   const pill = h('span.pill', {}, '');
   const cost = h('span.cost', {});
   const viewers = h('div.viewers', {});
@@ -130,11 +131,24 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void,
   const keys = h('div.term-keys', { role: 'group', 'aria-label': 'Keys' });
   const say = h('input', { type: 'text', placeholder: 'Reply, or tell it what to do next…', 'aria-label': 'Prompt', enterkeyhint: 'send', autocomplete: 'off' }) as HTMLInputElement;
   const sayBtn = h('button.btn.primary', { type: 'submit' }, 'Send');
-  const sayForm = h('form.term-say', {}, say, sayBtn);
+  const sayForm = h('form.term-say', {}, dictateField(say), sayBtn);
   const keypad = opts.keypad ? h('div.term-keypad', {}, keys, sayForm) : null;
   const tabs = termTabs(workerId, { host, keypad, focusTerm: () => term.focus() });
-  // The keypad has an Esc of its own.
-  const el = h('div.modal.term', { role: 'dialog', 'aria-label': `${info.name} terminal` }, h('header', {}, dot, title, pill, cost, viewers, typed, modelsBtn, keypad ? null : escBtn, onChanges ? changesBtn : null, closeBtn), tabs.bar, host, tabs.pages, keypad);
+  // What you say is typed in at the terminal's cursor, as a paste, for you to read over and send (see dictate.ts).
+  const mic = dictation(
+    {
+      off: () => !ready || isAsleep(store.workers.get(workerId)?.status ?? 'exited'),
+      insert: (text) => {
+        sendSize(true);
+        sayTyping();
+        term.paste(`${text} `);
+      },
+    },
+    { label: 'Dictate' },
+  );
+  host.append(mic.live);
+  // The keypad has an Esc of its own, and a 🎤 on its prompt box.
+  const el = h('div.modal.term', { role: 'dialog', 'aria-label': `${info.name} terminal` }, h('header', {}, dot, title, pill, cost, viewers, typed, modelsBtn, keypad ? null : mic.button, keypad ? null : escBtn, onChanges ? changesBtn : null, closeBtn), tabs.bar, host, tabs.pages, keypad);
 
   const term = new Terminal({
     fontFamily: 'ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
@@ -238,7 +252,7 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void,
       modal.close();
       return;
     }
-    title.textContent = [w.kind === 'agent' ? providerLabel(w.provider, store.project) : null, w.name, w.title, w.worktree && `🌿 ${w.worktree.branch}`, w.repos?.length && `🗂️ ${[w.worktree?.path.split(/[\\/]/).pop(), ...w.repos.map((r) => r.name)].join(' + ')}`].filter(Boolean).join(' · ');
+    title.textContent = [w.kind === 'agent' ? engineLabel(w, store.project) : null, w.name, w.title, w.worktree && `🌿 ${w.worktree.branch}`, w.repos?.length && `🗂️ ${[w.worktree?.path.split(/[\\/]/).pop(), ...w.repos.map((r) => r.name)].join(' + ')}`].filter(Boolean).join(' · ');
     pill.className = `pill ${w.status}`;
     pill.textContent = STATUS_LABEL[w.status] ?? w.status;
     const workerProvider = w.kind === 'agent' ? resolvedProvider(w.provider, store.project) : undefined;
@@ -251,6 +265,7 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void,
     modelsBtn.classList.toggle('hidden', !openCode);
     modelsBtn.toggleAttribute('disabled', !openCode || !ready || isAsleep(w.status));
     escBtn.toggleAttribute('disabled', !ready || isAsleep(w.status));
+    mic.button?.toggleAttribute('disabled', !ready || isAsleep(w.status));
     for (const b of keys.children) b.toggleAttribute('disabled', !ready || isAsleep(w.status));
     sayBtn.toggleAttribute('disabled', isAsleep(w.status));
     // Someone else resized the shared PTY (the latest typist wins): follow it so this view renders
@@ -329,6 +344,7 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void,
       unsubPeers();
       clearInterval(typingTimer);
       ro.disconnect();
+      mic.drop();
       net.send({ t: 'worker.detach', workerId });
       term.dispose();
       if (current?.modal === modal) current = null;
@@ -355,6 +371,8 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void,
     term.input('\x1b');
   };
   term.attachCustomKeyEventHandler((e) => {
+    // Ctrl+Space, held: push to talk.
+    if (mic.key(e)) return false;
     if (e.type === 'keydown' && e.ctrlKey && !e.altKey && !e.metaKey) {
       // By the key's place too, for keyboards where [ and ] take AltGr or are other letters (ü, å), but
       // not where that key types something else ASCII: Ctrl + + zooms in on a German keyboard.

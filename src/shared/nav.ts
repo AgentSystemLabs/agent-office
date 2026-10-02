@@ -100,10 +100,11 @@ function obstacles(wing: number): Obstacles {
   rects.push([room.door.x1, room.maxX, room.minZ - G, room.minZ + G]);
   const t = MEETING_TABLE;
   rects.push([t.x - t.width / 2, t.x + t.width / 2, t.z - t.depth / 2, t.z + t.depth / 2]);
-  // Chairs tucked in at the table, a little smaller than a desk's, so there's a way round behind them.
+  // Chairs tucked in at the table: just the middle of each, so there's a way round behind them, between
+  // their backs and the glass (or the back wall), which is one cell wide.
   for (const d of MEETING_SEATS) {
     const [cx, cz] = deskPoint(d, 0, 0.85);
-    circles.push([cx, cz, 0.3]);
+    circles.push([cx, cz, 0.18]);
   }
   return { rects, circles };
 }

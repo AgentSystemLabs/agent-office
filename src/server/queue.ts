@@ -26,7 +26,7 @@ export interface QueueWorkers {
 export interface QueueEvents {
   update(state: QueueState): void;
   toast(text: string, level: 'info' | 'warn' | 'error'): void;
-  /** Mark the issue as taken on GitHub (as `owner`, when it's an account's task), so the board moves it to In progress. Resolves to an error message when it can't. */
+  /** Mark the issue as taken, on the board at once and on GitHub (as `owner`, when it's an account's task), which keeps it In progress. Resolves to an error message when it can't. */
   claimIssue(issue: number, owner?: string): Promise<string | undefined>;
   /** Ask GitHub for fresh pull requests, to pick up the one a worker just opened. */
   refreshGitHub(): void;

@@ -88,6 +88,14 @@
 /* Workers waiting on you: a count in the Workers panel (click or N to go to them) and arrows at the edge of the screen. */
 #waiting { display: flex; align-items: center; gap: 6px; width: 100%; margin: 0 0 8px; padding: 5px 8px; border: 2px solid var(--ink); border-radius: 10px; background: #ffe3ea; color: var(--ink); font: inherit; font-size: 13px; font-weight: 900; text-align: left; cursor: pointer; }
 #waiting:hover { background: #ffd0dc; }
+/* Someone in it needs you (features/needsyou pulses it): the count in red, and that worker's row on top, in red too. */
+#waiting.needs-you-now { background: var(--bad); color: #fff; }
+#waiting.needs-you-now:hover { background: #e23a62; }
+.workers.needs-you-panel { border-color: var(--bad); }
+.workers li.needs-you-row { flex-wrap: wrap; row-gap: 3px; padding: 6px 6px 6px 12px; border: 2px solid var(--bad); background: #ffe3ea; box-shadow: inset 5px 0 0 var(--bad); }
+.workers li.needs-you-row:hover { background: #ffd0dc; }
+.workers li.needs-you-row .name { font-weight: 900; }
+.workers .ask { flex: 0 0 100%; font-size: 12px; font-weight: 800; line-height: 1.3; color: #b3123d; overflow-wrap: anywhere; }
 #waiting.all-done { background: #d8f5e3; }
 #waiting.all-done:hover { background: #c3efd5; }
 #waiting .key { margin: 0 0 0 auto; background: var(--ink); color: var(--paper); box-shadow: none; }

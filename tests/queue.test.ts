@@ -80,6 +80,22 @@ test('queued Pi model and thinking survive restart and retry', (t) => {
   assert.deepEqual([f.workers[1].provider, f.workers[1].model, f.workers[1].effort], ['pi', 'openai/gpt-4.1', 'high']);
 });
 
+test('queued Cursor model survives restart and retry', (t) => {
+  const f = fixture(); t.after(() => f.close());
+  const q = f.open(); q.setLimit(0);
+  assert.match(q.add('Fix login', 'Tester', undefined, undefined, 'cursor', '--force') ?? '', /Invalid Cursor model/);
+  assert.match(q.add('Fix login', 'Tester', undefined, undefined, 'cursor', 'gpt-5', 'high') ?? '', /effort/i);
+  assert.equal(q.add('Fix login', 'Tester', undefined, undefined, 'cursor', 'claude-opus-4-8[effort=high]'), undefined);
+  q.shutdown();
+  const restored = f.open(); restored.setLimit(1);
+  const first = f.workers[0];
+  assert.deepEqual([first.provider, first.model, first.effort], ['cursor', 'claude-opus-4-8[effort=high]', undefined]);
+  first.status = 'done'; restored.onWorker(first);
+  const task = restored.state().tasks[0];
+  assert.equal(restored.retry(task.id), undefined);
+  assert.deepEqual([f.workers[1].provider, f.workers[1].model, f.workers[1].effort], ['cursor', 'claude-opus-4-8[effort=high]', undefined]);
+});
+
 test('new and legacy tasks without a provider use the configured agent', (t) => {
   const f = fixture('custom'); t.after(() => f.close());
   writeFileSync(path.join(f.dir, 'queue.json'), JSON.stringify({ maxWorkers: 0, tasks: [
@@ -194,10 +210,11 @@ test('queue preserves a Muse model and effort through seating, retry, and restar
   assert.equal(f.workers[2].effort, 'low');
 });
 
-test('queue rejects reasoning effort unless the task is Claude, Grok or Muse and the level is known', (t) => {
+test('queue rejects a reasoning effort nobody knows, whichever provider the task is for', (t) => {
   const f = fixture(); t.after(() => f.close());
   const q = f.open();
-  assert.match(q.add('Task', 'Tester', undefined, undefined, 'opencode', undefined, 'high' as AgentEffort) ?? '', /effort|Claude/i);
+  assert.match(q.add('Task', 'Tester', undefined, undefined, 'opencode', undefined, 'overdrive' as AgentEffort) ?? '', /Invalid effort/i);
+  assert.match(q.add('Task', 'Tester', undefined, undefined, 'codex', undefined, 'overdrive' as AgentEffort) ?? '', /Invalid effort/i);
   assert.match(q.add('Task', 'Tester', undefined, undefined, 'claude', undefined, 'overdrive' as AgentEffort) ?? '', /effort/i);
   assert.equal(q.state().tasks.length, 0);
 });

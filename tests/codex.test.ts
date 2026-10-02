@@ -8,10 +8,12 @@ import path from 'node:path';
 import {
   CODEX_HOOK_EVENTS,
   codexHookArgs,
+  codexModelArgs,
   normalizeCodexHook,
   validateCodexHook,
   writeCodexHook,
 } from '../src/server/codex.js';
+import { codex } from '../src/server/providers/codex.js';
 
 test('normalizes bounded root Codex hook payloads and passes only the metric reader path', () => {
   assert.deepEqual(normalizeCodexHook('SessionStart', {
@@ -45,6 +47,33 @@ test('generates one stable CLI hook override per supported event', () => {
     assert.match(args[i * 2 + 1], /timeout=3/);
     assert.match(args[i * 2 + 1], /agent-office-codex-hook\.cjs/);
   }
+});
+
+test('a worker\'s own model and effort go on Codex\'s command line, in place of an office-wide model', () => {
+  assert.deepEqual(codexModelArgs([]), []);
+  assert.deepEqual(codexModelArgs(['--yolo'], 'gpt-5.5', 'high'), ['--yolo', '--model', 'gpt-5.5', '-c', 'model_reasoning_effort="high"']);
+  // Codex refuses --model twice: the office's --agent-args one gives way, however it was written.
+  assert.deepEqual(codexModelArgs(['-m', 'gpt-6-astra', '--yolo'], 'gpt-5.5'), ['--yolo', '--model', 'gpt-5.5']);
+  assert.deepEqual(codexModelArgs(['--model', 'gpt-6-astra'], 'gpt-5.5'), ['--model', 'gpt-5.5']);
+  assert.deepEqual(codexModelArgs(['--model=gpt-6-astra', '-mgpt-6-astra', '--yolo'], 'gpt-5.5'), ['--yolo', '--model', 'gpt-5.5']);
+  // With only an effort picked, the office-wide model stays.
+  assert.deepEqual(codexModelArgs(['-m', 'gpt-6-astra'], undefined, 'xhigh'), ['-m', 'gpt-6-astra', '-c', 'model_reasoning_effort="xhigh"']);
+});
+
+test('a Codex worker starts, and resumes, on the model and effort picked for it', () => {
+  const launch = (info: { model?: string; effort?: string }, more: { prompt?: string; resumeSessionId?: string } = {}) =>
+    codex.launch({ h: { info, state: codex.createState!() } as never, args: ['--yolo'], setup: { hook: '/data/hook.cjs' }, ...more }).args;
+  const fresh = launch({ model: 'gpt-5.5', effort: 'high' }, { prompt: 'fix it' });
+  assert.deepEqual(fresh.slice(0, 5), ['--yolo', '--model', 'gpt-5.5', '-c', 'model_reasoning_effort="high"']);
+  assert.deepEqual(fresh.slice(-2), ['--', 'fix it']);
+  // Its options come before the `resume` subcommand, which then takes the session.
+  const resumed = launch({ model: 'gpt-5.5', effort: 'high' }, { resumeSessionId: 'thread-1' });
+  assert.deepEqual(resumed.slice(0, 5), ['--yolo', '--model', 'gpt-5.5', '-c', 'model_reasoning_effort="high"']);
+  assert.deepEqual(resumed.slice(-2), ['resume', 'thread-1']);
+  // Left on its defaults, nothing is added.
+  const plain = launch({});
+  assert.equal(plain.includes('--model'), false);
+  assert.equal(plain.some((a) => a.startsWith('model_reasoning_effort')), false);
 });
 
 test('writes a mode-restricted helper that forwards paths without reading transcripts', () => {

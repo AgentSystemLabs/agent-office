@@ -7,8 +7,8 @@ import { officePrompt } from '../prompts';
 // ---- Prompts for workers ------------------------------------------------------------------------
 
 export interface BoardActions {
-  /** Start a worker on a ready-made prompt (shown for editing first). */
-  assign(prompt: string, title: string): void;
+  /** Start a worker on a ready-made prompt (shown for editing first). With `issue`, the worker takes that GitHub issue, which moves to In progress. */
+  assign(prompt: string, title: string, issue?: number): void;
   /** Your own prompt about an issue or PR; `context` goes first so the worker knows which. */
   ask(context: string, title: string): void;
   /** Walks you to the desk a pull request came from. */

@@ -28,12 +28,13 @@ export interface WorkerPr {
 
 /**
  * Where its work stands on GitHub: a pull request from its desk, its worktree branch or its queue
- * task is open (one still open wins, e.g. a follow-up on the same branch), or merged, so it can be
+ * task, or one it opened itself, is open (one still open wins, e.g. a follow-up on the same branch), or merged, so it can be
  * sent home. Undefined when it has none, or only closed ones.
  */
 export function workerPr(w: WorkerInfo, pulls: GhPull[], tasks: QueueTask[]): WorkerPr | undefined {
   const mine = new Set<number>();
   if (w.pr) mine.add(w.pr.number);
+  for (const n of w.pastPrs ?? []) mine.add(n);
   for (const t of tasks) if (t.workerId === w.id && t.pr) mine.add(t.pr.number);
   const seen = pulls.filter((p) => mine.has(p.number) || (w.worktree && w.worktree.branch === p.headRefName)).map((p) => ({ number: p.number, state: p.state }));
   // Its task's PR can drop off the list GitHub sends (the last 30 merged): keep what the queue saw.

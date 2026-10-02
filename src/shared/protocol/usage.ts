@@ -25,9 +25,14 @@ export interface Usage {
   totalTokens?: number;
   /** Size of the context window in tokens, when the provider reports one (DeepSeek Harness over ACP). */
   contextSize?: number;
+  /**
+   * The model its latest call ran on, as its session names it (`claude-opus-5-5`), when the office
+   * reads that off the session: what a worker's card says it runs, whatever was asked for.
+   */
+  model?: string;
 }
 
-/** Every token a session used, cache reads and writes included: what the office shows and budgets meetings by. */
+/** Every token a session used, cache reads and writes included: what the office shows. */
 export function tokensOf(u: Usage): number {
   return u.totalTokens ?? u.input + u.output + (u.reasoning ?? 0) + u.cacheWrite + u.cacheRead;
 }

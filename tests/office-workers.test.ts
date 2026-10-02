@@ -7,8 +7,9 @@ import path from 'node:path';
 import { createInterface } from 'node:readline';
 import { Readable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
-import { TOOLS, UsageError, buildRequest, formatHome, formatWorkers, handleMcp, main, parseArgs } from '../bin/office-workers.js';
-import { codexMcpArgs, findWorker, readHireRequest, readHomeRequest, workerRow } from '../src/server/office-workers.js';
+import { TOOLS, UsageError, buildRequest, formatHome, formatLinked, formatWorkers, handleMcp, main, parseArgs } from '../bin/office-workers.js';
+import { codexMcpArgs, findWorker, readHireRequest, readHomeRequest, readPrRequest, workerRow } from '../src/server/office-workers.js';
+import { ownPr } from '../src/server/workers/pr.js';
 import { notLeaving } from '../src/server/leave-on-merge.js';
 import type { GhPull, WorkerInfo } from '../src/shared/protocol.js';
 
@@ -29,7 +30,10 @@ const pull = (number: number, state: string, headRefName: string, headRefOid?: s
   headRefName, headRefOid, baseRefName: 'main', createdAt: '', updatedAt: '', additions: 0, deletions: 0, checks: 'none', body: '', closes: [],
 });
 
-test('parses list, hire, home, tell and mcp', () => {
+test('parses list, hire, home, tell, pr and mcp', () => {
+  assert.deepEqual(parseArgs(['pr', '12']), { cmd: 'pr', pr: '12', json: false });
+  assert.deepEqual(parseArgs(['pr', 'https://github.com/acme/app/pull/12', '--worker', 'Mochi', '--json']), { cmd: 'pr', pr: 'https://github.com/acme/app/pull/12', worker: 'Mochi', json: true });
+  assert.deepEqual(parseArgs(['link-pr', '--none', '--worker=b0b']), { cmd: 'pr', unlink: true, worker: 'b0b', json: false });
   assert.deepEqual(parseArgs([]), { cmd: 'help' });
   assert.deepEqual(parseArgs(['home', '--help']), { cmd: 'help' });
   assert.deepEqual(parseArgs(['mcp']), { cmd: 'mcp' });
@@ -53,6 +57,9 @@ test('says what is wrong with a bad command line', () => {
     [['home', '--merged', '--cleanup', 'nuke'], /--cleanup is one of auto, keep, worktree, all/],
     [['home', '-f', 'Mochi'], /Unknown option: -f/],
     [['tell'], /tell takes one worker/],
+    [['pr'], /pr takes one pull request/],
+    [['pr', '12', '13'], /pr takes one pull request/],
+    [['pr', '12', '--none'], /pr takes one pull request/],
     [['tell', 'a', 'b'], /tell takes one worker/],
     [['hire', 'do it'], /Unexpected argument: do it/],
     [['hire', '--effort', 'huge'], /--effort is one of/],
@@ -74,6 +81,7 @@ test('builds requests for each call, with the worker and its token', () => {
   assert.equal(home.body, '{"merged":true}');
   assert.ok(home.timeout > list.timeout, 'sending home waits on git');
   assert.equal(buildRequest('tell', OFFICE, {}).url, 'http://127.0.0.1:4455/office/workers/tell?worker=w1');
+  assert.equal(buildRequest('pr', OFFICE, { pr: '12' }).url, 'http://127.0.0.1:4455/office/workers/pr?worker=w1');
   assert.equal(buildRequest('hire', OFFICE, {}).url, 'http://127.0.0.1:4455/office/workers?worker=w1');
 });
 
@@ -126,6 +134,15 @@ test('the command reads a prompt from stdin, reports refusals and exits non-zero
   assert.equal(home.code, 1);
   assert.deepEqual(JSON.parse(String(calls[1].init.body)), { workers: ['Bolt', 'Nope'] });
 
+  const linked = await run(['pr', '#7', '--worker', 'Bolt'], reply(200, { ok: true, worker: { id: 'w2', name: 'Bolt', pr: { number: 7, state: 'merged', title: 'Fix it' }, merged: true } }) as typeof fetch);
+  assert.deepEqual(linked, { code: 0, out: 'Bolt: PR #7 merged “Fix it” · landed: free to go home', err: '' });
+  assert.deepEqual(JSON.parse(String(calls[2].init.body)), { pr: '#7', worker: 'Bolt' });
+  assert.match(calls[2].url, /\/office\/workers\/pr\?worker=w1$/);
+  assert.equal(formatLinked({ worker: { name: 'Bolt' } }), 'Bolt has no pull request now.');
+  // What the office says is what's shown: there's no such worker, or it's too old to know this call.
+  assert.match((await run(['pr', '7', '--worker', 'Nope'], reply(404, { error: 'No worker here is called Nope' }) as typeof fetch)).err, /^office-workers: No worker here is called Nope$/);
+  assert.match((await run(['pr', '7'], reply(405, { error: 'GET /office/workers, or POST' }) as typeof fetch)).err, /older Agent Office than this command/);
+
   const refused = await run(['list'], reply(401, { error: 'bad token' }) as typeof fetch);
   assert.equal(refused.code, 1);
   assert.match(refused.err, /didn't accept this worker's token \(401\): bad token/);
@@ -142,7 +159,10 @@ test('answers MCP: the handshake, its tools, and a call', async () => {
   assert.equal((await handleMcp({ jsonrpc: '2.0', id: 2, method: 'initialize', params: { protocolVersion: '1999-01-01' } }, io))?.result.protocolVersion, '2025-11-25');
   assert.equal(await handleMcp({ jsonrpc: '2.0', method: 'notifications/initialized' }, io), undefined);
   const tools = await handleMcp({ jsonrpc: '2.0', id: 3, method: 'tools/list' }, io);
-  assert.deepEqual(tools?.result.tools.map((t: { name: string }) => t.name), ['list_workers', 'hire_worker', 'send_home', 'tell_worker']);
+  assert.deepEqual(tools?.result.tools.map((t: { name: string }) => t.name), ['list_workers', 'hire_worker', 'send_home', 'tell_worker', 'link_pr']);
+  const linking = { env: ENV, fetch: (async (_url: unknown, init?: RequestInit) => new Response(JSON.stringify({ ok: true, worker: { name: 'Bolt', pr: { number: Number(JSON.parse(String(init?.body)).pr), state: 'open' }, merged: false } }))) as typeof fetch };
+  const linked = await handleMcp({ jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name: 'link_pr', arguments: { worker: 'Bolt', pr: 7 } } }, linking);
+  assert.deepEqual(linked?.result, { content: [{ type: 'text', text: 'Bolt: PR #7 open' }] });
   const call = await handleMcp({ jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'send_home', arguments: { merged: true } } }, io);
   assert.deepEqual(call?.result, { content: [{ type: 'text', text: '✓ Bolt went home — Deleted it' }] });
   // Nobody it named went: the call failed, as far as the model is concerned.
@@ -207,6 +227,45 @@ test("a worker's row says where its pull request stands, and whether it would go
   assert.equal(workerRow(worker('pat', { deskId: 'station-pulls' }), view).board, 'PR agent');
   assert.equal(notLeaving(worker('bolt', { viewers: ['Ada', 'Grace'] })), 'Ada, Grace have its terminal open');
   assert.equal(notLeaving(worker('bolt')), undefined);
+});
+
+test('a worker in the main checkout has the pull request it opened itself', () => {
+  const view = { pulls: [pull(7, 'MERGED', 'fix-login', 'a'.repeat(40)), pull(8, 'OPEN', 'fix-logout')], tasks: [] };
+  // Its branch is one the office never made: with nothing saying whose #7 is, it has no pull request.
+  const pixel = worker('pixel', { worktree: undefined });
+  assert.equal(workerRow(pixel, view).pr, undefined);
+  assert.equal(workerRow(pixel, view).merged, false);
+  const mine = workerRow({ ...pixel, pr: { number: 7, url: 'https://github.com/acme/app/pull/7' } }, view);
+  assert.deepEqual(mine.pr, { number: 7, state: 'merged', title: 'PR 7', url: 'https://github.com/acme/app/pull/7' });
+  assert.equal(mine.merged, true);
+  assert.equal(workerRow({ ...pixel, pr: { number: 8, url: 'https://github.com/acme/app/pull/8' } }, view).pr?.state, 'open');
+  // One it opened earlier is still open: the later one merging isn't all its work landing.
+  const both = workerRow({ ...pixel, pr: { number: 7, url: 'https://github.com/acme/app/pull/7' }, pastPrs: [8] }, view);
+  assert.deepEqual([both.pr?.number, both.pr?.state, both.merged], [8, 'open', false]);
+
+  // What `gh pr create` printed, alone or at the end of a longer line; the one its branch already had counts too.
+  const url = 'https://github.com/acme/app/pull/12';
+  assert.deepEqual(ownPr('gh pr create --title "Fix it" --body "Closes #4"', `${url}\n`), { repo: 'acme/app', number: 12, url });
+  assert.deepEqual(ownPr('cd ../wt && git push -u origin fix-it 2>&1 | tail -1; gh pr create --fill', `remote: https://github.com/acme/app/pull/new/fix-it\n${url}`), { repo: 'acme/app', number: 12, url });
+  assert.deepEqual(ownPr('gh  pr  create --fill', `a pull request for branch "fix-it" into branch "main" already exists:\n${url}`)?.number, 12);
+  // Not opening one: looking at one, naming the command, or nothing printed.
+  assert.equal(ownPr('gh pr view 12 --json url', url), undefined);
+  assert.equal(ownPr('grep -rn "gh pr create" docs', `docs/a.md: gh pr create … ${url}`), undefined);
+  assert.equal(ownPr('gh pr create --fill', 'pull request create failed: GraphQL: No commits between main and fix-it'), undefined);
+  assert.equal(ownPr(undefined, url), undefined);
+});
+
+test('reads a request to say which pull request is whose', () => {
+  assert.deepEqual(readPrRequest({ pr: 12 }), { pr: 12 });
+  assert.deepEqual(readPrRequest({ pr: ' #12 ', worker: ' Bolt ' }), { worker: 'Bolt', pr: 12 });
+  assert.deepEqual(readPrRequest({ pr: 'https://github.com/acme/app/pull/12/files', worker: 'Bolt' }), { worker: 'Bolt', pr: 12, repo: 'acme/app' });
+  assert.deepEqual(readPrRequest({ unlink: true, worker: 'Bolt' }), { worker: 'Bolt' });
+  assert.deepEqual(readPrRequest({ unlink: true }), {});
+  assert.match(readPrRequest({}) as string, /Say which pull request/);
+  assert.match(readPrRequest({ pr: 0 }) as string, /Say which pull request/);
+  assert.match(readPrRequest({ pr: 'https://github.com/acme/app/issues/12' }) as string, /Say which pull request/);
+  assert.match(readPrRequest({ pr: 12, unlink: true }) as string, /not both/);
+  assert.match(readPrRequest({ pr: 12, worker: 7 }) as string, /worker is a worker name or id/);
 });
 
 test('finds a worker by id or name, and says who there is when it cannot', () => {

@@ -4,7 +4,7 @@ import { Auth } from '../auth.js';
 import { Accounts } from '../accounts.js';
 import { providerCommand } from '../agents.js';
 import type { AgentProvider } from '../../shared/providers.js';
-import { createGrokModelCatalogue, createOpenCodeModelCatalogue } from '../models.js';
+import { createModelCatalogues } from '../models.js';
 import { Building } from '../building.js';
 import type { Floor } from '../floor.js';
 import { ChatLog } from '../history.js';
@@ -35,8 +35,7 @@ export function createCore(ctx: Ctx, cfg: Config, publicDir: string): Core {
     const command = providerCommand(provider, cfg.agentCmd);
     return command.includes('/') ? path.resolve(command) : command;
   };
-  const openCodeModels = createOpenCodeModelCatalogue(cli('opencode'), cfg.dir);
-  const grokModels = createGrokModelCatalogue(cli('grok'), cfg.dir);
+  const models = createModelCatalogues(cli, cfg.dir);
 
   // --- The building: a floor per project, each with its own workers, boards and queue -----------
   const building = new Building(cfg.dataDir, cfg.projectsDir);
@@ -45,5 +44,5 @@ export function createCore(ctx: Ctx, cfg: Config, publicDir: string): Core {
     if (err) console.error(`agent-office: --projects: ${err}`);
   }
   const floors = new Map<string, Floor>();
-  return { cfg, publicDir, accounts, auth, clients, chat, highScores, arcade, officeName, openCodeModels, grokModels, building, floors };
+  return { cfg, publicDir, accounts, auth, clients, chat, highScores, arcade, officeName, models, building, floors };
 }

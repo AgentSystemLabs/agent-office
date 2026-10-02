@@ -5,10 +5,10 @@ import type { AgentEffort, AgentProvider } from '../providers.js';
 
 export { AGENT_EFFORTS, CLAUDE_MODELS, isAgentEffort, isAgentProvider, isClaudeModel, type AgentEffort, type AgentProvider, type ClaudeModel } from '../providers.js';
 
-/** Which agent a worker runs: its provider, and optionally the model and (Claude/Grok/Muse) the reasoning effort. */
+/** Which agent a worker runs: its provider, and optionally the model and the reasoning effort (see PROVIDER_META for which each takes). */
 export interface AgentChoice {
   provider: AgentProvider;
-  /** An OpenCode provider/model id, a Claude model alias, or a Grok/Muse model id; unset for the provider's own default. */
+  /** A model id its provider takes (a Claude model alias, an OpenCode provider/model, a Codex model id…); unset for the provider's own default. */
   model?: string;
   effort?: AgentEffort;
 }

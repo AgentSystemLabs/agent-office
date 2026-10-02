@@ -1,0 +1,20 @@
+/* Dictation (dictate.ts): the 🎤 on a prompt box and in a terminal's header, and the words as they're heard. */
+/* Held down it's push to talk, so a long press mustn't select it or bring up a menu. */
+.dictate-mic { touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.btn.dictate-mic.live { background: var(--bad); color: #fff; animation: dictate-pulse 1.2s ease-in-out infinite; }
+@keyframes dictate-pulse { 50% { box-shadow: 0 3px 0 var(--ink), 0 0 0 5px rgba(239, 71, 111, .35); } }
+@media (prefers-reduced-motion: reduce) { .btn.dictate-mic.live { animation: none; } }
+
+/* A box you can dictate into: the 🎤 sits in its top right corner, clear of the corner you resize it by. */
+.dictate-field { position: relative; flex: 1 1 100%; min-width: 0; }
+.dictate-field.line { flex: 1 1 0; }
+.dictate-field textarea { display: block; }
+.modal .dictate-field textarea { padding-right: 50px; }
+.modal .dictate-field.line input[type=text] { padding-right: 46px; }
+.dictate-field .btn.dictate-mic { position: absolute; top: 8px; right: 8px; padding: 2px 6px; font-size: 15px; border-width: 2px; border-radius: 9px; box-shadow: 0 2px 0 var(--ink); }
+.dictate-field.line .btn.dictate-mic { top: 5px; right: 6px; }
+
+/* What it hears, over the bottom of the box (above a one-line box) or of the terminal. */
+.dictate-live { position: absolute; left: 10px; bottom: 10px; z-index: 11; max-width: calc(100% - 20px); padding: 4px 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border: 2px solid var(--ink); border-radius: 999px; background: var(--paper-2); color: var(--ink); font-size: 13px; font-weight: 800; pointer-events: none; }
+.dictate-field.line .dictate-live { bottom: calc(100% + 6px); left: 0; max-width: 100%; }
+.term-host .dictate-live { left: 50%; bottom: 14px; transform: translateX(-50%); max-width: calc(100% - 40px); font-size: 14px; }

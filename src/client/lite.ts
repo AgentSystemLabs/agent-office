@@ -141,7 +141,7 @@ function workerCard(w: WorkerInfo): HTMLElement {
   const desk = DESK_BY_ID.get(w.deskId);
   const waiting = waitingOnSomeone(w);
   const asleep = isAsleep(w.status);
-  const badge = w.kind === 'agent' ? modelBadge(w.provider, w.model, w.effort) : undefined;
+  const badge = w.kind === 'agent' ? modelBadge(w.provider, w.model, w.effort, w.usage?.model) : undefined;
   const task = w.task?.name ?? w.title ?? (w.prompt ? clip(w.prompt, 90) : undefined);
   // What it's asking, doing or did, in a line.
   const now = w.lost
@@ -256,11 +256,12 @@ function promptWorker(id: string) {
 }
 
 // ---- New work: a prompt for a worker who's here, or a new one at a free desk -------------------
-function hire(deskId: string, prompt: string, worktree: boolean, provider?: AgentProvider, model?: string, effort?: AgentEffort, repos?: string[]) {
-  net.send({ t: 'worker.spawn', deskId, prompt, worktree, provider, model, effort, repos: repos?.length ? repos : undefined });
+function hire(deskId: string, prompt: string, worktree: boolean, provider?: AgentProvider, model?: string, effort?: AgentEffort, repos?: string[], issue?: number) {
+  net.send({ t: 'worker.spawn', deskId, prompt, worktree, provider, model, effort, issue, repos: repos?.length ? repos : undefined });
 }
 
-function sendToWorker(title: string, text: { context?: string; initial?: string } = {}) {
+/** With `issue`, the worker the prompt goes to takes that GitHub issue. */
+function sendToWorker(title: string, text: { context?: string; initial?: string } = {}, issue?: number) {
   if (!store.project) return toast('Pick a floor first', 'warn');
   // The back office's desks too, as far as the floor's built out (see WING).
   const desk = nextFreeSeat((id) => !!store.workerAtDesk(id), store.floorPlan.wing)?.id;
@@ -275,8 +276,8 @@ function sendToWorker(title: string, text: { context?: string; initial?: string 
     providerOption: true,
     repoOptions: repoChoices(),
     onSubmit: (prompt, to, worktree, provider, model, effort, repos) => {
-      if (to) net.send({ t: 'worker.prompt', workerId: to, prompt });
-      else if (desk) hire(desk, prompt, worktree, provider, model, effort, repos);
+      if (to) net.send({ t: 'worker.prompt', workerId: to, prompt, issue });
+      else if (desk) hire(desk, prompt, worktree, provider, model, effort, repos, issue);
     },
   });
 }
@@ -285,7 +286,7 @@ function sendToWorker(title: string, text: { context?: string; initial?: string 
 function boardActions(): BoardActions {
   return {
     queue: (prompt, title, issue, provider, model, effort) => net.send({ t: 'queue.add', prompt, title, issue, provider, model, effort }),
-    assign: (prompt, title) => sendToWorker(`🤖 ${title}`, { initial: prompt }),
+    assign: (prompt, title, issue) => sendToWorker(`🤖 ${title}`, { initial: prompt }, issue),
     ask: (context, title) => sendToWorker(`✍️ ${title}`, { context }),
     // There's no desk to walk to from here: its terminal instead.
     goToDesk: (deskId) => {

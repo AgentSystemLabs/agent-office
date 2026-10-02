@@ -78,7 +78,7 @@ export interface ServicesState {
   port: number;
   /** How to run the script that deployed the office, as in TeamState. */
   deploy?: string;
-  /** Where teammates tunnel to (offices deployed with deploy/aws.sh, deploy/railway.sh, deploy/fly.sh or deploy/dokploy.sh), as in TeamState */
+  /** Where teammates tunnel to (offices deployed with deploy/aws.sh, deploy/railway.sh, deploy/fly.sh, deploy/dokploy.sh or deploy/coolify.sh), as in TeamState */
   ssh?: string;
   /** The office's name on its Tailscale network: each server is also on https://<it>:<port> there. */
   tailnet?: string;

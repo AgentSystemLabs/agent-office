@@ -13,22 +13,19 @@
 .meeting-field { display: flex; flex-direction: column; gap: 4px; }
 /* The fields' labels: styles/base.css, after the frame's label rule. */
 .meeting-field input[type=number] { width: 150px; font: inherit; font-size: 15px; border: 3px solid var(--ink); border-radius: 12px; padding: 8px 10px; background: #fff; }
-.meeting-field input:disabled { opacity: .55; }
+.meeting-field .meeting-rounds { align-self: flex-start; min-width: 150px; font-size: 15px; border-width: 3px; border-radius: 12px; padding: 8px 10px; }
+.meeting-fixed { align-self: flex-start; padding: 11px 0; font-size: 15px; font-weight: 800; cursor: help; text-decoration: underline dotted var(--muted); text-underline-offset: 4px; }
 .meeting-count { display: flex !important; align-items: center; gap: 8px; }
 .meeting-roles { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 6px; }
 .meeting-role { display: flex; align-items: center; gap: 6px; }
 .meeting-role span { width: 18px; text-align: center; }
 .meeting-window .meeting-role input[type=text] { padding: 6px 9px; font-size: 14px; }
-.meeting-bounds { display: flex; gap: 16px; flex-wrap: wrap; }
-.meeting-bounds .meeting-field { flex: 1; min-width: 220px; }
 .meeting-busy { margin: 0; font-weight: 800; color: var(--muted); }
 .meeting-busy:empty { display: none; }
 .meeting-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 16px; }
 .meeting-title { font-weight: 800; }
 .meeting-line { margin: 8px 0; font-weight: 700; }
-.meeting-budget { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 13px; }
-.meeting-bar { flex: 1; height: 12px; border: 2px solid var(--ink); border-radius: 999px; overflow: hidden; background: #fff; }
-.meeting-bar i { display: block; height: 100%; }
+.meeting-spend { margin: 0; font-weight: 800; font-size: 13px; }
 .meeting-seats { list-style: none; padding: 0; margin: 12px 0; display: flex; flex-direction: column; gap: 6px; }
 .meeting-seats li { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; background: #fff; border: 2px solid var(--ink); border-radius: 12px; padding: 6px 10px; }
 .meeting-seats .dot { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--ink); flex: none; }
