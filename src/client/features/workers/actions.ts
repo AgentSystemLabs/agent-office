@@ -473,8 +473,8 @@ export function installWorkerActions(ctx: Ctx, core: CoreState, parts: WorkerAct
     },
   });
 
-  /** A prompt from the boards goes to a new worker at a free desk, or to one already at a desk. */
-  function sendToWorker(title: string, text: { context?: string; initial?: string }) {
+  /** A prompt from the boards goes to a new worker at a free desk, or to one already at a desk. With `issue`, that worker takes the issue. */
+  function sendToWorker(title: string, text: { context?: string; initial?: string }, issue?: number) {
     const desk = freeDesk();
     const awake = [...store.workers.values()].filter((w) => w.kind === 'agent' && !isAsleep(w.status));
     if (!desk && !awake.length) {
@@ -490,8 +490,8 @@ export function installWorkerActions(ctx: Ctx, core: CoreState, parts: WorkerAct
       providerOption: true,
       repoOptions: repoChoices(),
       onSubmit: (prompt, to, worktree, provider, model, effort, repos) => {
-        if (to) net.send({ t: 'worker.prompt', workerId: to, prompt });
-        else if (desk) hire(desk, prompt, worktree, provider, model, effort, undefined, repos);
+        if (to) net.send({ t: 'worker.prompt', workerId: to, prompt, issue });
+        else if (desk) hire(desk, prompt, worktree, provider, model, effort, issue, repos);
       },
     });
   }
@@ -500,7 +500,7 @@ export function installWorkerActions(ctx: Ctx, core: CoreState, parts: WorkerAct
   function boardActions() {
     return {
       queue: (prompt: string, title: string, issue: number, provider?: AgentProvider, model?: string, effort?: AgentEffort) => net.send({ t: 'queue.add', prompt, title, issue, provider, model, effort }),
-      assign: (prompt: string, title: string) => sendToWorker(`🤖 ${title}`, { initial: prompt }),
+      assign: (prompt: string, title: string, issue?: number) => sendToWorker(`🤖 ${title}`, { initial: prompt }, issue),
       ask: (context: string, title: string) => sendToWorker(`✍️ ${title}`, { context }),
       meeting: (preset: MeetingPreset) => parts.meeting.showMeeting(preset),
       goToDesk,

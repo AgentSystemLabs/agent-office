@@ -15,6 +15,10 @@ test('an assigned issue is in progress', () => {
   assert.equal(inProgress(issue({ assignees: ['ada'] }), undefined), true);
 });
 
+test('an issue a worker just took is in progress before GitHub lists its assignee', () => {
+  assert.equal(inProgress(issue({ taken: true }), undefined), true);
+});
+
 test('an in-progress label puts an issue in progress, however it is spelled', () => {
   for (const name of ['in progress', 'In-Progress', 'doing', 'WIP', 'started']) assert.equal(inProgress(issue({ labels: [{ name, color: '#fff' }] }), undefined), true, name);
 });

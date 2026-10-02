@@ -58,7 +58,7 @@ export function openIssue(first: GhIssue, net: Net, actions: BoardActions) {
       queueProvider.element,
       queue,
       pickUp,
-      h('button.btn.primary', { type: 'button', onclick: () => actions.assign(issuePrompt(it), `Hand issue #${it.number} to a worker`) }, '🤖 Hand to a worker'),
+      h('button.btn.primary', { type: 'button', onclick: () => actions.assign(issuePrompt(it), `Hand issue #${it.number} to a worker`, it.number) }, '🤖 Hand to a worker'),
     ),
   );
   const renderFrame = () => {
@@ -68,7 +68,7 @@ export function openIssue(first: GhIssue, net: Net, actions: BoardActions) {
         avatar(it.author),
         h('b', {}, it.author),
         h('span', {}, `opened this ${timeAgo(it.createdAt)}`),
-        it.assignees.length ? h('span', {}, `· 👤 ${it.assignees.join(', ')}`) : null,
+        it.assignees.length ? h('span', {}, `· 👤 ${it.assignees.join(', ')}`) : it.taken ? h('span', {}, '· 🤖 handed to a worker') : null,
         ...it.labels.map(labelChip),
         labelButton('issue', () => it, net, (labels) => ((it = { ...it, labels }), renderFrame())),
       ),

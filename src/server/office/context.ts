@@ -153,8 +153,9 @@ export interface Navigation {
 /** What has to be true before something happens for someone (office/gates.ts). */
 export interface Gates {
   /**
-   * A worker took on GitHub issue `n` (an issue card dropped on its desk): assign it on GitHub, which
-   * moves it to In progress on the board, and take it off the queue so nobody else is seated for it.
+   * A worker took on GitHub issue `n` (handed over from its window, or its card dropped on the desk):
+   * it moves to In progress on the board and is assigned on GitHub (see GitHub.claim), and comes off
+   * the queue so nobody else is seated for it.
    */
   takeIssue(c: Client, floor: Floor, n: number): void;
   /**
