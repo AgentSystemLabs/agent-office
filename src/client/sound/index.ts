@@ -1,7 +1,7 @@
 /**
  * Office sounds, synthesized with Web Audio so there are no audio files to ship: the room's air and a
  * humming fridge, workers typing while they work, footsteps, the coffee machine, birds outside the
- * windows by day and crickets at night, rain and thunder, the odd rustle or phone, the gong, the dog
+ * windows by day and crickets at night, rain and thunder, the odd rustle, the gong, the dog
  * barking, and the dings when a worker needs you. And the lounge jukebox, whose tunes are in music.ts,
  * and up on the roof, the wind, the city far below and the DJ's drum and bass (../dnb.ts).
  *
@@ -14,7 +14,7 @@
  * (features/golf/sound.ts, features/dog/sound.ts and so on), and this class only hands them the core.
  */
 import type { GongWhy } from '../../shared/protocol';
-import { birdsong, deskPhones, Fridge, nightCrickets, startRoomTone, startWind } from './ambience';
+import { birdsong, Fridge, nightCrickets, startRoomTone, startWind } from './ambience';
 import { ding } from './alerts';
 import { arcade } from '../features/cabinet/sound';
 import { ball, type BallSound } from '../features/basketball/sound';
@@ -44,7 +44,6 @@ export class OfficeSound {
   private readonly rain = new Rain(this.a);
   private readonly birds = birdsong(this.a);
   private readonly crickets = nightCrickets(this.a);
-  private readonly phones = deskPhones(this.a);
   private readonly fidgets = fidgeting(this.a, this.typing);
   /** A stream that won't play here. */
   onMusicError?: (text: string) => void;
@@ -59,7 +58,6 @@ export class OfficeSound {
     this.a.every((now) => this.birds.tick(now));
     this.a.every((now) => this.crickets.tick(now));
     this.a.every((now) => this.rain.tickRain(now));
-    this.a.every((now) => this.phones.tick(now));
     this.a.every((now) => this.fidgets.tick(now));
   }
 
@@ -79,7 +77,6 @@ export class OfficeSound {
     const now = ctx.currentTime;
     this.birds.start(now);
     this.crickets.start(now);
-    this.phones.start(now);
     this.fidgets.start(now);
   }
 

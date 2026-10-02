@@ -37,7 +37,7 @@ export type MeetingStatus = 'running' | 'done' | 'stopped';
 
 /**
  * A meeting in the meeting room: 2–5 workers on one question or task, in rounds, following a pattern.
- * It ends when its output file is written, or stops at its round limit or token budget and says why.
+ * It ends when its output file is written, or stops at its round limit and says why.
  */
 export interface Meeting {
   id: string;
@@ -67,8 +67,7 @@ export interface Meeting {
   lastRound?: number;
   /** The current step's parts. */
   turns: MeetingTurn[];
-  /** Tokens every worker in the meeting may use between them, and how many they have. */
-  budget: number;
+  /** Tokens every worker in the meeting has used between them: shown, never a limit. */
   tokens: number;
   /** USD, where the providers report it. */
   cost: number;
@@ -130,7 +129,6 @@ export interface MeetingRequest {
   pr?: number;
   issue?: number;
   rounds?: number;
-  budget?: number;
   provider?: AgentProvider;
   model?: string;
   effort?: AgentEffort;

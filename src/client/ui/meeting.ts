@@ -1,5 +1,5 @@
 import './meeting.css';
-import { MEETING_PATTERNS, MEETING_PATTERN_IDS, TOKENS_PER_SEAT, fixedRounds, meetingSpend, meetingStage, outputProblem, slugify } from '../../shared/meetings';
+import { MEETING_PATTERNS, MEETING_PATTERN_IDS, fixedRounds, meetingSpend, meetingStage, outputProblem, slugify } from '../../shared/meetings';
 import { fmtTokens, type Meeting, type MeetingPattern, type MeetingTurn } from '../../shared/protocol';
 import type { Net } from '../net';
 import { store } from '../state';
@@ -75,7 +75,6 @@ function renderStatus(m: Meeting, body: HTMLElement, foot: HTMLElement, net: Net
   const p = MEETING_PATTERNS[m.pattern];
   const running = m.status === 'running';
   const pill = h('span.pill', { class: running ? 'working' : m.status === 'done' ? 'done' : 'needs_input' }, running ? 'in a meeting' : m.status);
-  const f = Math.min(1, m.tokens / Math.max(1, m.budget));
   const seats = h(
     'ul.meeting-seats',
     {},
@@ -102,7 +101,7 @@ function renderStatus(m: Meeting, body: HTMLElement, foot: HTMLElement, net: Net
     ...present(
     h('div.meeting-head', {}, pill, h('b', {}, `${p.icon} ${p.label}`), h('span.meeting-title', { title: m.prompt }, m.title)),
     h('p.meeting-line', {}, running ? `${meetingStage(m)} · called by ${m.calledBy} ${timeAgo(new Date(m.startedAt).toISOString())}` : m.status === 'done' ? `✅ Wrote ${m.output} in ${m.round} round${m.round === 1 ? '' : 's'}` : `⛔ Stopped in round ${m.round}: ${m.reason ?? 'stopped'}`),
-    h('div.meeting-budget', { title: `${m.tokens.toLocaleString()} of ${m.budget.toLocaleString()} tokens` }, h('div.meeting-bar', {}, h('i', { style: `width:${(f * 100).toFixed(1)}%;background:${f > 0.9 ? 'var(--bad)' : f > 0.7 ? 'var(--warn)' : 'var(--good)'}` })), h('span', {}, `${meetingSpend(m)} of ${fmtTokens(m.budget)} tokens`)),
+    m.tokens ? h('p.meeting-spend', { title: `${m.tokens.toLocaleString()} tokens, cache reads included` }, `💸 ${meetingSpend(m)}${running ? ' so far' : ''}`) : null,
     seats,
     h('div.meeting-out', {}, h('div.meeting-out-head', {}, h('b', {}, '📄 '), h('code', {}, m.output), where, review), h('pre.meeting-preview', {}, m.preview?.trim() ? m.preview : running ? 'Nothing written yet.' : 'Nothing was written.')),
     store.meeting.past.length
@@ -124,12 +123,11 @@ function renderStatus(m: Meeting, body: HTMLElement, foot: HTMLElement, net: Net
 
 const present = (...xs: (Node | null)[]): Node[] => xs.filter((x): x is Node => x !== null);
 
-/** The form that calls a meeting: the pattern, what it's about, who sits down, the output, the bounds. */
+/** The form that calls a meeting: the pattern, what it's about, who sits down, the output, the round limit. */
 function meetingForm(net: Net, preset: MeetingPreset | undefined, done: () => void, back: () => void) {
   let pattern: MeetingPattern = preset?.pattern ?? 'debate';
   let roles: string[] = [];
   let outputTouched = false;
-  let budgetTouched = false;
   const patterns = h('div.meeting-patterns', { role: 'radiogroup', 'aria-label': 'Pattern' });
   const about = h('textarea', { rows: 4, placeholder: 'The question to settle, or the task to do: e.g. “Should the dog use A* or a navmesh?”', 'aria-label': 'What the meeting is about' }) as HTMLTextAreaElement;
   about.value = preset?.prompt ?? '';
@@ -149,7 +147,6 @@ function meetingForm(net: Net, preset: MeetingPreset | undefined, done: () => vo
   // A pattern that always runs the same rounds says so, where a locked control would look broken.
   const roundsFixed = h('span.meeting-fixed');
   const roundsNote = h('small.muted');
-  const budgetIn = h('input', { type: 'number', min: 50, step: 250, 'aria-label': 'Token budget in thousands' }) as HTMLInputElement;
   const provider = providerPicker(store.project, 'meeting-provider', 'Workers');
   const busy = h('p.meeting-busy');
   const submit = h('button.btn.primary', { type: 'submit' }, '🤝 Start the meeting');
@@ -164,9 +161,6 @@ function meetingForm(net: Net, preset: MeetingPreset | undefined, done: () => vo
     outputNote.textContent = problem ? `⚠️ ${problem}` : pattern === 'review' ? 'It ends when this file is written; the office then posts it on the PR as one review.' : store.project?.branch ? 'It ends when this file is written; the office commits it on the meeting’s own branch.' : 'It ends when this file is written.';
     outputNote.classList.toggle('bad', !!problem);
   };
-  const syncBudget = () => {
-    if (!budgetTouched) budgetIn.value = String((roles.length * TOKENS_PER_SEAT) / 1000);
-  };
   const renderRoles = () => {
     const d = def();
     count.textContent = String(roles.length);
@@ -179,7 +173,6 @@ function meetingForm(net: Net, preset: MeetingPreset | undefined, done: () => vo
         return h('div.meeting-role', {}, h('span.muted', {}, i === 0 ? '👑' : `${i + 1}`), input);
       }),
     );
-    syncBudget();
   };
   const pickPattern = (p: MeetingPattern) => {
     pattern = p;
@@ -217,7 +210,6 @@ function meetingForm(net: Net, preset: MeetingPreset | undefined, done: () => vo
     outputTouched = true;
     syncOutput();
   });
-  budgetIn.addEventListener('input', () => (budgetTouched = true));
   titleIn.addEventListener('input', syncOutput);
   about.addEventListener('input', syncOutput);
   prSel.addEventListener('change', syncOutput);
@@ -232,7 +224,7 @@ function meetingForm(net: Net, preset: MeetingPreset | undefined, done: () => vo
     partsRow,
     h('div.meeting-field', {}, h('label', {}, 'Output file'), outputIn, outputNote),
     h('div.meeting-field', {}, h('label.meeting-count', {}, 'Workers at the table', minus, count, plus), roleList),
-    h('div.meeting-bounds', {}, h('div.meeting-field', {}, h('label', {}, 'Round limit'), roundsSel, roundsFixed, roundsNote), h('div.meeting-field', {}, h('label', {}, 'Token budget (thousands)'), budgetIn, h('small.muted', {}, 'For everyone at the table together. Over it, the meeting stops.'))),
+    h('div.meeting-field', {}, h('label', {}, 'Round limit'), roundsSel, roundsFixed, roundsNote),
     provider.element,
     busy,
   ) as HTMLFormElement;
@@ -262,7 +254,6 @@ function meetingForm(net: Net, preset: MeetingPreset | undefined, done: () => vo
       pr: def().needs === 'pr' ? pr() : undefined,
       issue: preset?.issue,
       rounds: Number(roundsSel.value) || undefined,
-      budget: Math.round((Number(budgetIn.value) || 0) * 1000) || undefined,
       provider: provider.value(),
       model: provider.model(),
       effort: provider.effort(),

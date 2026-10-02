@@ -130,18 +130,30 @@ test('a debate runs its rounds and ends when the chair writes the decision', (t)
   assert.ok(existsSync(path.join(f.dir, '.agent-office', 'meetings', m.id)));
 });
 
-test('the meeting stops once it runs over its token budget, and says so', (t) => {
+test('a meeting has no token limit: what its workers use is added up and shown, and never stops it', (t) => {
   const f = fixture(); t.after(() => f.close());
-  assert.equal(f.start({ budget: 100_000 }), undefined);
+  // A limit an older page still sends is ignored.
+  assert.equal(f.start({ rounds: 2, output: 'decision.md', budget: 100_000 } as Partial<MeetingRequest>), undefined);
+  assert.ok(!('budget' in f.room.state().current!));
+  assert.doesNotMatch(f.prompts[0].text, /budget|tokens/i);
+  assert.doesNotMatch(f.toasts[0], /tokens/);
+  // Cache reads, counted again on every call, run into the tens of millions within a few rounds.
   const w = f.workers[0];
   w.status = 'working';
-  w.usage = { input: 90_000, output: 20_000, cacheRead: 0, cacheWrite: 0, cost: 0.5, calls: 3 };
+  w.usage = { input: 90_000, output: 20_000, cacheRead: 60_000_000, cacheWrite: 400_000, cost: 31.5, calls: 300 };
   f.room.onWorker(w);
-  const m = f.room.state().current!;
-  assert.equal(m.status, 'stopped');
-  assert.match(m.reason!, /over budget: 110k of 100k tokens/);
-  // Whoever was busy is told to stop.
-  assert.deepEqual(f.typed, [{ id: w.id, data: '\x1b' }]);
+  let m = f.room.state().current!;
+  assert.equal(m.status, 'running');
+  assert.equal(m.tokens, 60_510_000);
+  assert.equal(m.seats[0].tokens, 60_510_000);
+  assert.deepEqual(f.typed, []);
+  // It runs on to its output all the same, and the summary says what it used.
+  for (const i of [0, 1, 2]) f.take(i);
+  f.take(0, '# Redis');
+  m = f.room.state().current!;
+  assert.equal(m.status, 'done');
+  assert.equal(f.room.clear('Ada'), undefined);
+  assert.match(f.room.state().past[0].summary, /Debate · 2 rounds · 60\.5M tokens · \$31\.50 · ✅ decision\.md/);
 });
 
 test('a worker that ends its part without writing the file is reminded once, then the meeting stops', (t) => {

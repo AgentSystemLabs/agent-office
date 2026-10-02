@@ -27,7 +27,6 @@ export const meetingHandlers = {
       pr: count(msg.pr),
       issue: count(msg.issue),
       rounds: count(msg.rounds),
-      budget: count(msg.budget),
       provider: msg.provider,
       model: msg.model === undefined ? undefined : str(msg.model, OPEN_CODE_MODEL_MAX + 1),
       effort: isAgentEffort(msg.effort) ? msg.effort : undefined,
