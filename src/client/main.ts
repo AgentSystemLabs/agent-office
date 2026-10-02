@@ -39,6 +39,7 @@ import { installCars } from './features/cars';
 import { installChat } from './features/chat';
 import { installClimbing } from './features/climbing';
 import { installCoffee } from './features/coffee';
+import { installDictation } from './features/dictation';
 import { installDog } from './features/dog';
 import { installEmotes } from './features/emotes';
 import { installGolf } from './features/golf';
@@ -172,6 +173,7 @@ parts.focus = installFocus(ctx, core, parts);
 parts.pointer = installPointer(ctx, core, parts);
 installChat(ctx);
 parts.talk = installVoice(ctx, { tv: parts.tv });
+installDictation(ctx);
 parts.hud = installHud(ctx, core, parts);
 
 // ---- Main loop ---------------------------------------------------------------------------------------

@@ -8,6 +8,7 @@ import { confirmDialog } from './prompt';
 import { providerPicker } from './provider';
 import { officePrompt } from './prompts';
 import { issueVars } from './github/prompts';
+import { dictateField } from './dictate';
 
 /** What a meeting called from an issue, a PR or a task starts out with. */
 export interface MeetingPreset {
@@ -220,7 +221,7 @@ function meetingForm(net: Net, preset: MeetingPreset | undefined, done: () => vo
     'form.meeting-form',
     {},
     patterns,
-    h('div.meeting-field', {}, h('label', {}, 'What’s it about?'), about),
+    h('div.meeting-field', {}, h('label', {}, 'What’s it about?'), dictateField(about)),
     h('div.meeting-field', {}, titleIn),
     prRow,
     partsRow,

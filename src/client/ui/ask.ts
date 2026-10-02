@@ -4,6 +4,7 @@ import { h, openModal, STATUS_LABEL } from './dom';
 import { store } from '../state';
 import { providerPicker, type ProviderPicker } from './provider';
 import { repoPicker } from './prompt';
+import { dictateField } from './dictate';
 
 // Send a prompt about an issue or PR to a worker: a new one at a free desk, or one already sitting
 // at a desk (it lands in their input box, queued if they're busy).
@@ -79,7 +80,7 @@ export function openAsk(opts: AskOptions) {
       choices,
       opts.context ? h('details.ask-context', {}, h('summary', {}, 'The worker is told first…'), h('pre', {}, opts.context)) : null,
       h('label', { style: 'margin-top:14px' }, 'Prompt'),
-      ta,
+      dictateField(ta),
       provider?.element ?? null,
       wtRow,
       repos.element,
