@@ -20,10 +20,11 @@ RUN chmod 755 bin/*.js deploy/container/*.sh \
 
 FROM node:22-bookworm-slim
 ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8
-# sshd for the tunnels, tini to reap what workers leave behind, and what workers need: git, the
-# GitHub CLI (from GitHub's own apt repo, like deploy/provision.sh) and build tools.
+# sshd for the tunnels, tini to reap what workers leave behind, `ss` (iproute2) for the office to
+# find the web servers workers start, and what workers need: git, the GitHub CLI (from GitHub's own
+# apt repo, like deploy/provision.sh) and build tools.
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends openssh-server sudo tini procps ca-certificates curl git less build-essential python3 \
+  && apt-get install -y --no-install-recommends openssh-server sudo tini procps iproute2 ca-certificates curl git less build-essential python3 \
   && install -d -m 755 /etc/apt/keyrings \
   && curl -fsSLo /etc/apt/keyrings/githubcli-archive-keyring.gpg https://cli.github.com/packages/githubcli-archive-keyring.gpg \
   && chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \

@@ -75,6 +75,7 @@ Usage:
   agent-office setup [--projects <dir>] [--project <owner/repo>]...
   agent-office prune [dir] [--dry-run] [--force]
   agent-office accounts [list|invite|revoke|role|password] ...
+  agent-office tunnel [office@address | url]
 
 Runs the office. Every project is a floor of the building: ride the elevator,
 pick one of the repositories your \`gh\` login can see, and the office clones it
@@ -98,6 +99,9 @@ Commands:
                           changes or unpushed commits is kept unless --force is given.
   accounts                Invite, list and revoke people's own accounts, and switch
                           the shared password off or on (see accounts --help)
+  tunnel                  On your own computer, for an office that runs somewhere
+                          else: every web server a worker starts there opens on the
+                          same port here, by itself (see tunnel --help)
 
 Options:
       --home <dir>        Where the office keeps its data when no [dir] is given

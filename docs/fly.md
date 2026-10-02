@@ -48,7 +48,7 @@ The office listens on `127.0.0.1:4600` in its machine, and everyone reaches it t
 ssh -L 4600:localhost:4600 ssh://office@137.66.12.34:31337
 ```
 
-They leave it running, open http://localhost:4600 and sign in. Their keys log in as the `office` user, which can **only** forward to the office's port: no shell, no other ports, no `-R`. The address answers any IP, but sshd accepts only your key and invited keys, and never a password. **🌐 Services** tunnels to workers' web servers work the same way (`deploy/fly.sh service 5173` for you).
+They leave it running, open http://localhost:4600 and sign in. Their keys log in as the `office` user, which can **only** forward to the office's port: no shell, no other ports, no `-R`. The address answers any IP, but sshd accepts only your key and invited keys, and never a password. **🌐 Services** tunnels to workers' web servers work the same way (`deploy/fly.sh service 5173` for you), and [`agent-office tunnel`](tunnel.md) opens every one of them on your computer by itself.
 
 ```bash
 deploy/fly.sh open                    # tunnel + open the office in your browser

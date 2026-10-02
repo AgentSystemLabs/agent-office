@@ -65,7 +65,7 @@ deploy/azure.sh team                  # who's invited
 deploy/azure.sh revoke 203.0.113.7    # take an IP back off the list
 ```
 
-The office knows it was deployed with `deploy/azure.sh`, so the commands it suggests in **👥 Invite teammates** and on the **🌐 Services** board are the Azure ones.
+The office knows it was deployed with `deploy/azure.sh`, so the commands it suggests in **👥 Invite teammates** and on the **🌐 Services** board are the Azure ones. To get every worker's web server on your own computer without a command for each, run [`agent-office tunnel`](tunnel.md) there.
 
 Accounts work as in the [README](../README.md#add-users). To make an invite link from your terminal:
 

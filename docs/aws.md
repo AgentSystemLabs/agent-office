@@ -55,11 +55,21 @@ ssh -N -o ExitOnForwardFailure=yes -o PermitLocalCommand=yes -o LocalCommand="op
 
 It opens http://localhost:5173 on their computer. The tunnel ends at the office's own port, and the office relays it to the worker's server on 5173. So the same invited keys work, nothing new is opened on the machine, and every page still asks for the office password (anyone signed in to the office already is). Keep one terminal per service open while you look. You set the office up yourself? Run `deploy/aws.sh service 5173` instead.
 
+**Or all of them, by themselves.** `agent-office tunnel` on your own computer opens every worker's server there as it starts, on the same port, and closes it when the worker stops it: no command per server.
+
+```bash
+agent-office tunnel office@<your-office-ip>   # the tunnel to the office too, and its servers as they come and go
+agent-office tunnel                           # or, while deploy/aws.sh open is running, just the servers
+```
+
+It goes through the office's own port like the commands above, so invited keys are enough. It needs the `agent-office` command on that computer: see [Workers' servers on your own computer](tunnel.md).
+
 If chasing teammates' IPs gets old, `deploy/aws.sh allow anywhere` opens SSH to every IP. That's a reasonable trade: SSH only accepts your key and invited keys, and the office stays behind the tunnel.
 
 ```bash
 deploy/aws.sh open                 # tunnel + open the office in your browser
 deploy/aws.sh service 5173         # open a worker's web server from the 🌐 Services board
+agent-office tunnel                # or every worker's server, by itself, while `open` is running (docs/tunnel.md)
 deploy/aws.sh invite <gh-user>     # let a teammate tunnel in (or: invite <name> <key.pub>)
 deploy/aws.sh uninvite <name>      # remove their keys and drop open tunnels
 deploy/aws.sh team                 # who's invited
