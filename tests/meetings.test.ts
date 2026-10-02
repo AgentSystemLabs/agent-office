@@ -7,7 +7,7 @@ import path from 'node:path';
 import { MeetingRoom, type MeetingWorkers } from '../src/server/meetings.js';
 import { Worktrees } from '../src/server/worktrees.js';
 import type { AgentChoice, MeetingRequest, WorkerInfo } from '../src/shared/protocol.js';
-import { MEETING_PATTERN_IDS, isMeetingPattern } from '../src/shared/meetings.js';
+import { MEETING_PATTERNS, MEETING_PATTERN_IDS, fixedRounds, isMeetingPattern } from '../src/shared/meetings.js';
 import { PROMPTS, type PromptId } from '../src/shared/prompts.js';
 
 function fixture(opts: { git?: boolean; rewritten?: Partial<Record<PromptId, string>>; officeDefault?: AgentChoice } = {}) {
@@ -307,4 +307,24 @@ test('a meeting says what the office’s rewritten prompts say, and seats the de
   t.after(() => g.close());
   assert.equal(g.start({ provider: 'claude', model: 'haiku' }), undefined);
   assert.deepEqual(g.workers.map((x) => x.model), ['haiku', 'haiku', 'haiku']);
+});
+
+test('a pattern with a set number of rounds says so, and names them; a range is left to pick from', (t) => {
+  assert.deepEqual(fixedRounds(MEETING_PATTERNS.lead), {
+    line: '3 rounds · fixed by the Lead & team workflow',
+    stages: 'Planning → Execution → Merge',
+    why: 'Lead & team always runs 3 rounds: Planning → Execution → Merge. Each one is a step of the pattern, so there’s none to add or take away.',
+  });
+  for (const id of MEETING_PATTERN_IDS) {
+    const p = MEETING_PATTERNS[id];
+    if (p.rounds.min === p.rounds.max) assert.equal(p.stages?.length, p.rounds.max, `${id} names each of its rounds`);
+    else {
+      assert.equal(fixedRounds(p), undefined, id);
+      assert.ok(p.roundsNote, `${id} says what a round is`);
+    }
+  }
+  // The office holds to it whatever is asked for.
+  const f = fixture(); t.after(() => f.close());
+  assert.equal(f.start({ pattern: 'lead', rounds: 5 }), undefined);
+  assert.equal(f.room.state().current!.rounds, 3);
 });
