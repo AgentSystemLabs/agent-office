@@ -5,7 +5,7 @@ import { spawn } from 'node:child_process';
 import { closeSync, mkdtempSync, openSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { AGENT_EFFORTS, isValidCodexModel, isValidGrokModel, isValidOpenCodeModel, type AgentProvider, type ModelOption } from '../shared/providers.js';
+import { AGENT_EFFORTS, isValidCodexModel, isValidCursorModel, isValidGrokModel, isValidOpenCodeModel, type AgentProvider, type ModelOption } from '../shared/providers.js';
 
 /** A CLI that lists its models in a second or two takes ten times that on a busy machine. */
 export const MODEL_COMMAND_TIMEOUT_MS = 30_000;
@@ -151,6 +151,30 @@ export async function fetchCodexModels(command: string, cwd: string, runner: Mod
   }
 }
 
+/**
+ * Run `cursor-agent models` without a shell and return only safe model ids, each with its name. It
+ * prints one model a line, `<id> - <name>`, with `(current)` or `(default)` after some, under a
+ * heading and over a tip.
+ */
+export async function fetchCursorModels(command: string, cwd: string, runner: ModelCommandRunner = runModelCommand): Promise<ModelOption[]> {
+  try {
+    const result = await runner(command, ['models'], { cwd, timeout: MODEL_COMMAND_TIMEOUT_MS, maxBuffer: MODEL_COMMAND_MAX_BUFFER });
+    const models: ModelOption[] = [];
+    for (const raw of plain(result.stdout).split(/\r?\n/)) {
+      const line = raw.trim();
+      const id = line.split(/\s/, 1)[0];
+      // The heading, the tip and "No models available" are sentences: a model's line is its id alone, or its id, " - " and its name.
+      const listed = /^\S+(?: - (.*?))?(?: \((?:current|default)[^)]*\))?$/.exec(line);
+      if (!listed || !isValidCursorModel(id)) continue;
+      const name = shownName(listed[1], id);
+      models.push({ id, ...(name ? { name } : {}) });
+    }
+    return unique(models);
+  } catch {
+    throw new Error('Cursor model catalogue unavailable');
+  }
+}
+
 type ModelLister = (command: string, cwd: string, runner?: ModelCommandRunner) => Promise<ModelOption[]>;
 
 /** The providers whose CLI lists its models (ProviderMeta.models.catalog), and how each is asked. */
@@ -158,6 +182,7 @@ export const MODEL_LISTERS: Partial<Record<AgentProvider, ModelLister>> = {
   opencode: fetchOpenCodeModels,
   codex: fetchCodexModels,
   grok: fetchGrokModels,
+  cursor: fetchCursorModels,
 };
 
 export interface ModelCatalogue {

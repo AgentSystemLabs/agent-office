@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { agentProviders, configuredProvider, validateWorkerEffort, validateWorkerModel } from '../src/server/agents.js';
+import { agentProviders, configuredProvider, providerCommand, validateWorkerEffort, validateWorkerModel } from '../src/server/agents.js';
 import { AGENT_PROVIDERS, CLAUDE_MODELS, CLAUDE_MODEL_NAMES, PROVIDER_META, claudeModelName, isValidCodexModel, isValidDshModel } from '../src/shared/providers.js';
 import { isAgentProvider } from '../src/shared/protocol.js';
 
@@ -21,6 +21,11 @@ test('detects the configured provider from Unix and Windows command paths', () =
   assert.equal(configuredProvider('pi'), 'pi');
   assert.equal(configuredProvider('C:\\Users\\me\\AppData\\Roaming\\npm\\pi.cmd'), 'pi');
   assert.equal(configuredProvider('/usr/local/bin/pi'), 'pi');
+  assert.equal(configuredProvider('cursor-agent'), 'cursor');
+  assert.equal(configuredProvider('/home/me/.local/bin/cursor-agent'), 'cursor');
+  assert.equal(configuredProvider('cursor-agent.cmd'), 'cursor');
+  // `cursor` is the editor's launcher, not the agent.
+  assert.equal(configuredProvider('cursor'), 'custom');
   assert.equal(configuredProvider('my-agent'), 'custom');
 });
 
@@ -41,6 +46,21 @@ test('Pi can be selected with model patterns and thinking levels', () => {
   assert.match(validateWorkerModel('agent', 'pi', 'bad\u0000model') ?? '', /Invalid Pi model/);
   assert.equal(validateWorkerEffort('agent', 'pi', 'high'), undefined);
   assert.match(validateWorkerEffort('agent', 'pi', 'invalid') ?? '', /Invalid effort/);
+});
+
+test('Cursor can be selected with a model, runs as cursor-agent, and takes no effort', () => {
+  assert.ok(agentProviders('claude').includes('cursor'));
+  assert.equal(isAgentProvider('cursor'), true);
+  assert.equal(PROVIDER_META.cursor.label, 'Cursor');
+  assert.equal(providerCommand('cursor', 'claude'), 'cursor-agent');
+  assert.equal(providerCommand('cursor', '/opt/bin/cursor-agent'), '/opt/bin/cursor-agent');
+  assert.equal(providerCommand('claude', '/opt/bin/cursor-agent'), 'claude');
+  assert.equal(validateWorkerModel('agent', 'cursor', undefined), undefined);
+  assert.equal(validateWorkerModel('agent', 'cursor', 'gpt-5'), undefined);
+  assert.equal(validateWorkerModel('agent', 'cursor', 'claude-opus-4-8[context=1m,effort=high]'), undefined);
+  assert.match(validateWorkerModel('agent', 'cursor', '--yolo') ?? '', /Invalid Cursor model/);
+  assert.match(validateWorkerModel('agent', 'cursor', 'gpt 5') ?? '', /Invalid Cursor model/);
+  assert.match(validateWorkerEffort('agent', 'cursor', 'high') ?? '', /Reasoning effort can only be selected/);
 });
 
 test('a DeepSeek Harness model is bounded by length and control characters only', () => {
@@ -72,7 +92,7 @@ test('model validation follows the provider', () => {
   assert.match(validateWorkerModel('agent', 'codex', '--yolo') ?? '', /Invalid Codex model/);
   assert.match(validateWorkerModel('agent', 'codex', 'gpt 5.5') ?? '', /Invalid Codex model/);
   // Custom still takes none.
-  assert.match(validateWorkerModel('agent', 'custom', 'anything') ?? '', /Claude Code, OpenCode, Codex, Grok, Muse, DeepSeek Harness or Pi/);
+  assert.match(validateWorkerModel('agent', 'custom', 'anything') ?? '', /Claude Code, OpenCode, Codex, Grok, Muse, DeepSeek Harness, Pi or Cursor/);
 });
 
 test('reasoning effort joins Claude for DeepSeek Harness', () => {
@@ -87,7 +107,7 @@ test('reasoning effort joins Claude for DeepSeek Harness', () => {
   assert.match(validateWorkerEffort('agent', 'custom', 'high') ?? '', /Claude Code, OpenCode, Codex, Grok, Muse, DeepSeek Harness or Pi/);
 });
 
-test('every provider the office knows the CLI of takes a model and an effort, with the fields to pick them', () => {
+test('every provider the office knows the CLI of takes a model and (but for Cursor) an effort, with the fields to pick them', () => {
   for (const provider of AGENT_PROVIDERS) {
     const meta = PROVIDER_META[provider];
     if (provider === 'custom') {
@@ -98,7 +118,9 @@ test('every provider the office knows the CLI of takes a model and an effort, wi
       continue;
     }
     assert.ok(meta.validModel && meta.invalidModel, `${provider} takes a model`);
-    assert.ok(meta.takesEffort, `${provider} takes an effort`);
+    // Cursor's effort is part of its model id (`model[effort=high]`), so it has no effort field of its own.
+    if (provider === 'cursor') assert.equal(meta.takesEffort, undefined);
+    else assert.ok(meta.takesEffort, `${provider} takes an effort`);
     assert.ok(meta.models?.unset && meta.models.hint, `${provider} has its model field`);
     // A model picked from a list has one to pick from; a typed one says what's wrong with a bad one.
     if (meta.models.pick === 'list') assert.ok(meta.models.fixed?.length || meta.models.catalog, `${provider} has models to list`);

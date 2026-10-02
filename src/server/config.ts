@@ -189,15 +189,15 @@ export function officeHome(): string {
   return path.resolve(process.env.AGENT_OFFICE_HOME || path.join(os.homedir(), 'agent-office'));
 }
 
-/** Keep the office's own data out of git without touching the project's .gitignore. */
-export function excludeFromGit(dir: string) {
+/** Keep the office's own data (or another `entry` it writes into the project) out of git without touching the project's .gitignore. */
+export function excludeFromGit(dir: string, entry = '.agent-office/') {
   try {
     const gitDir = execFileSync('git', ['rev-parse', '--git-common-dir'], { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
     const exclude = path.resolve(dir, gitDir, 'info', 'exclude');
     const cur = existsSync(exclude) ? readFileSync(exclude, 'utf8') : '';
-    if (!cur.split('\n').some((l) => l.trim() === '.agent-office/' || l.trim() === '.agent-office')) {
+    if (!cur.split('\n').some((l) => l.trim() === entry || l.trim() === entry.replace(/\/$/, ''))) {
       mkdirSync(path.dirname(exclude), { recursive: true });
-      appendFileSync(exclude, `${cur && !cur.endsWith('\n') ? '\n' : ''}.agent-office/\n`);
+      appendFileSync(exclude, `${cur && !cur.endsWith('\n') ? '\n' : ''}${entry}\n`);
     }
   } catch {
     // not a git repo; nothing to exclude
