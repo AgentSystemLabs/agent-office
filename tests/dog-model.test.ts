@@ -90,7 +90,8 @@ test('the breeds are built as they should be: a corgi and a dachshund low, a dac
   }
   const length = (b: DogBreed) => size(b).max.z - size(b).min.z;
   for (const b of DOG_BREEDS) if (b !== 'dachshund') assert.ok(length('dachshund') > length(b), `a dachshund is longer than a ${b}`);
-  for (const b of DOG_BREEDS) if (b !== 'pug') assert.ok(length('pug') < length(b), `a pug is shorter than a ${b}`);
+  // A pomeranian is about a pug's length, all fluff.
+  for (const b of DOG_BREEDS) if (b !== 'pug' && b !== 'pomeranian') assert.ok(length('pug') < length(b), `a pug is shorter than a ${b}`);
 });
 
 test("a floor's dog keeps its name and coat, and gets a breed, from its id", () => {
@@ -103,7 +104,8 @@ test("a floor's dog keeps its name and coat, and gets a breed, from its id", () 
     seen.add(d.breed);
     if (d.name === 'Pancake') pancakes.add(d.breed);
   }
-  assert.equal(seen.size, DOG_BREEDS.length, 'every breed turns up');
+  // Every breed there was when floors got breeds; a newer one is only ever picked.
+  assert.deepEqual([...seen].sort(), ['corgi', 'dachshund', 'pug', 'pup', 'shiba'], 'every breed dealt turns up');
   assert.ok(pancakes.size > 1, "a dog's breed doesn't go with its name");
   // What these floors were called and wore before there were breeds.
   assert.deepEqual({ ...dogDefaults('main'), breed: undefined }, { name: 'Pancake', coat: 5, breed: undefined });
