@@ -124,6 +124,9 @@
           if (Test-Path -LiteralPath $dest) { throw "$dest is in the way; remove it and run this again" }
           Step "Installing Agent Office $tag"
           # Exactly the dependency versions the release was tested with (its npm-shrinkwrap.json).
+          # npm 12 only reads package-lock.json for `npm ci`, so hand it the shrinkwrap under that name too.
+          $shrinkwrap = Join-Path $pkg 'npm-shrinkwrap.json'
+          if (Test-Path -LiteralPath $shrinkwrap) { Copy-Item -LiteralPath $shrinkwrap -Destination (Join-Path $pkg 'package-lock.json') -Force }
           Push-Location -LiteralPath $pkg
           # Out-Host, or npm's output would become part of this function's return value.
           try { & $npm ci --omit=dev --no-audit --no-fund --loglevel=error | Out-Host } finally { Pop-Location }
