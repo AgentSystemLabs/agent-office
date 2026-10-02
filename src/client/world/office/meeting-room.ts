@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { MEETING_BOARD, MEETING_ROOM, MEETING_SEATS, MEETING_TABLE, deskSeat, type DeskDef } from '../../../shared/layout';
+import { MEETING_BOARD, MEETING_LAPTOP, MEETING_ROOM, MEETING_SEATS, MEETING_TABLE, deskSeat, type DeskDef } from '../../../shared/layout';
 import type { NightParts } from '../outside';
 import { mesh, roundedBox, textPlane, toon } from '../toon';
 import type { Collider, DeskView, Interactable } from '../types';
@@ -15,8 +15,8 @@ function buildMeetingSeat(def: DeskDef, index: number): DeskView {
   group.position.set(def.x, 0, def.z);
   group.rotation.y = def.rotY;
   const laptopAnchor = new THREE.Object3D();
-  laptopAnchor.position.set(0, MEETING_TABLE.height, 0);
-  laptopAnchor.scale.setScalar(1.15);
+  laptopAnchor.position.set(0, MEETING_TABLE.height, MEETING_LAPTOP.z);
+  laptopAnchor.scale.setScalar(MEETING_LAPTOP.scale);
   group.add(laptopAnchor);
   const seatAnchor = new THREE.Object3D();
   seatAnchor.position.set(0, 0.4, 0.85);
@@ -123,12 +123,12 @@ export function buildMeetingRoom(group: THREE.Group, colliders: Collider[], inte
   table.add(mesh(roundedBox(top.width, 0.08, top.depth, 0.1), toon(PALETTE.wood), 0, top.height - 0.04, 0));
   for (const sx of [-1, 1]) {
     table.add(mesh(new THREE.CylinderGeometry(0.1, 0.12, top.height - 0.08, 10), toon(PALETTE.deskLeg), sx * (top.width / 2 - 0.7), (top.height - 0.08) / 2, 0));
-    table.add(mesh(roundedBox(0.9, 0.05, 0.6, 0.05), toon(PALETTE.deskLeg), sx * (top.width / 2 - 0.7), 0.025, 0));
+    table.add(mesh(roundedBox(0.9, 0.05, 0.8, 0.05), toon(PALETTE.deskLeg), sx * (top.width / 2 - 0.7), 0.025, 0));
   }
   table.position.set(top.x, 0, top.z);
   group.add(table);
   colliders.push({ minX: top.x - top.width / 2, maxX: top.x + top.width / 2, minZ: top.z - top.depth / 2, maxZ: top.z + top.depth / 2, top: top.height });
-  const talk: Interactable = { kind: 'meeting', x: top.x, z: top.z, radius: 2.6 };
+  const talk: Interactable = { kind: 'meeting', x: top.x, z: top.z, radius: 2.9 };
   interactables.push(talk);
   table.userData.interact = talk;
   MEETING_SEATS.forEach((def, i) => {

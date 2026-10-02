@@ -22,8 +22,10 @@ export const BENCH_OUT = 0.52;
 /**
  * The round meeting table: how big it is, how far out the chairs' place settings and the chairs are,
  * and how far behind it (away from the head of the table) the easel with the meeting's board stands.
+ * `tome` is the book at each place: its size next to the model's, and how far toward its chair it
+ * lies from the place. Five of them open round the table take a table this big to lie clear of each other.
  */
-export const COUNCIL = { radius: 1.15, height: 0.78, place: 0.5, chairs: 1.35, easel: 2.5 } as const;
+export const COUNCIL = { radius: 1.3, height: 0.78, place: 0.85, chairs: 1.7, easel: 2.5, tome: { scale: 0.85, z: 0.04 } } as const;
 /** The throne's footprint. */
 export const THRONE_SIZE = { width: 1.9, depth: 1.9 } as const;
 

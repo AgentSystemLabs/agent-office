@@ -172,19 +172,25 @@ export const STAIRS = { fromX: 3, toX: LOFT.minX, minZ: 11.2, maxZ: FLOOR.maxZ, 
  * north wall, facing the lounge.
  */
 export const MEETING_ROOM = { minX: LOFT.minX + 0.15, maxX: FLOOR.maxX, minZ: LOFT.minZ + 0.15, maxZ: FLOOR.maxZ, height: LOFT.y - 0.25, door: { x0: 10, x1: 11.4 } } as const;
-export const MEETING_TABLE = { x: 13.7, z: 10.55, width: 3.6, depth: 1.2, height: 0.76 } as const;
+export const MEETING_TABLE = { x: 13.7, z: 10.5, width: 4.2, depth: 1.7, height: 0.76 } as const;
+/**
+ * A laptop at the meeting table: its size next to the model's, and how far toward its chair it lies
+ * from the place (x, z) it's at. With the place this far in from the table's edge, two open laptops
+ * facing each other across the table have room between the backs of their lids.
+ */
+export const MEETING_LAPTOP = { scale: 1, z: 0.07, in: 0.45 } as const;
 /**
  * The chairs round the meeting table, in the order a meeting fills them: the head of the table at its
- * west end (whoever leads or writes the meeting up), then two down each side. (x, z) is where the
- * laptop sits on the table; the chair is out from it the way a desk's is (deskSeat).
+ * west end (whoever leads or writes the meeting up), then two down each side. (x, z) is its place at
+ * the table, where its laptop goes (MEETING_LAPTOP); the chair is out from it the way a desk's is (deskSeat).
  */
 export const MEETING_SEATS: DeskDef[] = (
   [
-    [MEETING_TABLE.x - MEETING_TABLE.width / 2 + 0.35, MEETING_TABLE.z, -Math.PI / 2],
-    [MEETING_TABLE.x - 0.6, MEETING_TABLE.z - MEETING_TABLE.depth / 2 + 0.35, Math.PI],
-    [MEETING_TABLE.x - 0.6, MEETING_TABLE.z + MEETING_TABLE.depth / 2 - 0.35, 0],
-    [MEETING_TABLE.x + 1.1, MEETING_TABLE.z - MEETING_TABLE.depth / 2 + 0.35, Math.PI],
-    [MEETING_TABLE.x + 1.1, MEETING_TABLE.z + MEETING_TABLE.depth / 2 - 0.35, 0],
+    [MEETING_TABLE.x - MEETING_TABLE.width / 2 + MEETING_LAPTOP.in, MEETING_TABLE.z, -Math.PI / 2],
+    [MEETING_TABLE.x - 0.65, MEETING_TABLE.z - MEETING_TABLE.depth / 2 + MEETING_LAPTOP.in, Math.PI],
+    [MEETING_TABLE.x - 0.65, MEETING_TABLE.z + MEETING_TABLE.depth / 2 - MEETING_LAPTOP.in, 0],
+    [MEETING_TABLE.x + 1.15, MEETING_TABLE.z - MEETING_TABLE.depth / 2 + MEETING_LAPTOP.in, Math.PI],
+    [MEETING_TABLE.x + 1.15, MEETING_TABLE.z + MEETING_TABLE.depth / 2 - MEETING_LAPTOP.in, 0],
   ] as const
 ).map(([x, z, rotY], i) => ({ id: `meeting-${i + 1}`, x, z, rotY, label: i === 0 ? 'Head of the table' : `Meeting chair ${i + 1}`, room: true }));
 /** The board on the meeting room's back (south) wall that shows the meeting's output file as it's written. */
