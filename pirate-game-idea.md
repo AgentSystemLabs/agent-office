@@ -300,17 +300,186 @@ Measure behavior, not registrations alone:
 
 Set numeric gates after the first prototype establishes realistic baselines. Family subscriptions may be a fit, but pricing, conversion, AI allowances, and moderation costs remain unvalidated.
 
+## First-expedition specification — cooperative vertical slice
+
+Planning approval: the user requested this specification on 2026-10-02. This authorizes refining the plan, not starting runtime implementation. The following are **provisional prototype defaults**; quantities, timings, dimensions, and rewards are tuning targets, not validated balance.
+
+### Scope and experience
+
+Target a 20–25 minute first adventure for one to four friends. Start on desktop browsers, with a third-person camera and a private crew session. A shared home island contains four protected personal plots. There are no stranger encounters, naval weapons, stolen charts, raids, territorial claims, or paid progression in this slice.
+
+Use a stylized modular world. Players can place approved buildings on plots and a shared construction pad. Arbitrary terrain excavation, custom executable code, and arbitrary ship hull generation are deferred. Survival centers on ship readiness and a small weather hazard; there is no starvation timer.
+
+For the prototype, one crew's home and bounded ocean belong to one authoritative session. This avoids cross-server travel before the expedition works. Destinations load by proximity; a broader shared ocean is a later architecture decision.
+
+### Starting island and supplies
+
+Suggested home footprint: approximately 96 × 96 world meters. Treat dimensions as adjustable after movement tests.
+
+- A sheltered spawn area, recovery bell, and readable objective board.
+- Four approximately 16 × 16 personal plots, clearly labeled by player.
+- A dock with one damaged starter sloop and a boarding point.
+- A shared storage chest and an approximately 8 × 8 construction pad.
+- Six nearby driftwood bundles, each granting four wood once per crew.
+- A workshop that previews the first ship upgrade.
+- A visible departure lane and compass landmark to help players return.
+
+Each player receives reusable interaction tools and a fishing rod. These are not lost on recovery. Starting consumable supplies belong to the crew, not to each joining player:
+
+| Supply | Starting amount | Purpose |
+| --- | --- | --- |
+| Wood | 30 | First repair, shed, and later upgrades |
+| Cloth | 4 | First sail upgrade |
+| Metal | 0 | Acquired from the wreck |
+| Fish | 0 | Optional trade objective |
+| Gold | 0 | Cosmetic reward; no AI billing conversion |
+
+Joining, reconnecting, or replacing a player never creates a second starter grant. Collected driftwood remains collected for that introductory adventure. Repeat expedition replenishment rules are outside the first-adventure economy.
+
+### First-adventure beats
+
+| Approximate time | Activity | Intended result |
+| --- | --- | --- |
+| 0–3 minutes | Meet at spawn, inspect supplies, repair the sloop | Crew understands shared resources and boarding |
+| 3–7 minutes | Preview, edit, and construct a storage shed | Player experiences useful AI creation and builder animation |
+| 7–10 minutes | Depart and sail to the wreck | All passengers have useful activities |
+| 10–15 minutes | Salvage and fish or trade at the nearby cove | Crew earns metal, cloth, and a blueprint |
+| 15–20 minutes | Optional beacon puzzle and a small squall | Exploration has an activity beyond collecting items |
+| 20–25 minutes | Return, unload, upgrade, inspect the next chart | Clear accomplishment and a reason to sail again |
+
+These are pacing targets, not forced timers. Players may skip the optional encounter, build manually, pause, or take longer. The next-adventure chart is a teaser until its destination is implemented; label it accordingly rather than sending players to an empty island.
+
+### Controls and interaction
+
+- WASD moves the character; mouse controls the third-person camera; Space jumps.
+- E interacts with a nearby object, station, dock, or helm.
+- Hold a mouse button to rotate the camera; aiming and modal behavior require a usability prototype.
+- At the helm, W/S controls throttle and A/D steers; E releases the helm.
+- A build panel supports describe, preview, rotate, place, confirm, cancel, and undo.
+- Esc and a visible top-right close button dismiss panels and restore gameplay input without an extra click.
+- A short preset-message wheel covers “Ready,” “Need help,” “Return home,” and “Found supplies.” Open text and voice chat are deferred.
+
+Interaction hints must distinguish walking controls from helm controls. No action should require knowing a keyboard shortcut without an on-screen hint. Touch controls remain outside this prototype.
+
+### Boat rules
+
+The first sloop is approximately eight meters long and three meters wide, using one tested hull with visual customization. Starting hull condition is 60/100; spending six wood at the dock restores it to 100/100 and completes the departure objective.
+
+Provisional cruise speed is six meters per second. Tune destination distances for roughly 45–90 seconds of sailing between nearby activities. Favor readable arcade steering; detailed wind simulation, wave forces, and arbitrary buoyancy are deferred.
+
+Only one player occupies the helm. Passengers can move on the deck, use designated fishing or lookout points, and perform repairs. A repair consumes two wood for 20 hull points, capped at 100. Repair and station actions must validate range and ownership on the server.
+
+Movement aboard uses a stable ship-relative reference so players move with the deck. Prototype turning, jumping, docking, and reconnecting on a moving ship before adding ship content. If this cannot be made reliable, explicitly revise the first slice to fixed passenger stations rather than shipping unreliable movement.
+
+Docking is an assisted interaction inside a visible dock radius. Anchoring allows fishing and boarding at destinations. Boundary water turns the boat toward the playable area with a clear warning; it does not imply an infinite ocean.
+
+### Three discovery encounters
+
+All three destinations are server-owned and cannot be claimed. Rewards are shared crew rewards, granted once for the introductory adventure and persisted by encounter ID.
+
+| Encounter | Interaction | Provisional reward |
+| --- | --- | --- |
+| Broken-Mast Wreck | Anchor, approach, open three marked salvage crates; use a shared progress indicator | Ten wood, four metal, five gold, first sail blueprint |
+| Tidepool Cove | Catch fish through a short timing interaction; exchange two fish with a merchant once | Two cloth and three gold; fishing itself can continue within inventory limits |
+| Old Beacon Islet | Find three nearby symbols and activate their matching levers; all clues remain visible | Two gold, decorative lantern unlock, next-expedition chart teaser |
+
+Puzzle completion must work solo. Multiple players can cooperate, but no mechanism requires simultaneous attendance. Opening a crate at the same time cannot double its reward. An unsolved puzzle never blocks returning home.
+
+The first sail upgrade costs ten wood, four cloth, and four metal. It adds a visible sail improvement and a provisional 10% cruise-speed increase. This is deterministic workshop crafting, not another AI request.
+
+Economy sanity check: the initial 30 wood covers the six-wood repair and eight-wood shed before exploration. The wreck supplies all required metal; starting cloth already covers the upgrade. The cove and beacon are optional, so the upgrade does not depend on fishing success. Gathering driftwood and wreck salvage leave a repair buffer.
+
+Gold has no competitive benefit in this slice. An optional eight-gold flag-color unlock gives treasure an understandable cosmetic use. Players can still complete the expedition without purchasing it.
+
+### AI construction contract
+
+First catalog: storage shed, lookout tower, small cabin, dock extension, fence, and decorative tree. Start with one bounded storage-shed tutorial: a six-by-four-meter shed with selectable roof color and door position, costing eight wood. Visual variants have the same introductory material cost; its storage interaction uses tested game code.
+
+The initial model interprets requests into approved component plans and supported edits. Unsupported requests produce a friendly explanation and supported alternatives. No construction can exceed its plot, overlap the dock departure lane, trap a player, or change another player's objects without permission.
+
+The tutorial asks for a shed, previews it, changes one parameter such as roof color, and confirms placement. Provide preset requests and a manual placement alternative so provider outages do not block the adventure.
+
+For adult prototype testing, configure a provisional ten-request budget per crew adventure, including revisions. Do not silently reset it on reconnect. Budget replenishment, family entitlements, and underage free-text access remain separate launch decisions.
+
+Construction takes approximately 20 seconds and uses two animated builders. After confirmation, the server atomically reserves materials and saves the job. Collision-affecting final geometry appears on completion; intermediate scaffolding is visual only. Builders and bubbles reflect server job progress rather than calling AI every frame.
+
+Cancellation before completion returns reserved materials and removes scaffolding. Completed tutorial construction can be undone during the adventure if nobody has changed or used it and no dependent object exists; restore its materials. The wider undo/refund economy must be specified before general construction unlocks.
+
+If world state changes after a preview, reject confirmation and refresh the preview instead of charging against stale state. Provider refusals, malformed plans, timeouts, and internal retries never charge materials or create partially accepted builds.
+
+### Ownership and cooperative safeguards
+
+- Each player can build on their personal plot. Shared-pad construction is available to crew builders.
+- For this private cooperative slice, approved builders may spend shared materials, with a visible action log; owner can revoke permission. No transferable ownership or member-removal economy is implemented yet.
+- No visitor may spend supplies, claim rewards, steer, or edit the world unless explicitly admitted as a crew member.
+- Only the helm occupant can send boat-control commands. Disconnect releases the helm.
+- Prevent conflicting placements and duplicate workshop purchases through server version checks.
+- The introductory adventure has one vessel and no trading between crews.
+
+### Failure, pause, and recovery
+
+| Situation | Required behavior |
+| --- | --- |
+| Player falls into water | Swim toward the boat; offer return to deck after a short delay; accessible rescue stays available |
+| Player disconnects | Save identity and resume on the ship or a safe dock; release occupied stations; no duplicate supplies |
+| Everyone leaves | Save crew and world; pause the adventure and hazard; restore safely when someone returns |
+| Boat reaches zero hull | Recover crew and ship at home; retain design and all tutorial cargo; restore 60 hull and offer a free recovery repair |
+| No repair supplies remain | Tutorial recovery path provides the minimum repair; repeated use grants no sellable resource |
+| Small squall occurs | Telegraph its path; offer a route around it; cap its scripted damage at 20 hull across the introductory encounter |
+| AI is slow or unavailable | Keep movement and manual building available; show bounded waiting and a preset/manual fallback |
+| Preview becomes invalid | Refresh without material spending; explain the changed placement or permission |
+| Server restarts during construction | Recover the saved job, reservation, and progress exactly once; complete or cancel consistently |
+| Two players collect the same reward | One shared grant appears for both; no duplication |
+
+The cooperative tutorial intentionally has no cargo loss on sinking. Later expedition modes may add limited cargo losses after separate playtesting. Persist gold and rewards; recovery does not allow replay farming. Do not apply storm damage while the entire crew is offline.
+
+### Implementation work packages and dependencies
+
+These packages belong to a future game repository, not agent-office runtime. Technology candidates still require selection. Build this slice before designing all later systems in detail.
+
+| Package | Deliverable | Depends on |
+| --- | --- | --- |
+| P0 | Device target, adult-test setup, provider/data boundary, component catalog and permission rules | Planning decisions |
+| P1 | Camera, character movement, island, dock, third-person interaction hints | P0 |
+| P2 | Private crew session, authoritative state, inventory, identity and restore | P0 |
+| P3 | One sloop, helm, passengers, docking, fishing stations and rescue | P1, P2 |
+| P4 | Manual components, collision-safe placement, previews, material transactions and jobs | P1, P2 |
+| P5 | AI planner adapter, validation, quota, bounded retries and fallback | P4, provider decision from P0 |
+| P6 | Wreck, cove, beacon, reward transactions and squall | P3, P4 |
+| P7 | Builder animation, workshop upgrade, tutorial objectives and return-home flow | P4, P5, P6 |
+| P8 | Reconnect, restart, concurrency, recovery, metrics and usability verification | P2–P7 |
+| P9 | Parent flows, provider approval, reporting and consented children’s pilot | P8, jurisdiction/safety decisions |
+
+Select persistence and network contracts before P2 implementation. Initial entities to specify: Crew, Member, Plot, Inventory, Vessel, BuildPlan, ConstructionJob, EncounterProgress, RewardGrant, and AdventureProgress. Each durable mutation needs an operation ID, actor authorization, validation, and a clear success or rejection result. API credentials never reach browsers.
+
+### Acceptance criteria and verification
+
+The slice is ready for an adult usability test only when:
+
+1. One to four players can join a private session and complete the introductory adventure; solo completion never requires missing crew members.
+2. Players repair, board, steer, dock, fish, salvage, return, and purchase the first upgrade without developer intervention.
+3. A supported AI request produces a legal preview, supports a targeted change, and constructs exactly once at the displayed material cost. Manual fallback completes the same objective.
+4. Passengers remain stable during steering and docking; falling overboard has a usable rescue path.
+5. Concurrent collecting, repairs, build confirmation, and upgrades neither duplicate rewards nor produce negative inventory.
+6. Reconnect and server restart preserve supplies, ship design, encounter grants, and construction reservations.
+7. Invalid permissions, oversized plans, malformed output, and stale previews cannot mutate another plot or spend materials.
+8. The first adventure can finish after a squall, sinking, exhausted AI allowance, or provider failure.
+9. Prompts and sensitive account information do not appear in routine metrics; provider calls obey the approved data boundary.
+10. Record frame rate, boat network behavior, build latency, provider cost, retries, expedition completion, and observed frustration on the chosen baseline device and network. Set release thresholds after measurements, rather than claiming an untested performance budget.
+
+Use meaningful transaction and recovery tests for authoritative state, automated multi-client scenarios for concurrency, and headless-browser screenshots for visual milestones. Screenshots cannot verify ship feel: short adult usability sessions are needed for camera, passenger movement, and pacing. A children’s pilot additionally requires the P9 prerequisites.
+
 ## Open decisions for the next conversations
 
 1. Exact age range and whether PvP is restricted to an older or separate mode.
-2. First supported devices: desktop only, tablets, or both.
-3. View and controls: first person, third person, or switchable.
-4. Art direction and how much terrain is editable.
-5. Shared crew home versus separate connected personal islands.
-6. Initial hull, sailing complexity, and boat component catalog.
-7. What food and survival contribute without repetitive chores.
-8. AI allowances, resource costs, refunds, and progression unlocks.
-9. Expedition duration and how long travel should take.
+2. Validate the desktop-browser prototype default; decide when tablets enter scope.
+3. Validate third-person controls and passenger movement; choose any later alternative camera modes.
+4. Final art direction and terrain-editing scope beyond modular prototype plots.
+5. Validate a shared crew home with personal plots; define leadership and member departure.
+6. Tune the starter sloop and select later hulls and component progression.
+7. Decide later food and survival systems; the introductory adventure has no starvation.
+8. Launch AI allowances, broader resource costs, refunds, and progression unlocks; tutorial numbers are provisional.
+9. Validate 20–25 minute first-adventure pacing and 45–90 second nearby sailing legs.
 10. PvP eligibility, matchmaking, chart drop conditions, and maximum losses.
 11. Raid availability, combat logout rules, and harbor session persistence.
 12. Town ownership, seasons, abandonment, and cancellation policies.
@@ -325,4 +494,5 @@ When implementation is ready, replace open questions with accepted rules and add
 
 ## Decision history
 
+- **2026-10-02:** User approved drafting the first-expedition specification. Added provisional desktop/third-person/private-crew defaults, a bounded cooperative adventure, starter economy, three encounters, construction transactions, recovery rules, dependency-ordered work packages, and measurable acceptance criteria. Runtime implementation and later competitive mechanics remain unapproved.
 - **2026-10-02:** Shifted from a general AI sandbox to a four-friend pirate island and expedition game. Accepted this direction for continued planning. Proposed protected homes, opt-in naval conflict, temporary stolen charts, limited harbor raids, outpost flags, later towns, scripted environmental events, and animated builders.
