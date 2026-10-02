@@ -10,7 +10,8 @@ Headless, from the repo root (`-- --shots` also writes a review sheet of each ca
 Each car is four roots, named after its kind:
   <kind>          the body, with the rear wheels, lights, intakes, mirrors (and the Lambo's wing)
   <kind>_top      the glass cabin and its painted roof, which the office takes off while anyone's in it
-  <kind>_open     what's left with the roof off: the windshield, two bucket seats and the steering wheel
+  <kind>_open     what's left with the roof off: the windshield (see-through Screen), the dashboard, two
+                  bucket seats and the steering wheel
   <kind>_wheel_l  the front wheels, each with its origin at its hub: the office turns them to steer
   <kind>_wheel_r
 
@@ -34,6 +35,7 @@ from aokit import TAU
 COLORS = {
     "Paint": "#f2c230",
     "Glass": "#233347",
+    "Screen": "#9fc3e6",
     "Dark": "#2b2d42",
     "Tire": "#1f1f26",
     "RimGold": "#e9b949",
@@ -195,9 +197,11 @@ def section(st, m):
         y = mid + math.copysign(abs(s) ** (2 / rnd), s) * hh
         f = max(0.0, (y - sill) / max(1e-6, top - sill))
         x *= 1 - tuck * f * f
-        # The fenders stand above the middle: more so out at the sides, and only on the top half.
+        # The fenders stand above the middle as ridges out at the sides (over the wheels, higher than
+        # their arches), and only on the top half.
         if s > 0:
-            y += crown * (abs(x) / hw) ** 2.2 * s
+            f = min(1.0, max(0.0, (abs(x) / hw - 0.3) / 0.32))
+            y += crown * f * f * (3 - 2 * f) * s
         pts.append((x, y))
     return pts
 
@@ -232,7 +236,7 @@ def width_at(sts, z, y):
     return min(pts, key=lambda p: abs(p[1] - y))[0]
 
 
-def cut_arches(ob, axle, r=0.44, inner=0.6):
+def cut_arches(ob, axle, r=0.41, inner=0.62):
     """Wheel arches, cut up into the fenders over each axle (from `inner` out, so the hood between stays)."""
     cutters = []
     for z in (-axle, axle):
@@ -259,7 +263,7 @@ def cut_arches(ob, axle, r=0.44, inner=0.6):
             ring = []
             for i in range(n + 1):
                 a = a0 + (math.pi - 2 * a0) * i / n
-                ring.append([bm.verts.new(at(x, WHEEL_Y + rr * math.sin(a), z + rr * math.cos(a))) for x in (sx * inner, sx * 0.86)])
+                ring.append([bm.verts.new(at(x, WHEEL_Y + rr * math.sin(a), z + rr * math.cos(a))) for x in (sx * inner, sx * 0.9)])
             for p, q in zip(ring, ring[1:]):
                 bm.faces.new((p[0], q[0], q[1], p[1]))
     liner = ao.mesh_object("_liner", bm, [material("Dark")])
@@ -334,11 +338,13 @@ def cabin(kind, sts):
     length = math.hypot(z0 - z1, y1 - y0)
     rake = math.atan2(y1 - y0, z0 - z1)
     mid = ((z0 + z1) / 2, (y0 + y1) / 2)
-    parts.add(glass, obox, (0, mid[1], mid[0]), (1.3, 0.025, length), bevel=0.01, pitch=rake, segments=2)
+    parts.add(material("Screen"), obox, (0, mid[1], mid[0]), (1.3, 0.025, length), bevel=0.01, pitch=rake, segments=2)
     d = parts.of(dark)
     for sx in (-1, 1):
         obox(d, (sx * 0.66, mid[1], mid[0]), (0.035, 0.035, length + 0.03), bevel=0.01, pitch=rake, segments=2)
     obox(d, (0, y1 + 0.005, z1), (1.36, 0.03, 0.035), bevel=0.01, segments=2)
+    # The dashboard across under the windshield's foot, over the drivers' knees.
+    obox(d, (0, 0.74, z0 - 0.22), (1.36, 0.14, 0.36), bevel=0.04, segments=2)
     # The steering wheel on its column, in front of the driver.
     ao.torus(d, at(SEATS_X, 0.96, SEATS_Z + 0.5), 0.16, 0.026, rot=(math.pi / 2 - 0.45, 0, 0), n=24, m=8)
     ao.cylinder(d, at(SEATS_X, 0.96, SEATS_Z + 0.5), at(SEATS_X, 0.84, SEATS_Z + 0.85), 0.03, segs=10)
@@ -418,6 +424,27 @@ def details(kind, sts, axle):
     return parts.build("_details")
 
 
+# The cockpit, sunk into the body under the cabin: from just behind the windshield's foot, back behind
+# the seats, between the doors, down to its floor.
+COCKPIT = {"lambo": (0.95, -1.0), "ferrari": (0.62, -1.12)}
+
+
+def cut_cockpit(ob, kind):
+    """Hollows the cockpit out of the body, its floor and walls in Dark, so with the roof off you sit
+    down in the car rather than on top of it."""
+    front, back = COCKPIT[kind]
+    bm = bmesh.new()
+    obox(bm, (0, 1.0, (front + back) / 2), (1.44, 1.16, front - back), bevel=0.12, segments=3)
+    cutter = ao.mesh_object("_cockpit", bm, [material("Dark")])
+    mod = ob.modifiers.new("cockpit", 'BOOLEAN')
+    mod.operation = 'DIFFERENCE'
+    mod.solver = 'EXACT'
+    mod.material_mode = 'TRANSFER'
+    mod.object = cutter
+    ao.apply_modifier(ob, "cockpit")
+    bpy.data.objects.remove(cutter, do_unlink=True)
+
+
 def build(kind):
     """One car's four roots (see the module's doc)."""
     axle = AXLE[kind]
@@ -425,6 +452,7 @@ def build(kind):
     sts = loft(bm, STATIONS[kind])
     body = ao.mesh_object(kind, bm, [material("Paint")], smooth=True)
     liner = cut_arches(body, axle)
+    cut_cockpit(body, kind)
     rear = [wheel("_rear", kind, sx * WHEEL_X, -axle) for sx in (-1, 1)]
     for r in rear:
         bpy.context.view_layer.update()

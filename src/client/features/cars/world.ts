@@ -116,7 +116,10 @@ export function supercar(kind: CarKind, color: string): CarModel {
   const glass = (carGlass ??= Object.assign(toonUnique('#233347'), { side: THREE.DoubleSide }));
   const lamp = toon('#fff6c9', { emissive: '#b8a960' });
   const tail = toon('#ff2d3f', { emissive: '#a3001a' });
-  const by = (name: string): THREE.Material => (name === 'Paint' ? paint : name === 'Glass' ? glass : name === 'Lamp' ? lamp : name === 'Tail' ? tail : toon(CAR_COLORS[name] ?? '#ff00ff'));
+  // The windshield left with the roof off is see-through, so from the driver's seat you see the hood and the road.
+  const screen = toon('#9fc3e6', { opacity: 0.3 });
+  const by = (name: string): THREE.Material =>
+    name === 'Paint' ? paint : name === 'Glass' ? glass : name === 'Screen' ? screen : name === 'Lamp' ? lamp : name === 'Tail' ? tail : toon(CAR_COLORS[name] ?? '#ff00ff');
   const part = (name: string) => {
     const o = piece('cars', name, by);
     return o.name === name ? o : null;

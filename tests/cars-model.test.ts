@@ -15,8 +15,8 @@ const { gltf, nodes, byName } = cars;
 
 const KINDS = ['lambo', 'ferrari'] as const;
 const PARTS = ['', '_top', '_open', '_wheel_l', '_wheel_r'];
-/** What features/cars/world.ts paints: CAR_COLORS there, and Paint, Glass, Lamp and Tail, which it makes itself. */
-const MATERIALS = ['Paint', 'Glass', 'Lamp', 'Tail', 'Dark', 'Tire', 'RimGold', 'RimSilver', 'Caliper', 'Chrome', 'Badge', 'Seat'];
+/** What features/cars/world.ts paints: CAR_COLORS there, and Paint, Glass, Screen, Lamp and Tail, which it makes itself. */
+const MATERIALS = ['Paint', 'Glass', 'Screen', 'Lamp', 'Tail', 'Dark', 'Tire', 'RimGold', 'RimSilver', 'Caliper', 'Chrome', 'Badge', 'Seat'];
 const AXLE = { lambo: 1.42, ferrari: 1.36 };
 const WHEEL = { r: 0.36, y: 0.37, x: 0.79 };
 
