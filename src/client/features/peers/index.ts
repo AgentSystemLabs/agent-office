@@ -22,6 +22,9 @@ import { whereabouts } from '../../ui/whereabouts';
 import { Person } from '../../world/character';
 import { disposeSprite, textSprite } from '../../world/toon';
 
+/** Going faster than this (m/s), someone's running: a walk is 4.6 and a run 7.5 (see player/index.ts). */
+const RUN_SPEED = 6;
+
 export interface RemotePeer {
   person: Person;
   target: THREE.Vector3;
@@ -32,6 +35,8 @@ export interface RemotePeer {
   bubble?: { sprite: THREE.Sprite; until: number };
   /** Seconds walked since their last footstep. */
   stepT: number;
+  /** How fast they're going (m/s), evened out: at a run, their feet say so. */
+  speed: number;
   /** On the ladder or a pole, going by where they are. */
   grip: Grip | null;
 }
@@ -56,7 +61,7 @@ export function installPeers(ctx: Ctx, core: CoreState, parts: Pick<Parts, 'puff
         person.root.position.set(peer.x, peer.y, peer.z);
         scene.add(person.root);
         noOutline(person.root);
-        r = { person, target: new THREE.Vector3(peer.x, peer.y, peer.z), rotY: peer.rotY, moving: false, label: '', look: { ...peer.look }, stepT: 0, grip: null };
+        r = { person, target: new THREE.Vector3(peer.x, peer.y, peer.z), rotY: peer.rotY, moving: false, label: '', look: { ...peer.look }, stepT: 0, speed: 0, grip: null };
         remotes.set(id, r);
       }
       const label = `${peer.name}|${peer.voice ? (peer.muted ? 'm' : 'v') : '-'}|${peer.color}`;
@@ -104,6 +109,8 @@ export function installPeers(ctx: Ctx, core: CoreState, parts: Pick<Parts, 'puff
       const at = sat ?? p;
       r.target.set(at.x, at.y, at.z);
       const pos = r.person.root.position;
+      const fromX = pos.x;
+      const fromZ = pos.z;
       if (ride) {
         pos.copy(r.target);
         r.person.root.rotation.y = ride.rotY;
@@ -123,11 +130,14 @@ export function installPeers(ctx: Ctx, core: CoreState, parts: Pick<Parts, 'puff
       r.person.setGrip(holding);
       const walking = !sat && p.moving && !airborne;
       r.person.update(dt, t, walking || (holding === 'ladder' && p.moving), airborne && !holding && Math.abs(pos.y - r.target.y) > 0.01);
-      // Their walk cycle takes a step every π/11 seconds.
+      // Their walk cycle takes a step every π/11 seconds, and every π/14 at a run, as yours does.
+      if (dt > 0) r.speed += (Math.min(RUN_SPEED * 2, Math.hypot(pos.x - fromX, pos.z - fromZ) / dt) - r.speed) * Math.min(1, dt * 5);
+      const running = r.speed > RUN_SPEED;
+      const stride = Math.PI / (running ? 14 : 11);
       r.stepT = walking ? r.stepT + dt : 0.2;
-      if (r.stepT >= Math.PI / 11) {
-        r.stepT -= Math.PI / 11;
-        sound.stepAt(pos.x, pos.z);
+      if (r.stepT >= stride) {
+        r.stepT -= stride;
+        sound.stepAt(pos.x, pos.z, pos.y, running ? 1 : 0);
       }
       r.person.setVoiceLevel(p.voice && !p.muted ? voice.levelOf(id) : 0);
       r.person.emojiLift = r.bubble ? 0.45 : 0;
