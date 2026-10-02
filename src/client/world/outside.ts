@@ -381,6 +381,8 @@ export function buildStreet(group: THREE.Group, colliders: Collider[], night: Ni
     b.rotation.y = facing(x, z);
     group.add(b);
   }
+  // Solid: you (and a car) stop at their walls instead of walking in.
+  for (const n of neighbourBoxes()) colliders.push({ minX: n.minX, maxX: n.maxX, minZ: n.minZ, maxZ: n.maxZ, bottom: G, top: G + n.top });
 
   // Puffy clouds, too far off for the fog to hide.
   const cloud = night.clouds;
