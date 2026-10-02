@@ -9,7 +9,7 @@ Connect private clients to authoritative crew state and establish reconnect beha
 
 ## Readiness
 
-DEV-004 and DEV-005 merged; room framework selected. Read [workflow](../workflow.md), [architecture](../architecture.md), and [testing](../testing.md). This task is not ready until dependencies and decisions are recorded as satisfied.
+DEV-004 and DEV-005 merged; use the selected Colyseus 0.18 baseline and [contracts/storage](../contracts-and-storage.md), with the foundation core/SDK compatibility smoke passing. Read [workflow](../workflow.md), [architecture](../architecture.md), and [testing](../testing.md). This task is not ready until dependencies and decisions are recorded as satisfied.
 
 ## Implementation steps
 

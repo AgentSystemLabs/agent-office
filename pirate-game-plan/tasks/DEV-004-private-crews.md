@@ -9,7 +9,7 @@ Admit one to four authorized adult testers with crew/plot ownership. Children’
 
 ## Readiness
 
-DEV-003 merged; settle D06 adult identity, invitations, expiration and role rules. Read [workflow](../workflow.md), [architecture](../architecture.md), and [testing](../testing.md). This task is not ready until dependencies and decisions are recorded as satisfied.
+DEV-003 merged; implement the adult identity/invitation rules in [contracts/storage](../contracts-and-storage.md), with independent review of hashing parameters and middleware/session wiring. Read [workflow](../workflow.md), [architecture](../architecture.md), and [testing](../testing.md). This task is not ready until dependencies and decisions are recorded as satisfied.
 
 ## Implementation steps
 

@@ -59,6 +59,8 @@ Review findings must be resolved or explicitly accepted by the responsible revie
 
 Configure stage and PROD to reject direct pushes, force pushes, and deletion; require reviews, resolved conversations, successful required checks, and review renewal after relevant changes. Minimize administrative bypass. Until configured and verified, these are requirements, not guarantees.
 
+For the selected private-repository default, first verify that the account/organization plan can enforce these rules and any required deployment protection. Eligibility is not established by a successful GitHub login. Do not make the repository public, purchase an upgrade, or weaken independent review to avoid a missing capability. The remaining setup checks are tracked in [decisions](decisions.md) and [foundation](foundation-spec.md).
+
 PR CI includes frozen-lockfile install, typecheck, lint, relevant tests, build, and applicable integration/browser checks. Full release checks are in testing.md. Privileged credentials must not be exposed to untrusted PR code; reviewed deployment pipelines use environment-scoped credentials.
 
 ## Promotion to PROD

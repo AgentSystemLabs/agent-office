@@ -9,7 +9,7 @@ Implement durable mutations and restore foundations with explicit transaction bo
 
 ## Readiness
 
-DEV-002 merged; approve D08 and temporary-database CI approach. Read [workflow](../workflow.md), [architecture](../architecture.md), and [testing](../testing.md). This task is not ready until dependencies and decisions are recorded as satisfied.
+DEV-002 merged; implement D08 from [contracts/storage](../contracts-and-storage.md) with PostgreSQL 18.6 and a real temporary CI database. Read [workflow](../workflow.md), [architecture](../architecture.md), and [testing](../testing.md). This task is not ready until dependencies and decisions are recorded as satisfied.
 
 ## Implementation steps
 

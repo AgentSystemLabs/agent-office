@@ -192,7 +192,7 @@ Protect personal creations and provide automatic evacuation or recovery. Events 
 
 ## Multiplayer and persistence direction
 
-Proposed technical direction, pending prototyping: TypeScript browser client with Three.js, authoritative room servers, durable account and ownership storage, and world snapshots plus operation history. Evaluate room frameworks such as Colyseus before choosing infrastructure.
+Selected engineering baseline, pending implementation verification: TypeScript browser client with Three.js, Node/Colyseus authoritative rooms, PostgreSQL account/ownership storage, and versioned world state. The [foundation specification](pirate-game-plan/foundation-spec.md) records exact versions and setup, and [contracts/storage](pirate-game-plan/contracts-and-storage.md) specifies adult identity, message bounds, resource transactions and restore.
 
 - Home islands and ocean encounters are bounded sessions, connected through travel.
 - Empty islands save and unload; they do not each require permanently running simulation.
@@ -237,7 +237,7 @@ These are scope gates, not delivery commitments. Do not start every stage at onc
 
 ### Stage 0 — decisions and adult-tested prototype
 
-- Choose launch audience, devices, geography, account model, provider, and repository.
+- Verify the selected desktop/adult-prototype baseline, repository setup and independent-review prerequisites. Decide launch audience/geography and real AI provider before later pilot tasks.
 - Prototype sailing, one hull, one island, manual building, and compact AI plans.
 - Test component limits, targeted edits, construction previews, and persistence.
 - Establish provider data handling and consent requirements before a children’s pilot.
@@ -496,7 +496,7 @@ Task branches use names such as `DEV-007-sailing`. Task PRs squash-merge into st
 
 Use KISS and DRY through clear feature boundaries, typed/validated contracts, small composition files, and justified shared code. Avoid speculative abstractions and optimize measured bottlenecks. Planning artifacts do not claim protections, CI, infrastructure, or child-safe launch arrangements already exist.
 
-Next: resolve the [blocking decisions](pirate-game-plan/decisions.md), approve immediate architecture and task scope, select owners/reviewers and budgets, and make DEV-001 ready. Naval PvP, raids and towns remain later phases requiring their own approved task breakdowns.
+Immediate architecture and setup are now specified in the [foundation baseline](pirate-game-plan/foundation-spec.md), with adult-session and persistence rules in [contracts/storage](pirate-game-plan/contracts-and-storage.md). DEV-001 has exact setup steps and acceptance criteria. Remaining immediate prerequisites are a named independent reviewer and verified private-repository protection entitlement; no paid plan, host or API is purchased automatically. A later coding instruction is still needed to begin implementation. Naval PvP, raids and towns remain later phases requiring their own approved task breakdowns.
 
 ## How to keep this document current
 
@@ -506,6 +506,7 @@ When implementation is ready, replace open questions with accepted rules and add
 
 ## Decision history
 
+- **2026-10-02:** On the user's instruction to proceed with planning, selected a private separate-project default, pinned a registry-checked toolchain, chose minimal Colyseus packages/PostgreSQL, and specified adult identity, contracts and storage semantics. Expanded DEV-001 into a concrete setup sequence. It is technically specified, with independent-review and repository-protection prerequisites still pending; game code remains unstarted.
 - **2026-10-02:** User required a dedicated documentation package before coding, one DEV-prefixed task branch per implementation, mandatory independent review, stage integration and PROD promotion. Added the development-plan folder, proposed architecture, six implementation phases, 18 individual planned task files, verification standards and release/recovery workflow. Infrastructure and runtime implementation remain unstarted.
 - **2026-10-02:** User approved drafting the first-expedition specification. Added provisional desktop/third-person/private-crew defaults, a bounded cooperative adventure, starter economy, three encounters, construction transactions, recovery rules, dependency-ordered work packages, and measurable acceptance criteria. Runtime implementation and later competitive mechanics remain unapproved.
 - **2026-10-02:** Shifted from a general AI sandbox to a four-friend pirate island and expedition game. Accepted this direction for continued planning. Proposed protected homes, opt-in naval conflict, temporary stolen charts, limited harbor raids, outpost flags, later towns, scripted environmental events, and animated builders.

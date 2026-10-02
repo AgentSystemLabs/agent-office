@@ -1,12 +1,12 @@
-# Proposed architecture and project structure
+# Selected architecture and project structure
 
-Status: candidate for decision D04. No versions or provider are selected. Verify compatibility before implementation.
+Status: D04 selected for the initial prototype; implementation compatibility remains to verify. The [foundation specification](foundation-spec.md) pins the toolchain; [contracts/storage](contracts-and-storage.md) defines initial identity and data boundaries. Real AI provider selection remains open.
 
 ## Small initial system
 
 One browser client, one authoritative game/API deployment, PostgreSQL, object storage when needed, and an AI worker process built from the same server codebase. Do not begin with microservices, Kubernetes, a custom networking framework, or a generic plugin engine.
 
-Room-based multiplayer is a candidate; evaluate Colyseus against the simple four-player private-session requirement. Add shared coordination such as Redis only when multiple server processes require it. Empty rooms persist and stop; do not dedicate a permanently running process to every island.
+Use Colyseus 0.18 core, WebSocket transport, SDK and schema packages for four-player private rooms, with an initial compatibility smoke before feature implementation. Add shared coordination such as Redis only when multiple server processes require it. Empty rooms persist and stop; do not dedicate a permanently running process to every island.
 
 ## Proposed repository layout
 
@@ -63,7 +63,7 @@ Create only folders/modules that have implemented responsibilities. Keep unit te
 
 ## Authority and coordinates
 
-Proposed conventions: meters, Y-up, documented horizontal axes, radians internally, stable opaque IDs, ship-local coordinates for passengers and equipment. Decide rotation representation and physics integration in DEV-002/DEV-007. IDs and coordinates are never permission grants.
+Selected conventions: meters, Y-up, X east/Z south, radians and quaternions internally, stable opaque IDs, ship-local coordinates for passengers and equipment. Planar steering follows the documented yaw convention; confirm its implementation in DEV-002/DEV-007. IDs and coordinates are never permission grants.
 
 The server owns crew membership, plot rights, inventory, rewards, accepted construction, ship condition, encounter progress, and quota. Client prediction makes movement responsive and reconciles with authoritative state. Validate movement bounds and station occupancy; never accept a client-provided reward or material balance.
 

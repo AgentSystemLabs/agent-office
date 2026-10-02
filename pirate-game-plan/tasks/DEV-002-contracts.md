@@ -9,7 +9,7 @@ Define small feature-owned schemas and shared conventions. Do not implement a ge
 
 ## Readiness
 
-DEV-001 merged; resolve D07 and confirm private-session scope. Read [workflow](../workflow.md), [architecture](../architecture.md), and [testing](../testing.md). This task is not ready until dependencies and decisions are recorded as satisfied.
+DEV-001 merged; implement D07 from [contracts/storage](../contracts-and-storage.md), confirming conventions against the installed framework. Read [workflow](../workflow.md), [architecture](../architecture.md), and [testing](../testing.md). This task is not ready until dependencies and decisions are recorded as satisfied.
 
 ## Implementation steps
 

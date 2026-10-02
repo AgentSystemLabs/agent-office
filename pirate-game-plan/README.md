@@ -9,6 +9,8 @@ The [main concept](../pirate-game-idea.md) describes the product and first exped
 | Document | Owns |
 | --- | --- |
 | [Decisions](decisions.md) | Approval status, blockers, assumptions, and changes |
+| [Foundation specification](foundation-spec.md) | Selected versions, repository/CI/device baseline and setup prerequisites |
+| [Contracts and storage](contracts-and-storage.md) | Adult identity, messages, durable operations and recovery semantics |
 | [Architecture](architecture.md) | Module boundaries, data ownership, contracts, and structure |
 | [Workflow](workflow.md) | DEV branches, mandatory review, stage integration, and PROD promotion |
 | [Phases](phases.md) | Dependency order, playable milestones, and phase gates |
@@ -21,7 +23,7 @@ Keep product rules in the main concept, technical rules in architecture, task-sp
 
 ## Definition of ready before coding
 
-- Resolve coding blockers in decisions.md: repository, stack/version baseline, adult-test identity and hosting, component conventions, and persistence/network design.
+- Technical baseline and initial identity/contracts/storage are now specified. Resolve the remaining reviewer and private-repository protection checks in decisions.md before calling DEV-001 ready.
 - Every immediate task has one owner, bounded scope, approved dependencies, implementation steps, acceptance criteria, tests, and relevant risks.
 - Enable protected branches, required CI, independent reviews, and environment separation in the future repository.
 - Select the baseline device, supported browsers, and measurable performance targets.
@@ -38,4 +40,4 @@ Documentation is part of completion: record actual implementation, verification,
 
 ## Next planning session
 
-Resolve the blocking decisions, inspect the proposed architecture and task sizes, and make DEV-001 ready. Then approve a separate implementation start. This package is not a claim that branch protections, CI, hosting, or a child-safe launch already exist.
+Confirm independent review and private-repository enforcement availability, inspect the selected baseline and task sizes, and make DEV-001 ready. Then approve a separate implementation start. This package is not a claim that branch protections, CI, hosting, or a child-safe launch already exist.

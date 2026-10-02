@@ -34,7 +34,7 @@ Use deterministic seeds/clocks where appropriate and explicit state assertions. 
 
 ## Browser and visual evidence
 
-Record supported browser versions, baseline hardware, resolution and graphics preset. Cover the supported browser matrix, not only the developer's browser. Headless screenshots verify visual milestones; screenshots alone do not verify interaction or accessibility.
+Use the selected toolchain/browser/device profiles in [foundation](foundation-spec.md); record actual tested browser versions, baseline hardware, resolution and graphics preset. Cover the supported browser matrix, not only the developer's browser. Headless screenshots verify visual milestones; screenshots alone do not verify interaction or accessibility.
 
 Verify keyboard hints, clear focus, visible close buttons, Esc behavior, return to gameplay input, readable UI, reduced-motion options where needed, and safe overboard recovery. Use short adult playtests for camera and sailing feel. Record observations and resulting changes.
 
