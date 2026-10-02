@@ -62,3 +62,15 @@ agent-office tunnel [office@address | url] [--port <n>] [--office-port <n>] [--n
   the worker stops it. Given an SSH address it opens the tunnel to the office too.
   See docs/tunnel.md.
 ```
+
+## Windows GitHub setup
+
+Install GitHub CLI on the machine running the office, and sign in as the user running it:
+
+```powershell
+winget install --id GitHub.cli --source winget
+gh auth login
+gh auth status
+```
+
+A terminal or desktop app opened before installation may keep an older PATH. The office checks PATH first, then the standard `ProgramFiles` and `ProgramFiles(x86)` GitHub CLI folders, and the per-user `LOCALAPPDATA\Programs\GitHub CLI` and `LOCALAPPDATA\Microsoft\WinGet\Links` folders. This lookup applies to repository listing, cloning, terminal setup and account sign-in. Custom installation locations still need to be on the server process's PATH; reopen the launcher after updating PATH. A GitHub sign-in in another user's session or on your browser's machine does not sign in the office server. After signing in, use the elevator's refresh button to reload repositories.

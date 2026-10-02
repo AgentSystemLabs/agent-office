@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { childEnv, resolveCommand } from '../workers.js';
+import { findGitHubCli } from '../github-cli.js';
 import { SignIns } from '../signins.js';
 import { agentProviders, configuredProvider } from '../agents.js';
 import { Tailnet } from '../tailnet.js';
@@ -53,7 +54,7 @@ export function createServices(ctx: Ctx): BuildingServices {
   const signins = new SignIns(
     cfg.dataDir,
     claudeBin,
-    resolveCommand('gh'),
+    findGitHubCli() ?? resolveCommand('gh'),
     childEnv,
     (id) => accounts.get(id)?.role === 'admin',
     (id) => {
