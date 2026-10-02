@@ -400,6 +400,10 @@ The rules for coding agents working on this repository are in [`AGENTS.md`](AGEN
 
 Every change to the app that lands on `main` is published as a GitHub release by [`.github/workflows/release.yml`](.github/workflows/release.yml), and `install.sh` installs the newest one. Bump `package.json`'s version to start a new minor.
 
+## Two-player FPS duel
+
+Click **FPS · 1V1** (or press **F8**) in the 3D office to join Office Strike, a tactical duel in a dedicated training arena. Two players on the same office server can play; the first to win five rounds wins. Movement, hits, cover, ammunition and scores are checked by the server. See [FPS controls and rules](docs/fps.md) for joining from another computer and starting a rematch.
+
 ## More
 
 - [Features](docs/features.md): everything in the office, room by room
