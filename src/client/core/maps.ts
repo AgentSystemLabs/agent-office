@@ -71,7 +71,7 @@ export function installMaps(ctx: Ctx, core: CoreState, parts: MapsParts) {
     player.room = { ...plan().bounds, ...world.room };
     if (!core.upTop && !inOffice()) player.street = streetOf(world);
     sky.setIndoors(world.room.enclosed);
-    // What you hear: the office's phones and fridge, or the hall's own windows and gong.
+    // What you hear: the office's fridge, or the hall's own windows and gong.
     sound.setHall(world.acoustics ? { bounds: plan().bounds, ...world.acoustics } : null);
     // The office's own: the holiday decorations round it and the street, the dog, the jukebox.
     holiday.group.visible = inOffice() && !core.upTop;
