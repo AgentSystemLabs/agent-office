@@ -160,7 +160,7 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
   };
   paintTheme();
 
-  // The building's map, for everyone: the office, the castle, or one of your own. Opening Settings
+  // The building's map, for everyone: the office, the castle, the space station, or one of your own. Opening Settings
   // has the office read its folder of maps again, so one you just added or fixed shows up.
   net.send({ t: 'map.set' });
   const mapRow = h('div.seg', { role: 'radiogroup', 'aria-label': 'Map' });

@@ -1,9 +1,13 @@
 import * as THREE from 'three';
-import { levelRoute, type SendHomePlace, type SendHomeStep, type Spot } from '../../../shared/maps';
+import { levelRoute, type SendHomePlace, type SendHomeStep } from '../../../shared/maps';
 import type { Pt } from '../../../shared/nav';
-import type { Person, Worker } from '../../world/character';
+import type { Worker } from '../../world/character';
+import type { Drifters } from './adrift';
+import { eject, shut } from './eject';
 import type { Jail } from './jail';
 import type { Laptop } from './laptop';
+import { lockUp } from './lockup';
+import { behind, pick, wrap, type Guard, type Sendoff, type SendoffSounds, type StepHost, type Walk } from './sendoff';
 import type { DeskView } from '../../world/types';
 import type { World } from '../../world/world';
 
@@ -12,7 +16,8 @@ import type { World } from '../../world/world';
  * acting its steps out one after another: the castle's Kingsguard runs up from the dungeon, the
  * worker packs its things, and it's marched off down the stairs with a hand on its shoulder, thrown
  * into its cell, and the door slams behind it. Each step is a `begin` (once) and a `tick` (each
- * frame, until it's done) below; a new kind of step goes in SEND_HOME_STEPS (shared) and here.
+ * frame, until it's done) below; a new kind of step goes in SEND_HOME_STEPS (shared) and here, and
+ * one with much to act out has a file of its own (lockup.ts, the cell; eject.ts, the airlock).
  * A map without a script sees its workers out the office's way (leaving.ts).
  */
 
@@ -32,80 +37,28 @@ const FEET = 0.07;
 const BEHIND = 0.8;
 /** The most escorts out at once: anyone else sent home meanwhile waits for one. */
 const GUARDS = 4;
-/** Thrown into its cell: the door swinging open, a step up to it, the throw, and the door slamming. */
-const JAIL = { open: 0.5, step: 0.35, fly: 0.75, shut: 0.3 } as const;
-
 const FAREWELLS = ['😢 bye, everyone', '🥲 it was fun', '📦 welp', '😞 cleaning out my desk', '🥺 but my PR…'];
-
-const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
-const pick = <T>(xs: readonly T[]): T => xs[Math.floor(Math.random() * xs.length)];
-
-/** Someone walking a way: the worker, or its escort. */
-interface Walk {
-  root: THREE.Object3D;
-  way: Pt[];
-  next: number;
-  heading: number;
-  stepIn: number;
-}
-
-interface Guard extends Walk {
-  person: Person;
-  /** The map's own, on watch at its post; the others are called out while it's busy, and put away after. */
-  posted: boolean;
-  /** Fetching a worker, marching one along, or heading back to its post. */
-  mode: 'idle' | 'go' | 'wait' | 'follow' | 'home';
-  speed: number;
-}
-
-interface Sendoff {
-  id: string;
-  model: Worker;
-  desk: DeskView;
-  laptop: { laptop: Laptop; gone: number; closing: boolean } | null;
-  steps: SendHomeStep[];
-  /** The step it's on, whether it's begun, and seconds into it. */
-  i: number;
-  begun: boolean;
-  t: number;
-  /** In its seat, getting down off it, on its feet, walking, being thrown into its cell, or done for. */
-  state: 'seated' | 'hop' | 'stand' | 'walk' | 'fly' | 'done';
-  walk: Walk;
-  speed: number;
-  hop: { from: THREE.Vector3; t: number };
-  chair: THREE.Object3D | null;
-  spin: number;
-  scale: number;
-  /** Where it's walked, for its escort to follow. */
-  trail: Pt[];
-  guard: Guard | null;
-  /** Its seat in the dungeon, if it's to be locked up. */
-  cell: { cell: number; spot: Spot } | null;
-  jail: { phase: 'go' | 'open' | 'step' | 'fly' | 'shut'; t: number; from: THREE.Vector3; walked: boolean } | null;
-  /** 0 → 1 as it shrinks away. */
-  gone: number;
-  leaving: boolean;
-  /** What it (or its escort) said last, for how long to give it. */
-  said: string;
-  /** Its script has run to the end. */
-  over: boolean;
-}
 
 export class Sendoffs {
   private list: Sendoff[] = [];
   private guards: Guard[] = [];
   private guardsOf: World | null = null;
+  /** What the steps with files of their own are handed (see StepHost). */
+  private host: StepHost;
 
   constructor(
     private parent: THREE.Object3D,
     /** The top of whatever is underfoot at (x, z) for feet at `y`. */
     private ground: (x: number, z: number, y: number) => number,
-    private sounds: { step(x: number, y: number, z: number): void; door(at: THREE.Vector3, open: boolean): void; thud(at: THREE.Vector3): void },
+    private sounds: SendoffSounds,
     /** It has got up from `deskId`, so the seat is free to see. */
     private onUp: (deskId: string) => void,
     private world: () => World,
     private jail: Jail,
-  ) {}
+    private adrift: Drifters,
+  ) {
+    this.host = { world, sounds, jail, adrift, walkTo: (s, to) => this.walkTo(s, to) };
+  }
 
   /**
    * Takes over a worker's model and laptop the moment it's sent home from `desk`, and plays the map's
@@ -127,6 +80,8 @@ export class Sendoffs {
     model.root.scale.setScalar(scale);
     const cell = plan.keeps ? this.jail.seatOf(id) : null;
     if (cell) this.jail.hold(id);
+    // Not adrift outside the airlock till it's blown out of it.
+    if (plan.keeps) this.adrift.hold(id);
     this.list.push({
       id,
       model,
@@ -147,6 +102,7 @@ export class Sendoffs {
       guard: null,
       cell,
       jail: null,
+      eject: null,
       gone: 0,
       leaving: false,
       said: '',
@@ -269,6 +225,9 @@ export class Sendoffs {
       case 'jail':
         if (s.cell) s.jail = { phase: 'go', t: 0, from: new THREE.Vector3(), walked: false };
         return;
+      case 'eject':
+        s.eject = { phase: 'go', t: 0, from: new THREE.Vector3(), turn: new THREE.Quaternion(), walked: false };
+        return;
       case 'return':
         if (s.guard) this.sendBack(s.guard);
         return;
@@ -294,7 +253,9 @@ export class Sendoffs {
           s.leaving = true;
           return true;
         }
-        return this.lockUp(s);
+        return lockUp(this.host, s);
+      case 'eject':
+        return eject(this.host, s);
       case 'leave':
         return s.state === 'done';
       case 'return':
@@ -327,80 +288,6 @@ export class Sendoffs {
     return s.guard.mode === 'wait';
   }
 
-  /** Thrown into its cell, and the door locked behind it: true once it's shut. */
-  private lockUp(s: Sendoff): boolean {
-    const j = s.jail!;
-    const d = this.world().dungeon;
-    const c = d?.plan.cells[s.cell!.cell];
-    if (!d || !c) {
-      s.leaving = true;
-      return true;
-    }
-    const pos = s.model.root.position;
-    if (j.phase === 'go') {
-      // Not at its cell's door yet (the script didn't take it there): off it goes, then.
-      if (s.state === 'walk' || s.state === 'hop') return false;
-      if (Math.hypot(pos.x - c.outside[0], pos.z - c.outside[1]) > 0.35 && !j.walked) {
-        j.walked = true;
-        this.walkTo(s, 'cell');
-        return false;
-      }
-      j.phase = 'open';
-      j.t = s.t;
-      this.sounds.door(d.lock(s.cell!.cell), true);
-    }
-    const t = s.t - j.t;
-    const face = Math.atan2(c.x - c.outside[0], c.z - c.outside[1]);
-    if (j.phase === 'open') {
-      d.swing(s.cell!.cell, Math.min(1, t / JAIL.open));
-      s.model.root.rotation.y += wrap(face - s.model.root.rotation.y) * 0.2;
-      if (t < JAIL.open) return false;
-      j.phase = 'step';
-      j.t = s.t;
-      j.from.copy(pos);
-      return false;
-    }
-    if (j.phase === 'step') {
-      const k = Math.min(1, t / JAIL.step);
-      pos.x = THREE.MathUtils.lerp(j.from.x, c.threshold[0], k);
-      pos.z = THREE.MathUtils.lerp(j.from.z, c.threshold[1], k);
-      s.model.walking = k < 1;
-      if (k < 1) return false;
-      // A shove from behind.
-      s.guard?.person.reach();
-      j.phase = 'fly';
-      j.t = s.t;
-      j.from.copy(pos);
-      s.state = 'fly';
-      return false;
-    }
-    if (j.phase === 'fly') {
-      const k = Math.min(1, t / JAIL.fly);
-      const spot = s.cell!.spot;
-      pos.set(THREE.MathUtils.lerp(j.from.x, spot.x, k), THREE.MathUtils.lerp(j.from.y, spot.y, k) + Math.sin(k * Math.PI) * 0.9, THREE.MathUtils.lerp(j.from.z, spot.z, k));
-      s.model.root.rotation.y += wrap(spot.rotY - s.model.root.rotation.y) * Math.min(1, k * 0.35);
-      s.model.root.rotation.x = Math.sin(k * Math.PI) * -0.5;
-      s.model.walking = false;
-      if (k < 1) return false;
-      // In a heap on the straw: from here on it's the jail's, sat where it landed.
-      this.sounds.thud(pos.clone());
-      this.jail.release(s.id);
-      s.model.root.removeFromParent();
-      s.model.dispose();
-      s.state = 'done';
-      j.phase = 'shut';
-      j.t = s.t;
-      return false;
-    }
-    // The door slams.
-    const k = Math.min(1, t / JAIL.shut);
-    d.swing(s.cell!.cell, 1 - k * k);
-    if (k < 1) return false;
-    this.sounds.door(d.lock(s.cell!.cell), false);
-    s.guard?.person.holdOn(false);
-    return true;
-  }
-
   // ---- Walking ----------------------------------------------------------------------------------
 
   /** Where the script walks it next (or out of the door, if it doesn't). */
@@ -409,6 +296,7 @@ export class Sendoffs {
       const st = s.steps[i];
       if (st.do === 'walk') return st.to;
       if (st.do === 'jail') return 'cell';
+      if (st.do === 'eject') return 'airlock';
     }
     return 'door';
   }
@@ -427,6 +315,8 @@ export class Sendoffs {
         const c = s.cell && d?.cells[s.cell.cell];
         return c ? { at: c.outside, below: true } : d ? { at: d.stairs.foot, below: true } : null;
       }
+      case 'airlock':
+        return w.airlock ? { at: w.airlock.plan.front, below: false } : null;
       case 'post': {
         const p = w.escort?.post;
         return p ? { at: [p.x, p.z], below: p.below } : null;
@@ -500,6 +390,7 @@ export class Sendoffs {
         root.removeFromParent();
         s.model.dispose();
         this.jail.release(s.id);
+        this.adrift.release(s.id);
         s.state = 'done';
       }
       return;
@@ -689,8 +580,10 @@ export class Sendoffs {
       s.model.dispose();
     }
     this.jail.release(s.id);
+    this.adrift.release(s.id);
     const d = this.world().dungeon;
     if (s.cell && d) d.swing(s.cell.cell, 0);
+    if (s.eject) shut(this.world().airlock);
   }
 
   private dropLaptop(s: Sendoff) {
@@ -699,20 +592,4 @@ export class Sendoffs {
     s.laptop.laptop.dispose();
     s.laptop = null;
   }
-}
-
-/** The point `dist` back along `trail` from its end (where it is now), or undefined while it hasn't gone that far. */
-function behind(trail: Pt[], dist: number): Pt | undefined {
-  let left = dist;
-  for (let i = trail.length - 1; i > 0; i--) {
-    const [x1, z1] = trail[i];
-    const [x0, z0] = trail[i - 1];
-    const d = Math.hypot(x1 - x0, z1 - z0);
-    if (d >= left) {
-      const k = left / d;
-      return [x1 + (x0 - x1) * k, z1 + (z0 - z1) * k];
-    }
-    left -= d;
-  }
-  return undefined;
 }

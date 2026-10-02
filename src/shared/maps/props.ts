@@ -2,9 +2,9 @@ import type { Circle, Rect } from '../nav.js';
 import type { PropConfig } from './types.js';
 
 /*
- * The pieces a config map can put up (MapConfig.props), and how much floor each takes: what walkers
- * go round (shared/nav.ts) and, in the builder, what you bump into. How each one looks is the
- * style's builder's (world/castle/).
+ * The pieces a castle-style map can put up (MapConfig.props), and how much floor each takes: what
+ * walkers go round (shared/nav.ts) and, in the builder, what you bump into. How each one looks is the
+ * style's builder's (world/castle/). A station's are in ./station-props.ts.
  */
 
 export const PROP_KINDS = {
@@ -42,10 +42,6 @@ export const PROP_KINDS = {
   candles: 'A candle stand',
 } as const;
 export type PropKind = keyof typeof PROP_KINDS;
-
-export function isPropKind(kind: string): kind is PropKind {
-  return Object.hasOwn(PROP_KINDS, kind);
-}
 
 /** The floor a `w` by `d` box takes, centered on (x, z) and turned `rotY` (its `d` along rotY). */
 export function boxFootprint(x: number, z: number, w: number, d: number, rotY = 0): Rect {

@@ -11,12 +11,14 @@ export interface Listener extends Pos {
 
 /**
  * On a map of its own (the castle): the room it is, where its gong hangs and where its windows are,
- * with nothing of the office's in it (no fridge).
+ * with nothing of the office's in it (no fridge). `vacuum`: there's nothing outside it to hear at
+ * all (the space station): no rain, no thunder, no birds.
  */
 export interface Hall {
   bounds: { minX: number; maxX: number; minZ: number; maxZ: number };
   gong: Pos | null;
   windows: Pos[];
+  vacuum?: boolean;
 }
 
 /** What AudioCore asks of the rest of the sound: see unlock. */
@@ -78,7 +80,7 @@ export class AudioCore {
 
   /** The weather outside (see world/sky.ts), every frame. */
   setWeather(rain: number, night: number) {
-    this.weather.rain = rain;
+    this.weather.rain = this.hall?.vacuum ? 0 : rain;
     this.weather.night = night;
   }
 

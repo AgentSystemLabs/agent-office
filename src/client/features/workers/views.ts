@@ -27,6 +27,7 @@ import { renderLimits } from '../../ui/limits';
 import { modelBadge, providerLabel } from '../../ui/provider';
 import { renderUsage } from '../../ui/usage';
 import { Worker } from '../../world/character';
+import { Drifters } from './adrift';
 import { Jail } from './jail';
 import { Laptop } from './laptop';
 import { Arrivals, Departures } from './leaving';
@@ -75,23 +76,24 @@ export function installWorkerViews(ctx: Ctx, core: CoreState, parts: WorkerViews
     () => arrangeSeats(),
     () => ctx.world().ways,
   );
+  /** How someone the office has kept is dressed: the map's outfit, and as worn out as it had got working. */
+  const dressKept = (model: Worker, p: { workedMs?: number }) => {
+    model.setOutfit(plan().agents.outfit === 'peasant' ? 'peasant' : null);
+    model.setAge(agedBy(p.workedMs ?? 0));
+  };
   // Workers locked up in the dungeon, on a map that has one, wasting away in their cells.
-  const jail = new Jail(
-    () => store.jail,
-    () => store.officeNow(),
-    (model, p) => {
-      model.setOutfit(plan().agents.outfit === 'peasant' ? 'peasant' : null);
-      model.setAge(agedBy(p.workedMs ?? 0));
-    },
-  );
-  // Workers sent home on a map with a script for it (the castle's Kingsguard marching them down to the dungeon).
+  const jail = new Jail(() => store.jail, () => store.officeNow(), dressKept);
+  // Or, on a station, the same ones adrift outside its airlock.
+  const adrift = new Drifters(() => store.jail, () => store.officeNow(), dressKept);
+  // Workers sent home on a map with a script for it (the castle's Kingsguard marching them down to the dungeon, the station's Security to the airlock).
   const sendoffs = new Sendoffs(
     scene,
     groundHere,
-    { step: (x, y, z) => sound.stepAt(x, z, y), door: (at, open) => sound.cellDoor(at, open), thud: (at) => sound.thud(at) },
+    { step: (x, y, z) => sound.stepAt(x, z, y), door: (at, open) => sound.cellDoor(at, open), thud: (at) => sound.thud(at), airlock: (at, what) => sound.airlock(at, what) },
     () => arrangeSeats(),
     () => ctx.world(),
     jail,
+    adrift,
   );
   // Workers called to a meeting, walking in from the elevator (or the doors) to the meeting table.
   const arrivals = new Arrivals(
@@ -238,9 +240,10 @@ export function installWorkerViews(ctx: Ctx, core: CoreState, parts: WorkerViews
     return full ? Math.min(1, worked / (full * 60_000)) : 0;
   }
 
-  /** Whoever's locked up in this floor's dungeon, in their cells. */
+  /** Whoever the floor has kept: locked up in its dungeon, in their cells, or adrift outside its airlock. */
   function syncJail() {
     jail.sync(ctx.world().dungeon, plan().sendHome);
+    adrift.sync(ctx.world().airlock, plan().sendHome);
   }
   store.on('jail', syncJail);
 
@@ -308,6 +311,7 @@ export function installWorkerViews(ctx: Ctx, core: CoreState, parts: WorkerViews
     if (!core.upTop) {
       sendoffs.update(dt, t);
       jail.update(dt, t, camera.position);
+      adrift.update(dt, t, camera.position);
     }
     arrivals.update(dt);
     parts.worlds.court()?.update(dt);
@@ -416,6 +420,7 @@ export function installWorkerViews(ctx: Ctx, core: CoreState, parts: WorkerViews
     workerViews,
     departures,
     jail,
+    adrift,
     sendoffs,
     arrivals,
     seatedOnArrival,

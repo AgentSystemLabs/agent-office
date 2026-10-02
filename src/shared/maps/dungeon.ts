@@ -1,7 +1,7 @@
 import type { Bounds, NavGrid, Pt, Rect } from '../nav.js';
 import { MapError, isObj, num } from './check.js';
 import { boxFootprint } from './props.js';
-import type { CellPlan, DungeonConfig, DungeonPlan, SendHomeConfig, SendHomePlace, SendHomePlan, SendHomeStep, Spot } from './types.js';
+import type { AirlockPlan, CellPlan, DungeonConfig, DungeonPlan, SendHomeConfig, SendHomePlace, SendHomePlan, SendHomeStep, Spot } from './types.js';
 
 /*
  * The dungeon under a hall, and what happens to a worker sent home (MapConfig.dungeon and .sendHome).
@@ -10,7 +10,8 @@ import type { CellPlan, DungeonConfig, DungeonPlan, SendHomeConfig, SendHomePlac
  * escort that comes for it) go through one after another, say, the castle's Kingsguard running up
  * from the dungeon, marching it down there and throwing it into a cell. A worker that's jailed is kept
  * there for good (the server remembers it, see server/jail.ts), and wastes away: thinner and thinner
- * until it starves to death, then it rots down to bare bones.
+ * until it starves to death, then it rots down to bare bones. On a station it's the airlock instead
+ * (./airlock.ts): a worker that's ejected is kept the same way, adrift outside.
  *
  * Everything here is worked out from plain numbers, so another map's dungeon, or its own way of
  * seeing workers off, is just other numbers and other steps (docs/maps.md). The client acts the
@@ -44,12 +45,13 @@ export const SEND_HOME_STEPS = {
   say: 'The worker (or, with "who": "escort", its escort) says something',
   walk: 'The worker walks somewhere, the escort holding on to it if it has fetched it',
   jail: 'It is thrown into a cell and locked in: it stays there for good',
+  eject: 'It is shoved into the airlock and blown out into space: it stays out there for good',
   leave: 'It is gone, shrinking away wherever it is',
   wait: 'A pause, "seconds" long',
   return: 'The escort goes back to its post',
 } as const;
 export type SendHomeStepKind = keyof typeof SEND_HOME_STEPS;
-const PLACES = ['door', 'stairs', 'dungeon', 'cell', 'post'] as const;
+const PLACES = ['door', 'stairs', 'dungeon', 'cell', 'airlock', 'post'] as const;
 
 /** Whether `a` is a multiple of a quarter turn: the stairs and the cells run along the walls. */
 function quarter(a: number, what: string): number {
@@ -233,15 +235,18 @@ function place(v: unknown, what: string): SendHomePlace {
 }
 
 /**
- * Checks a map's `sendHome` against its hall (`hall`, what's in its way `clear`) and its dungeon, and
- * fills in what it leaves out. Undefined when there's none: a worker just walks out of the door.
+ * Checks a map's `sendHome` against its hall (`hall`, what's in its way `clear`), its dungeon and its
+ * airlock, and fills in what it leaves out. Undefined when there's none: a worker just walks out of the door.
  */
-export function planSendHome(input: unknown, hall: Bounds, hallClear: (x: number, z: number) => boolean, dungeon: DungeonPlan | undefined): SendHomePlan | undefined {
+export function planSendHome(input: unknown, hall: Bounds, hallClear: (x: number, z: number) => boolean, dungeon: DungeonPlan | undefined, airlock?: AirlockPlan): SendHomePlan | undefined {
   if (input == null) return undefined;
   if (!isObj(input)) throw new MapError('sendHome should be { escort, steps }');
   const c = input as unknown as SendHomeConfig;
   const needDungeon = (what: string) => {
     if (!dungeon) throw new MapError(`sendHome ${what}, and the map has no dungeon`);
+  };
+  const needAirlock = (what: string) => {
+    if (!airlock) throw new MapError(`sendHome ${what}, and the map has no airlock`);
   };
   /** A spot someone can stand in: in the hall, or with `below`, down in the dungeon. */
   const standing = (x: number, z: number, below: boolean, what: string) => {
@@ -275,7 +280,7 @@ export function planSendHome(input: unknown, hall: Bounds, hallClear: (x: number
     if (!isObj(s) || typeof s.do !== 'string') throw new MapError(`${what} should be { "do": … }`);
     if (!Object.hasOwn(SEND_HOME_STEPS, s.do)) throw new MapError(`${what} does "${s.do}", which isn't a step there is (${Object.keys(SEND_HOME_STEPS).join(', ')})`);
     const kind = s.do as SendHomeStepKind;
-    const worker = kind === 'pack' || kind === 'walk' || kind === 'jail' || kind === 'leave' || kind === 'fetch' || (kind === 'say' && s.who !== 'escort');
+    const worker = kind === 'pack' || kind === 'walk' || kind === 'jail' || kind === 'eject' || kind === 'leave' || kind === 'fetch' || (kind === 'say' && s.who !== 'escort');
     if (worker && done) throw new MapError(`${what}: the worker's ${done} by then, so only its escort can do anything more`);
     switch (kind) {
       case 'pack':
@@ -286,6 +291,10 @@ export function planSendHome(input: unknown, hall: Bounds, hallClear: (x: number
         needDungeon('jails workers');
         done = 'locked up';
         return { do: 'jail' };
+      case 'eject':
+        needAirlock('ejects workers');
+        done = 'out of the airlock';
+        return { do: 'eject' };
       case 'fetch':
         needEscort('an escort fetching the worker');
         return { do: 'fetch', ...(s.run === false ? { run: false } : {}) };
@@ -305,6 +314,7 @@ export function planSendHome(input: unknown, hall: Bounds, hallClear: (x: number
       case 'walk': {
         const to = place(s.to, `${what}.to`);
         if (to === 'stairs' || to === 'dungeon' || to === 'cell') needDungeon(`walks workers to the ${to === 'cell' ? 'cells' : to}`);
+        if (to === 'airlock') needAirlock('walks workers to the airlock');
         if (to === 'post') needEscort('a walk to the escort’s post');
         if (typeof to === 'object') standing(to.x, to.z, !!to.below, `${what}.to`);
         return { do: 'walk', to, ...(s.run === true ? { run: true } : {}) };
@@ -314,7 +324,7 @@ export function planSendHome(input: unknown, hall: Bounds, hallClear: (x: number
   const hours = (v: unknown, what: string, dflt: number) => (v === undefined ? dflt : num(v, what, 0, 100000));
   const starve = hours(c.starveHours, 'sendHome.starveHours', STARVE_HOURS);
   const rot = hours(c.rotHours, 'sendHome.rotHours', ROT_HOURS);
-  return { escort, steps, keeps: steps.some((s) => s.do === 'jail'), starveMs: Math.max(1000, starve * 3_600_000), rotMs: Math.max(1000, rot * 3_600_000) };
+  return { escort, steps, keeps: steps.some((s) => s.do === 'jail' || s.do === 'eject'), starveMs: Math.max(1000, starve * 3_600_000), rotMs: Math.max(1000, rot * 3_600_000) };
 }
 
 // ---- Wasting away ------------------------------------------------------------------------------

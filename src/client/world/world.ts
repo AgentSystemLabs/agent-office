@@ -4,6 +4,7 @@ import { LOFT, WALL_HEIGHT, WALL_T, FLOOR, type DeskDef } from '../../shared/lay
 import { OFFICE_PLAN, type BoardKey, type MapPlan, type Spot } from '../../shared/maps';
 import { officeNav, wayHome, wayIn, wayToBalcony, type Bounds, type NavGrid, type Pt } from '../../shared/nav';
 import type { DungeonView } from './dungeon';
+import type { AirlockView } from './station/airlock';
 import type { Person } from './character';
 import type { Area } from './confetti';
 import type { Gong } from '../features/gong/world';
@@ -56,8 +57,11 @@ export interface World {
    * room under the floor (the dungeon), up to `top`, that the camera keeps inside while you're down there.
    */
   room: { wall: number; enclosed: boolean; vault?: Bounds & { top: number } };
-  /** Where the sounds are, when it isn't the office: its gong, and the windows sounds from outside come in at. */
-  acoustics?: { gong: { x: number; y: number; z: number } | null; windows: { x: number; y: number; z: number }[] };
+  /**
+   * Where the sounds are, when it isn't the office: its gong, and the windows sounds from outside come
+   * in at. `vacuum`: there's nothing outside to hear (a station out in space).
+   */
+  acoustics?: { gong: { x: number; y: number; z: number } | null; windows: { x: number; y: number; z: number }[]; vacuum?: boolean };
   /** Whoever stands by the throne and sends out new workers (the map's herald), and where to speak to them. */
   herald?: { person: Person; interactable: Interactable };
   /** Brings out the overflow seats in `out` and puts the rest away: the colliders of the ones that just came out. */
@@ -71,6 +75,8 @@ export interface World {
   mood?(lights: SkyLights & { scene: THREE.Scene }, daylight: number, t: number, eye?: THREE.Vector3): void;
   /** A dungeon under the floor, where workers sent home can be locked up (see shared/maps/dungeon.ts). */
   dungeon?: DungeonView;
+  /** An airlock in a wall, which workers sent home can be blown out of (see shared/maps/airlock.ts). */
+  airlock?: AirlockView;
   /**
    * Who comes for a worker sent home (MapPlan.sendHome.escort): where they keep watch, the one on
    * watch there, and how to call out another like them while that one's busy.

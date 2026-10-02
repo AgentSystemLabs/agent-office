@@ -24,7 +24,7 @@ import { bonk, hatch, poleLanding, rung, slide, twirl } from '../features/climbi
 import { coffee } from '../features/coffee/sound';
 import { AudioCore, type Hall, type Listener } from './core';
 import { bark, yip } from '../features/dog/sound';
-import { cellDoor, thud } from '../features/workers/sound';
+import { airlock, cellDoor, thud } from '../features/workers/sound';
 import { golf, type GolfSound } from '../features/golf/sound';
 import { gong } from '../features/gong/sound';
 import { Jukebox, type JukeboxPlay } from '../features/jukebox/sound';
@@ -184,6 +184,10 @@ export class OfficeSound {
     thud(this.a, at);
   }
 
+  airlock(at: Pos, what: 'door' | 'alarm' | 'blow') {
+    airlock(this.a, at, what);
+  }
+
   bonk() {
     bonk(this.a);
   }
@@ -251,6 +255,8 @@ export class OfficeSound {
   }
 
   thunder(delay: number, loud: number) {
+    // Nothing carries it, out in space.
+    if (this.a.hall?.vacuum) return;
     thunder(this.a, delay, loud);
   }
 

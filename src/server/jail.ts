@@ -6,9 +6,10 @@ import type { JailState, Prisoner, WorkerInfo } from '../shared/protocol.js';
 export const MAX_PRISONERS = 200;
 
 /**
- * A floor's dungeon (see MapPlan.sendHome): every worker sent home on a map that locks them up, kept
- * there for good, first to last. The map works out how far each has wasted away from when it was
- * locked up; this only remembers who and when. Saved in .agent-office/jail.json.
+ * A floor's dungeon (see MapPlan.sendHome): every worker sent home on a map that keeps them, for
+ * good, first to last: locked up in the castle's cells, or adrift outside the station's airlock
+ * (it's one list, so they're in whichever the building's map has). The map works out how far each has
+ * wasted away from when it went; this only remembers who and when. Saved in .agent-office/jail.json.
  */
 export class Jail {
   private prisoners: Prisoner[] = [];
