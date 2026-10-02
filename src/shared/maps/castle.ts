@@ -102,7 +102,7 @@ export const CASTLE: MapConfig = {
     queue: { x: -11.3, z: -3, rotY: -Math.PI / 2 },
     pulls: { x: 11.3, z: -15, rotY: Math.PI / 2 },
   },
-  council: { x: 7.2, z: -18.8, rotY: 0 },
+  council: { x: 6.6, z: -18.8, rotY: 0 },
   boards: {
     issues: { x: -WALL_X, y: 3.5, z: -15, rotY: Math.PI / 2, width: 4.4, height: 2.6, label: '📜 Petitions' },
     queue: { x: -WALL_X, y: 3.5, z: -3, rotY: Math.PI / 2, width: 4.4, height: 2.6, label: '📋 Orders of the day' },
