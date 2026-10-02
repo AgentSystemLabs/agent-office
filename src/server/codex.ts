@@ -90,10 +90,16 @@ function shellQuote(value: string): string {
  * Build the CLI config overrides for all lifecycle hooks. The command is encoded as a TOML basic
  * string so paths containing spaces remain valid; the command itself is shell-quoted.
  */
-export function codexHookArgs(hookPath: string): string[] {
+export function codexHookArgs(hookPath: string, platform: NodeJS.Platform = process.platform): string[] {
   const args: string[] = [];
   for (const event of CODEX_HOOK_EVENTS) {
-    const command = [process.execPath, hookPath, event].map(shellQuote).join(' ');
+    const values = [process.execPath, hookPath, event];
+    // An encoded PowerShell invocation works through either Windows shell and keeps paths
+    // (including spaces, apostrophes and shell metacharacters) out of the outer command.
+    const script = `& ${values.map((value) => `'${value.replaceAll("'", "''")}'`).join(' ')}; exit $LASTEXITCODE`;
+    const command = platform === 'win32'
+      ? `powershell.exe -NoProfile -NonInteractive -EncodedCommand ${Buffer.from(script, 'utf16le').toString('base64')}`
+      : values.map(shellQuote).join(' ');
     const config = `hooks.${event}=[{hooks=[{type="command",command=${JSON.stringify(command)},timeout=3}]}]`;
     args.push('-c', config);
   }

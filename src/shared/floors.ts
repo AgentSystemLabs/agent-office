@@ -4,7 +4,7 @@
 import type { CloneProgress } from './protocol.js';
 
 /** The most floors a building has. */
-export const MAX_FLOORS = 16;
+export const MAX_FLOORS = 32;
 
 /** How a floor looks: its walls, their trim, and its planks. */
 export interface FloorPalette {
