@@ -350,6 +350,8 @@ Server edits restart the server, not the workers. After changing `ptyhost.ts`, b
 
 [docs/code-layout.md](docs/code-layout.md) says where the code lives, and where a new feature's pieces go.
 
+The rules for coding agents working on this repository are in [`AGENTS.md`](AGENTS.md), which Codex, OpenCode and most other agent CLIs read. `CLAUDE.md` only imports it for Claude Code, so new rules go in `AGENTS.md`.
+
 Every change to the app that lands on `main` is published as a GitHub release by [`.github/workflows/release.yml`](.github/workflows/release.yml), and `install.sh` installs the newest one. Bump `package.json`'s version to start a new minor.
 
 ## More
