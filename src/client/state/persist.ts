@@ -2,6 +2,7 @@
 // you were last on and the spot you were standing in. Every read and write shrugs off blocked storage.
 
 import { randomLook, sanitizeLook, type Look } from '../../shared/avatar';
+import { parseBrowserPerformance, type BrowserPerformance } from '../shared/performance';
 
 export interface Profile {
   name: string;
@@ -46,6 +47,8 @@ export const NEEDS_YOU_SOUNDS = ['off', 'once', 'remind'] as const;
 export type NeedsYouSound = (typeof NEEDS_YOU_SOUNDS)[number];
 
 export interface Settings {
+  /** Quality and refresh choices for this browser only. */
+  performance: BrowserPerformance;
   view: ViewMode;
   /** Office sounds, 0–1. */
   volume: number;
@@ -127,9 +130,11 @@ export function rememberSpot(s: Spot) {
 }
 
 export function loadSettings(): Settings {
-  const s: Settings = { view: 'first', volume: 0.7, muted: false, music: 0.5, musicMuted: false, pageTurns: true, pushToTalk: false, notify: true, needsYouSound: 'once', hud: { ...HUD_DEFAULTS }, pins: [] };
+  const s: Settings = { performance: parseBrowserPerformance(null), view: 'first', volume: 0.7, muted: false, music: 0.5, musicMuted: false, pageTurns: true, pushToTalk: false, notify: true, needsYouSound: 'once', hud: { ...HUD_DEFAULTS }, pins: [] };
   try {
-    const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? 'null');
+    const value: unknown = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? 'null');
+    const saved = value && typeof value === 'object' ? value as Record<string, unknown> : {};
+    s.performance = parseBrowserPerformance(saved.performance);
     if (saved?.view === 'first' || saved?.view === 'third') s.view = saved.view;
     if (typeof saved?.volume === 'number' && Number.isFinite(saved.volume)) s.volume = Math.max(0, Math.min(1, saved.volume));
     if (typeof saved?.muted === 'boolean') s.muted = saved.muted;
@@ -138,8 +143,10 @@ export function loadSettings(): Settings {
     if (typeof saved?.pageTurns === 'boolean') s.pageTurns = saved.pageTurns;
     if (typeof saved?.pushToTalk === 'boolean') s.pushToTalk = saved.pushToTalk;
     if (typeof saved?.notify === 'boolean') s.notify = saved.notify;
-    if (NEEDS_YOU_SOUNDS.includes(saved?.needsYouSound)) s.needsYouSound = saved.needsYouSound;
-    for (const k of Object.keys(s.hud) as HudPanel[]) if (typeof saved?.hud?.[k] === 'boolean') s.hud[k] = saved.hud[k];
+    const needsYouSound = NEEDS_YOU_SOUNDS.find((choice) => choice === saved.needsYouSound);
+    if (needsYouSound) s.needsYouSound = needsYouSound;
+    const hud = saved.hud && typeof saved.hud === 'object' ? saved.hud as Record<string, unknown> : {};
+    for (const k of Object.keys(s.hud) as HudPanel[]) if (typeof hud[k] === 'boolean') s.hud[k] = hud[k];
     if (Array.isArray(saved?.pins)) s.pins = saved.pins.filter((p: unknown): p is string => typeof p === 'string').slice(0, 30);
   } catch {
     // storage blocked

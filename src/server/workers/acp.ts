@@ -27,7 +27,6 @@ export function launchAcp(ctx: WorkerContext, w: Worker, term: HeadlessTerminal,
       output: (data) => {
         if (w.dsh !== session) return;
         term.write(data);
-        w.screenDirty = true;
         w.unsaved = true;
         if (w.viewers.size) ctx.events.data(info.id, data, [...w.viewers.keys()]);
       },
@@ -85,7 +84,6 @@ function acpExited(ctx: WorkerContext, w: Worker, session: DshSession, term: Hea
   const msg = `\r\n\x1b[2m[${info.name} exited with code ${code ?? -1}${hint}]\x1b[0m\r\n`;
   term.write(msg);
   if (w.viewers.size) ctx.events.data(info.id, msg, [...w.viewers.keys()]);
-  w.screenDirty = true;
   w.unsaved = true;
   ctx.emit(w);
   ctx.persist();

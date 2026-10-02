@@ -9,6 +9,7 @@ import type { ChangesClientMsg, ChangesServerMsg } from './protocol/changes.js';
 import type { FloorClientMsg, FloorServerMsg, PlanClientMsg } from './protocol/floors.js';
 import type { GitHubClientMsg, GitHubServerMsg } from './protocol/github.js';
 import type { MeetingClientMsg, MeetingServerMsg } from './protocol/meetings.js';
+import type { PerformanceClientMsg, PerformanceServerMsg } from './protocol/performance.js';
 import type { PresenceClientMsg, PresenceServerMsg } from './protocol/presence.js';
 import type { QueueClientMsg, QueueServerMsg } from './protocol/queue.js';
 import type { RooftopClientMsg, RooftopServerMsg } from './protocol/rooftop.js';
@@ -24,6 +25,7 @@ export * from './protocol/floors.js';
 export * from './protocol/github.js';
 export * from './protocol/meetings.js';
 export * from './protocol/presence.js';
+export * from './protocol/performance.js';
 export * from './protocol/queue.js';
 export * from './protocol/rooftop.js';
 export * from './protocol/settings.js';
@@ -32,6 +34,7 @@ export * from './protocol/usage.js';
 export * from './protocol/workers.js';
 
 export type ClientMsg =
+  | PerformanceClientMsg
   | PresenceClientMsg
   | RooftopClientMsg
   | WorkerClientMsg
@@ -55,6 +58,7 @@ export type ClientMsg =
   | DogClientMsg;
 
 export type ServerMsg =
+  | PerformanceServerMsg
   | PresenceServerMsg
   | RooftopServerMsg
   | WorkerServerMsg

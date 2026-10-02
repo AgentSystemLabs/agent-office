@@ -8,6 +8,8 @@ import { THEME_PICKS } from '../../shared/theme';
 import { mapChoices } from '../../shared/maps';
 import { dogSetting } from './settings-dog';
 import { h, openModal, timeAgo } from './dom';
+import { performancePane } from './performance';
+import { setting } from './settings-fields';
 import { agentFields, choiceLabel, officeChoice } from './provider';
 import { openPromptEditor, rewrittenPrompts } from './prompts';
 import { outsideSetting } from './settings-sky';
@@ -23,27 +25,16 @@ const THEME_LABEL: Record<ThemePick, string> = { auto: '📅 By the calendar', h
 const WEBHOOK_NAME: Record<WebhookKind, string> = { slack: 'Slack', discord: 'Discord', other: 'a webhook' };
 
 /** The categories down the side of ⚙️ Settings. */
-export type SettingsPane = 'you' | 'sound' | 'notify' | 'building' | 'workers';
+export type SettingsPane = 'you' | 'sound' | 'notify' | 'building' | 'workers' | 'performance';
 
 const PANES: { id: SettingsPane; icon: string; label: string; blurb: string }[] = [
   { id: 'you', icon: '🧍', label: 'You', blurb: 'How you look, how you see the office, and how you’re signed in.' },
+  { id: 'performance', icon: '⚡', label: 'Performance', blurb: 'Quality and refresh speed, applied as you change them.' },
   { id: 'sound', icon: '🔊', label: 'Sound & voice', blurb: 'How loud the office is for you, and how voice chat works.' },
   { id: 'notify', icon: '🔔', label: 'Notifications', blurb: 'Hear about a worker that needs someone, or finished, while you’re somewhere else.' },
   { id: 'building', icon: '🏢', label: 'Building', blurb: 'The map, the decorations, the sky, the dog, and where new floors are cloned.' },
   { id: 'workers', icon: '🤖', label: 'Workers', blurb: 'What workers start on, how many run at once, when they go home and what the office tells them.' },
 ];
-
-/** Who a setting is for, shown by its name: some are yours alone, some the whole office's. */
-type Scope = 'you' | 'floor' | 'office';
-const SCOPE: Record<Scope, [label: string, title: string]> = {
-  you: ['Just you', 'Only for you, kept in this browser'],
-  floor: ['This floor', 'The same for everyone on this floor'],
-  office: ['Everyone', 'The same for everyone in the building'],
-};
-
-/** One setting: its name and who it's for, then whatever sets it. */
-const setting = (title: string, scope: Scope | null, ...body: Node[]) =>
-  h('div.setting', {}, h('div.setting-head', {}, h('h4', {}, title), scope && h('span.scope', { class: scope, title: SCOPE[scope][1] }, SCOPE[scope][0])), ...body);
 
 /** Where ⚙️ Settings was last, so it opens there again. */
 let lastPane: SettingsPane = 'you';
@@ -442,7 +433,9 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
   const signOut = h('button.btn', { type: 'button' }, '🚪 Sign out');
   signOut.addEventListener('click', onSignOut);
   const character = h('button.btn', { type: 'button' }, account ? '🧍 Change your look' : '🧍 Change your look & name');
+  const performance = performancePane(net, () => settings, (next) => { settings = next; onChange(next); });
   const panes: Record<SettingsPane, Node[]> = {
+    performance: performance.nodes,
     you: [
       setting('Your character', null, character),
       setting('Camera view', 'you', seg, note),
@@ -519,6 +512,7 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
   const modal = openModal(el, {
     doing: '⚙️ in settings',
     onClose: () => {
+      performance.dispose();
       offNotify();
       offDog();
       offTheme();

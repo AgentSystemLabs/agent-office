@@ -3,6 +3,7 @@ import { FLAG_BOLD, FLAG_DIM, FLAG_INVERSE, RGB_FLAG, type Run } from '../../../
 import { mesh, roundedBox, toon } from '../../world/toon';
 import { TERM_THEME } from '../../ui/termtheme';
 import type { ScreenState } from '../../state/store';
+import { DEFAULT_BROWSER_PERFORMANCE, type BrowserPerformance } from '../../shared/performance';
 
 
 const BASE16 = [
@@ -133,11 +134,14 @@ export class Laptop {
   private placeholder = 'booting…';
   /** Anything else of its own to free (the tome's page). */
   private owned: THREE.Material[] = [];
+  private disposed = false;
+  private performance: Pick<BrowserPerformance, 'laptopWidth' | 'laptopRefreshMs'>;
 
   /** `tome`: a leather-bound book whose inside page shows the terminal, for the castle; it opens and shuts like the laptop. */
-  constructor(style: 'laptop' | 'tome' = 'laptop') {
-    this.canvas.width = 1024;
-    this.canvas.height = 680;
+  constructor(style: 'laptop' | 'tome' = 'laptop', performance: Pick<BrowserPerformance, 'laptopWidth' | 'laptopRefreshMs'> = DEFAULT_BROWSER_PERFORMANCE) {
+    this.performance = performance;
+    this.canvas.width = performance.laptopWidth;
+    this.canvas.height = Math.round(performance.laptopWidth * 680 / 1024);
     this.ctx = this.canvas.getContext('2d')!;
     this.texture = new THREE.CanvasTexture(this.canvas);
     this.texture.colorSpace = THREE.SRGBColorSpace;
@@ -148,6 +152,7 @@ export class Laptop {
     this.lid.position.set(0, 0.035, -0.24);
     this.root.add(this.lid);
     const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.72, 0.46), new THREE.MeshBasicMaterial({ map: this.texture, toneMapped: false }));
+    this.owned.push(screen.material);
     screen.position.set(0, 0.25, 0.014);
     this.lid.add(screen);
     if (style === 'tome') {
@@ -201,12 +206,24 @@ export class Laptop {
     this.drawnVersion = -2;
   }
 
-  /** `distance` to the camera throttles repaints: far-away laptops refresh rarely. */
-  update(dt: number, screen: ScreenState | undefined, distance = 0) {
+  /** Applies width live; retaining dirty content lets an offscreen laptop catch up on its next visible tick. */
+  configure(performance: Pick<BrowserPerformance, 'laptopWidth' | 'laptopRefreshMs'>) {
+    if (this.performance.laptopWidth === performance.laptopWidth && this.performance.laptopRefreshMs === performance.laptopRefreshMs) return;
+    this.performance = performance;
+    if (this.canvas.width === performance.laptopWidth) return;
+    this.texture.dispose();
+    this.canvas.width = performance.laptopWidth;
+    this.canvas.height = Math.round(performance.laptopWidth * 680 / 1024);
+    this.drawnVersion = -2;
+  }
+
+  /** Nearby visible laptops refresh at the selected cadence; distant ones refresh less often. */
+  update(dt: number, screen: ScreenState | undefined, distance = 0, visible = true) {
+    if (this.disposed || !visible) return;
     if (this.openT < 1) this.setLid(Math.min(1, this.openT + dt * 1.6));
     const version = screen ? screen.version : -1;
     const now = performance.now();
-    const every = distance < 6 ? 150 : distance < 14 ? 600 : 2000;
+    const every = Math.max(this.performance.laptopRefreshMs, distance < 6 ? 0 : distance < 14 ? 600 : 2000);
     if (version !== this.drawnVersion && (now - this.paintedAt > every || this.drawnVersion < 0)) {
       this.paintedAt = now;
       this.drawnVersion = version;
@@ -228,7 +245,13 @@ export class Laptop {
   }
 
   dispose() {
+    if (this.disposed) return;
+    this.disposed = true;
+    this.root.removeFromParent();
     this.texture.dispose();
-    for (const m of this.owned) m.dispose();
+    const geometries = new Set<THREE.BufferGeometry>();
+    this.root.traverse((node) => { if (node instanceof THREE.Mesh) geometries.add(node.geometry); });
+    for (const geometry of geometries) geometry.dispose();
+    for (const material of this.owned) material.dispose();
   }
 }

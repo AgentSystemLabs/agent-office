@@ -20,9 +20,11 @@ export function messaging(ctx: Ctx): Messaging {
   const toastAll = (text: string, level: ToastLevel = 'info') => broadcast({ t: 'toast', text, level });
   /** To everyone on one floor. */
   const toFloor = (floor: Floor, msg: ServerMsg, droppable = false) => {
+    if (msg.t === 'screen' && ![...ctx.clients.values()].some(c => c.peer.floor === floor.id && c.screens && !c.peer.lite && !c.out && c.ws.readyState === WebSocket.OPEN)) return;
     const json = JSON.stringify(msg);
     for (const c of ctx.clients.values()) {
       if (c.peer.floor !== floor.id || c.ws.readyState !== WebSocket.OPEN) continue;
+      if (msg.t === 'screen' && (!c.screens || c.peer.lite || c.out)) continue;
       if (droppable && c.ws.bufferedAmount > 4 * 1024 * 1024) continue;
       c.ws.send(json);
     }

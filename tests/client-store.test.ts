@@ -6,6 +6,7 @@ import { pathToFileURL } from 'node:url';
 import { EMPTY_PLAN } from '../src/shared/floorplan.js';
 import { parked } from '../src/shared/garage.js';
 import { JUKEBOX_TUNES } from '../src/shared/jukebox.js';
+import { DEFAULT_OFFICE_PERFORMANCE } from '../src/shared/performance.js';
 import type { ServerMsg } from '../src/shared/protocol.js';
 
 // The store keeps the floor you're on in localStorage and times things by performance.now(): stand both
@@ -67,6 +68,7 @@ const welcome = () =>
     machine: { cpu: 0, cores: 1, memUsed: 0, memTotal: 1, history: [], workers: 1 },
     sky: { hour: 1 },
     theme: { pick: 'auto', active: null },
+    performance: { settings: { ...DEFAULT_OFFICE_PERFORMANCE } },
     map: { pick: 'office', custom: [] },
     prompts: { custom: {} },
     leaveOnMerge: { on: false },
@@ -77,11 +79,12 @@ const welcome = () =>
 const FLOOR_TOPICS = ['floor', 'project', 'workers', 'issues', 'pulls', 'queue', 'meeting', 'decor', 'floorPlan', 'services', 'dog', 'jukebox', 'whiteboard', 'drawing', 'cabinet', 'cabinetFrame', 'ball', 'cars', 'jail'];
 
 /** Every topic, to listen for them all. */
-const TOPICS = ['peers', 'workers', 'issues', 'pulls', 'chat', 'project', 'screens', 'team', 'upgrade', 'services', 'decor', 'floorPlan', 'usage', 'limits', 'queue', 'me', 'accounts', 'signins', 'notify', 'machine', 'floors', 'floor', 'projectsDir', 'repos', 'dog', 'jukebox', 'sky', 'theme', 'map', 'leaveOnMerge', 'whiteboard', 'drawing', 'cabinet', 'cabinetFrame', 'meeting', 'prompts', 'ball', 'cars', 'jail'] as const;
+const TOPICS = ['peers', 'workers', 'issues', 'pulls', 'chat', 'project', 'screens', 'team', 'upgrade', 'services', 'decor', 'floorPlan', 'usage', 'limits', 'queue', 'me', 'accounts', 'signins', 'notify', 'machine', 'floors', 'floor', 'projectsDir', 'repos', 'dog', 'jukebox', 'sky', 'theme', 'map', 'leaveOnMerge', 'whiteboard', 'drawing', 'cabinet', 'cabinetFrame', 'meeting', 'prompts', 'ball', 'cars', 'jail', 'performance'] as const;
 
 /** Every message the store takes in (and one it doesn't), and the topics it fires, in the order it has always fired them. */
 const RUN: [ServerMsg, string[]][] = [
-  [welcome(), ['map', ...FLOOR_TOPICS, 'peers', 'chat', 'upgrade', 'usage', 'limits', 'me', 'notify', 'machine', 'floors', 'projectsDir', 'sky', 'theme', 'prompts', 'leaveOnMerge']],
+  [welcome(), ['map', ...FLOOR_TOPICS, 'peers', 'chat', 'upgrade', 'usage', 'limits', 'me', 'notify', 'machine', 'floors', 'projectsDir', 'sky', 'theme', 'prompts', 'leaveOnMerge', 'performance']],
+  [msg({ t: 'performance', state: { settings: { ...DEFAULT_OFFICE_PERFORMANCE, screenFps: 4 } } }), ['performance']],
   [msg({ t: 'pong', at: 0, now: 1_000_000 }), ['jukebox']],
   [msg({ t: 'pong', at: -1e6, now: 1_000_000 }), []],
   [msg({ t: 'floors', floors: [{ id: 'f1', name: 'f1' }] }), ['floors']],
@@ -211,7 +214,7 @@ test('what the browser remembers keeps its keys and shapes', () => {
   assert.deepEqual(state.lastSpot(), { floor: 'f1', name: 'F', x: 1, y: 2, z: 3, facing: 4 });
   assert.ok(storage.has('agent-office.spot'));
   const settings = state.loadSettings();
-  assert.deepEqual(settings, { view: 'first', volume: 0.7, muted: false, music: 0.5, musicMuted: false, pageTurns: true, pushToTalk: false, notify: true, needsYouSound: 'once', hud: state.HUD_DEFAULTS, pins: [] });
+  assert.deepEqual(settings, { performance: { fps: 60, idleFps: 15, pixelRatio: 1.25, outlines: true, shadowSize: 1024, previewFps: 30, laptopWidth: 512, laptopRefreshMs: 500 }, view: 'first', volume: 0.7, muted: false, music: 0.5, musicMuted: false, pageTurns: true, pushToTalk: false, notify: true, needsYouSound: 'once', hud: state.HUD_DEFAULTS, pins: [] });
   state.saveSettings({ ...settings, volume: 2, view: 'third', needsYouSound: 'remind' });
   assert.equal(state.loadSettings().volume, 1);
   assert.equal(state.loadSettings().view, 'third');
@@ -225,7 +228,7 @@ test('what the browser remembers keeps its keys and shapes', () => {
 
 test("the store's keys are its state, as window.__office shows them", () => {
   // As the office had them before its store was split into slices: methods and the slices aren't among them.
-  assert.deepEqual(Object.keys(store).sort(), ['accounts', 'ball', 'cabinet', 'cabinetFrame', 'cars', 'carsAt', 'chat', 'clock', 'decor', 'dog', 'dogStart', 'drawing', 'floor', 'floorPlan', 'floors', 'ice', 'invites', 'issues', 'jail', 'jukebox', 'leaveOnMerge', 'limits', 'machine', 'map', 'me', 'meeting', 'notify', 'peers', 'profile', 'project', 'projectsDir', 'prompts', 'pulls', 'queue', 'repos', 'screens', 'services', 'signins', 'sky', 'subs', 'team', 'theme', 'upgrade', 'usage', 'whiteboard', 'workers', 'you']);
+  assert.deepEqual(Object.keys(store).sort(), ['accounts', 'ball', 'cabinet', 'cabinetFrame', 'cars', 'carsAt', 'chat', 'clock', 'decor', 'dog', 'dogStart', 'drawing', 'floor', 'floorPlan', 'floors', 'ice', 'invites', 'issues', 'jail', 'jukebox', 'leaveOnMerge', 'limits', 'machine', 'map', 'me', 'meeting', 'notify', 'peers', 'performance', 'profile', 'project', 'projectsDir', 'prompts', 'pulls', 'queue', 'repos', 'screens', 'services', 'signins', 'sky', 'subs', 'team', 'theme', 'upgrade', 'usage', 'whiteboard', 'workers', 'you']);
 });
 
 test('a new store starts every field where it always has', async () => {
@@ -249,7 +252,7 @@ test('a new store starts every field where it always has', async () => {
       dog: null, dogStart: 0, jukebox: { on: false, track: JUKEBOX_TUNES[0].id, startedAt: 0, elapsed: 0, since: 0 }, clock: '<undefined>',
       whiteboard: [], drawing: [], cabinet: { player: null, scores: [] }, cabinetFrame: null, ball: {},
       cars: parked(), carsAt: [], jail: { prisoners: [], bones: 0 },
-      team: null, accounts: null, signins: null,
+      team: null, accounts: null, signins: null, performance: { settings: { ...DEFAULT_OFFICE_PERFORMANCE } },
     },
   );
 });

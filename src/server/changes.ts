@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import { readFile, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
+import { UntrackedCounts, fileSignature } from './changes-counts.js';
 import type { ImageResult } from './decor.js';
 import { changedImageType, type ChangedFile, type ChangeStatus, type ChangesState } from '../shared/protocol.js';
 
@@ -9,11 +10,9 @@ import { changedImageType, type ChangedFile, type ChangeStatus, type ChangesStat
 // that worker's checkout (its worktree, or the project folder) every couple of seconds and pushes
 // the file list whenever it changes. Diffs of single files are fetched on demand.
 
-const POLL_MS = 2000;
+const POLL_MS = 5000;
 const MAX_FILES = 400;
 const MAX_DIFF = 200_000;
-/** Untracked files bigger than this aren't read to count their lines. */
-const MAX_COUNT_BYTES = 8 * 1024 * 1024;
 /** Pictures bigger than this aren't previewed. */
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
@@ -122,21 +121,6 @@ function fields(out: string): string[] {
   return f;
 }
 
-async function countLines(file: string): Promise<{ lines: number; binary: boolean }> {
-  try {
-    const s = await stat(file);
-    if (!s.isFile() || s.size > MAX_COUNT_BYTES) return { lines: 0, binary: false };
-    const buf = await readFile(file);
-    if (buf.subarray(0, 8000).includes(0)) return { lines: 0, binary: true };
-    let n = 0;
-    for (let i = 0; i < buf.length; i++) if (buf[i] === 10) n++;
-    if (buf.length && buf[buf.length - 1] !== 10) n++;
-    return { lines: n, binary: false };
-  } catch {
-    return { lines: 0, binary: false };
-  }
-}
-
 /**
  * Where a file of a checkout really is, or undefined when it's missing or leads outside the checkout
  * (a symlink pointing elsewhere, a path with `..` in it).
@@ -153,21 +137,14 @@ export async function insideCheckout(cwd: string, file: string): Promise<string 
   }
 }
 
-async function signature(file: string): Promise<string> {
-  try {
-    const s = await stat(file);
-    return `${s.size}:${Math.round(s.mtimeMs)}`;
-  } catch {
-    return '';
-  }
-}
-
 /** A worker's checkout the Changes window can show: its own, or one of its other repositories'. */
 const watchKey = (workerId: string, repo?: string) => (repo ? `${workerId} ${repo}` : workerId);
 
 export class Changes {
   /** By worker, and repository for a worker across repositories (see watchKey). */
   private watches = new Map<string, Watch>();
+  private pollMs = POLL_MS;
+  private counts = new UntrackedCounts();
   /** PRs opened from the office, until the GitHub boards catch up, by repository and branch. */
   private opened = new Map<string, { number: number; url: string }>();
 
@@ -188,10 +165,19 @@ export class Changes {
     const key = watchKey(workerId, repo);
     const w = this.entry(workerId, repo);
     // An entry an action made (see action()) has no timer yet.
-    w.timer ??= setInterval(() => void this.poll(key), POLL_MS);
+    w.timer ??= setInterval(() => void this.poll(key), this.pollMs);
     w.clients.add(clientId);
     if (w.last) this.events.state(w.last, [clientId]);
     void this.poll(key, true);
+  }
+
+  setPollSeconds(seconds: 2 | 5 | 10) {
+    if (this.pollMs === seconds * 1000) return;
+    this.pollMs = seconds * 1000;
+    for (const [key, w] of this.watches) if (w.timer) {
+      clearInterval(w.timer);
+      w.timer = setInterval(() => void this.poll(key), this.pollMs);
+    }
   }
 
   unwatch(workerId: string, clientId: string, repo?: string) {
@@ -209,6 +195,7 @@ export class Changes {
 
   stop() {
     for (const key of [...this.watches.keys()]) this.drop(key);
+    this.counts.clear();
   }
 
   /** The diff of one changed file, as `git diff` prints it. */
@@ -503,13 +490,14 @@ export class Changes {
         list.map(async (f) => {
           const abs = path.join(t.cwd, f.path);
           if (f.status === '?') {
-            const { lines, binary } = await countLines(abs);
+            const { lines, binary } = await this.counts.read(t.cwd, f.path);
             f.additions = lines;
             f.binary = binary;
           }
-          f.sig = f.status === 'D' ? '' : await signature(abs);
+          f.sig = f.status === 'D' ? '' : await fileSignature(abs);
         }),
       );
+      this.counts.retain(t.cwd, new Set(list.filter(f => f.status === '?').map(f => f.path)));
       const ahead = Number(await gitMaybe(['rev-list', '--count', `${base.commit}..HEAD`], t.cwd)) || 0;
       const subject = ahead ? await gitMaybe(['log', '-1', '--format=%s'], t.cwd) : undefined;
       const pr = base.branch ? this.opened.get(openedKey(repo, base.branch)) ?? (t.openPull ?? this.openPull)(base.branch) : undefined;

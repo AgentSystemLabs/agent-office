@@ -6,6 +6,8 @@ import type { Run, WorkerInfo } from '../../shared/protocol.js';
 import { FLAG_BOLD, FLAG_DIM, FLAG_INVERSE, RGB_FLAG } from '../../shared/protocol.js';
 import { SCROLLBACK } from '../ptys.js';
 import { screenSnapshot } from '../screen.js';
+import { providerAdapter } from '../providers/index.js';
+import type { WorkerStatus } from '../../shared/protocol.js';
 import type { Worker, WorkerEvents } from './types.js';
 
 export type HeadlessTerminal = InstanceType<typeof headless.Terminal>;
@@ -32,12 +34,14 @@ export function newTerm(w: Worker, on: { progress?(busy: boolean): void; title(t
     });
   }
   term.onTitleChange((title: string) => on.title(title));
+  // Writes are asynchronous: dirty only once the buffer actually contains their output.
+  term.onWriteParsed(() => { if (w.term === term) w.screenDirty = w.blockedDirty = true; });
   w.term?.dispose();
   w.term = term;
   w.ser = ser;
   w.snapshot = screenSnapshot(term, ser);
   w.lastLines = [];
-  w.screenDirty = true;
+  w.screenDirty = w.blockedDirty = true;
   w.fresh = undefined;
   return term;
 }
@@ -54,10 +58,12 @@ export function fullScreens(workers: Iterable<Worker>) {
 }
 
 /** Sends every screen that changed (see snapshotScreen), each looked at by `check` first. */
-export function flushScreens(workers: Iterable<Worker>, events: WorkerEvents, check: (w: Worker) => void) {
+export function flushScreens(workers: Iterable<Worker>, events: WorkerEvents, check: (w: Worker) => void, draw = true) {
   const now = Date.now();
   for (const w of workers) {
     if (!w.term) continue;
+    if (w.blockedDirty) { w.blockedDirty = false; check(w); }
+    if (!draw) continue;
     // Diffs can be dropped for slow clients, so resend the whole screen now and then.
     if (now - w.keyframeAt > KEYFRAME_MS) {
       w.keyframeAt = now;
@@ -66,7 +72,6 @@ export function flushScreens(workers: Iterable<Worker>, events: WorkerEvents, ch
     }
     if (!w.screenDirty) continue;
     w.screenDirty = false;
-    check(w);
     const frame = snapshotScreen(w.term, w.lastLines);
     if (frame) events.screen(w.info.id, frame);
   }
@@ -136,4 +141,23 @@ export function screenText(term: HeadlessTerminal, from = 0): string {
 export function offlineBanner(info: WorkerInfo): string {
   const hint = info.kind === 'shell' ? ' Press R to restart it.' : info.sessionId ? ' Press R to resume the session.' : '';
   return `\x1b[2m${info.name} is not running.${hint}\x1b[0m\r\n`;
+}
+
+/** Provider first-run/login gates are checked even with no thumbnail viewers. */
+export function checkBlocked(w: Worker, setStatus: (status: WorkerStatus) => void) {
+  const blockedBy = w.info.kind === 'agent' ? providerAdapter(w.info.provider)?.screen?.blocked : undefined;
+  if (!w.term || !blockedBy) return;
+  const s = w.info.status;
+  if (s !== 'starting' && s !== 'idle' && !(w.bootBlocked && s === 'needs_input')) return;
+  const text = screenText(w.term, w.term.buffer.active.type === 'normal' ? Math.max(0, w.fresh?.line ?? 0) : 0);
+  const blocked = blockedBy(text, s === 'starting' || !!w.bootBlocked);
+  if (blocked && s !== 'needs_input') {
+    w.bootBlocked = true;
+    w.info.activity = blocked;
+    setStatus('needs_input');
+  } else if (!blocked && w.bootBlocked && s === 'needs_input') {
+    w.bootBlocked = false;
+    w.info.activity = undefined;
+    setStatus('idle');
+  }
 }

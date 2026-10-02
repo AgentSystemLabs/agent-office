@@ -62,3 +62,34 @@ agent-office tunnel [office@address | url] [--port <n>] [--office-port <n>] [--n
   the worker stops it. Given an SSH address it opens the tunnel to the office too.
   See docs/tunnel.md.
 ```
+
+
+## Performance
+
+Open ⚙️ Settings → **Performance**. Presets and individual browser controls apply immediately and persist in this browser's local storage. Editing a preset's values shows **Custom**; **Reset browser defaults** restores Balanced. Invalid stored values fall back to validated defaults.
+
+| Browser control | Economy | Balanced (default) | Quality |
+| --- | --- | --- | --- |
+| Frame rate | 30 FPS | 60 FPS | 120 FPS |
+| Idle drawing | 5 FPS | 15 FPS | 30 FPS |
+| Resolution scale (maximum device pixel ratio) | 1× | 1.25× | 2× |
+| Outlines | Off | On | On |
+| Shadow size | 512 px | 1024 px | 2048 px |
+| Character preview | 15 FPS | 30 FPS | 60 FPS |
+| Laptop width | 256 px | 512 px | 1024 px |
+| Nearby laptop refresh | 1000 ms | 500 ms | 250 ms |
+
+Frame rate also offers 90 FPS and display refresh. Browser advanced exposes idle drawing, outlines, shadows (including Off), character preview and laptop resolution/refresh. Lower resolution and drawing rates trade visual detail and animation smoothness for fewer draws; distant laptops refresh less often. Idle drawing is separate from simulation, so it does not slow movement or games. Hidden tabs stop scene work and reset frame timing and held keys on resume; terminal transport and alerts remain available.
+
+**Office refresh** is building-wide and admin-only. Settings persist in the office's `.agent-office/performance.json` and reschedule live without restarting workers. **Reset office defaults** restores:
+
+| Office control | Default | Allowed values |
+| --- | --- | --- |
+| Terminal thumbnails | 2 FPS | 1, 2, 4 FPS |
+| Service discovery | 10 seconds | 4, 10, 30 seconds |
+| Changes refresh | 5 seconds | 2, 5, 10 seconds |
+| Usage refresh | 10 seconds | 2, 5, 10, 30 seconds |
+
+Longer intervals reduce background work but delay discovery, Changes and usage updates. These controls preserve blocked-worker detection and raw terminal streaming. Thumbnail extraction stops when a floor has no visible 3D recipients; opening/resuming a view supplies a fresh full screen. Lite-only viewers do not request thumbnails. Service discovery skips process scans when nobody owns a service. Changes windows stop watching while hidden and refresh on resume. Usage reads appended Codex records incrementally and file counts reuse valid signatures. Muted ambience avoids typing scheduling, worker sidebar rows retain their nodes, offscreen workers avoid visual updates, and retired laptops release their unique GPU resources.
+
+These changes reduce work counts by design. No measured CPU, fan or energy saving is promised.

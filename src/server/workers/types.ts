@@ -67,6 +67,8 @@ export interface Worker {
   snapshot?: () => string;
   viewers: Map<string, string>; // clientId -> name
   screenDirty: boolean;
+  /** Parsed output needs a lifecycle check, independently of pending thumbnails. */
+  blockedDirty: boolean;
   lastLines: string[];
   leftNeedsInputAt: number;
   keyframeAt: number;

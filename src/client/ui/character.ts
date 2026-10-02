@@ -2,10 +2,13 @@ import './character.css';
 import * as THREE from 'three';
 import { OutlineEffect } from 'three/examples/jsm/effects/OutlineEffect.js';
 import { HAIR_COLOR_NAMES, HAIR_COLORS, HAIR_STYLES, SKIN_TONES, randomLook, randomName, type Look } from '../../shared/avatar';
-import { AVATAR_COLORS, saveProfile, store, type Profile } from '../state';
+import { AVATAR_COLORS, loadSettings, saveProfile, store, type Profile } from '../state';
 import { Person } from '../world/character';
 import { toonUnique } from '../world/toon';
 import { h, openModal } from './dom';
+import { FrameCadence } from '../core/frame-cadence';
+import { applyGraphicsPerformance } from '../core/graphics';
+import type { BrowserPerformance } from '../shared/performance';
 
 /** A turntable with your character on it, drawn with its own small renderer. */
 class Preview {
@@ -20,10 +23,13 @@ class Preview {
   private dragging = false;
   private lastDrag = -Infinity;
   private hopT = -1;
+  private drawable = false;
+  private options: BrowserPerformance | null = null;
 
   constructor(
     private canvas: HTMLCanvasElement,
     p: Profile,
+    private performanceOptions: () => BrowserPerformance,
   ) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -73,11 +79,17 @@ class Preview {
     canvas.addEventListener('pointerup', release);
     canvas.addEventListener('pointercancel', release);
 
-    let last = performance.now();
+    const cadence = new FrameCadence();
     const frame = (now: number) => {
-      const dt = Math.min(0.1, (now - last) / 1000);
-      last = now;
-      this.tick(dt, now / 1000);
+      const options = this.performanceOptions();
+      const dt = cadence.admit(now, options.previewFps, !document.hidden && this.drawable);
+      if (dt !== null) {
+        if (this.options !== options) {
+          applyGraphicsPerformance({ renderer: this.renderer, effect: this.effect, scene: this.scene }, options);
+          this.options = options;
+        }
+        this.tick(Math.min(0.1, dt), now / 1000);
+      }
       this.raf = requestAnimationFrame(frame);
     };
     this.raf = requestAnimationFrame(frame);
@@ -92,7 +104,8 @@ class Preview {
   private fit() {
     const w = this.canvas.clientWidth;
     const hgt = this.canvas.clientHeight;
-    if (!w || !hgt) return;
+    this.drawable = !!w && !!hgt;
+    if (!this.drawable) return;
     this.renderer.setSize(w, hgt, false);
     this.camera.aspect = w / hgt;
     this.camera.updateProjectionMatrix();
@@ -122,6 +135,9 @@ class Preview {
     this.scene.traverse((o) => {
       if ((o as THREE.Mesh).isMesh) (o as THREE.Mesh).geometry.dispose();
     });
+    this.scene.traverse((object) => {
+      if (object instanceof THREE.DirectionalLight) object.shadow.dispose();
+    });
     this.renderer.dispose();
     this.renderer.forceContextLoss();
   }
@@ -131,10 +147,11 @@ class Preview {
  * The character select screen: your name, skin tone, hair and shirt, with a live preview.
  * `first` is the one you see when you join: closing it goes in as whoever's picked so far.
  */
-export function openCharacter(first: boolean, onSave: (p: Profile) => void) {
+export function openCharacter(first: boolean, onSave: (p: Profile) => void, performanceOptions?: () => BrowserPerformance) {
   const pick: Profile = { ...store.profile, look: { ...store.profile.look } };
   const canvas = h('canvas', { 'aria-label': 'Your character, drag to spin' }) as HTMLCanvasElement;
-  const preview = new Preview(canvas, pick);
+  const savedPerformance = loadSettings().performance;
+  const preview = new Preview(canvas, pick, performanceOptions ?? (() => savedPerformance));
 
   // Leave the name blank (or skip this) and you go by the made-up one in the box; 🎲 deals another.
   // Guest is what you were before you picked one, so it isn't a name to keep.

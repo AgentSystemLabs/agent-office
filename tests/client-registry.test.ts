@@ -431,3 +431,11 @@ test('every kind of thing you can use has exactly one definition, in the file th
     'kinds defined somewhere other than where they are added',
   );
 });
+
+test('idle simulation retains all ordered phases while drawing is deferred', () => {
+  const ticks = new Ticks();
+  const log: string[] = [];
+  for (const phase of TICK_PHASES) ticks.add(phase, () => log.push(phase));
+  ticks.run({ delta: 1 / 60, dt: 1 / 60, t: 3, now: 3000, render: false });
+  assert.deepEqual(log, TICK_PHASES.filter((phase) => phase !== 'render'));
+});

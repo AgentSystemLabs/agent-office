@@ -18,6 +18,7 @@ export function newWorker(info: WorkerInfo, tracker: UsageTracker, hookToken = r
     info,
     viewers: new Map(),
     screenDirty: true,
+    blockedDirty: true,
     lastLines: [],
     leftNeedsInputAt: 0,
     keyframeAt: 0,

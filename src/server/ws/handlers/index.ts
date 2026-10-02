@@ -13,6 +13,7 @@ import { githubHandlers, issuesView, pullsView } from './github.js';
 import { jukeboxHandlers, jukeboxView } from './jukebox.js';
 import { meetingHandlers, meetingView } from './meetings.js';
 import { planHandlers, planView } from './plan.js';
+import { performanceHandlers } from './performance.js';
 import { presenceHandlers } from './presence.js';
 import { queueHandlers, queueView } from './queue.js';
 import { rooftopHandlers } from './rooftop.js';
@@ -39,6 +40,7 @@ export const handlers: HandlerMap<ClientMsg> = {
   ...meetingHandlers,
   ...planHandlers,
   ...presenceHandlers,
+  ...performanceHandlers,
   ...queueHandlers,
   ...rooftopHandlers,
   ...settingsHandlers,

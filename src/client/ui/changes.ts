@@ -18,7 +18,7 @@ export function routeChangesMessage(msg: ServerMsg) {
 
 /** Whose changes are on screen (and which of its repositories), so a reconnect can watch them again. */
 export function openChangesFor(): { workerId: string; repo?: string } | null {
-  return current ? { workerId: current.workerId, repo: current.repo() } : null;
+  return current && !document.hidden ? { workerId: current.workerId, repo: current.repo() } : null;
 }
 
 const STATUS_WORD: Record<ChangedFile['status'], string> = { M: 'modified', A: 'added', D: 'deleted', R: 'renamed', T: 'type changed', '?': 'new file' };
@@ -367,7 +367,7 @@ export function openChanges(net: Net, workerId: string, onTerminal?: () => void,
   /** Switches to another of its repositories: stops following the one on screen and follows that one. */
   const show = (next?: string) => {
     if (next === repo || (next && !store.workers.get(workerId)?.repos?.some((r) => r.floor === next))) return;
-    net.send({ t: 'changes.unwatch', workerId, repo });
+    if (!document.hidden) net.send({ t: 'changes.unwatch', workerId, repo });
     repo = next;
     state = null;
     selected = null;
@@ -378,9 +378,11 @@ export function openChanges(net: Net, workerId: string, onTerminal?: () => void,
     renderList();
     renderFooter();
     renderEmpty();
-    net.send({ t: 'changes.watch', workerId, repo });
+    if (!document.hidden) net.send({ t: 'changes.watch', workerId, repo });
   };
 
+  const visibility = () => net.send({ t: document.hidden ? 'changes.unwatch' : 'changes.watch', workerId, repo });
+  document.addEventListener('visibilitychange', visibility);
   listeners.add(onMsg);
   const unsub = store.on('workers', () => {
     if (!store.workers.has(workerId)) modal.close();
@@ -392,6 +394,7 @@ export function openChanges(net: Net, workerId: string, onTerminal?: () => void,
   const modal = openModal(el, {
     doing: `🌿 looking over ${info.name}'s changes`,
     onClose: () => {
+      document.removeEventListener('visibilitychange', visibility);
       listeners.delete(onMsg);
       unsub();
       net.send({ t: 'changes.unwatch', workerId, repo });
@@ -406,6 +409,6 @@ export function openChanges(net: Net, workerId: string, onTerminal?: () => void,
   renderHeader();
   renderFooter();
   renderEmpty();
-  net.send({ t: 'changes.watch', workerId, repo });
+  if (!document.hidden) net.send({ t: 'changes.watch', workerId, repo });
   setTimeout(() => el.focus(), 30);
 }

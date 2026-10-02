@@ -59,7 +59,7 @@ export class AudioCore {
   /** How many of each sound have played, for quick checks from the console. */
   readonly played: Record<string, number> = {};
   /** What runs every frame (see every). */
-  private readonly tickers: ((now: number) => void)[] = [];
+  private readonly tickers: { tick: (now: number) => void; ambience: boolean }[] = [];
 
   constructor(private readonly hooks: AudioHooks) {
     // Browsers only allow audio after a click or key press.
@@ -80,6 +80,11 @@ export class AudioCore {
   setWeather(rain: number, night: number) {
     this.weather.rain = rain;
     this.weather.night = night;
+  }
+
+  /** Ambient recipes need no scheduling while their output cannot be heard. Alerts use their own bus. */
+  get ambienceAudible(): boolean {
+    return !this.muted && this.volume > 0 && !document.hidden && this.ctx?.state === 'running';
   }
 
   /** Output level (RMS) right now, for headless checks. */
@@ -151,8 +156,8 @@ export class AudioCore {
   }
 
   /** Runs `tick` every frame while audio's running, after everything added before it. */
-  every(tick: (now: number) => void) {
-    this.tickers.push(tick);
+  every(tick: (now: number) => void, ambience = false) {
+    this.tickers.push({ tick, ambience });
   }
 
   /** Moves your ears and runs everything added with every(), in the order it was added. */
@@ -178,7 +183,7 @@ export class AudioCore {
       L.setOrientation(l.fx / len, 0, l.fz / len, 0, 1, 0);
     }
     const now = ctx.currentTime;
-    for (const tick of this.tickers) tick(now);
+    for (const entry of this.tickers) if (!entry.ambience || this.ambienceAudible) entry.tick(now);
   }
 
   /** Where your ears are: in the office, where rain is muffled by the glass, in the garage, or out in it. */

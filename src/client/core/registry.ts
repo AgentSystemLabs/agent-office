@@ -183,6 +183,10 @@ export interface Frame {
   readonly t: number;
   /** performance.now() at the start of the frame. */
   readonly now: number;
+  /** False defers drawing while the simulation keeps its normal cadence. */
+  readonly render?: boolean;
+  /** Intentional idle rendering does not count towards a slow-computer warning. */
+  readonly idle?: boolean;
 }
 
 interface TickEntry {
@@ -199,7 +203,10 @@ export class Ticks {
   }
 
   run(f: Frame): void {
-    for (const phase of TICK_PHASES) for (const e of this.phases.get(phase)?.items ?? []) e.fn(f);
+    for (const phase of TICK_PHASES) {
+      if (phase === 'render' && f.render === false) continue;
+      for (const e of this.phases.get(phase)?.items ?? []) e.fn(f);
+    }
   }
 }
 

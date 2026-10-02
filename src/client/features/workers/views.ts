@@ -133,7 +133,7 @@ export function installWorkerViews(ctx: Ctx, core: CoreState, parts: WorkerViews
         if (desk.def.room && !seatedAlready) arrivals.add(model, desk);
         // In the castle, a worker at the tables gets up and walks about (see Court): a new one runs in to its seat.
         else if (court && inCourt(w)) court.add(w.id, model, desk, seatedAlready ? undefined : cameFrom(w));
-        const laptop = new Laptop(world.device);
+        const laptop = new Laptop(world.device, ctx.settings.performance);
         desk.laptopAnchor.add(laptop.root);
         noOutline(desk.group);
         desk.chair.rotation.y = 0;
@@ -283,10 +283,15 @@ export function installWorkerViews(ctx: Ctx, core: CoreState, parts: WorkerViews
   }
   store.on('workers', syncWorkers);
   const workerPos = new THREE.Vector3();
+  const frustum = new THREE.Frustum();
+  const projection = new THREE.Matrix4();
+  const bounds = new THREE.Sphere(new THREE.Vector3(), 3);
   /** When (performance.now()) the workers' looks were last brought up to how long they've worked. */
   let agedAt = 0;
   ctx.ticks.add('others', ({ dt, t, now }) => {
     const camPos = camera.position;
+    camera.updateMatrixWorld();
+    frustum.setFromProjectionMatrix(projection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
     // How worn out each looks, as they work on (every second or so is plenty).
     const aging = !!plan().agents.ageMinutes && now - agedAt > 1000;
     if (aging) agedAt = now;
@@ -297,13 +302,22 @@ export function installWorkerViews(ctx: Ctx, core: CoreState, parts: WorkerViews
         if (w) v.model.setAge(ageOf(w));
       }
       // A jumping worker holds still while you're near enough to read its card, and jumps again once you walk away.
-      const d = v.model.root.getWorldPosition(workerPos).distanceTo(player.pos);
+      v.model.root.getWorldPosition(workerPos);
+      bounds.center.copy(workerPos);
+      const visible = !document.hidden && !core.upTop && v.model.root.visible && frustum.intersectsSphere(bounds);
+      const d = workerPos.distanceTo(player.pos);
       v.model.held = d < (v.model.held ? HOLD_LEAVE : HOLD_NEAR);
-      v.model.update(dt, t);
+      if (visible) v.model.update(dt, t);
       // A board agent's kiosk has no laptop to paint (see buildKiosk).
-      if (!desk.station) v.laptop.update(dt, store.screens.get(id), Math.hypot(desk.x - camPos.x, desk.z - camPos.z));
+      if (!desk.station) {
+        v.laptop.configure(ctx.settings.performance);
+        v.laptop.update(dt, store.screens.get(id), Math.hypot(desk.x - camPos.x, desk.z - camPos.z), visible);
+      }
     }
-    for (const a of parts.worlds.idleAgents()) if (a.view.vacancy.visible) a.model.update(dt, t);
+    if (!document.hidden && !core.upTop) for (const a of parts.worlds.idleAgents()) {
+      bounds.center.copy(a.model.root.getWorldPosition(workerPos));
+      if (a.view.vacancy.visible && frustum.intersectsSphere(bounds)) a.model.update(dt, t);
+    }
     departures.update(dt, t);
     if (!core.upTop) {
       sendoffs.update(dt, t);

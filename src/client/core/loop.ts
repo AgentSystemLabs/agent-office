@@ -47,10 +47,15 @@ export function installLoop(ctx: Ctx, core: CoreState, parts: Pick<Parts, 'stage
   const headPos = new THREE.Vector3();
   /** Frames coming too slowly for the 3D to be any fun: the 2D view is offered. */
   const slowFrames = new SlowFrames();
+  let sampledAt: number | null = null;
 
   /** Frames coming too slowly for the 3D to be any fun: the 2D view is offered. */
-  function watchFrameRate({ now, delta }: Frame) {
-    if (slowFrames.frame(now, delta * 1000)) deps.offer2d('slow');
+  function watchFrameRate({ now, idle }: Frame) {
+    // Simulation may split one display interval into several steps. Sample that interval once.
+    if (sampledAt === now) return;
+    const interval = sampledAt === null ? 0 : now - sampledAt;
+    sampledAt = now;
+    if (slowFrames.frame(now, interval, idle)) deps.offer2d('slow');
   }
 
   /** Coffee, and the view's shake easing off. */
@@ -207,18 +212,4 @@ export function installLoop(ctx: Ctx, core: CoreState, parts: Pick<Parts, 'stage
   }
 }
 
-/**
- * The frame loop: each frame, every phase's ticks, in order (see TICK_PHASES, and installLoop). Its
- * clock starts now; hand what it returns to requestAnimationFrame to start it.
- */
-export function frameLoop(ctx: Ctx, loading: { drew(): void }): (ts?: number) => void {
-  const timer = new THREE.Timer();
-  function frame(ts?: number) {
-    timer.update(ts);
-    const delta = timer.getDelta();
-    ctx.ticks.run({ delta, dt: Math.min(delta, 0.1), t: timer.getElapsed(), now: performance.now() });
-    loading.drew();
-    requestAnimationFrame(frame);
-  }
-  return frame;
-}
+export { frameLoop } from './frame-loop';

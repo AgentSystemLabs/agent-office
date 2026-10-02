@@ -16,6 +16,8 @@ export interface Client {
   admin: boolean;
   /** Signed out while connected; whatever it still sends is dropped until the socket closes. */
   out?: boolean;
+  /** Wants laptop thumbnails while the visible 3D scene is active. */
+  screens: boolean;
   attached: Set<string>;
   /** Terminals whose output was skipped because this client fell behind; re-snapshotted later. */
   stale: Set<string>;
@@ -36,6 +38,7 @@ export function newClient(id: string, ws: WebSocket, who: { accountId: string | 
     ws,
     accountId: who.accountId,
     admin: who.admin,
+    screens: !peer.lite,
     attached: new Set(),
     stale: new Set(),
     lastMoveAt: 0,

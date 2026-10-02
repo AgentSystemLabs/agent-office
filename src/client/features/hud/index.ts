@@ -7,6 +7,7 @@ import { ROOF } from '../../../shared/rooftop';
 import type { Ctx } from '../../core/context';
 import type { CoreState } from '../../core/ctx';
 import { builtFloors } from '../../core/floors';
+import { applyGraphicsPerformance } from '../../core/graphics';
 import type { Parts } from '../../core/parts';
 import { waitingInOrder, waitingLabel } from '../../nextup';
 import { saveSettings, store } from '../../state';
@@ -25,10 +26,12 @@ import { openUpgrade } from '../../ui/upgrade';
 import { openWhiteboard } from '../whiteboard/ui';
 import { describeSky } from '../../world/sky';
 
-export type HudParts = Pick<Parts, 'worlds' | 'place' | 'travel' | 'you' | 'actions' | 'waiting' | 'meeting' | 'bookshelf' | 'hanging' | 'talk' | 'notifier'>;
+export type HudParts = Pick<Parts, 'stage' | 'worlds' | 'place' | 'travel' | 'you' | 'actions' | 'waiting' | 'meeting' | 'bookshelf' | 'hanging' | 'talk' | 'notifier'>;
 
 /** Listens for clicks on the HUD and the project, registers what the HUD follows (see mountHud), and binds Tab, H and F. */
 export function installHud(ctx: Ctx, core: CoreState, parts: HudParts) {
+  // The stage and saved settings exist here, before the first frame is drawn.
+  applyGraphicsPerformance(parts.stage, ctx.settings.performance);
   const { net, voice, settings, player, sound } = ctx;
   const { inOffice } = parts.worlds;
   const { travel, waiting, actions, hanging, talk } = parts;
@@ -161,6 +164,7 @@ export function installHud(ctx: Ctx, core: CoreState, parts: HudParts) {
         player.setView(settings.view);
         sound.setVolume(settings.volume, settings.muted);
         sound.setMusicVolume(settings.music, settings.musicMuted);
+        applyGraphicsPerformance(parts.stage, settings.performance);
       },
       editProfile,
       sound,
@@ -180,7 +184,7 @@ export function installHud(ctx: Ctx, core: CoreState, parts: HudParts) {
     openCharacter(false, (p) => {
       parts.you.showMyProfile(p);
       net.send({ t: 'profile', name: p.name, color: p.color, look: p.look });
-    });
+    }, () => settings.performance);
   }
 
   return { hud, showSettings, editProfile };

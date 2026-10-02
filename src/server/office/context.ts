@@ -19,6 +19,7 @@ import type { Machine } from '../machine.js';
 import type { Building, FloorDef } from '../building.js';
 import type { Floor } from '../floor.js';
 import type { Sky } from '../sky.js';
+import type { Performance } from '../performance.js';
 import type { Themes } from '../theme.js';
 import type { Maps } from '../maps.js';
 import type { OfficePrompts } from '../prompts.js';
@@ -58,6 +59,7 @@ export interface Core {
 export interface BuildingServices {
   sky: Sky;
   themes: Themes;
+  performance: Performance;
   maps: Maps;
   prompts: OfficePrompts;
   leaveOnMerge: LeaveOnMerge;

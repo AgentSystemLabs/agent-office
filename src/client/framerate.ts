@@ -27,8 +27,12 @@ export class SlowFrames {
   constructor(private opts: SlowFramesOptions = SLOW_FRAMES) {}
 
   /** A frame drawn at `now`, `dt` ms after the one before. True the first time frames have been slow for a whole span. */
-  frame(now: number, dt: number): boolean {
+  frame(now: number, dt: number, intentional = false): boolean {
     if (this.said) return false;
+    if (intentional) {
+      this.start = null;
+      return false;
+    }
     this.warmUntil ??= now + this.opts.warmupMs;
     if (now < this.warmUntil) return false;
     if (dt >= this.opts.gapMs) {

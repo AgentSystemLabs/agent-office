@@ -50,6 +50,7 @@ import { installHud } from './features/hud';
 import { installJukebox } from './features/jukebox';
 import { installMeeting } from './features/meeting';
 import { installNeedsYou } from './features/needsyou';
+import { installPerformance } from './features/performance';
 import { installPalette } from './features/palette';
 import { installPeers } from './features/peers';
 import { installRooftop } from './features/rooftop';
@@ -179,6 +180,7 @@ installChat(ctx);
 parts.talk = installVoice(ctx, { tv: parts.tv });
 installDictation(ctx);
 parts.hud = installHud(ctx, core, parts);
+installPerformance(ctx);
 
 // ---- Main loop ---------------------------------------------------------------------------------------
 fitWindow(ctx);

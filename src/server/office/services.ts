@@ -13,6 +13,7 @@ import { Webhook } from '../webhook.js';
 import { Machine } from '../machine.js';
 import type { Floor } from '../floor.js';
 import { Sky } from '../sky.js';
+import { Performance } from '../performance.js';
 import { Themes } from '../theme.js';
 import { Maps } from '../maps.js';
 import { OfficePrompts } from '../prompts.js';
@@ -38,6 +39,15 @@ export function createServices(ctx: Ctx): BuildingServices {
   const prompts = new OfficePrompts(cfg.dataDir, { list: agentProviders(configured), configured }, (state) => ctx.broadcast({ t: 'prompts', state }));
   // Whether a worker whose pull request merged goes home by itself, on every floor (⚙️ Settings).
   const leaveOnMerge = new LeaveOnMerge(cfg.dataDir, (state) => ctx.broadcast({ t: 'leaveOnMerge', state }));
+
+  const performance = new Performance(cfg.dataDir, (state) => {
+    for (const f of floors.values()) {
+      f.workers.setPerformance(state.settings);
+      f.changes.setPollSeconds(state.settings.changesPollSeconds);
+    }
+    ctx.services?.setScanSeconds(state.settings.serviceScanSeconds);
+    ctx.broadcast({ t: 'performance', state });
+  });
 
   // What the workers spend, all time and today, with the optional daily budget.
   const ledger = new Ledger(
@@ -125,7 +135,7 @@ export function createServices(ctx: Ctx): BuildingServices {
     });
   };
 
-  return { sky, themes, maps, prompts, leaveOnMerge, ledger, signins, limits, accountLimits, webhook, machine, limitsOf, pumpQueues };
+  return { sky, themes, performance, maps, prompts, leaveOnMerge, ledger, signins, limits, accountLimits, webhook, machine, limitsOf, pumpQueues };
 }
 
 /** What's made once the floors are open: the SSH team, the tailnet, workers' web servers, pictures and upgrades. */
@@ -151,6 +161,7 @@ export function createLateServices(ctx: Ctx): LateServices {
     },
   );
 
+  services.setScanSeconds(ctx.performance.state().settings.serviceScanSeconds);
   const images = new ImageProxy();
 
   const upgrader = new Upgrader(

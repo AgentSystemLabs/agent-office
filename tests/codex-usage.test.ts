@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { appendFileSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, mkdtempSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { CodexUsageReader, codexTokenUsage } from '../src/server/codex-usage.js';
@@ -59,4 +59,40 @@ test('bounded tail recovers cumulative usage after large non-metric records', t 
   const { home, file } = fixture(t);
   writeFileSync(file, header() + JSON.stringify({ type: 'response_item', payload: 'x'.repeat(5 * 1024 * 1024) }) + '\n' + event() + '\n');
   assert.deepEqual(new CodexUsageReader().read(file, 'thread-1', home), codexTokenUsage(totals()));
+});
+
+
+test('revalidates foreign headers on same-inode growth and recovers rotations', t => {
+  const { home, file } = fixture(t);
+  const reader = new CodexUsageReader();
+  writeFileSync(file, header() + event() + '\n');
+  assert.ok(reader.read(file, 'thread-1', home));
+  writeFileSync(file, header('thread-2') + event(totals(400, 80)) + '\n' + ' '.repeat(100));
+  assert.equal(reader.read(file, 'thread-1', home), undefined);
+  const replacement = `${file}.new`;
+  writeFileSync(replacement, header() + event(totals(500, 100)) + '\n');
+  renameSync(replacement, file);
+  assert.deepEqual(reader.read(file, 'thread-1', home), codexTokenUsage(totals(500, 100)));
+});
+
+test('bounded partial records are skipped until newline, then fresh usage resumes', t => {
+  const { home, file } = fixture(t);
+  const reader = new CodexUsageReader();
+  writeFileSync(file, header() + event() + '\n');
+  assert.ok(reader.read(file, 'thread-1', home));
+  for (let i = 0; i < 5; i++) {
+    appendFileSync(file, 'x'.repeat(300_000));
+    assert.deepEqual(reader.read(file, 'thread-1', home), codexTokenUsage(totals()));
+  }
+  appendFileSync(file, '\n' + event(totals(600, 120)) + '\n');
+  assert.deepEqual(reader.read(file, 'thread-1', home), codexTokenUsage(totals(600, 120)));
+});
+
+test('same-session rewrite with growth replaces rather than appends old partial state', t => {
+  const { home, file } = fixture(t);
+  const reader = new CodexUsageReader();
+  writeFileSync(file, header() + event() + '\n' + '{"type":"partial');
+  assert.ok(reader.read(file, 'thread-1', home));
+  writeFileSync(file, header() + JSON.stringify({ type: 'message', content: 'new'.repeat(300) }) + '\n' + event(totals(700, 140)) + '\n');
+  assert.deepEqual(reader.read(file, 'thread-1', home), codexTokenUsage(totals(700, 140)));
 });

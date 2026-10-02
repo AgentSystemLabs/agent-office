@@ -39,6 +39,7 @@ export class Typing {
   }
 
   scheduleTyping(now: number) {
+    if (!this.a.ambienceAudible) return;
     // Schedule a little ahead on the audio clock so the rhythm doesn't wobble with the frame rate.
     const horizon = now + 0.12;
     for (const t of this.typists.values()) {
@@ -92,6 +93,7 @@ export class Typing {
 
   /** Someone at a worker's desk shuffles papers or leans back in a creaky chair. */
   fidget(now: number) {
+    if (!this.a.ambienceAudible) return;
     const desks = [...this.typists.values()];
     if (!desks.length) return;
     const d = pick(desks);

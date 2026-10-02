@@ -9,7 +9,7 @@ import type { ServiceInfo } from '../shared/protocol.js';
 // listen on, and credit each one to the worker whose terminal started it. Servers no worker
 // started (yours, from your own terminal) aren't listed.
 
-const SCAN_MS = 4000;
+const SCAN_MS = 10_000;
 /** A port that stopped listening this recently still gets a "stopped" page instead of the office. */
 const GONE_MS = 24 * 60 * 60_000;
 /** Listeners that aren't something to review: browsers driven by tests, their helpers. */
@@ -172,6 +172,7 @@ export class Services {
   private gone = new Map<number, number>();
   private timer?: NodeJS.Timeout;
   private scanning = false;
+  private scanMs = SCAN_MS;
   private published = '[]';
 
   constructor(
@@ -181,11 +182,22 @@ export class Services {
 
   start() {
     void this.scan();
-    this.timer = setInterval(() => void this.scan(), SCAN_MS);
+    clearInterval(this.timer);
+    this.timer = setInterval(() => void this.scan(), this.scanMs);
   }
 
   stop() {
     clearInterval(this.timer);
+    this.timer = undefined;
+  }
+
+  setScanSeconds(seconds: 4 | 10 | 30) {
+    if (this.scanMs === seconds * 1000) return;
+    this.scanMs = seconds * 1000;
+    if (this.timer) {
+      clearInterval(this.timer);
+      this.timer = setInterval(() => void this.scan(), this.scanMs);
+    }
   }
 
   /** The web servers (listeners that answered HTTP), by port. */
@@ -218,6 +230,13 @@ export class Services {
 
   private async scanOnce() {
     const owners = this.owners();
+    if (!owners.length) {
+      const now = Date.now();
+      for (const [port, tracked] of this.tracked) if (tracked.http) this.gone.set(port, now);
+      this.tracked.clear();
+      this.publish();
+      return;
+    }
     const [ls, procs] = await Promise.all([listeners(), processes()]);
     const byPty = new Map(owners.filter((o) => o.pid).map((o) => [o.pid!, o]));
     const byId = new Map(owners.map((o) => [o.workerId, o]));

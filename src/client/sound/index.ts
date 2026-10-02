@@ -55,12 +55,12 @@ export class OfficeSound {
   constructor() {
     // What the room does every frame, in this order (it's the order the random numbers are drawn in).
     this.a.every((now) => this.music.hearJukebox(now));
-    this.a.every((now) => this.typing.scheduleTyping(now));
-    this.a.every((now) => this.fridge.tickFridge(now));
-    this.a.every((now) => this.birds.tick(now));
-    this.a.every((now) => this.crickets.tick(now));
-    this.a.every((now) => this.rain.tickRain(now));
-    this.a.every((now) => this.fidgets.tick(now));
+    this.a.every((now) => this.typing.scheduleTyping(now), true);
+    this.a.every((now) => this.fridge.tickFridge(now), true);
+    this.a.every((now) => this.birds.tick(now), true);
+    this.a.every((now) => this.crickets.tick(now), true);
+    this.a.every((now) => this.rain.tickRain(now), true);
+    this.a.every((now) => this.fidgets.tick(now), true);
   }
 
   /** Audio has just started (see AudioCore.unlock): the jukebox and the DJ join the graph, and the room starts up. */

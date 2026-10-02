@@ -1,3 +1,4 @@
+import { DEFAULT_OFFICE_PERFORMANCE, type OfficePerformanceSettings } from '../../shared/performance.js';
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import type { AgentChoice, AgentEffort, AgentProvider, TerminalHit, WorkerInfo, WorkerKind, WorkerRepo, WorkerStatus } from '../../shared/protocol.js';
@@ -24,7 +25,7 @@ import { restoreWorkers, saveWorkers } from './persist.js';
 import { WorkerPrs } from './pr.js';
 import { WIN, binScript, defaultShell, resolveCommand, shellRun, shq, writeOfficeCommands } from './process.js';
 import { CARRY_ON_PROMPT, WorkerTasks } from './tasks.js';
-import { flushScreens, fullScreens, newTerm, offlineBanner, screenText, type HeadlessTerminal } from './terminal.js';
+import { checkBlocked, flushScreens, fullScreens, newTerm, offlineBanner, screenText, type HeadlessTerminal } from './terminal.js';
 import type { HookEnv, OpenedPr, RepoSource, RunAs, Worker, WorkerContext, WorkerEvents, WorkerHandle } from './types.js';
 import { clamp, safeEq, truncate } from './util.js';
 import { COLORS, NAMES, newWorker } from './worker.js';
@@ -53,6 +54,9 @@ export class WorkerManager {
   /** Where the office-queue and office-workers commands are, for the workers' PATH (see writeOfficeCommands). */
   private officeBin: string | undefined;
   private screenTimer: NodeJS.Timeout;
+  private screenFps = DEFAULT_OFFICE_PERFORMANCE.screenFps;
+  private screenAt = 0;
+  screenViewers: () => boolean = () => false;
   /** The office is shutting down: workers exiting now are being stopped, not failing to resume. */
   private closing = false;
   /** Closing for good (Ctrl+C), not restarting: whatever the workers were doing is stopped on purpose. */
@@ -129,7 +133,12 @@ export class WorkerManager {
     this.drops.prune(new Set(this.workers.keys()));
     // A session may have ended (and written its final tally) while the office was down.
     for (const w of this.workers.values()) this.scanUsage(w);
-    this.screenTimer = setInterval(() => flushScreens(this.workers.values(), this.events, (w) => this.checkBlocked(w)), SCREEN_INTERVAL_MS);
+    this.screenTimer = setInterval(() => {
+      const now = Date.now();
+      const draw = this.screenViewers() && now - this.screenAt >= 1000 / this.screenFps;
+      if (draw) this.screenAt = now;
+      flushScreens(this.workers.values(), this.events, w => checkBlocked(w, status => this.setStatus(w, status)), draw);
+    }, SCREEN_INTERVAL_MS);
     this.usageTimer = setInterval(() => {
       for (const w of this.workers.values()) {
         this.scanUsage(w);
@@ -548,7 +557,7 @@ export class WorkerManager {
     } catch {
       // pty may have exited between checks
     }
-    w.screenDirty = true;
+    w.screenDirty = w.blockedDirty = true;
     w.lastLines = [];
     this.emitUpdate(w);
   }
@@ -789,7 +798,6 @@ export class WorkerManager {
     w.pty = proc;
     proc.onData((data) => {
       term.write(data);
-      w.screenDirty = true;
       w.unsaved = true;
       if (w.viewers.size) this.events.data(info.id, data, [...w.viewers.keys()]);
     });
@@ -822,7 +830,6 @@ export class WorkerManager {
       const msg = `\r\n\x1b[2m[${info.name} exited with code ${exitCode}${hint}]\x1b[0m\r\n`;
       term.write(msg);
       if (w.viewers.size) this.events.data(info.id, msg, [...w.viewers.keys()]);
-      w.screenDirty = true;
       w.unsaved = true;
       this.emitUpdate(w);
       this.persist();
@@ -848,7 +855,6 @@ export class WorkerManager {
     w.info.exitCode = -1;
     w.term?.write(msg);
     if (w.viewers.size) this.events.data(w.info.id, msg, [...w.viewers.keys()]);
-    w.screenDirty = true;
     w.unsaved = true;
     this.events.toast(`Could not start ${what}: ${message}`, 'error');
     this.emitUpdate(w);
@@ -908,6 +914,7 @@ export class WorkerManager {
     if (w.info.status === 'needs_input') w.leftNeedsInputAt = Date.now();
     clockWork(w.info, status);
     w.info.status = status;
+    if (status === 'starting' || status === 'idle' || (status === 'needs_input' && w.bootBlocked)) w.blockedDirty = true;
     // Done, idle or asleep: it's not acting anything out any more.
     if (status !== 'working' && status !== 'needs_input') w.info.action = undefined;
     // Nobody is looking at the terminal right now -> raise the flag (the worker jumps). A worker at the
@@ -993,28 +1000,13 @@ export class WorkerManager {
     return fullScreens(this.workers.values());
   }
 
-  /**
-   * An agent can sit at its prompt without being usable: Claude stuck on a first-run screen, or not
-   * signed in on this machine (see ProviderAdapter.screen). Flag that as needing a human, and clear
-   * it once the screen moves on.
-   */
-  private checkBlocked(w: Worker) {
-    const blockedBy = w.info.kind === 'agent' ? providerAdapter(w.info.provider)?.screen?.blocked : undefined;
-    if (!w.term || !blockedBy) return;
-    const s = w.info.status;
-    if (s !== 'starting' && s !== 'idle' && !(w.bootBlocked && s === 'needs_input')) return;
-    // Only this run's output counts: a "Not logged in" in the scrollback from before is old news.
-    const text = screenText(w.term, w.term.buffer.active.type === 'normal' ? Math.max(0, w.fresh?.line ?? 0) : 0);
-    const blocked = blockedBy(text, s === 'starting' || !!w.bootBlocked);
-    if (blocked && s !== 'needs_input') {
-      w.bootBlocked = true;
-      w.info.activity = blocked;
-      this.setStatus(w, 'needs_input');
-    } else if (!blocked && w.bootBlocked && s === 'needs_input') {
-      w.bootBlocked = false;
-      w.info.activity = undefined;
-      this.setStatus(w, 'idle');
-    }
+  /** Keep lifecycle checks fixed while display and usage cadences change live. */
+  setPerformance(settings: OfficePerformanceSettings) {
+    this.screenFps = settings.screenFps;
+    clearInterval(this.usageTimer);
+    this.usageTimer = setInterval(() => {
+      for (const w of this.workers.values()) { this.scanUsage(w); this.worktrees.watchFolder(w); }
+    }, settings.usageScanSeconds * 1000);
   }
 
   private saveScrollback(w: Worker) {

@@ -12,6 +12,7 @@ import { BUILDERS } from '../world/styles';
 import { officeWorld, type World } from '../world/world';
 import type { Ctx } from './context';
 import { noOutline } from './outline';
+import { activateWorld, applyShadowSize } from './graphics';
 import { idleAgentsIn, type IdleAgent } from './stations';
 
 /** A map's world, with its court (on a castle-style map) and the board agents waiting in it. */
@@ -57,7 +58,7 @@ export function createWorlds(ctx: Ctx) {
     if (!b) {
       const w = BUILDERS[p.style](p);
       w.group.visible = false;
-      scene.add(w.group);
+      // Cached until entered; invisibility alone still permits outline traversal.
       noOutline(w.group);
       const ground = (x: number, z: number, y: number) => Math.max(groundAt(w.colliders, x, z, y), w.dungeon?.plan.floor ?? 0);
       b = { plan: p, world: w, court: new Court(w.group, p, w.nav, ground, (x, y, z) => ctx.sound.stepAt(x, z, y)), idle: idleAgentsIn(w) };
@@ -90,7 +91,10 @@ export function createWorlds(ctx: Ctx) {
     worldFor,
     /** The building's on `next`'s map now (see applyMap in core/maps.ts, which takes the old one down). */
     enter(next: MapWorld) {
+      activateWorld(scene, world.group, next.world.group);
       world = next.world;
+      // A previously detached map may have shadows allocated at an older quality.
+      applyShadowSize(ctx.renderer, scene, ctx.settings.performance.shadowSize);
       court = next.court;
       idleAgents = next.idle;
     },

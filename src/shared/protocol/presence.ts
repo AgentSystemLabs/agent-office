@@ -1,5 +1,6 @@
 // People in the office: where they are and what they do, chat, voice and the welcome.
 
+import type { PerformanceState } from './performance.js';
 import type { Look } from '../avatar.js';
 import type { BarGame } from '../bargames.js';
 import type { EmoteId } from '../emotes.js';
@@ -130,6 +131,7 @@ export type PresenceServerMsg =
       sky: SkyState;
       /** Halloween or Christmas decorations, all over the building, or none. */
       theme: ThemeState;
+      performance: PerformanceState;
       /** What the building looks like inside. */
       map: MapState;
       /** The office's prompts and the worker everyone starts on. */

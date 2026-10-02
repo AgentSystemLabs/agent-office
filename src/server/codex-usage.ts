@@ -1,4 +1,4 @@
-import { closeSync, constants, fstatSync, openSync, readSync, realpathSync } from 'node:fs';
+import { closeSync, constants, fstatSync, openSync, readSync, realpathSync, statSync } from 'node:fs';
 import path from 'node:path';
 import type { Usage } from '../shared/protocol.js';
 
@@ -28,6 +28,14 @@ export function codexTokenUsage(value: unknown): Usage | undefined {
  */
 export class CodexUsageReader {
   private stamp = '';
+  private identity = '';
+  private position = 0;
+  private header: Buffer = Buffer.alloc(0);
+  private anchor: Buffer = Buffer.alloc(0);
+  private partial: Buffer = Buffer.alloc(0);
+  private skipping = false;
+  private latest?: Usage;
+
   read(file: string, sessionId: string, home: string): Usage | undefined {
     let fd: number | undefined;
     try {
@@ -39,37 +47,95 @@ export class CodexUsageReader {
       if (!path.basename(target).endsWith(`-${sessionId}.jsonl`)) return;
       fd = openSync(target, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
       const stat = fstatSync(fd);
-      if (!stat.isFile()) return;
-      const stamp = `${target}:${sessionId}:${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeMs}`;
+      const current = statSync(target);
+      if (!stat.isFile() || stat.dev !== current.dev || stat.ino !== current.ino || realpathSync(file) !== target || realpathSync(home) !== root) return;
+      const identity = `${root}:${target}:${sessionId}:${stat.dev}:${stat.ino}`;
+      const stamp = `${identity}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
+      // Revalidate metadata even on growth of the same inode; an in-place rewrite can change owners.
+      const header = readAt(fd, 0, identity === this.identity && this.header.length ? this.header.length : Math.min(stat.size, HEADER_BYTES));
+      const end = header.indexOf(10);
+      if (end < 0 || !matchesSession(header.subarray(0, end), sessionId)) { this.reset(); return; }
       if (stamp === this.stamp) return;
-      const head = Buffer.alloc(Math.min(stat.size, HEADER_BYTES));
-      const headBytes = readSync(fd, head, 0, head.length, 0);
-      const firstNewline = head.subarray(0, headBytes).indexOf(10);
-      if (firstNewline < 0) return;
-      const meta = JSON.parse(head.subarray(0, firstNewline).toString('utf8'));
-      if (meta.type !== 'session_meta' || meta.payload?.id !== sessionId) return;
-      const start = Math.max(0, stat.size - TAIL_BYTES);
-      const tail = Buffer.alloc(stat.size - start);
-      const bytes = readSync(fd, tail, 0, tail.length, start);
-      const text = tail.subarray(0, bytes).toString('utf8');
-      const lines = text.split('\n');
-      lines.pop(); // A final partial line is retried after the next append.
-      if (start) lines.shift();
-      for (let i = lines.length - 1; i >= 0; i--) {
-        if (!lines[i].includes('"token_count"')) continue;
-        let row;
-        try { row = JSON.parse(lines[i]); } catch { continue; }
-        if (row.type !== 'event_msg' || row.payload?.type !== 'token_count') continue;
-        const usage = codexTokenUsage(row.payload.info?.total_token_usage);
-        if (!usage) continue;
-        this.stamp = stamp;
-        return usage;
+      const anchor = this.position >= this.anchor.length ? readAt(fd, this.position - this.anchor.length, this.anchor.length) : Buffer.alloc(0);
+      const append = identity === this.identity && stat.size > this.position &&
+        header.subarray(0, end + 1).equals(this.header) && anchor.equals(this.anchor) && stat.size - this.position <= TAIL_BYTES;
+      let start = this.position;
+      if (!append) {
+        this.reset();
+        start = Math.max(end + 1, stat.size - TAIL_BYTES);
+        this.skipping = start > end + 1; // Tail begins in an arbitrary, possibly oversized record.
       }
+      const data = readAt(fd, start, Math.min(stat.size - start, TAIL_BYTES));
+      this.consume(data);
+      this.identity = identity;
+      this.header = Buffer.from(header.subarray(0, end + 1));
+      this.position = start + data.length;
+      this.anchor = readAt(fd, Math.max(0, this.position - 256), Math.min(256, this.position));
+      // A concurrently modified file is retried from a fresh bootstrap on the next scan.
+      const after = fstatSync(fd);
+      if (after.size !== stat.size || after.mtimeMs !== stat.mtimeMs || after.ctimeMs !== stat.ctimeMs) {
+        this.reset(); return;
+      }
+      this.stamp = stamp;
+      return this.latest;
     } catch {
-      // No data is preferable to exposing malformed, mismatched, or inaccessible files.
+      this.reset();
+      // Malformed, mismatched and inaccessible files never contribute invented usage.
     } finally {
       if (fd !== undefined) closeSync(fd);
     }
-    return undefined;
   }
+
+  private reset() {
+    this.stamp = this.identity = '';
+    this.position = 0;
+    this.header = this.anchor = this.partial = Buffer.alloc(0);
+    this.skipping = false;
+    this.latest = undefined;
+  }
+
+  /** Complete append records only; discard oversized records through their terminating newline. */
+  private consume(data: Buffer) {
+    let start = 0;
+    while (start < data.length) {
+      const newline = data.indexOf(10, start);
+      const end = newline < 0 ? data.length : newline;
+      const part = data.subarray(start, end);
+      if (!this.skipping && this.partial.length + part.length <= HEADER_BYTES) {
+        this.partial = Buffer.concat([this.partial, part]);
+      } else { this.partial = Buffer.alloc(0); this.skipping = true; }
+      if (newline < 0) return;
+      if (!this.skipping) {
+        const usage = usageRecord(this.partial);
+        if (usage) this.latest = usage;
+      }
+      this.partial = Buffer.alloc(0);
+      this.skipping = false;
+      start = newline + 1;
+    }
+  }
+}
+
+function readAt(fd: number, offset: number, length: number): Buffer {
+  const bytes = Buffer.alloc(length);
+  return bytes.subarray(0, readSync(fd, bytes, 0, length, offset));
+}
+function record(bytes: Buffer): Record<string, unknown> | undefined {
+  try {
+    const value: unknown = JSON.parse(bytes.toString('utf8'));
+    if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>;
+  } catch { /* Partial or unknown records are ignored. */ }
+}
+function object(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+}
+function matchesSession(bytes: Buffer, sessionId: string): boolean {
+  const row = record(bytes);
+  return row?.type === 'session_meta' && object(row.payload)?.id === sessionId;
+}
+function usageRecord(bytes: Buffer): Usage | undefined {
+  if (!bytes.includes('"token_count"')) return;
+  const row = record(bytes);
+  const payload = object(row?.payload);
+  if (row?.type === 'event_msg' && payload?.type === 'token_count') return codexTokenUsage(object(payload.info)?.total_token_usage);
 }

@@ -1,4 +1,5 @@
 import './terminal.css';
+import { coalescedUpdate } from './updates';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
@@ -195,11 +196,13 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void,
   /** Who else is typing here right now (PeerInfo ids), until when. */
   const typing = new Map<string, number>();
   /** The viewers' faces, and who's typing (or who typed last, once nobody is). */
+  let presenceSignature = '';
   const renderPresence = (w: WorkerInfo) => {
     const now = Date.now();
     for (const [id, until] of typing) if (until <= now || !w.viewerIds.includes(id)) typing.delete(id);
     const people = viewersOf(w);
-    viewers.replaceChildren(
+    const signature = JSON.stringify(people);
+    if (signature !== presenceSignature) viewers.replaceChildren(
       ...people.map((v) =>
         h(
           'span.avatar',
@@ -208,6 +211,7 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void,
         ),
       ),
     );
+    presenceSignature = signature;
     viewers.title = people.length ? `In this terminal: ${people.map((v) => (v.you ? `${v.name} (you)` : v.name)).join(', ')}` : '';
     const typists = people.filter((v) => v.typing && !v.you).map((v) => v.name);
     typed.classList.toggle('now', typists.length > 0);
@@ -246,12 +250,17 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void,
     net.send({ t: 'term.typing', workerId });
   };
 
+  let lastWorker: WorkerInfo | undefined;
+  let lastReady = false;
   const refresh = () => {
     const w = store.workers.get(workerId);
     if (!w) {
       modal.close();
       return;
     }
+    if (w === lastWorker && ready === lastReady) return;
+    lastWorker = w;
+    lastReady = ready;
     title.textContent = [w.kind === 'agent' ? engineLabel(w, store.project) : null, w.name, w.title, w.worktree && `🌿 ${w.worktree.branch}`, w.repos?.length && `🗂️ ${[w.worktree?.path.split(/[\\/]/).pop(), ...w.repos.map((r) => r.name)].join(' + ')}`].filter(Boolean).join(' · ');
     pill.className = `pill ${w.status}`;
     pill.textContent = STATUS_LABEL[w.status] ?? w.status;
@@ -325,7 +334,8 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void,
     }
   };
   listeners.add(onMsg);
-  const unsub = store.on('workers', refresh);
+  const updates = coalescedUpdate(refresh, (fn) => requestAnimationFrame(fn), (id) => cancelAnimationFrame(id));
+  const unsub = store.on('workers', () => updates.schedule());
   // A viewer's name or color can change while they're here.
   const unsubPeers = store.on('peers', () => {
     const w = store.workers.get(workerId);
@@ -341,6 +351,7 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void,
       if (byEsc && ready && screenMentionsEsc(term)) toast(`Esc left the terminal. To send ${store.workers.get(workerId)?.name ?? info.name} an Esc (to close a menu), use ⎋ Esc at the top or Ctrl+[`);
       listeners.delete(onMsg);
       unsub();
+      updates.cancel();
       unsubPeers();
       clearInterval(typingTimer);
       ro.disconnect();

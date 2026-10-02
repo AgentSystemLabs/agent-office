@@ -50,3 +50,11 @@ test('a few hitches in otherwise smooth frames are fine', () => {
   }
   assert.equal(slow, false);
 });
+
+test('intentional idle cadence clears slow-computer sampling, then genuine slow frames still report', () => {
+  const s = new SlowFrames({ slowMs: 50, spanMs: 1000, warmupMs: 0, gapMs: 1000 });
+  let warned = false;
+  for (let now = 0; now < 5000; now += 200) warned = s.frame(now, 200, true) || warned;
+  assert.equal(warned, false);
+  assert.equal(run(s, 5000, 2000, 100).slow, true);
+});

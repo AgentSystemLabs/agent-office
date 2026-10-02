@@ -37,7 +37,7 @@ export interface Stage {
 
 export function makeRenderer(canvas: HTMLCanvasElement): THREE.WebGLRenderer | null {
   try {
-    return new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+    return new THREE.WebGLRenderer({ canvas, antialias: true });
   } catch (err) {
     console.error(err);
     return null;

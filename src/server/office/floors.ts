@@ -129,6 +129,10 @@ export async function openFloors(ctx: Ctx, hookPort: number): Promise<FloorsOpen
     }
     try {
       const floor = new Floor(def, floorContext);
+      floor.workers.screenViewers = () => [...clients.values()].some(c =>
+        c.peer.floor === floor.id && c.screens && !c.peer.lite && !c.out && c.ws.readyState === WebSocket.OPEN);
+      floor.workers.setPerformance(ctx.performance.state().settings);
+      floor.changes.setPollSeconds(ctx.performance.state().settings.changesPollSeconds);
       floors.set(def.id, floor);
       return floor;
     } catch (err) {
