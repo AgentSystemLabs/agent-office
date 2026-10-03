@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { Theme, WorkerAction, WorkerStatus, WorkerTask } from '../../../shared/protocol';
 import { isAsleep, type WorkerPr } from '../../../shared/status';
 import { beard, grime, peasantGarb, type Beard, type PeasantGarb } from '../costumes';
-import { disposeSprite, mesh, textSprite, toon, toonUnique } from '../toon';
+import { disposeSprite, textSprite, toonUnique } from '../toon';
 import type { WorkerRig } from './rig';
 import { ease, popIn } from './curves';
 import { undress } from './props';
@@ -13,6 +13,7 @@ import { DANCE, groove, type Dancing, type Stage } from './worker-dance';
 import { DEAD, STARVED, bones, crossedEyes, slump } from './worker-jail';
 import { packUp, waddle, type Leaving } from './worker-leave';
 import { dressUp, growBeard, wearGarb } from './worker-dress';
+import { workerModel } from './worker-model';
 
 /** The little Claude worker that sits at a desk. Forward is +z. */
 export class Worker {
@@ -20,7 +21,7 @@ export class Worker {
   private body = new THREE.Group();
   /** Its moving parts, for what poses them from the other files here (a dance, a cell, a costume). */
   private rig: WorkerRig;
-  private bulb: THREE.MeshToonMaterial;
+  private bulb: THREE.MeshStandardMaterial;
   private bulbMesh: THREE.Mesh;
   private armL: THREE.Object3D;
   private armR: THREE.Object3D;
@@ -70,7 +71,7 @@ export class Worker {
   private globe: ReturnType<typeof globe>;
   /** Beside its laptop, where the globe floats (see setPropSpot). */
   private spot = new THREE.Vector3(-1, 1.1, 1.3);
-  private skin: THREE.MeshToonMaterial;
+  private skin: THREE.MeshStandardMaterial;
   /** Dressed up for a holiday (see setCostume), and what it's wearing. */
   private costume: Theme | null = null;
   private outfit: THREE.Object3D[] = [];
@@ -103,54 +104,12 @@ export class Worker {
     private color: string,
   ) {
     const skin = (this.skin = toonUnique(color));
-    const white = toon('#ffffff');
-    const ink = toon('#1d1d1d');
-
     this.root.add(this.body);
-    // Bean-shaped body
-    const bean = mesh(new THREE.CapsuleGeometry(0.28, 0.3, 8, 16), skin, 0, 0.55, 0);
-    this.body.add(bean);
-    // Big cartoon eyes
-    for (const sx of [-1, 1]) {
-      const eye = mesh(new THREE.SphereGeometry(0.09, 12, 10), white, sx * 0.11, 0.7, 0.23, false);
-      eye.scale.z = 0.6;
-      this.body.add(eye);
-      const pupil = mesh(new THREE.SphereGeometry(0.045, 10, 8), ink, sx * 0.11, 0.7, 0.29, false);
-      this.body.add(pupil);
-      this.eyes.push(eye, pupil);
-      this.pupils.push(pupil);
-    }
-    // Headset: band + mic
-    const band = mesh(new THREE.TorusGeometry(0.29, 0.025, 6, 20, Math.PI), toon('#2b2d42'), 0, 0.72, 0, false);
-    band.rotation.y = Math.PI / 2;
-    this.body.add(band);
-    this.headset.push(band);
-    for (const sx of [-1, 1]) {
-      const cup = mesh(new THREE.SphereGeometry(0.07, 10, 8), toon('#2b2d42'), sx * 0.29, 0.72, 0, false);
-      this.body.add(cup);
-      this.headset.push(cup);
-    }
-    // Antenna with status bulb
-    this.body.add(mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.22, 6), toon('#2b2d42'), 0, 1.07, 0, false));
     this.bulb = toonUnique(STATUS_BULB.starting);
-    this.bulb.emissive = new THREE.Color(STATUS_BULB.starting).multiplyScalar(0.6);
-    this.bulbMesh = mesh(new THREE.SphereGeometry(0.075, 12, 10), this.bulb, 0, 1.2, 0, false);
-    this.body.add(this.bulbMesh);
-
-    const arm = (x: number) => {
-      const pivot = new THREE.Group();
-      pivot.position.set(x, 0.55, 0.05);
-      pivot.add(mesh(new THREE.CapsuleGeometry(0.055, 0.16, 4, 8), skin, 0, -0.12, 0));
-      this.body.add(pivot);
-      return pivot;
-    };
-    this.armL = arm(-0.3);
-    this.armR = arm(0.3);
-    for (const sx of [-1, 1]) {
-      const foot = mesh(new THREE.CapsuleGeometry(0.06, 0.1, 4, 8), skin, sx * 0.12, 0.2, 0.05);
-      this.body.add(foot);
-      this.feet.push(foot);
-    }
+    const model = workerModel(this.body, skin, this.bulb);
+    this.armL = model.armL; this.armR = model.armR;
+    this.eyes = model.eyes; this.pupils = model.pupils; this.feet = model.feet;
+    this.headset = model.headset; this.bulbMesh = model.bulbMesh;
 
     // What it acts out with: papers in its hands, and a globe beside its laptop.
     this.papers = papers();

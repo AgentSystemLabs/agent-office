@@ -29,15 +29,15 @@ export interface Lamp {
 /** Everything that changes between day and night and with the weather, for the sky to drive. */
 export interface NightParts {
   /** Bulbs whose glow goes from `day` (emissive intensity by day) up to full at night. */
-  bulbs: { mat: THREE.MeshToonMaterial; day: number }[];
+  bulbs: { mat: THREE.MeshStandardMaterial; day: number }[];
   /** Where each bulb's soft halo goes at night, and its color; `ground` as for a Lamp. */
   halos: { at: THREE.Vector3; size: number; color: string; ground?: boolean }[];
   lamps: Lamp[];
   /** How far below the floor you're on the street is (see streetBelow): what the `ground` lamps drop with. */
   street: number;
   /** The neighbours' walls, whose windows light up at night. */
-  windows: THREE.MeshToonMaterial[];
-  clouds: THREE.MeshToonMaterial;
+  windows: THREE.MeshStandardMaterial[];
+  clouds: THREE.MeshStandardMaterial;
   /** Rain running down the office windows. */
   wetGlass: THREE.MeshBasicMaterial;
   /** Light you only see at night (the lighthouse's beam): see-through, `max` opaque when it's dark. */
@@ -45,7 +45,7 @@ export interface NightParts {
 }
 
 /** A bulb that glows `day` much by day and fully at night. */
-export function bulb(night: NightParts, color: string, day = 0): THREE.MeshToonMaterial {
+export function bulb(night: NightParts, color: string, day = 0): THREE.MeshStandardMaterial {
   const mat = toonUnique(color);
   mat.emissive.set(color);
   mat.emissiveIntensity = day;
@@ -57,7 +57,7 @@ const box = (w: number, h: number, d: number) => new THREE.BoxGeometry(w, h, d);
 
 /** A flat, textured toon plane lying on the ground. */
 function groundPlane(w: number, d: number, x: number, y: number, z: number, map: THREE.Texture | null, color = '#ffffff'): THREE.Mesh {
-  const mat = new THREE.MeshToonMaterial({ color, map, gradientMap: (toon('#fff') as THREE.MeshToonMaterial).gradientMap });
+  const mat = new THREE.MeshStandardMaterial({ color, map });
   const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d), mat);
   m.rotation.x = -Math.PI / 2;
   m.position.set(x, y, z);
@@ -192,7 +192,7 @@ export function tree(scale: number): THREE.Group {
 }
 
 /** A building across the street or out back: a painted block with rows of windows and a roof cap. */
-function building(w: number, h: number, d: number, color: string, lit: THREE.MeshToonMaterial[]): THREE.Group {
+function building(w: number, h: number, d: number, color: string, lit: THREE.MeshStandardMaterial[]): THREE.Group {
   const g = new THREE.Group();
   // Where the windows go across a floor (in 256ths): each column's middle half, 70 to 190 up.
   const face = (n: number) =>
@@ -223,7 +223,7 @@ function building(w: number, h: number, d: number, color: string, lit: THREE.Mes
     const t = face(n);
     t.wrapT = THREE.RepeatWrapping;
     t.repeat.set(1, floors);
-    const m = new THREE.MeshToonMaterial({ map: t, emissive: '#ffffff', emissiveMap: lights(n, floors), emissiveIntensity: 0, gradientMap: (toon('#fff') as THREE.MeshToonMaterial).gradientMap });
+    const m = new THREE.MeshStandardMaterial({ map: t, emissive: '#ffffff', emissiveMap: lights(n, floors), emissiveIntensity: 0 });
     lit.push(m);
     return m;
   };
@@ -238,7 +238,7 @@ function building(w: number, h: number, d: number, color: string, lit: THREE.Mes
 }
 
 /** A street lamp on the sidewalk at (x, z), its arm reaching out over the road toward `toward` (±1 in z). */
-export function streetLamp(parts: THREE.Group, night: NightParts, glass: THREE.MeshToonMaterial, colliders: Collider[], x: number, z: number, toward: number) {
+export function streetLamp(parts: THREE.Group, night: NightParts, glass: THREE.MeshStandardMaterial, colliders: Collider[], x: number, z: number, toward: number) {
   const ink = toon('#3d405b');
   const H = 5;
   parts.add(mesh(new THREE.CylinderGeometry(0.2, 0.24, 0.5, 10), ink, x, G + 0.25, z));

@@ -25,7 +25,7 @@ export class Jukebox {
   private musicIn!: PannerNode;
   private musicTone!: BiquadFilterNode;
   private musicCutoff = 16000;
-  /** Your music volume, which the DJ on the roof plays through too. */
+  /** Your music volume. */
   musicBus!: GainNode;
   private musicMeter!: AnalyserNode;
   private musicVolume = 0.5;

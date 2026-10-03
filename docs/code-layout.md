@@ -25,7 +25,7 @@ They're in `core/registry.ts`, and each is a field of `ctx`. Every registration 
 | `ctx.ticks` | What runs each frame. `add(phase, fn)`, where the phases run in `TICK_PHASES` order: `pre`, `steer`, `vehicles`, `move`, `moved`, `play`, `me`, `others`, `world`, `env`, `aim`, `hud`, `render`. Within a phase, ticks run in install order. |
 | `ctx.activities` | Something you're in the middle of that takes over the controls (the ladder, the golf tee, a car). It gets keys before the office's own, draws the hint bar, and is stopped by `stopAll(why)` when you start something else. Its place among the others is `ACTIVITY_ORDER` in `core/ctx.ts`. |
 | `ctx.interactions` | What each kind of thing you can use does: `define(kind, { reach, hint, use })`, once per kind. |
-| `ctx.view` | What what you're doing does to your view each frame: something you hold on to, the field of view, covering the screen, or a filter (the drunk vision). |
+| `ctx.view` | What what you're doing does to your view each frame: something you hold on to, the field of view, covering the screen, or a filter. |
 | `ctx.windowOpened` | What lets go when a window opens (a shot being wound up, the emote wheel). |
 | `ctx.usables` | Things to use that aren't part of the building and move about (the pictures, the dog, the ball): what each has to use, and what the aim can land on. |
 

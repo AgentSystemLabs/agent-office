@@ -174,7 +174,7 @@ function banner(kit: Kit, p: PropConfig, color: string) {
   const uv = geo.attributes.uv as THREE.BufferAttribute;
   const pos = geo.attributes.position as THREE.BufferAttribute;
   for (let i = 0; i < uv.count; i++) uv.setXY(i, (pos.getX(i) + w / 2) / w, 1 + pos.getY(i) / h);
-  const cloth = new THREE.MeshToonMaterial({ map: tex, side: THREE.DoubleSide, gradientMap: (toon('#fff') as THREE.MeshToonMaterial).gradientMap });
+  const cloth = new THREE.MeshStandardMaterial({ map: tex, side: THREE.DoubleSide });
   g.add(mesh(geo, cloth, 0, 0, 0.08, false));
   // The pole it hangs from, with a gold knob either end.
   g.add(mesh(new THREE.CylinderGeometry(0.045, 0.045, w + 0.4, 8).rotateZ(Math.PI / 2), kit.mats.woodDark, 0, 0.05, 0.1, false));

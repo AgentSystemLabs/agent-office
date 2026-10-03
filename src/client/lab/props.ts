@@ -132,7 +132,7 @@ function facts() {
       const m = o as THREE.Mesh;
       if (!m.isMesh || !m.visible) return;
       draws += Array.isArray(m.material) ? m.material.length : 1;
-      for (const mat of Array.isArray(m.material) ? m.material : [m.material]) materials.add(mat.name || (mat as THREE.MeshToonMaterial).color?.getHexString?.() || mat.type);
+      for (const mat of Array.isArray(m.material) ? m.material : [m.material]) materials.add(mat.name || (mat as THREE.MeshStandardMaterial).color?.getHexString?.() || mat.type);
       const g = m.geometry;
       tris += (g.index ? g.index.count : g.attributes.position.count) / 3;
     });

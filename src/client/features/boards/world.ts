@@ -336,7 +336,7 @@ export class QueueBoardTexture {
     // A hand-drawn underline.
     g.strokeStyle = '#1f5fbf';
     g.lineWidth = 5;
-    g.lineCap = 'round';
+    g.lineCap = 'butt';
     g.beginPath();
     g.moveTo(42, 92);
     g.quadraticCurveTo(160, 84, 318, 94);

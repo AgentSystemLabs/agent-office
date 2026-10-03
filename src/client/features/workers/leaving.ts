@@ -41,8 +41,8 @@ const JUMPS = ['🪂 geronimo!', '🪂 see ya!', '🪂 wheee!', '🪂 bye bye!',
 const CANOPIES = ['#ef476f', '#ffd166', '#06d6a0', '#118ab2', '#8338ec', '#ff8a5b'];
 
 /** Seen from below too, so both sides of the fabric. */
-const fabric = new Map<string, THREE.MeshToonMaterial>();
-function cloth(color: string): THREE.MeshToonMaterial {
+const fabric = new Map<string, THREE.MeshStandardMaterial>();
+function cloth(color: string): THREE.MeshStandardMaterial {
   let m = fabric.get(color);
   if (!m) {
     m = toonUnique(color);

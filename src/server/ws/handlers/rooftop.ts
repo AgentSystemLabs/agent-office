@@ -1,4 +1,4 @@
-// The balcony and the roof: the golf tee, the dart board and the axe lane, the gong and the DJ's air horn.
+// The balcony and the roof: the golf tee, the dart board and the axe lane, the gong and the retired air horn.
 import type { RooftopClientMsg } from '../../../shared/protocol.js';
 import { ROOF } from '../../../shared/rooftop.js';
 import { tossOk, type BarGame } from '../../../shared/bargames.js';
@@ -27,6 +27,7 @@ export const rooftopHandlers = {
     if (!floor || !throttle(c, 'gong', 500)) return;
     ctx.toFloor(floor, { t: 'gong', why: 'hit', by: who });
   },
+  // Retired: the DJ is gone, and no page sends this any more. Harmless, so it stays.
   horn(ctx, c) {
     const who = c.peer.name;
     if (c.peer.floor !== ROOF || !throttle(c, 'horn', 1500)) return;

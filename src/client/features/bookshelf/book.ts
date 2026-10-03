@@ -18,10 +18,10 @@ const STRIPS = 8;
 
 const COVERS = ['#b5413b', '#2a6f97', '#2d6a4f', '#6a4c93', '#bc6c25', '#264653'];
 
-let pages: { print: THREE.MeshToonMaterial; leaf: THREE.MeshToonMaterial } | null = null;
+let pages: { print: THREE.MeshStandardMaterial; leaf: THREE.MeshStandardMaterial } | null = null;
 
 /** Printed pages: a heading, then rows of words in grey lines, drawn once and shared by every book. */
-function pageMaterials(): { print: THREE.MeshToonMaterial; leaf: THREE.MeshToonMaterial } {
+function pageMaterials(): { print: THREE.MeshStandardMaterial; leaf: THREE.MeshStandardMaterial } {
   if (pages) return pages;
   const W = 128;
   const H = 172;

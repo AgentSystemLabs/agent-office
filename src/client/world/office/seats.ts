@@ -1,6 +1,9 @@
+import { fineChair, deskDrawers } from './voxel-furniture';
+import { voxelBox, voxelMaterial, voxelSolid } from '../voxel';
 import * as THREE from 'three';
 import { BEANBAGS, DESKS, DESK_SIZE, FLOOR, KIOSK, SEATING_BY_ID, STATIONS, STATION_AGENT, deskSeat, type DeskDef, type StationKind } from '../../../shared/layout';
 import { deskPoint } from '../../../shared/nav';
+import { model, paintModel, palette } from '../models';
 import { mesh, roundedBox, textPlane, toon } from '../toon';
 import type { Collider, DeskView, Interactable } from '../types';
 import type { Fixture } from './fixture';
@@ -19,21 +22,25 @@ export function seatable(obj: THREE.Object3D, seatId: string, radius: number, in
 }
 
 export function chair(color: string): THREE.Group {
+  return fineChair(color);
+}
+
+/**
+ * A scanned-style office chair (Kenney's Furniture Kit, CC0) in `color`, with the old hand-built one as the
+ * fallback if its model didn't load. Part of the pastel realism test: delete this and use chair() to undo.
+ */
+export function officeChair(color: string): THREE.Group {
+  const m = model('chair-desk');
+  if (!m) return chair(color);
   const g = new THREE.Group();
-  const mat = toon(color);
-  g.add(mesh(roundedBox(0.62, 0.1, 0.58, 0.12), mat, 0, 0.5, 0));
-  const back = mesh(roundedBox(0.62, 0.1, 0.6, 0.12), mat, 0, 0.86, 0.27);
-  back.rotation.x = Math.PI / 2 - 0.12;
-  g.add(back);
-  g.add(mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.42, 8), toon(PALETTE.deskLeg), 0, 0.26, 0));
-  for (let i = 0; i < 5; i++) {
-    const a = (i / 5) * Math.PI * 2;
-    const leg = mesh(box(0.05, 0.04, 0.32), toon(PALETTE.deskLeg), Math.sin(a) * 0.15, 0.05, Math.cos(a) * 0.15);
-    leg.rotation.y = a;
-    g.add(leg);
-  }
+  paintModel(m.scene, palette({ carpet: color, metalMedium: '#cfc8bd' }));
+  m.scene.scale.setScalar(OFFICE_CHAIR_SCALE);
+  m.scene.rotation.y = OFFICE_CHAIR_TURN;
+  g.add(m.scene);
   return g;
 }
+const OFFICE_CHAIR_SCALE = 1.1;
+const OFFICE_CHAIR_TURN = Math.PI;
 
 /**
  * The `index`th desk (of DESKS) at `def`: its top, legs and modesty panel (in `trimMat`), its knick-knack,
@@ -44,13 +51,14 @@ export function buildDesk(def: DeskDef, index: number, trimMat: THREE.Material):
   group.position.set(def.x, 0, def.z);
   group.rotation.y = def.rotY;
   const { width, depth, height } = DESK_SIZE;
-  group.add(mesh(roundedBox(width - 0.06, 0.08, depth - 0.04, 0.08), toon(PALETTE.desk), 0, height - 0.04, 0));
+  group.add(mesh(voxelBox(width - 0.06, 0.08, depth - 0.04, 0.04), voxelSolid('#e4c99f'), 0, height - 0.04, 0));
   const legMat = toon('#8d99ae');
   for (const sx of [-1, 1]) {
     for (const sz of [-1, 1]) {
-      group.add(mesh(new THREE.CylinderGeometry(0.035, 0.035, height - 0.08, 8), legMat, sx * (width / 2 - 0.14), (height - 0.08) / 2, sz * (depth / 2 - 0.12)));
+      group.add(mesh(voxelBox(0.07, height - 0.08, 0.07, 0.04), legMat, sx * (width / 2 - 0.14), (height - 0.08) / 2, sz * (depth / 2 - 0.12)));
     }
   }
+  group.add(deskDrawers(width, depth, height));
   // Modesty panel facing away from the worker
   group.add(mesh(box(width - 0.3, 0.32, 0.03), trimMat, 0, height - 0.26, -depth / 2 + 0.06));
   // Little desk decorations. Which desk gets which stays as it is: the holiday present goes in whichever
