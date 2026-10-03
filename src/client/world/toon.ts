@@ -1,26 +1,13 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
-let gradient: THREE.DataTexture | null = null;
+const cache = new Map<string, THREE.MeshStandardMaterial>();
 
-/** Three-step ramp that gives MeshToonMaterial its flat cartoon banding. */
-function gradientMap(): THREE.DataTexture {
-  if (gradient) return gradient;
-  const data = new Uint8Array([90, 90, 90, 255, 185, 185, 185, 255, 255, 255, 255, 255]);
-  gradient = new THREE.DataTexture(data, 3, 1, THREE.RGBAFormat);
-  gradient.minFilter = THREE.NearestFilter;
-  gradient.magFilter = THREE.NearestFilter;
-  gradient.needsUpdate = true;
-  return gradient;
-}
-
-const cache = new Map<string, THREE.MeshToonMaterial>();
-
-export function toon(color: THREE.ColorRepresentation, opts: { emissive?: THREE.ColorRepresentation; transparent?: boolean; opacity?: number } = {}): THREE.MeshToonMaterial {
+export function toon(color: THREE.ColorRepresentation, opts: { emissive?: THREE.ColorRepresentation; transparent?: boolean; opacity?: number } = {}): THREE.MeshStandardMaterial {
   const key = `${new THREE.Color(color).getHexString()}|${opts.emissive ?? ''}|${opts.opacity ?? 1}`;
   const hit = cache.get(key);
   if (hit) return hit;
-  const m = new THREE.MeshToonMaterial({ color, gradientMap: gradientMap() });
+  const m = new THREE.MeshStandardMaterial({ color, roughness: 0.7, metalness: 0 });
   if (opts.emissive !== undefined) m.emissive = new THREE.Color(opts.emissive);
   if (opts.transparent || (opts.opacity ?? 1) < 1) {
     m.transparent = true;
@@ -31,8 +18,8 @@ export function toon(color: THREE.ColorRepresentation, opts: { emissive?: THREE.
 }
 
 /** A fresh (uncached) toon material, for things whose color animates. */
-export function toonUnique(color: THREE.ColorRepresentation): THREE.MeshToonMaterial {
-  return new THREE.MeshToonMaterial({ color, gradientMap: gradientMap() });
+export function toonUnique(color: THREE.ColorRepresentation): THREE.MeshStandardMaterial {
+  return new THREE.MeshStandardMaterial({ color, roughness: 0.7, metalness: 0 });
 }
 
 export function mesh(geo: THREE.BufferGeometry, mat: THREE.Material, x = 0, y = 0, z = 0, shadow = true): THREE.Mesh {
@@ -48,7 +35,7 @@ export function roundedBox(w: number, h: number, d: number, r = 0.06): THREE.Buf
   const shape = new THREE.Shape();
   const x = -w / 2;
   const y = -d / 2;
-  r = Math.min(r, w / 2, d / 2);
+  r = 0;
   shape.moveTo(x + r, y);
   shape.lineTo(x + w - r, y);
   shape.quadraticCurveTo(x + w, y, x + w, y + r);
@@ -81,14 +68,16 @@ function textTexture(text: string, opts: TextOpts) {
   canvas.height = h;
   ctx.font = font;
   if (opts.bg) {
+    // A hard-edged block sign: stepped drop shadow, ink outline and a bright top edge, no curves.
+    ctx.fillStyle = 'rgba(41, 70, 74, .38)';
+    ctx.fillRect(6, 6, w - 6, h - 6);
     ctx.fillStyle = opts.bg;
-    const r = h / 2;
-    ctx.beginPath();
-    ctx.roundRect(3, 3, w - 6, h - 6, r - 3);
-    ctx.fill();
-    ctx.lineWidth = 5;
+    ctx.fillRect(2, 2, w - 8, h - 8);
+    ctx.fillStyle = 'rgba(255, 255, 255, .4)';
+    ctx.fillRect(7, 7, w - 18, 4);
+    ctx.lineWidth = 4;
     ctx.strokeStyle = opts.border ?? '#2b2d42';
-    ctx.stroke();
+    ctx.strokeRect(2, 2, w - 8, h - 8);
   }
   ctx.fillStyle = opts.color ?? '#2b2d42';
   ctx.textAlign = 'center';
@@ -175,21 +164,19 @@ export function cardSprite(o: CardOpts): THREE.Sprite {
   const x0 = lw / 2;
   const x1 = w - lw / 2;
   const cx = w / 2;
-  const r = 18 * R;
   ctx.beginPath();
-  ctx.moveTo(x0 + r, top);
-  ctx.arcTo(x1, top, x1, bottom, r);
-  ctx.arcTo(x1, bottom, x0, bottom, r);
+  ctx.moveTo(x0, top);
+  ctx.lineTo(x1, top);
+  ctx.lineTo(x1, bottom);
   ctx.lineTo(cx + tail, bottom);
   ctx.lineTo(cx, bottom + tail);
   ctx.lineTo(cx - tail, bottom);
-  ctx.arcTo(x0, bottom, x0, top, r);
-  ctx.arcTo(x0, top, x1, top, r);
+  ctx.lineTo(x0, bottom);
   ctx.closePath();
   ctx.fillStyle = o.bg;
   ctx.fill();
   ctx.lineWidth = lw;
-  ctx.lineJoin = 'round';
+  ctx.lineJoin = 'miter';
   ctx.strokeStyle = o.border ?? INK;
   ctx.stroke();
 
@@ -197,7 +184,7 @@ export function cardSprite(o: CardOpts): THREE.Sprite {
   ctx.textBaseline = 'middle';
   if (o.chip) {
     ctx.beginPath();
-    ctx.roundRect(cx - chipW / 2, lw / 2, chipW, chipH, chipH / 2);
+    ctx.rect(cx - chipW / 2, lw / 2, chipW, chipH);
     ctx.fillStyle = o.chip.bg;
     ctx.fill();
     ctx.lineWidth = 4 * R;
@@ -286,7 +273,7 @@ export function mergeByMaterial(root: THREE.Object3D): THREE.Group {
   return out;
 }
 
-let painted: THREE.MeshToonMaterial | null = null;
+let painted: THREE.MeshStandardMaterial | null = null;
 
 /**
  * Like mergeByMaterial, but every plain toon mesh under `root` (one color, no texture, no glow, not
@@ -303,7 +290,7 @@ export function mergeByColor(root: THREE.Object3D): THREE.Group {
     if (!m.isMesh) return;
     const rel = new THREE.Matrix4().multiplyMatrices(inv, m.matrixWorld);
     const mat = m.material as THREE.Material;
-    const plain = mat instanceof THREE.MeshToonMaterial && !mat.map && !mat.transparent && !mat.vertexColors && mat.emissive.getHex() === 0 && mat.side === THREE.FrontSide;
+    const plain = mat instanceof THREE.MeshStandardMaterial && !mat.map && !mat.transparent && !mat.vertexColors && mat.emissive.getHex() === 0 && mat.side === THREE.FrontSide;
     if (!plain) {
       const copy = new THREE.Mesh(m.geometry, mat);
       copy.applyMatrix4(rel);
@@ -322,7 +309,7 @@ export function mergeByColor(root: THREE.Object3D): THREE.Group {
     (m.castShadow ? geos.cast : geos.still).push(geo);
   });
   const out = other.children.length ? mergeByMaterial(other) : new THREE.Group();
-  painted ??= new THREE.MeshToonMaterial({ vertexColors: true, gradientMap: gradientMap() });
+  painted ??= new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, metalness: 0 });
   for (const [list, cast] of [
     [geos.cast, true],
     [geos.still, false],

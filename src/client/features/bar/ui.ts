@@ -1,67 +1,48 @@
-import { DRINKS, type Drink } from '../../../shared/rooftop';
+import { DRINKS, FOODS, type MenuItem } from '../../../shared/rooftop';
 import { h, openModal } from '../../ui/dom';
 
-export interface BarOptions {
-  /** Had enough: nothing stronger than water or a mocktail. */
-  cutOff: boolean;
-  order(d: Drink): void;
+export interface MenuOptions {
+  order(item: MenuItem): void;
 }
 
-/** How hard a drink hits, for the menu. */
-function kick(d: Drink): string {
-  if (d.strength < 0) return '💧 sobers you up a little';
-  if (d.strength === 0) return 'no alcohol';
-  return d.strength >= 0.55 ? '🌀🌀🌀 strong' : d.strength >= 0.4 ? '🌀🌀 goes to your head' : '🌀 light';
-}
-
-/** The rooftop bar's menu: pick a drink and the bartender pours it. */
-export function openBar(opts: BarOptions) {
+/** The rooftop café's menu: pick a drink or a bite and the barista makes it. */
+export function openMenu(opts: MenuOptions) {
   const close = h('button.btn.close', { 'aria-label': 'Close' }, '✕');
-  const list = h(
-    'ul.svc-list',
-    {},
-    ...DRINKS.map((d) => {
-      const refused = opts.cutOff && d.strength > 0;
-      const li = h(
-        'li',
-        {
-          tabindex: refused ? -1 : 0,
-          role: 'button',
-          'aria-disabled': String(refused),
-          title: refused ? "The bartender won't pour you another" : `Order a ${d.name.toLowerCase()}`,
-          style: refused ? 'opacity:.45;cursor:not-allowed' : '',
-        },
-        h('span.jb-icon', { style: 'font-size:26px' }, d.emoji),
-        h('div.svc-main', {}, h('div.svc-title', {}, d.name), h('div.svc-meta', {}, `${d.blurb} · ${kick(d)}`)),
-      );
-      const pick = () => {
-        if (refused) return;
-        modal.close();
-        opts.order(d);
-      };
-      li.addEventListener('click', pick);
-      li.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          pick();
-        }
-      });
-      return li;
-    }),
-  );
+  const section = (title: string, items: readonly MenuItem[]) => [
+    h('h3', { style: 'margin:14px 0 6px;font-size:13px;letter-spacing:.08em;text-transform:uppercase;opacity:.7' }, title),
+    h(
+      'ul.svc-list',
+      {},
+      ...items.map((item) => {
+        const li = h(
+          'li',
+          { tabindex: 0, role: 'button', title: `Order ${item.name.toLowerCase()}` },
+          h('span.jb-icon', { style: 'font-size:26px' }, item.emoji),
+          h('div.svc-main', {}, h('div.svc-title', {}, item.name), h('div.svc-meta', {}, item.blurb)),
+        );
+        const pick = () => {
+          modal.close();
+          opts.order(item);
+        };
+        li.addEventListener('click', pick);
+        li.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            pick();
+          }
+        });
+        return li;
+      }),
+    ),
+  ];
   const el = h(
     'div.modal.jukebox',
-    { role: 'dialog', 'aria-label': 'Bar' },
-    h('header', {}, h('h2', {}, '🍸 Sky Bar'), close),
-    h(
-      'div.body',
-      {},
-      opts.cutOff ? h('p.setting-note', { style: 'margin:0 0 12px;font-weight:800' }, "🙅 The bartender thinks you've had enough. Water's on the house.") : null,
-      list,
-    ),
-    h('footer', {}, h('span.grow', {}, 'Drinks go to your head for a minute or so, and the view goes with them. Everything is on the house.')),
+    { role: 'dialog', 'aria-label': 'Café menu' },
+    h('header', {}, h('h2', {}, '☕ Rooftop café'), close),
+    h('div.body', {}, ...section('Drinks', DRINKS), ...section('Food', FOODS)),
+    h('footer', {}, h('span.grow', {}, 'Everything is on the house, and all of it is alcohol-free and pork-free.')),
   );
   const modal = openModal(el);
   close.addEventListener('click', () => modal.close());
-  setTimeout(() => (list.querySelector('li[tabindex="0"]') as HTMLElement | null)?.focus(), 30);
+  setTimeout(() => (el.querySelector('li[tabindex="0"]') as HTMLElement | null)?.focus(), 30);
 }

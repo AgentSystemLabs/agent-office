@@ -24,13 +24,11 @@ function issueCard(card: CarriedIssue, width: number): THREE.Mesh {
   g.fillText(`#${card.issue}`, 22, 84);
   g.font = `700 28px ${FONT}`;
   wrap(g, card.title, W - 44, 4).forEach((line, i) => g.fillText(line, 22, 128 + i * 30));
-  g.beginPath();
-  g.arc(W / 2, 20, 12, 0, Math.PI * 2);
   g.fillStyle = PINS[card.issue % PINS.length];
-  g.fill();
+  g.fillRect(W / 2 - 11, 9, 22, 22);
   g.lineWidth = 3;
   g.strokeStyle = '#2b2d42';
-  g.stroke();
+  g.strokeRect(W / 2 - 11, 9, 22, 22);
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = 4;
@@ -62,7 +60,7 @@ export class HeldCard {
     if (this.mesh) {
       this.parent.remove(this.mesh);
       this.mesh.geometry.dispose();
-      const face = (this.mesh.material as THREE.MeshToonMaterial[])[4];
+      const face = (this.mesh.material as THREE.MeshStandardMaterial[])[4];
       face.map?.dispose();
       face.dispose();
       this.mesh = null;

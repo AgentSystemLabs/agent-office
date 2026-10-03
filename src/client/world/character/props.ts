@@ -1,8 +1,9 @@
 import * as THREE from 'three';
-import type { Drink } from '../../../shared/rooftop';
 import { mesh, toon, toonUnique } from '../toon';
 
-// What people hold and carry (a mug of coffee, a drink, a cigarette, a box of their things), and taking
+export { serving } from './serving';
+
+// What people hold and carry (a mug of coffee, a cigarette, a box of their things), and taking
 // off what they wore.
 
 /** A full mug of coffee standing on y = 0, with its handle on the -x side. */
@@ -17,98 +18,14 @@ export function coffeeMug(scale = 1): THREE.Group {
   return mug;
 }
 
-/** Clear glass, faintly blue; no cartoon outline, so the drink inside shows through it. */
-const GLASS = new THREE.MeshBasicMaterial({ color: '#e8f6ff', transparent: true, opacity: 0.38, depthWrite: false });
-GLASS.userData.outlineParameters = { visible: false };
-
-/** A drink from the rooftop bar in its glass, standing on y = 0. */
-export function drinkGlass(d: Drink, scale = 1): THREE.Group {
-  const g = new THREE.Group();
-  const S = scale;
-  const cyl = (rTop: number, rBottom: number, h: number, mat: THREE.Material, y: number, x = 0) => {
-    g.add(mesh(new THREE.CylinderGeometry(rTop * S, rBottom * S, h * S, 14), mat, x * S, y * S, 0, false));
-  };
-  const liquid = toon(d.color);
-  // A stem and a foot, for the glasses that have them.
-  const stem = (h: number) => {
-    cyl(0.032, 0.034, 0.006, GLASS, 0.003);
-    cyl(0.005, 0.005, h, GLASS, h / 2);
-  };
-  switch (d.glass) {
-    case 'pint':
-      cyl(0.044, 0.036, 0.15, GLASS, 0.075);
-      cyl(0.041, 0.034, 0.115, liquid, 0.06);
-      cyl(0.043, 0.041, 0.022, toon('#fffaf0'), 0.128);
-      break;
-    case 'wine':
-      stem(0.07);
-      cyl(0.042, 0.03, 0.075, GLASS, 0.107);
-      cyl(0.036, 0.028, 0.035, liquid, 0.088);
-      break;
-    case 'martini': {
-      stem(0.075);
-      cyl(0.065, 0.005, 0.07, GLASS, 0.11);
-      cyl(0.052, 0.005, 0.055, liquid, 0.103);
-      // An olive on a stick.
-      const olive = mesh(new THREE.SphereGeometry(0.013 * S, 10, 8), toon('#7a9a3a'), 0.012 * S, 0.12 * S, 0, false);
-      g.add(olive);
-      const pick = mesh(new THREE.CylinderGeometry(0.002 * S, 0.002 * S, 0.09 * S, 6), toon('#c98b5a'), 0.02 * S, 0.14 * S, 0, false);
-      pick.rotation.z = -0.35;
-      g.add(pick);
-      break;
-    }
-    case 'highball': {
-      cyl(0.034, 0.032, 0.15, GLASS, 0.075);
-      cyl(0.031, 0.029, 0.12, liquid, 0.062);
-      // Ice, and a straw.
-      for (const [x, y] of [
-        [-0.01, 0.11],
-        [0.012, 0.095],
-      ]) {
-        const cube = mesh(new THREE.BoxGeometry(0.02 * S, 0.02 * S, 0.02 * S), toon('#f4fbff'), x * S, y * S, 0.004 * S, false);
-        cube.rotation.set(0.4, 0.6, 0.2);
-        g.add(cube);
-      }
-      if (d.id !== 'water') {
-        const straw = mesh(new THREE.CylinderGeometry(0.004 * S, 0.004 * S, 0.19 * S, 6), toon(d.id === 'maitai' ? '#ef476f' : '#06d6a0'), 0.012 * S, 0.13 * S, 0, false);
-        straw.rotation.z = -0.22;
-        g.add(straw);
-      }
-      if (d.id === 'maitai') {
-        // A paper umbrella, and a wedge of pineapple on the rim.
-        const umbrella = mesh(new THREE.ConeGeometry(0.035 * S, 0.018 * S, 10), toon('#ffd166'), -0.018 * S, 0.19 * S, 0, false);
-        umbrella.rotation.z = 0.4;
-        g.add(umbrella);
-        g.add(mesh(new THREE.BoxGeometry(0.028 * S, 0.02 * S, 0.01 * S), toon('#ffd166'), 0.03 * S, 0.148 * S, 0, false));
-      } else if (d.id === 'mojito') {
-        for (const [x, z] of [
-          [-0.012, 0.006],
-          [0.006, -0.01],
-          [0.01, 0.01],
-        ])
-          g.add(mesh(new THREE.SphereGeometry(0.009 * S, 6, 5), toon('#3f8f45'), x * S, 0.117 * S, z * S, false));
-        g.add(mesh(new THREE.CylinderGeometry(0.018 * S, 0.018 * S, 0.006 * S, 10, 1, false, 0, Math.PI), toon('#9bc53d'), 0.022 * S, 0.15 * S, 0, false));
-      }
-      break;
-    }
-    case 'shot':
-      cyl(0.026, 0.022, 0.06, GLASS, 0.03);
-      cyl(0.023, 0.02, 0.042, liquid, 0.024);
-      // A wedge of lime balanced on the rim.
-      g.add(mesh(new THREE.CylinderGeometry(0.016 * S, 0.016 * S, 0.008 * S, 10, 1, false, 0, Math.PI), toon('#9bc53d'), 0.022 * S, 0.065 * S, 0, false));
-      break;
-  }
-  return g;
-}
-
-/** Takes a glass from drinkGlass out of the hand holding it, and frees what it was made of (its materials are shared). */
+/** Takes something from `serving` out of the hand holding it, and frees what it was made of (its materials are shared). */
 export function putDownGlass(g: THREE.Group) {
   g.removeFromParent();
   g.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
 }
 
 /** A cigarette, lit end toward +z, and the material of its glowing tip. */
-export function cigarette(): { group: THREE.Group; ember: THREE.MeshToonMaterial } {
+export function cigarette(): { group: THREE.Group; ember: THREE.MeshStandardMaterial } {
   const group = new THREE.Group();
   group.add(mesh(new THREE.CylinderGeometry(0.016, 0.016, 0.12, 8).rotateX(Math.PI / 2), toon('#fffaf3'), 0, 0, 0.01, false));
   group.add(mesh(new THREE.CylinderGeometry(0.017, 0.017, 0.045, 8).rotateX(Math.PI / 2), toon('#e9a03b'), 0, 0, -0.07, false));

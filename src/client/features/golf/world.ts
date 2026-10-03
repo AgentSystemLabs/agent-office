@@ -137,7 +137,7 @@ export function buildTee(group: THREE.Group, colliders: Collider[], interactable
   const mat = new THREE.Mesh(new THREE.BoxGeometry(size, MAT_H, size), [
     toon('#3f8f45'),
     toon('#3f8f45'),
-    new THREE.MeshToonMaterial({ map: mownTexture('#7ed957', '#6cc24a', 6, '#fffaf3'), gradientMap: (toon('#fff') as THREE.MeshToonMaterial).gradientMap }),
+    new THREE.MeshStandardMaterial({ map: mownTexture('#7ed957', '#6cc24a', 6, '#fffaf3') }),
     toon('#3f8f45'),
     toon('#3f8f45'),
     toon('#3f8f45'),
@@ -206,8 +206,7 @@ export function buildGreen(ground: THREE.Group, colliders: Collider[], night: Ni
   const fairTex = mownTexture('#8fd16f', '#7fc463', 2);
   fairTex.wrapT = THREE.RepeatWrapping;
   fairTex.repeat.set(1, fairLen / 4);
-  const gradient = (toon('#fff') as THREE.MeshToonMaterial).gradientMap;
-  const fairway = flat(new THREE.PlaneGeometry(fx1 - fx0, fairLen), new THREE.MeshToonMaterial({ map: fairTex, gradientMap: gradient }), (fx0 + fx1) / 2, G + 0.004, FAIRWAY_Z0 + fairLen / 2);
+  const fairway = flat(new THREE.PlaneGeometry(fx1 - fx0, fairLen), new THREE.MeshStandardMaterial({ map: fairTex }), (fx0 + fx1) / 2, G + 0.004, FAIRWAY_Z0 + fairLen / 2);
   fairway.receiveShadow = true;
   ground.add(fairway);
 
@@ -255,7 +254,7 @@ export function buildGreen(ground: THREE.Group, colliders: Collider[], night: Ni
   const flagGeo = new THREE.PlaneGeometry(1.2, 0.75, 8, 1);
   flagGeo.translate(0.6, 0, 0);
   const rest = Float32Array.from(flagGeo.getAttribute('position').array);
-  const flag = mesh(flagGeo, new THREE.MeshToonMaterial({ color: '#ef476f', side: THREE.DoubleSide, gradientMap: gradient }), px + 0.03, G + STICK - 0.42, pz, false);
+  const flag = mesh(flagGeo, new THREE.MeshStandardMaterial({ color: '#ef476f', side: THREE.DoubleSide }), px + 0.03, G + STICK - 0.42, pz, false);
   ground.add(flag);
   return {
     update(t: number) {

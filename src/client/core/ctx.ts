@@ -44,6 +44,9 @@ export function createCtx(parts: Parts): { ctx: Ctx; core: CoreState } {
     get renderer() {
       return parts.stage.renderer;
     },
+    get post() {
+      return parts.stage.post;
+    },
     get canvas() {
       return parts.stage.canvas;
     },

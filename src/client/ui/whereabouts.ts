@@ -1,4 +1,4 @@
-import { BALCONY, DANCE_FLOOR, FIRE_PIT, FLOOR, LOFT, MEETING_ROOM, ROOF_BAR, ROOF_TABLES, SEATING_BY_ID, STAGE, WING, inWing, seatAt } from '../../shared/layout';
+import { BALCONY, CAFE_TABLES, FLOOR, LOFT, MEETING_ROOM, ROOF_BAR, ROOF_TABLES, SEATING_BY_ID, WING, inWing, seatAt } from '../../shared/layout';
 import type { PeerInfo } from '../../shared/protocol';
 import { ROOF } from '../../shared/rooftop';
 import { CARS, type CarSeat } from '../../shared/garage';
@@ -43,12 +43,10 @@ export function whereabouts(p: PeerInfo, car?: { car: number; seat: CarSeat }, p
   return undefined;
 }
 
-/** Somewhere on the rooftop bar worth saying they are, standing up. */
+/** Somewhere on the rooftop café worth saying they are, standing up. */
 function onTheRoof(p: PeerInfo): string | undefined {
-  if (p.x > STAGE.minX && p.x < STAGE.maxX && p.z < STAGE.maxZ) return '🎧 up on the stage';
-  if (p.x > DANCE_FLOOR.minX && p.x < DANCE_FLOOR.maxX && p.z > DANCE_FLOOR.minZ && p.z < DANCE_FLOOR.maxZ) return '🪩 on the dance floor';
-  if (p.x > ROOF_BAR.x - 2.5 && p.z > ROOF_BAR.minZ - 0.5 && p.z < ROOF_BAR.maxZ + 0.5) return '🍸 at the bar';
+  if (p.x > ROOF_BAR.x - 2.5 && p.z > ROOF_BAR.minZ - 0.5 && p.z < ROOF_BAR.maxZ + 0.5) return '☕ at the café counter';
   if (ROOF_TABLES.some((t) => Math.hypot(p.x - t.x, p.z - t.z) < 1.3)) return '🕯️ at a tall table';
-  if (Math.hypot(p.x - FIRE_PIT.x, p.z - FIRE_PIT.z) < 3.5) return '🔥 by the fire';
+  if (CAFE_TABLES.some((t) => Math.hypot(p.x - t.x, p.z - t.z) < 1.3)) return '☕ at a café table';
   return undefined;
 }

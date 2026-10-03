@@ -11,18 +11,18 @@ export const PALETTE = {
   floorAlt: FLOOR_PALETTES[0].floorAlt,
   wall: FLOOR_PALETTES[0].wall,
   wallTrim: FLOOR_PALETTES[0].trim,
-  desk: '#f7f3ea',
+  desk: '#f3ece0',
   deskLeg: '#3d405b',
   wood: '#c98b5a',
   cork: '#d8a86a',
-  chairs: ['#ff8a5b', '#5bc0eb', '#9bc53d', '#b388eb', '#ffb400', '#f7aef8'],
-  rugs: ['#bde0fe', '#ffd6a5', '#caffbf', '#ffc6ff'],
+  chairs: ['#f2c4ae', '#bcd8e6', '#cfdcb5', '#d9c8ee', '#f3dca1', '#f1cde0'],
+  rugs: ['#d8e6ef', '#f4e1c8', '#dfead3', '#eadcee'],
   plant: '#5fb760',
   plantDark: '#3f8f45',
-  pot: '#e76f51',
+  pot: '#d99a82',
   ink: '#2b2d42',
   /** The building's outside paint. */
-  exterior: '#e07a5f',
+  exterior: '#e6b8a2',
 };
 
 /** Window glass: faintly blue and see-through. */
@@ -130,7 +130,7 @@ export function box(w: number, h: number, d: number) {
 
 /** The materials and textures a floor paints in its own colors. */
 export interface Looks {
-  wall: THREE.MeshToonMaterial;
-  trim: THREE.MeshToonMaterial;
+  wall: THREE.MeshStandardMaterial;
+  trim: THREE.MeshStandardMaterial;
   planks: THREE.CanvasTexture[];
 }

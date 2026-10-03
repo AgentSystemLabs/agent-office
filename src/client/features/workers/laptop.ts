@@ -1,3 +1,5 @@
+import { laptopKeys } from '../../world/office/voxel-furniture';
+import { voxelBox, voxelMaterial, voxelSolid } from '../../world/voxel';
 import * as THREE from 'three';
 import { FLAG_BOLD, FLAG_DIM, FLAG_INVERSE, RGB_FLAG, type Run } from '../../../shared/protocol';
 import { mesh, roundedBox, toon } from '../../world/toon';
@@ -176,13 +178,14 @@ export class Laptop {
       // A ribbon bookmark hanging out of the pages.
       this.root.add(mesh(new THREE.BoxGeometry(0.03, 0.004, 0.16), toon('#9b1c1c'), 0.2, 0.06, 0.28, false));
     } else {
-      const shell = toon('#c9ced6');
+      const shell = voxelSolid('#f0e8db');
       const dark = toon('#2b2d42');
-      // Base with keyboard
-      this.root.add(mesh(roundedBox(0.78, 0.035, 0.52, 0.04), shell, 0, 0.018, 0.02));
+      // Base with fine keycaps
+      this.root.add(laptopKeys());
+      this.root.add(mesh(voxelBox(0.78, 0.035, 0.52, 0.025), shell, 0, 0.018, 0.02));
       this.root.add(mesh(new THREE.BoxGeometry(0.66, 0.006, 0.24), dark, 0, 0.037, 0.0, false));
       this.root.add(mesh(new THREE.BoxGeometry(0.2, 0.004, 0.11), toon('#aab1bb'), 0, 0.037, 0.19, false));
-      const lidShell = mesh(roundedBox(0.78, 0.025, 0.5, 0.04), shell, 0, 0.25, 0);
+      const lidShell = mesh(voxelBox(0.78, 0.025, 0.5, 0.025), shell, 0, 0.25, 0);
       lidShell.rotation.x = Math.PI / 2;
       this.lid.add(lidShell);
       // Sticker on the back of the lid

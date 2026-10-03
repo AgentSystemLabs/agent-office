@@ -3,14 +3,14 @@
  * camera, the office building, the sky and the holiday decorations.
  */
 import * as THREE from 'three';
-import { OutlineEffect } from 'three/examples/jsm/effects/OutlineEffect.js';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { store } from '../state';
 import { Holiday } from '../world/holiday';
 import { buildOffice } from '../world/office';
 import type { Office } from '../world/types';
 import { HAZE_MAX, Sky } from '../world/sky';
 import type { Ctx } from './context';
-import { noOutline } from './outline';
+import { Post } from './post';
 
 /** How far the camera sees in the office: as far as the haze ever is, from the top floor. */
 export const FAR = HAZE_MAX + 20;
@@ -21,8 +21,8 @@ export const FOV = 55;
 export interface Stage {
   readonly canvas: HTMLCanvasElement;
   readonly renderer: THREE.WebGLRenderer;
-  /** Draws the scene with the toon outline (see drawFrame in core/loop.ts). */
-  readonly effect: OutlineEffect;
+  /** Draws the scene with its finish: occlusion, bloom, tone mapping (see drawFrame in core/loop.ts). */
+  readonly post: Post;
   readonly scene: THREE.Scene;
   readonly camera: THREE.PerspectiveCamera;
   readonly hemi: THREE.HemisphereLight;
@@ -56,22 +56,32 @@ export function createScene(canvas: HTMLCanvasElement, renderer: THREE.WebGLRend
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFShadowMap;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
-  const effect = new OutlineEffect(renderer, { defaultThickness: 0.0032, defaultColor: [0.17, 0.18, 0.26] });
+  // Realistic look: filmic tone mapping, applied by the post pass (core/post.ts).
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 0.95;
 
   const scene = new THREE.Scene();
   // The sky's color and the fog change with the time of day and the weather (world/sky.ts).
   scene.background = new THREE.Color('#bfe3ff');
   scene.fog = new THREE.Fog('#bfe3ff', 40, 90);
   const camera = new THREE.PerspectiveCamera(FOV, 1, 0.1, FAR);
+  // Image-based light: soft sky and bounce reflections on every surface.
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+  scene.environmentIntensity = 0.22;
+  pmrem.dispose();
 
-  const hemi = new THREE.HemisphereLight('#fff5e6', '#c9a27a', 1.5);
-  const ambient = new THREE.AmbientLight('#ffffff', 0.5);
+  const hemi = new THREE.HemisphereLight('#ffe8c8', '#7f97b0', 0.58);
+  const ambient = new THREE.AmbientLight('#ffffff', 0.15);
   scene.add(hemi, ambient);
+  const fill = new THREE.DirectionalLight('#bfd9ff', 0.55);
+  scene.add(fill);
   // The sun by day and the moon by night; the sky moves it (world/sky.ts).
   const sun = new THREE.DirectionalLight('#fff1d6', 2.2);
   sun.position.set(-8, 18, 10);
   sun.castShadow = true;
-  sun.shadow.mapSize.set(2048, 2048);
+  sun.shadow.mapSize.set(4096, 4096);
+  sun.shadow.radius = 2.5;
   // Wide enough for the office, the garage under it and the balcony and lot out front, from wherever the sun is.
   Object.assign(sun.shadow.camera, { left: -32, right: 32, top: 30, bottom: -30, near: 1, far: 100 });
   sun.shadow.bias = -0.0008;
@@ -80,14 +90,13 @@ export function createScene(canvas: HTMLCanvasElement, renderer: THREE.WebGLRend
 
   const office = buildOffice();
   scene.add(office.group);
-  const sky = new Sky(scene, { sun, hemi, ambient }, office.night, () => store.officeNow());
+  const sky = new Sky(scene, { sun, hemi, ambient, fill }, office.night, () => store.officeNow());
   // Halloween or Christmas decorations, up while the building's dressed up for one (see dressUp).
   const holiday = new Holiday(office);
   scene.add(holiday.group);
 
-  noOutline(office.group);
-  noOutline(holiday.group);
-  return { canvas, renderer, effect, scene, camera, hemi, ambient, sun, office, sky, holiday };
+  const post = new Post(renderer, scene, camera);
+  return { canvas, renderer, post, scene, camera, hemi, ambient, sun, office, sky, holiday };
 }
 
 /** The sky follows the office's weather and time of day, and its thunder is heard. */
@@ -103,6 +112,7 @@ export function fitWindow(ctx: Ctx) {
     const w = window.innerWidth;
     const hgt = window.innerHeight;
     ctx.renderer.setSize(w, hgt, false);
+    ctx.post.setSize(w, hgt);
     ctx.camera.aspect = w / hgt;
     ctx.camera.updateProjectionMatrix();
     ctx.hands.setAspect(w / hgt);

@@ -31,7 +31,7 @@ export function renderPeople(voice: Voice, onEditProfile: () => void, onWalkTo: 
       // Somewhere else in the building: which floor.
       !you && !store.onMyFloor(p)
         ? p.floor === ROOF
-          ? h('span.where', { title: 'Up on the roof' }, `🍸 ${ROOF_NAME}`)
+          ? h('span.where', { title: 'Up on the roof' }, `☕ ${ROOF_NAME}`)
           : h('span.where', { title: 'On another floor' }, `🛗 ${store.floors.find((f) => f.id === p.floor)?.name ?? 'lobby'}`)
         : null,
       p.sharing ? h('span', { title: 'Sharing screen' }, '🖥️') : null,

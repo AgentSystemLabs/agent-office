@@ -1,10 +1,17 @@
+// Retired: the rooftop is an alcohol-free café now, and nothing imports this any more.
 /**
  * Drinks from the rooftop bar: each goes to your head over a few seconds, then wears off over a
  * minute or so. They add up, and the more you've had, the more the view sways, doubles and smears
  * (drunk.ts) and the more you stagger (see sway in player/effects.ts). Water helps a little.
  * Times are seconds, on whichever clock the caller passes in as `now`.
  */
-import { BOOZE_LIMIT, type Drink } from '../../../shared/rooftop';
+
+/** How drunk you could get: past this the bartender cut you off (the bar has no alcohol now: kept for reference). */
+const BOOZE_LIMIT = 1.6;
+interface Drink {
+  id: string;
+  strength: number;
+}
 
 /** A drink kicks in over about this long. */
 const KICK_IN = 4;

@@ -4,7 +4,7 @@ import type { ChatLine, PresenceClientMsg } from '../../../shared/protocol.js';
 import { seatHereOn } from '../../../shared/maps/index.js';
 import { sanitizeLook } from '../../../shared/avatar.js';
 import { isEmote } from '../../../shared/emotes.js';
-import { ROOF, isDrink } from '../../../shared/rooftop.js';
+import { ROOF, isItem } from '../../../shared/rooftop.js';
 import { isBarGame } from '../../../shared/bargames.js';
 import { throttle } from '../../office/client.js';
 import { COLOR_RE, issueNumber, num, str } from '../../office/input.js';
@@ -22,8 +22,8 @@ export const presenceHandlers = {
   },
   act(ctx, c, msg) {
     if (msg.drink !== undefined) {
-      // A drink from the rooftop bar, which stays up there.
-      const drink = isDrink(msg.drink) && c.peer.floor === ROOF ? msg.drink : undefined;
+      // A drink or a bite from the rooftop café, which stays up there.
+      const drink = isItem(msg.drink) && c.peer.floor === ROOF ? msg.drink : undefined;
       if (drink === c.peer.drink) return;
       if (drink) c.peer.drink = drink;
       else delete c.peer.drink;

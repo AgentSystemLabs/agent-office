@@ -1,4 +1,5 @@
 @import './styles/base.css';
+@import './styles/voxel-ui.css';
 
 /* The 2D view (lite.html): a page that scrolls, made for a phone, rather than a HUD over the 3D office. */
 html, body { height: auto; min-height: 100%; overflow: auto; }
@@ -33,7 +34,7 @@ body.lite { min-height: 100dvh; background: var(--paper); -webkit-tap-highlight-
 .lite-card { flex: 1; min-width: 0; display: flex; align-items: flex-start; gap: 10px; padding: 12px 10px 12px 14px; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .lite-card:active { background: var(--paper-2); }
 .lite-card:focus-visible { outline: none; box-shadow: inset 0 0 0 3px var(--accent); }
-.lite-card .dot { flex: none; width: 14px; height: 14px; margin-top: 4px; border-radius: 50%; border: 2px solid var(--ink); }
+.lite-card .dot { flex: none; width: 14px; height: 14px; margin-top: 4px; border-radius: var(--radius-control); border: 2px solid var(--ink); }
 .lite-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .lite-name { font-size: 16px; font-weight: 900; }
 .lite-task { font-size: 14px; font-weight: 800; overflow-wrap: anywhere; }
@@ -48,7 +49,7 @@ body.lite { min-height: 100dvh; background: var(--paper); -webkit-tap-highlight-
 .lite-nav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; padding: 10px 12px; padding-bottom: max(10px, env(safe-area-inset-bottom)); background: var(--paper-2); border-top: 3px solid var(--ink); }
 .lite-nav .btn { min-height: 48px; padding: 6px; justify-content: center; flex-wrap: wrap; gap: 4px; white-space: normal; text-align: center; line-height: 1.15; font-size: 14px; }
 .lite-nav .n:empty { display: none; }
-.lite-nav .n { min-width: 20px; padding: 0 5px; border-radius: 999px; background: var(--ink); color: #fff; font-size: 12px; line-height: 20px; font-variant-numeric: tabular-nums; }
+.lite-nav .n { min-width: 20px; padding: 0 5px; border-radius: var(--radius-control); background: var(--ink); color: #fff; font-size: 12px; line-height: 20px; font-variant-numeric: tabular-nums; }
 .lite-nav .btn.primary .n { background: #fff; color: var(--ink); }
 /* A wide window: the bars line up with the list. */
 @media (min-width: 761px) { .lite-bar, .lite-nav { padding-left: calc(50% - 368px); padding-right: calc(50% - 368px); } }

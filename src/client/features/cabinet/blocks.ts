@@ -440,7 +440,7 @@ function table(g: CanvasRenderingContext2D, scores: readonly HighScore[], x: num
     if (s.game === mine) {
       g.fillStyle = 'rgba(255, 209, 102, 0.22)';
       g.beginPath();
-      g.roundRect(x - 8, cy - step / 2 + 2, width + 16, step - 4, 8);
+      g.rect(x - 8, cy - step / 2 + 2, width + 16, step - 4);
       g.fill();
     }
     g.font = `900 ${size}px ${FONT}`;
@@ -482,7 +482,7 @@ function ghost(g: CanvasRenderingContext2D, x: number, y: number, size: number) 
 function preview(g: CanvasRenderingContext2D, kind: number, cx: number, cy: number) {
   g.fillStyle = '#070b14';
   g.beginPath();
-  g.roundRect(cx - 62, cy - 36, 124, 72, 12);
+  g.rect(cx - 62, cy - 36, 124, 72);
   g.fill();
   if (!kind) return;
   const cells = blocks(kind, 0);
@@ -500,7 +500,7 @@ function banner(g: CanvasRenderingContext2D, title: string, sub: string, color: 
   g.fillRect(X0, Y0, COLS * CELL, WELL_ROWS * CELL);
   g.fillStyle = color;
   g.beginPath();
-  g.roundRect(X0 - 30, H / 2 - 62, COLS * CELL + 60, 112, 16);
+  g.rect(X0 - 30, H / 2 - 62, COLS * CELL + 60, 112);
   g.fill();
   g.textAlign = 'center';
   g.fillStyle = '#ffffff';

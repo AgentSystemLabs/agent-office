@@ -270,7 +270,7 @@ export function buildCity(night: NightParts): City {
   const gp = groundGeo.getAttribute('position') as THREE.BufferAttribute;
   // Line the texture up with the streets: a road down its middle falls on x = STREET_X, z = STREET_Z.
   for (let i = 0; i < uv.count; i++) uv.setXY(i, (gp.getX(i) - STREET_X) / PERIOD + 0.5, (gp.getZ(i) - STREET_Z) / PERIOD + 0.5);
-  const ground = new THREE.Mesh(groundGeo, new THREE.MeshToonMaterial({ map: groundTexture(), gradientMap: (toon('#fff') as THREE.MeshToonMaterial).gradientMap }));
+  const ground = new THREE.Mesh(groundGeo, new THREE.MeshStandardMaterial({ map: groundTexture() }));
   ground.receiveShadow = false;
   street.add(ground);
 
@@ -384,15 +384,14 @@ export function buildCity(night: NightParts): City {
   street.add(mergeByMaterial(parks));
 
   // The buildings' walls (a material for each paint), their roofs, and what's on them.
-  const gradient = (toon('#fff') as THREE.MeshToonMaterial).gradientMap;
-  const paintMats = new Map<number, THREE.MeshToonMaterial>();
+  const paintMats = new Map<number, THREE.MeshStandardMaterial>();
   const paintOf = (i: number) => {
     let m = paintMats.get(i);
     if (!m) {
       const p = PAINTS[i];
       const lit = litTexture(p, i + 1);
       lit.repeat.set(1 / 16, 1 / 16);
-      m = new THREE.MeshToonMaterial({ map: bayTexture(p), emissive: '#ffffff', emissiveMap: lit, emissiveIntensity: 0, gradientMap: gradient });
+      m = new THREE.MeshStandardMaterial({ map: bayTexture(p), emissive: '#ffffff', emissiveMap: lit, emissiveIntensity: 0 });
       night.windows.push(m);
       paintMats.set(i, m);
     }

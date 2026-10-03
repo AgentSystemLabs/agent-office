@@ -8,7 +8,7 @@ import { G, beside, box, flat, flatMesh, indexAt, strip, withTangents, type Alon
 import type { Road } from './road';
 
 /** The creek under the bridge, the lake under the mountains and the sea past the beach. Returns the water's ripples and the surf, to move. */
-export function buildWater(kit: ScenicKit, road: Road): { waters: THREE.Texture[]; surf: THREE.MeshToonMaterial[] } {
+export function buildWater(kit: ScenicKit, road: Road): { waters: THREE.Texture[]; surf: THREE.MeshStandardMaterial[] } {
   const { root, rand, parts, colliders, cullable, taken } = kit;
   const { creekLine, bridge } = road;
   const ripples = (base: string, light: string) =>
@@ -93,7 +93,7 @@ export function buildWater(kit: ScenicKit, road: Road): { waters: THREE.Texture[
     }
   }
   // The sea, west past the beach as far as you can see, the sand sloping down into it, and surf.
-  const surf: THREE.MeshToonMaterial[] = [];
+  const surf: THREE.MeshStandardMaterial[] = [];
   {
     const t = ripples('#2a9bd4', '#62c2e8');
     t.repeat.set(90, 125);

@@ -61,7 +61,7 @@ function paintFace(canvas: HTMLCanvasElement, label: DeskLabel) {
   ctx.globalAlpha = 0.45;
   ctx.lineWidth = 9;
   ctx.beginPath();
-  ctx.roundRect(22, 22, w - 44, h - 44, 34);
+  ctx.rect(22, 22, w - 44, h - 44);
   ctx.stroke();
   ctx.globalAlpha = 1;
   const { lines, size } = fit(ctx, label.text, w - 120, h - 70);

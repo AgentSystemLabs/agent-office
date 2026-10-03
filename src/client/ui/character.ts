@@ -31,9 +31,12 @@ class Preview {
     this.renderer.shadowMap.enabled = true;
     this.effect = new OutlineEffect(this.renderer, { defaultThickness: 0.0045, defaultColor: [0.17, 0.18, 0.26] });
 
-    this.scene.add(new THREE.HemisphereLight('#fff5e6', '#c9a27a', 1.5));
-    this.scene.add(new THREE.AmbientLight('#ffffff', 0.5));
-    const sun = new THREE.DirectionalLight('#fff1d6', 2.2);
+    this.scene.add(new THREE.HemisphereLight('#ffe8c8', '#7f97b0', 1.1));
+    this.scene.add(new THREE.AmbientLight('#ffffff', 0.25));
+    const fill = new THREE.DirectionalLight('#bfd9ff', 0.9);
+    fill.position.set(4, 3, -3);
+    this.scene.add(fill);
+    const sun = new THREE.DirectionalLight('#fff1d6', 2.6);
     sun.position.set(-3, 6, 5);
     sun.castShadow = true;
     sun.shadow.mapSize.set(1024, 1024);
@@ -41,7 +44,7 @@ class Preview {
     sun.shadow.normalBias = 0.02;
     Object.assign(sun.shadow.camera, { left: -2, right: 2, top: 2, bottom: -2, near: 0.5, far: 20 });
     this.scene.add(sun);
-    const rug = new THREE.Mesh(new THREE.CircleGeometry(0.9, 40), toonUnique('#ffd6a5'));
+    const rug = new THREE.Mesh(new THREE.PlaneGeometry(1.7, 1.7), toonUnique('#ffd6a5'));
     rug.rotation.x = -Math.PI / 2;
     rug.receiveShadow = true;
     rug.material.userData.outlineParameters = { visible: false };

@@ -15,7 +15,7 @@ export function seeded(seed: number): () => number {
 }
 
 /** A toon material with `map` painted on it. */
-export function toonMap(map: THREE.Texture): THREE.MeshToonMaterial {
+export function toonMap(map: THREE.Texture): THREE.MeshStandardMaterial {
   const m = toonUnique('#ffffff');
   m.map = map;
   return m;
