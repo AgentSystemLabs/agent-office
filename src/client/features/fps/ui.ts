@@ -66,8 +66,11 @@ export class FpsHud {
     this.map(me);
   }
 
-  markHit() { this.hitUntil = performance.now() + 200; }
-  hide() { this.root.hidden = true; this.lastHp = 100; }
+  markHit(headshot = false) {
+    this.hitUntil = performance.now() + 200; this.hit.classList.toggle('headshot', headshot);
+    this.hit.setAttribute('aria-label', headshot ? '爆头命中' : '身体命中');
+  }
+  hide() { this.root.hidden = true; this.lastHp = 100; this.hitUntil = 0; this.damageUntil = 0; }
 
   private map(me: FpsPlayer) {
     const c = this.radar.getContext('2d')!; c.clearRect(0, 0, 192, 144); c.fillStyle = '#17252bd9'; c.fillRect(0, 0, 192, 144);

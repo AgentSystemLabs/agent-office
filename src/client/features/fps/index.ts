@@ -5,6 +5,7 @@ import { store } from '../../state';
 import { closeAllModals, h, modalOpen, openModal, toast, type Modal } from '../../ui/dom';
 import { FpsWorld } from './world';
 import { FpsHud, openFpsLobby } from './ui';
+import { impactKind } from './impact';
 
 export function installFps(ctx: Ctx) {
   let wanted = false, active = false, state: FpsState | null = null, local: FpsPlayer | null = null;
@@ -46,6 +47,7 @@ export function installFps(ctx: Ctx) {
     wanted = false;
     if (!active) return;
     clear(); active = false; state = null; local = null; roundKey = ''; reloadWas = false;
+    arena?.clearShots();
     pauseModal?.close(); pauseModal = null;
     if (send) ctx.net.send({ t: 'fps.leave' });
     ctx.player.rig = null; ctx.player.onClick = previousClick; ctx.player.setView(previousView);
@@ -75,6 +77,7 @@ export function installFps(ctx: Ctx) {
     state = msg.state; receivedAt = performance.now();
     const key = `${state.round}/${state.phase === 'waiting' ? 'waiting' : 'match'}`;
     if (!local || key !== roundKey) {
+      arena?.clearShots();
       local = { ...me }; correction.set(0, 0, 0); roundKey = key;
       ctx.player.camYaw = me.yaw; ctx.player.lookPitch = me.pitch; clear();
     } else {
@@ -90,11 +93,16 @@ export function installFps(ctx: Ctx) {
     if (!active || !arena) return;
     const own = msg.shot.shooter === store.you;
     arena.shot(msg.shot, own);
-    const from = msg.shot.from;
-    ctx.sound.fps('shot', own || !local ? undefined : { x: ctx.player.pos.x + from.x - local.x, y: ctx.player.pos.y + from.y - local.y, z: ctx.player.pos.z + from.z - local.z });
-    if (own) {
-      if (msg.shot.hit) { hud.markHit(); ctx.sound.fps('hit'); }
-      if (!ctx.reduceMotion.matches) ctx.player.lookPitch = Math.min(1.45, ctx.player.lookPitch + .012);
+    const at = (p: typeof msg.shot.from) => !local ? undefined : {
+      x: ctx.player.pos.x + p.x - local.x, y: ctx.player.pos.y + p.y - local.y, z: ctx.player.pos.z + p.z - local.z };
+    ctx.sound.fps('shot', own ? undefined : at(msg.shot.from));
+    const kind = impactKind(msg.shot);
+    if (msg.shot.hit) {
+      ctx.sound.fps(msg.shot.headshot ? 'headshot' : 'hit', own ? undefined : at(msg.shot.to));
+      if (own) hud.markHit(msg.shot.headshot);
+      if (msg.shot.hit === store.you) ctx.sound.fps('hurt');
+    } else if (kind === 'metal' || kind === 'wood' || kind === 'stone') {
+      ctx.sound.fps(kind, at(msg.shot.to));
     }
   });
   ctx.net.onStatus(up => { if (!up && active) { leave(false); toast('连接中断，已退出对战。重连后可重新加入。', 'warn'); } });
@@ -143,5 +151,5 @@ export function installFps(ctx: Ctx) {
     hud.show(state, store.you, serverNow);
   });
   // Same read-only debug convention as __office, useful for two-browser integration checks.
-  (window as any).__fps = { state: () => state, active: () => active };
+  (window as any).__fps = { state: () => state, active: () => active, sounds: () => ({ ...ctx.sound.played }) };
 }

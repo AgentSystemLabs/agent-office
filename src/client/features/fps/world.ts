@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { ARENA, type FpsPlayer, type FpsShot } from '../../../shared/fps';
 import { boxSurfaceUv, fpsMaterials } from './art';
+import { FpsImpacts, impactKind } from './impact';
 
 /** The office renderer draws this arena through the existing view registry. No extra canvas or loop. */
 export class FpsWorld {
@@ -11,8 +12,10 @@ export class FpsWorld {
   private flash: THREE.Mesh;
   private beams: { line: THREE.Line; life: number }[] = [];
   private kick = 0;
+  private impacts = new FpsImpacts();
 
   constructor() {
+    this.scene.add(this.impacts.root);
     this.scene.background = new THREE.Color('#aebac5');
     this.scene.fog = new THREE.Fog('#aebac5', 32, 75);
     this.scene.add(new THREE.HemisphereLight(0xe5f4ff, 0x635342, 2.4));
@@ -90,6 +93,7 @@ export class FpsWorld {
   }
 
   update(opponent: FpsPlayer | undefined, camera: THREE.PerspectiveCamera, dt: number, reloading: boolean, walking: boolean, reduceMotion: boolean) {
+    this.impacts.update(dt);
     this.opponent.visible = !!opponent?.hp;
     if (opponent) { this.opponent.position.lerp(new THREE.Vector3(opponent.x, opponent.y, opponent.z), Math.min(1, dt * 18)); this.opponent.rotation.y = opponent.yaw; }
     this.kick = Math.max(0, this.kick - dt * 8);
@@ -105,8 +109,16 @@ export class FpsWorld {
   }
 
   shot(shot: FpsShot, local: boolean) {
+    const kind = impactKind(shot);
+    if (kind) this.impacts.emit(shot, kind);
     if (local) this.kick = 1;
     const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(shot.from.x, shot.from.y, shot.from.z), new THREE.Vector3(shot.to.x, shot.to.y, shot.to.z)]), new THREE.LineBasicMaterial({ color: local ? '#ffda8c' : '#9edcff', transparent: true, opacity: .8 }));
     this.scene.add(line); this.beams.push({ line, life: .12 });
+  }
+
+  clearShots() {
+    this.impacts.clear(); this.kick = 0; this.flash.visible = false;
+    for (const b of this.beams) { this.scene.remove(b.line); b.line.geometry.dispose(); (b.line.material as THREE.Material).dispose(); }
+    this.beams = [];
   }
 }

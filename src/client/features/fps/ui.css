@@ -33,6 +33,7 @@ body.fps-active #hud, body.fps-active #hint, body.fps-active #crosshair, body.fp
 .fps-crosshair i:nth-child(1) { top: -13px; } .fps-crosshair i:nth-child(2) { top: 8px; }
 .fps-crosshair i:nth-child(3) { left: -13px; top: 0; width: 7px; height: 2px; } .fps-crosshair i:nth-child(4) { left: 8px; top: 0; width: 7px; height: 2px; }
 .fps-hit { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font: 44px monospace; color: #fff3bd; }
+.fps-hit.headshot { color: #ff9b79; text-shadow: 0 0 5px #6b211b; }
 .fps-banner { position: absolute; left: 50%; top: 33%; transform: translateX(-50%); text-align: center; padding: 20px 36px; min-width: 360px; background: #12232ddd; border-top: 2px solid #e5ba7b; border-radius: 3px; }
 .fps-banner strong { display: block; font-size: 32px; letter-spacing: 3px; }
 .fps-banner span { display: block; margin-top: 10px; color: #b7cbd6; font-size: 13px; }

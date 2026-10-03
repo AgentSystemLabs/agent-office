@@ -20,6 +20,10 @@ For two computers, use your existing shared office URL, HTTPS reverse proxy or S
 
 Each player starts with 100 health, a 30-round rifle magazine and 90 reserve rounds. Body hits deal 34 damage; a headshot deals 100. Cover blocks bullets. Reloading takes 1.8 seconds and prevents firing. The server checks movement, ray intersections, fire rate, ammunition and round results; browsers cannot report their own hits or scores.
 
+Hit feedback uses the same server-confirmed shot endpoint as damage. Body hits create a small directional blood burst and a short impact/confirmation sound; headshots have a brighter two-tone sound and an orange hit marker. A player taking damage also hears a brief low thump. Metal containers, timber crates and concrete walls produce different impact sounds and small sparks or debris, with no blood or hit marker on a miss. Sounds vary slightly between shots and respect the office volume/mute settings. Blood clears within 0.28 seconds and cover debris within 0.16 seconds; particles are depth-tested and cleared on leaving or resetting a round.
+
+There is no hitstop, slowdown, camera shake or automatic aim kick. Movement, input, firing cadence and collision continue normally during feedback. The existing visual rifle kick moves only the weapon model, without moving the camera or aim. No new armor, blocking or damage rules are introduced.
+
 Eliminating the opponent wins a round. A round lasts 90 seconds; if neither player is eliminated it is a draw with no point awarded. After 3.5 seconds both players receive fresh health and ammunition, exchange spawn points and count down for the next round. The first player to win **five rounds** wins the match. In the match menu, both players click **准备再战** to reset the scores and start again.
 
 Leaving the arena, switching floors, disconnecting or refreshing releases your seat. The remaining player returns to waiting, and a replacement starts a new match with fresh scores. Losing focus or opening a window releases movement and firing; it does not freeze the match. Matches are temporary and do not survive an office restart.

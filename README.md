@@ -406,6 +406,8 @@ Click **FPS · 1V1** (or press **F8**) in the 3D office to join Office Strike, a
 
 The arena includes original generated concrete, metal and timber textures and dock lobby art. [Art sources and prompts](docs/fps-art.md) document the assets used in the game.
 
+Confirmed body hits and headshots have distinct sounds, brief directional blood particles and a hit marker; bullets striking cover produce material-specific impact sounds and small debris. These cues follow server shot results. The camera stays steady while firing and taking damage, with no hitstop or slowdown.
+
 ## More
 
 - [Features](docs/features.md): everything in the office, room by room
