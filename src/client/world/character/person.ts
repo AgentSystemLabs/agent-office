@@ -1,3 +1,4 @@
+import { voxelBall, voxelCapsule, voxelMaterial } from '../voxel';
 import * as THREE from 'three';
 import { HAIR_COLORS, HAIR_STYLES, SKIN_TONES, type Look } from '../../../shared/avatar';
 import { EMOTE_BY_ID, type EmoteId } from '../../../shared/emotes';
@@ -118,39 +119,38 @@ export class Person {
   private gripping = false;
   /** Something they're saying (see say), and for how many more seconds. */
   private speech: { sprite: THREE.Sprite; left: number } | null = null;
-
   constructor(
     private name: string,
     color: string,
     look: Look,
   ) {
     this.look = { ...look };
-    this.shirt = toonUnique(color);
-    const skin = (this.skin = toonUnique(SKIN_TONES[look.skin]));
-    this.hairMat = toonUnique(HAIR_COLORS[look.hair]);
+    this.shirt = voxelMaterial(toonUnique(color));
+    const skin = (this.skin = voxelMaterial(toonUnique(SKIN_TONES[look.skin])));
+    this.hairMat = voxelMaterial(toonUnique(HAIR_COLORS[look.hair]));
     this.hairMat.side = THREE.DoubleSide;
     const pants = toon('#3d405b');
     const ink = toon('#1d1d1d');
 
     this.root.add(this.body);
-    const torso = mesh(new THREE.CapsuleGeometry(0.26, 0.28, 6, 12), this.shirt, 0, 0.72, 0);
+    const torso = mesh(voxelCapsule(0.26, 0.28), this.shirt, 0, 0.72, 0);
     this.body.add(torso);
     // Head
     const head = (this.head = new THREE.Group());
     head.position.y = 1.32;
-    head.add(mesh(new THREE.SphereGeometry(0.34, 20, 16), skin));
+    head.add(mesh(voxelBall(0.34), skin));
     head.add(this.hair);
     this.buildHair();
     for (const sx of [-1, 1]) {
-      head.add(mesh(new THREE.SphereGeometry(0.055, 10, 8), ink, sx * 0.12, 0.02, 0.3, false));
-      head.add(mesh(new THREE.SphereGeometry(0.05, 10, 8), toon('#ff9f9f'), sx * 0.2, -0.08, 0.27, false));
+      head.add(mesh(voxelBall(0.055), ink, sx * 0.12, 0.02, 0.3, false));
+      head.add(mesh(voxelBall(0.05), toon('#ff9f9f'), sx * 0.2, -0.08, 0.27, false));
     }
     const smile = (this.smile = mesh(new THREE.TorusGeometry(0.06, 0.015, 6, 12, Math.PI), ink, 0, -0.08, 0.32, false));
     smile.rotation.z = Math.PI;
     head.add(smile);
     // Talking mouth: a flattened ball pressed into the face, scaled open and shut with the voice.
-    this.mouth = mesh(new THREE.SphereGeometry(1, 16, 12), toon('#7a2635'), 0, -0.1, 0.295, false);
-    const tongue = mesh(new THREE.SphereGeometry(1, 12, 10), toon('#ff8fa3'), 0, -0.5, 0, false);
+    this.mouth = mesh(voxelBall(1), toon('#7a2635'), 0, -0.1, 0.295, false);
+    const tongue = mesh(voxelBall(1), toon('#ff8fa3'), 0, -0.5, 0, false);
     tongue.scale.set(0.6, 0.45, 1.15);
     this.mouth.add(tongue);
     this.mouth.visible = false;
@@ -160,7 +160,7 @@ export class Person {
     const limb = (len: number, r: number, mat: THREE.Material, x: number, y: number) => {
       const pivot = new THREE.Group();
       pivot.position.set(x, y, 0);
-      pivot.add(mesh(new THREE.CapsuleGeometry(r, len, 4, 8), mat, 0, -len / 2 - r / 2, 0));
+      pivot.add(mesh(voxelCapsule(r, len), mat, 0, -len / 2 - r / 2, 0));
       this.body.add(pivot);
       return pivot;
     };
@@ -168,7 +168,7 @@ export class Person {
     this.legR = limb(0.22, 0.1, pants, 0.12, HIPS);
     this.armL = limb(0.24, 0.08, this.shirt, -0.33, 0.9);
     this.armR = limb(0.24, 0.08, this.shirt, 0.33, 0.9);
-    for (const arm of [this.armL, this.armR]) arm.add(mesh(new THREE.SphereGeometry(0.085, 12, 10), skin, 0, -0.38, 0));
+    for (const arm of [this.armL, this.armR]) arm.add(mesh(voxelBall(0.085), skin, 0, -0.38, 0));
     // Forward is +z, so the character's left arm is the one on +x. The handle faces the hand.
     const cup = (this.cup = coffeeMug(1.4));
     cup.position.set(0.02, -0.08, 0.1);
@@ -201,15 +201,15 @@ export class Person {
     this.body.add(this.bookHolder);
     // Along the arm (the fist's -y) the finger points; the thumb sticks out of the front of the fist,
     // which is up once the arm is out in front.
-    this.thumb = mesh(new THREE.CapsuleGeometry(0.035, 0.07, 4, 8).rotateX(Math.PI / 2), skin, 0, -0.38, 0.1, false);
-    this.finger = mesh(new THREE.CapsuleGeometry(0.03, 0.09, 4, 8), skin, 0, -0.5, 0.02, false);
+    this.thumb = mesh(voxelCapsule(0.035, 0.07).rotateX(Math.PI / 2), skin, 0, -0.38, 0.1, false);
+    this.finger = mesh(voxelCapsule(0.03, 0.09), skin, 0, -0.5, 0.02, false);
     for (const m of [this.thumb, this.finger]) {
       m.visible = false;
       this.armL.add(m);
     }
 
     // Little mic icon that pops up while speaking
-    this.mic = mesh(new THREE.SphereGeometry(0.09, 10, 8), toon('#7cf29a', { emissive: '#2a9d4b' }), 0, 2.25, 0, false);
+    this.mic = mesh(voxelBall(0.09), toon('#7cf29a', { emissive: '#2a9d4b' }), 0, 2.25, 0, false);
     this.mic.visible = false;
     this.root.add(this.mic);
 
