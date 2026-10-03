@@ -8,8 +8,24 @@ import * as THREE from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { GTAOPass } from 'three/examples/jsm/postprocessing/GTAOPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+
+/** The camera's finish after tone mapping: a warm lift, a little more colour, a soft vignette and fine grain. */
+const GRADE = {
+  uniforms: { tDiffuse: { value: null as THREE.Texture | null } },
+  vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.); }',
+  fragmentShader: `uniform sampler2D tDiffuse; varying vec2 vUv;
+    float h(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+    void main(){ vec4 c = texture2D(tDiffuse, vUv); vec3 col = c.rgb;
+      float l = dot(col, vec3(.2126, .7152, .0722));
+      col = mix(col, col * vec3(1.05, 1.0, .93), 1.0 - smoothstep(0.0, 1.0, l));
+      col = mix(vec3(l), col, 1.08);
+      col *= mix(.72, 1., smoothstep(1.1, .4, length(vUv - .5) * 1.25));
+      col += (h(vUv * 1600.) - .5) * .012;
+      gl_FragColor = vec4(col, c.a); }`,
+};
 
 export class Post {
   private composer: EffectComposer;
@@ -34,6 +50,7 @@ export class Post {
     this.composer.addPass(this.ao);
     this.composer.addPass(bloom);
     this.composer.addPass(new OutputPass());
+    this.composer.addPass(new ShaderPass(GRADE));
   }
 
   setSize(w: number, h: number) {

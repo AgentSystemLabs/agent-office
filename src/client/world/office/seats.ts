@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { BEANBAGS, DESKS, DESK_SIZE, FLOOR, KIOSK, SEATING_BY_ID, STATIONS, STATION_AGENT, deskSeat, type DeskDef, type StationKind } from '../../../shared/layout';
 import { deskPoint } from '../../../shared/nav';
+import { model, paintModel, palette } from '../models';
 import { mesh, roundedBox, textPlane, toon } from '../toon';
 import type { Collider, DeskView, Interactable } from '../types';
 import type { Fixture } from './fixture';
@@ -34,6 +35,23 @@ export function chair(color: string): THREE.Group {
   }
   return g;
 }
+
+/**
+ * A scanned-style office chair (Kenney's Furniture Kit, CC0) in `color`, with the old hand-built one as the
+ * fallback if its model didn't load. Part of the pastel realism test: delete this and use chair() to undo.
+ */
+export function officeChair(color: string): THREE.Group {
+  const m = model('chair-desk');
+  if (!m) return chair(color);
+  const g = new THREE.Group();
+  paintModel(m.scene, palette({ carpet: color, metalMedium: '#cfc8bd' }));
+  m.scene.scale.setScalar(OFFICE_CHAIR_SCALE);
+  m.scene.rotation.y = OFFICE_CHAIR_TURN;
+  g.add(m.scene);
+  return g;
+}
+const OFFICE_CHAIR_SCALE = 1.1;
+const OFFICE_CHAIR_TURN = Math.PI;
 
 /**
  * The `index`th desk (of DESKS) at `def`: its top, legs and modesty panel (in `trimMat`), its knick-knack,
@@ -89,7 +107,7 @@ export function buildDesk(def: DeskDef, index: number, trimMat: THREE.Material):
   stage.position.set(0.72, height - 0.07, 0.18);
   group.add(stage);
 
-  const ch = chair(PALETTE.chairs[index % PALETTE.chairs.length]);
+  const ch = officeChair(PALETTE.chairs[index % PALETTE.chairs.length]);
   ch.position.set(0, 0, 0.9);
   group.add(ch);
 
