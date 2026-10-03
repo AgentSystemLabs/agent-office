@@ -75,26 +75,28 @@ function blob(mat: THREE.Material, hx: number, hy: number, hz: number, x: number
 const FLAT = 0.86;
 
 function seg(mat: THREE.Material, r0: number, r1: number, L: number): THREE.Mesh {
-  const m = new THREE.Mesh(box(r0 * 2, r0 * 1.7, L), mat);
+  const m = new THREE.Mesh(box(r0 * 1.5, r0 * 2.4, L), mat);
   m.position.z = -L / 2;
   return m;
 }
 
 // Finger lengths (proximal, middle, distal) and base radius: index, middle, ring, pinky.
 const FINGERS = [
-  { x: -0.0295, z: -0.092, len: [0.04, 0.024, 0.02], r: 0.0098, fan: 0.07 },
-  { x: -0.0098, z: -0.097, len: [0.044, 0.027, 0.021], r: 0.0102, fan: 0.01 },
-  { x: 0.0098, z: -0.093, len: [0.041, 0.025, 0.02], r: 0.0095, fan: -0.04 },
-  { x: 0.0285, z: -0.085, len: [0.032, 0.018, 0.017], r: 0.0082, fan: -0.12 },
+  { x: -0.03, z: -0.09, len: [0.03, 0.022, 0.018], r: 0.0135, fan: 0 },
+  { x: -0.01, z: -0.09, len: [0.032, 0.023, 0.019], r: 0.0135, fan: 0 },
+  { x: 0.01, z: -0.09, len: [0.032, 0.023, 0.019], r: 0.0135, fan: 0 },
+  { x: 0.03, z: -0.09, len: [0.029, 0.021, 0.017], r: 0.0135, fan: 0 },
 ] as const;
 // How far each joint folds per unit of curl (the pinky and ring curl most).
-const PROX = [0.28, 0.32, 0.38, 0.45];
-const MID = [0.45, 0.5, 0.55, 0.6];
-const DIST = [0.28, 0.3, 0.32, 0.34];
-const THUMB = { meta: 0.032, prox: 0.032, dist: 0.027 };
+const PROX = [0.16, 0.18, 0.2, 0.22];
+const MID = [0.2, 0.22, 0.24, 0.26];
+const DIST = [0.1, 0.1, 0.12, 0.12];
+const THUMB = { meta: 0.03, prox: 0.026, dist: 0.022 };
 
 export function buildHand(side: 1 | -1, m: HandMaterials): HandRig {
   const hand = new THREE.Group();
+  // Chunkier than life: a block hand reads as a mitten, not a skeleton.
+  hand.scale.set(1.12, 1.45, 1);
   const skin = m.skin;
   const wrist = blob(skin, 0.031, 0.0185, 0.024, 0, 0, -0.004);
   const palm = blob(skin, 0.043, 0.0165, 0.047, 0, 0, -0.05);
@@ -123,11 +125,8 @@ export function buildHand(side: 1 | -1, m: HandMaterials): HandRig {
     const s = r / 0.0098;
     const nail = blob(m.nail, 0.0054 * s, 0.0011, 0.0072 * s, 0, r * 0.74 * FLAT, -l3 * 0.62);
     nail.rotation.x = 0.06;
-    dist.add(nail);
     // Knuckles: a faint tint over the big joint and the middle one.
     const k1 = blob(m.knuckle, r * 1.04, r * 0.9, r * 0.95, 0, r * 0.28, 0.001);
-    base.add(k1);
-    mid.add(blob(m.knuckle, r * 0.86, r * 0.74, r * 0.8, 0, r * 0.22, 0));
     mid.add(dist);
     prox.add(mid);
     base.add(prox);
@@ -147,8 +146,6 @@ export function buildHand(side: 1 | -1, m: HandMaterials): HandRig {
   j2.position.z = -THUMB.prox;
   j2.add(seg(skin, 0.0108, 0.0086, THUMB.dist));
   const tNail = blob(m.nail, 0.0066, 0.0012, 0.0082, 0, 0.0086 * FLAT * 0.78, -THUMB.dist * 0.6);
-  j2.add(tNail);
-  j2.add(blob(m.knuckle, 0.0098, 0.0082, 0.009, 0, 0.002, 0));
   j1.add(j2);
   tRoot.add(j1);
   hand.add(tRoot);
@@ -178,7 +175,7 @@ export function buildHand(side: 1 | -1, m: HandMaterials): HandRig {
         d.dist.rotation.x = -Math.min(DIST[i] * c, 1.3);
       }
       const up = p.thumbUp;
-      tRoot.rotation.set(-0.12 + 0.22 * up, side * (0.2 + 0.4 * p.thumbOut + 0.85 * up), side * (0.45 - 0.35 * up));
+      tRoot.rotation.set(-0.12 + 0.22 * up, side * (0.08 + 0.18 * p.thumbOut + 0.85 * up), side * (0.45 - 0.35 * up));
       j1.rotation.x = -0.2 * p.thumbCurl * (1 - up * 0.8);
       j2.rotation.x = -0.28 * p.thumbCurl * (1 - up * 0.8);
       hand.rotation.z = -side * 1.2 * p.roll;
