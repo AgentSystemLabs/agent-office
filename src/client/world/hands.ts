@@ -353,7 +353,7 @@ export class Hands {
     mitten.add(bag, thumb);
     mitten.visible = false;
     group.add(mitten);
-    const base = new THREE.Vector3(side * 0.18, -0.17, -0.5);
+    const base = new THREE.Vector3(side * 0.16, -0.37, -0.5);
     const baseRot = new THREE.Euler(0.45, side * 0.55, side * -0.2);
     group.position.copy(base);
     group.rotation.copy(baseRot);
