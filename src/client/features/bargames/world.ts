@@ -28,8 +28,8 @@ const INK = '#2b2d42';
 const CHALK = '#f1f1ea';
 
 /** A toon material with a picture on it, banded like everything else. */
-function toonMap(map: THREE.Texture): THREE.MeshToonMaterial {
-  const m = new THREE.MeshToonMaterial({ map, gradientMap: (toon('#fff') as THREE.MeshToonMaterial).gradientMap });
+function toonMap(map: THREE.Texture): THREE.MeshStandardMaterial {
+  const m = new THREE.MeshStandardMaterial({ map });
   m.userData.outlineParameters = { visible: false };
   return m;
 }
@@ -157,8 +157,8 @@ function axeTargetTexture(): THREE.CanvasTexture {
 }
 
 /** A toon material of its own, left out of the outlines (they'd swamp something as thin as a dart). */
-function plain(color: string, side: THREE.Side = THREE.FrontSide): THREE.MeshToonMaterial {
-  const m = new THREE.MeshToonMaterial({ color, side, gradientMap: (toon('#fff') as THREE.MeshToonMaterial).gradientMap });
+function plain(color: string, side: THREE.Side = THREE.FrontSide): THREE.MeshStandardMaterial {
+  const m = new THREE.MeshStandardMaterial({ color, side });
   m.userData.outlineParameters = { visible: false };
   return m;
 }

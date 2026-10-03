@@ -72,6 +72,8 @@ export interface Ctx {
   readonly scene: THREE.Scene;
   readonly camera: THREE.PerspectiveCamera;
   readonly renderer: THREE.WebGLRenderer;
+  /** The picture's finish (occlusion, bloom, tone mapping); see core/post.ts. */
+  readonly post: import('./post').Post;
   /** What the office is drawn on (the renderer's canvas), where the mouse aims and clicks. */
   readonly canvas: HTMLCanvasElement;
   /** The office building, whichever map is up (see world()). */

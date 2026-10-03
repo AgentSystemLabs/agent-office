@@ -16,8 +16,8 @@ export const box = (w: number, h: number, d: number) => new THREE.BoxGeometry(w,
  * For something lying flat on the ground: drawn over whatever's under it (the higher `over`, the more
  * it wins), and never outlined, which would ink a flat strip's edges up off the ground.
  */
-export function flat(color: string, over: number, map: THREE.Texture | null = null, opts: { transparent?: boolean; opacity?: number } = {}): THREE.MeshToonMaterial {
-  const m = new THREE.MeshToonMaterial({ color, map, gradientMap: (toon('#fff') as THREE.MeshToonMaterial).gradientMap, polygonOffset: true, polygonOffsetFactor: -over, polygonOffsetUnits: -over * 2, ...opts });
+export function flat(color: string, over: number, map: THREE.Texture | null = null, opts: { transparent?: boolean; opacity?: number } = {}): THREE.MeshStandardMaterial {
+  const m = new THREE.MeshStandardMaterial({ color, map, polygonOffset: true, polygonOffsetFactor: -over, polygonOffsetUnits: -over * 2, ...opts });
   m.userData.outlineParameters = { visible: false };
   return m;
 }

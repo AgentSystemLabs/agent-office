@@ -357,7 +357,7 @@ function bat(mat: THREE.Material, scale: number): { root: THREE.Group; wings: TH
  * A decorated Christmas tree `h` tall standing at 0,0,0: tiers of branches, baubles, lights and a
  * star. `lit` collects where each light is, for their glow at night.
  */
-function christmasTree(h: number, lights: THREE.MeshToonMaterial[], lit?: THREE.Vector3[], trunk = false): THREE.Group {
+function christmasTree(h: number, lights: THREE.MeshStandardMaterial[], lit?: THREE.Vector3[], trunk = false): THREE.Group {
   const g = new THREE.Group();
   const greens = [toon('#1f7a3a'), toon('#2a9d4b'), toon('#23884a')];
   const tiers = 4;
@@ -469,13 +469,13 @@ export class Holiday {
   theme: Theme | null = null;
   private halloween = new THREE.Group();
   private christmas = new THREE.Group();
-  private pumpkin: THREE.MeshToonMaterial;
+  private pumpkin: THREE.MeshStandardMaterial;
   private pumpkinGlow: THREE.Points<THREE.BufferGeometry, THREE.PointsMaterial>[] = [];
   private treeGlow: THREE.Points<THREE.BufferGeometry, THREE.PointsMaterial>[] = [];
   private bats: Bat[] = [];
   /** Bats far off round the moon, which ride along with you like the moon does. */
   private moonBats = new THREE.Group();
-  private lights: THREE.MeshToonMaterial[];
+  private lights: THREE.MeshStandardMaterial[];
   private colliders: Record<Theme, Collider[]> = { halloween: [], christmas: [] };
   /**
    * Each holiday's things down on the street (and on the landing outside the bottom floor's exit),
@@ -496,8 +496,7 @@ export class Holiday {
 
     // ---- Halloween ----
     const [skin, glow] = pumpkinTextures();
-    const gradientMap = (toon('#fff') as THREE.MeshToonMaterial).gradientMap;
-    this.pumpkin = new THREE.MeshToonMaterial({ map: skin, emissive: '#ffffff', emissiveMap: glow, emissiveIntensity: 0.5, gradientMap });
+    this.pumpkin = new THREE.MeshStandardMaterial({ map: skin, emissive: '#ffffff', emissiveMap: glow, emissiveIntensity: 0.5 });
     const stem = new THREE.CylinderGeometry(0.09, 0.15, 0.4, 7).rotateZ(0.12).translate(0, 1.6, 0);
     // In the office and out on its balcony, which every floor has; and down on the street, or out
     // past the west wall on the bottom floor's landing.

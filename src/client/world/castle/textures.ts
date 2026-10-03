@@ -200,7 +200,7 @@ export function paintBanner(g: CanvasRenderingContext2D, w: number, h: number, c
 }
 
 /** A toon material with a picture on it (stone, flagstones, boards). */
-export const toonMap = (map: THREE.Texture) => new THREE.MeshToonMaterial({ color: '#ffffff', map, gradientMap: (toon('#fff') as THREE.MeshToonMaterial).gradientMap });
+export const toonMap = (map: THREE.Texture) => new THREE.MeshStandardMaterial({ color: '#ffffff', map });
 
 /** A floor's colors as heraldry: its trim's hue, deep and rich, for the banners and the shields. */
 export function heraldry(p: FloorPalette): string {

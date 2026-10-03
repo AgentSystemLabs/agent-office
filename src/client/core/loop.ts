@@ -189,10 +189,10 @@ export function installLoop(ctx: Ctx, core: CoreState, parts: Pick<Parts, 'stage
   /** The scene, then your hands on top of it. */
   function drawScene() {
     const { player, hands, sky, camera, renderer } = ctx;
-    const { effect, scene } = parts.stage;
+    const { post, scene } = parts.stage;
     const firstPerson = player.view === 'first';
     const unhide = firstBody?.hideExtras();
-    effect.render(scene, camera);
+    post.render(scene, camera);
     unhide?.();
     // Not while something has the screen to itself (the telescope, the boss's monitor or the arcade up close), where they'd cover it.
     if (firstPerson && !ctx.view.covered() && !ctx.activities.any('hidesHands')) {
@@ -201,7 +201,9 @@ export function installLoop(ctx: Ctx, core: CoreState, parts: Pick<Parts, 'stage
       renderer.clearDepth();
       hands.setLight(sky.lightAt(camera.position));
       sky.shading(false);
-      effect.render(hands.scene, hands.camera);
+      renderer.autoClear = false;
+      renderer.render(hands.scene, hands.camera);
+      renderer.autoClear = true;
       sky.shading(true);
     }
   }

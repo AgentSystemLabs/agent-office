@@ -1,3 +1,4 @@
+// Retired: the rooftop is an alcohol-free café now, and nothing imports this any more.
 import * as THREE from 'three';
 
 /**

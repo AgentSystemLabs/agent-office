@@ -35,7 +35,7 @@ export interface Kit {
   /** What paints itself over later: the stained glass (dimmer at night), the banners and the shields (in a floor's colors). */
   glass: THREE.MeshBasicMaterial[];
   banners: Banner[];
-  shields: THREE.MeshToonMaterial[];
+  shields: THREE.MeshStandardMaterial[];
   /** How many windows so far, so each one's glass is its own pattern. */
   windows: number;
   gong?: Gong;

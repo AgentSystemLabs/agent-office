@@ -1,26 +1,13 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
-let gradient: THREE.DataTexture | null = null;
+const cache = new Map<string, THREE.MeshStandardMaterial>();
 
-/** Three-step ramp that gives MeshToonMaterial its flat cartoon banding. */
-function gradientMap(): THREE.DataTexture {
-  if (gradient) return gradient;
-  const data = new Uint8Array([90, 90, 90, 255, 185, 185, 185, 255, 255, 255, 255, 255]);
-  gradient = new THREE.DataTexture(data, 3, 1, THREE.RGBAFormat);
-  gradient.minFilter = THREE.NearestFilter;
-  gradient.magFilter = THREE.NearestFilter;
-  gradient.needsUpdate = true;
-  return gradient;
-}
-
-const cache = new Map<string, THREE.MeshToonMaterial>();
-
-export function toon(color: THREE.ColorRepresentation, opts: { emissive?: THREE.ColorRepresentation; transparent?: boolean; opacity?: number } = {}): THREE.MeshToonMaterial {
+export function toon(color: THREE.ColorRepresentation, opts: { emissive?: THREE.ColorRepresentation; transparent?: boolean; opacity?: number } = {}): THREE.MeshStandardMaterial {
   const key = `${new THREE.Color(color).getHexString()}|${opts.emissive ?? ''}|${opts.opacity ?? 1}`;
   const hit = cache.get(key);
   if (hit) return hit;
-  const m = new THREE.MeshToonMaterial({ color, gradientMap: gradientMap() });
+  const m = new THREE.MeshStandardMaterial({ color, roughness: 0.7, metalness: 0 });
   if (opts.emissive !== undefined) m.emissive = new THREE.Color(opts.emissive);
   if (opts.transparent || (opts.opacity ?? 1) < 1) {
     m.transparent = true;
@@ -31,8 +18,8 @@ export function toon(color: THREE.ColorRepresentation, opts: { emissive?: THREE.
 }
 
 /** A fresh (uncached) toon material, for things whose color animates. */
-export function toonUnique(color: THREE.ColorRepresentation): THREE.MeshToonMaterial {
-  return new THREE.MeshToonMaterial({ color, gradientMap: gradientMap() });
+export function toonUnique(color: THREE.ColorRepresentation): THREE.MeshStandardMaterial {
+  return new THREE.MeshStandardMaterial({ color, roughness: 0.7, metalness: 0 });
 }
 
 export function mesh(geo: THREE.BufferGeometry, mat: THREE.Material, x = 0, y = 0, z = 0, shadow = true): THREE.Mesh {
@@ -286,7 +273,7 @@ export function mergeByMaterial(root: THREE.Object3D): THREE.Group {
   return out;
 }
 
-let painted: THREE.MeshToonMaterial | null = null;
+let painted: THREE.MeshStandardMaterial | null = null;
 
 /**
  * Like mergeByMaterial, but every plain toon mesh under `root` (one color, no texture, no glow, not
@@ -303,7 +290,7 @@ export function mergeByColor(root: THREE.Object3D): THREE.Group {
     if (!m.isMesh) return;
     const rel = new THREE.Matrix4().multiplyMatrices(inv, m.matrixWorld);
     const mat = m.material as THREE.Material;
-    const plain = mat instanceof THREE.MeshToonMaterial && !mat.map && !mat.transparent && !mat.vertexColors && mat.emissive.getHex() === 0 && mat.side === THREE.FrontSide;
+    const plain = mat instanceof THREE.MeshStandardMaterial && !mat.map && !mat.transparent && !mat.vertexColors && mat.emissive.getHex() === 0 && mat.side === THREE.FrontSide;
     if (!plain) {
       const copy = new THREE.Mesh(m.geometry, mat);
       copy.applyMatrix4(rel);
@@ -322,7 +309,7 @@ export function mergeByColor(root: THREE.Object3D): THREE.Group {
     (m.castShadow ? geos.cast : geos.still).push(geo);
   });
   const out = other.children.length ? mergeByMaterial(other) : new THREE.Group();
-  painted ??= new THREE.MeshToonMaterial({ vertexColors: true, gradientMap: gradientMap() });
+  painted ??= new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, metalness: 0 });
   for (const [list, cast] of [
     [geos.cast, true],
     [geos.still, false],

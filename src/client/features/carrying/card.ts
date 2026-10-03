@@ -62,7 +62,7 @@ export class HeldCard {
     if (this.mesh) {
       this.parent.remove(this.mesh);
       this.mesh.geometry.dispose();
-      const face = (this.mesh.material as THREE.MeshToonMaterial[])[4];
+      const face = (this.mesh.material as THREE.MeshStandardMaterial[])[4];
       face.map?.dispose();
       face.dispose();
       this.mesh = null;

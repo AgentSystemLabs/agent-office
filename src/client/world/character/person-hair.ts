@@ -3,7 +3,7 @@ import { HAIR_STYLES } from '../../../shared/avatar';
 import { mesh } from '../toon';
 
 /** Hair is a set of shapes on the head (whose center is 0,0,0; the face looks down +z), in `style` (of HAIR_STYLES). */
-export function styleHair(hair: THREE.Group, m: THREE.MeshToonMaterial, style: number) {
+export function styleHair(hair: THREE.Group, m: THREE.MeshStandardMaterial, style: number) {
   for (const o of hair.children) (o as THREE.Mesh).geometry.dispose();
   hair.clear();
   const add = (geo: THREE.BufferGeometry, x: number, y: number, z: number, rx = 0, rz = 0) => {

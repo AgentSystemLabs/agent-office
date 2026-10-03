@@ -7,7 +7,7 @@ import * as THREE from 'three';
 import { sameLook } from '../../../shared/avatar';
 import { seatOn } from '../../../shared/maps';
 import type { PeerInfo } from '../../../shared/protocol';
-import { DRINK_BY_ID } from '../../../shared/rooftop';
+import { ITEM_BY_ID } from '../../../shared/rooftop';
 import { SEAT_HIPS } from '../../../shared/garage';
 import { gripOf, type Grip } from '../climbing/controller';
 import type { Ctx } from '../../core/context';
@@ -79,7 +79,7 @@ export function installPeers(ctx: Ctx, core: CoreState, parts: Pick<Parts, 'puff
       r.person.setSmoking(!!peer.smoking);
       r.person.setGolf(!!peer.golfing);
       r.person.setThrowing(peer.throwing ?? null);
-      r.person.holdDrink(peer.drink ? (DRINK_BY_ID.get(peer.drink) ?? null) : null);
+      r.person.holdDrink(peer.drink ? (ITEM_BY_ID.get(peer.drink) ?? null) : null);
       r.person.carry(peer.carrying);
       r.person.read(!!peer.reading);
       r.person.sit(store.carOf(id) ? SEAT_HIPS : peer.seat ? (seatOn(plan(), peer.seat)?.hips ?? null) : null);
@@ -169,14 +169,14 @@ export function installPeers(ctx: Ctx, core: CoreState, parts: Pick<Parts, 'puff
   ctx.messages.on('peer.act', (msg) => {
     const r = remotes.get(msg.id);
     if (msg.drink !== undefined) {
-      // A drink from the rooftop bar in their hand, or put down.
+      // A drink or a bite from the rooftop café in their hand, or put down.
       const p = store.peers.get(msg.id);
       if (p) {
         if (msg.drink) p.drink = msg.drink;
         else delete p.drink;
       }
       if (msg.drink) r?.person.reach();
-      r?.person.holdDrink(msg.drink ? (DRINK_BY_ID.get(msg.drink) ?? null) : null);
+      r?.person.holdDrink(msg.drink ? (ITEM_BY_ID.get(msg.drink) ?? null) : null);
       return;
     }
     if (msg.throwing !== undefined) {

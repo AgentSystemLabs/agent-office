@@ -3,7 +3,7 @@ import type { Theme, ThemePick } from './protocol.js';
 // Holiday themes: the whole building dresses up for Halloween or Christmas. The server keeps
 // what's picked (server/theme.ts); every browser dresses its own scene up from that.
 
-export const THEME_PICKS: readonly ThemePick[] = ['auto', 'halloween', 'christmas', 'off'];
+export const THEME_PICKS: readonly ThemePick[] = ['auto', 'christmas', 'off'];
 
 /**
  * The holiday it is on the office's calendar, if any: Halloween all through October, Christmas all
@@ -11,11 +11,13 @@ export const THEME_PICKS: readonly ThemePick[] = ['auto', 'halloween', 'christma
  */
 export function calendarTheme(ms: number, utcOffset: number): Theme | null {
   const month = new Date(ms + utcOffset * 60_000).getUTCMonth();
-  return month === 9 ? 'halloween' : month === 11 ? 'christmas' : null;
+  // Halloween is retired here (its code is kept, but nothing turns it on).
+  return month === 11 ? 'christmas' : null;
 }
 
 /** What a pick puts up at `ms` on the office's clock. */
 export function activeTheme(pick: ThemePick, ms: number, utcOffset: number): Theme | null {
+  if (pick === 'halloween') return null;
   return pick === 'auto' ? calendarTheme(ms, utcOffset) : pick === 'off' ? null : pick;
 }
 

@@ -3,7 +3,7 @@
  * humming fridge, workers typing while they work, footsteps, the coffee machine, birds outside the
  * windows by day and crickets at night, rain and thunder, the odd rustle, the gong, the dog
  * barking, and the dings when a worker needs you. And the lounge jukebox, whose tunes are in music.ts,
- * and up on the roof, the wind, the city far below and the DJ's drum and bass (../dnb.ts).
+ * and up on the roof, the wind and the city far below.
  *
  * Everything goes through one master gain that Settings turns down or mutes. Voice chat doesn't, and
  * the jukebox has a volume of its own.
@@ -18,7 +18,7 @@ import { birdsong, Fridge, nightCrickets, startRoomTone, startWind } from './amb
 import { ding } from './alerts';
 import { arcade } from '../features/cabinet/sound';
 import { ball, type BallSound } from '../features/basketball/sound';
-import { Dj, hiccup, pour } from '../features/bar/sound';
+import { serve } from '../features/bar/sound';
 import { carDoor, crash, honk, Motors, type Engine } from '../features/cars/sound';
 import { bonk, hatch, poleLanding, rung, slide, twirl } from '../features/climbing/sound';
 import { coffee } from '../features/coffee/sound';
@@ -38,7 +38,6 @@ import { Rain, thunder } from './weather';
 export class OfficeSound {
   private readonly a: AudioCore = new AudioCore({ start: (ctx) => this.start(ctx), touched: () => this.music.touched() });
   private readonly music = new Jukebox(this.a, (text) => this.onMusicError?.(text));
-  private readonly dj = new Dj(this.a);
   private readonly typing = new Typing(this.a);
   private readonly feet = new Footsteps(this.a);
   private readonly motors = new Motors(this.a);
@@ -63,10 +62,9 @@ export class OfficeSound {
     this.a.every((now) => this.fidgets.tick(now));
   }
 
-  /** Audio has just started (see AudioCore.unlock): the jukebox and the DJ join the graph, and the room starts up. */
+  /** Audio has just started (see AudioCore.unlock): the jukebox joins the graph, and the room starts up. */
   private start(ctx: AudioContext) {
     this.music.connect(ctx);
-    this.dj.connect(this.music.musicBus);
     this.a.applyVolume();
     this.music.applyMusicVolume();
     this.music.applyJukebox();
@@ -75,7 +73,6 @@ export class OfficeSound {
     this.fridge.startFridge();
     startWind(this.a);
     this.a.applyOutdoors();
-    this.dj.applyDj();
     const now = ctx.currentTime;
     this.birds.start(now);
     this.crickets.start(now);
@@ -92,6 +89,11 @@ export class OfficeSound {
   /** The weather outside (see world/sky.ts), every frame. */
   setWeather(rain: number, night: number) {
     this.a.setWeather(rain, night);
+  }
+
+  /** What a feature with sounds of its own (features/ambience) joins the office's on: the audio context and the room's bus. Null until the page has been touched. */
+  audioBus(): { ctx: AudioContext; out: AudioNode } | null {
+    return this.a.ctx ? { ctx: this.a.ctx, out: this.a.ambience } : null;
   }
 
   /** Output level (RMS) right now, for headless checks. */
@@ -273,23 +275,11 @@ export class OfficeSound {
     needsYou(this.a, again);
   }
 
-  // ---- The rooftop bar (features/bar) -------------------------------------------------------------
+  // ---- The rooftop café (features/bar) ------------------------------------------------------------
 
-  /** The DJ's set on the roof, `clock` saying how far into it it is (see djTime); null stops it. */
-  setDj(clock: (() => number) | null) {
-    this.dj.setDj(clock);
-  }
-
-  horn() {
-    this.dj.horn();
-  }
-
-  pour(at: Pos) {
-    pour(this.a, at);
-  }
-
-  hiccup() {
-    hiccup(this.a);
+  /** The barista making a drink (or setting down a plate) at the counter, heard from `at`. */
+  serve(at: Pos, drink = true) {
+    serve(this.a, at, drink);
   }
 
   // ---- The jukebox (features/jukebox) -------------------------------------------------------------

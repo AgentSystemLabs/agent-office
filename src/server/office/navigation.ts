@@ -25,7 +25,7 @@ export function navigation(ctx: Ctx): Navigation {
     ctx.floorsChanged();
   };
 
-  /** Up to the rooftop bar, by elevator. */
+  /** Up to the rooftop café, by elevator. */
   const goToRoof = (c: Client) => {
     if (c.peer.floor === ROOF) return;
     const left = leave(c);

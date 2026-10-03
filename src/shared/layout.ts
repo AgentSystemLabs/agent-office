@@ -2,6 +2,9 @@
 // Units are meters; +y is up. The office floor spans FLOOR.minX..maxX / minZ..maxZ at y = 0,
 // upstairs over a garage whose floor is level with the street (STREET_Y).
 
+import { CHESS_SEATS } from './chess-seats.js';
+import { GARDEN_SEATS } from './garden.js';
+
 export const FLOOR = { minX: -18, maxX: 18, minZ: -13, maxZ: 13 } as const;
 /** How high the ceiling is: a meter over the loft's roof (LOFT.y + LOFT.height), all the way across the room. */
 export const WALL_HEIGHT = 6.8;
@@ -392,7 +395,7 @@ export const GOLF_HOLE = { x: -5, z: 58, green: 5.5, fairway: [-11, 0] } as cons
  */
 export const PARACHUTE = { jump: { x: BALCONY_DOOR.u, z: BALCONY.maxZ - 0.45 }, railTop: 1.09, out: 1.2, east: [0.6, 1.8] } as const;
 
-// ---- The rooftop bar (see shared/rooftop.ts) ------------------------------------------------------
+// ---- The rooftop café (see shared/rooftop.ts) -------------------------------------------------------
 // The roof of the building, level with the office floor's y = 0 and the same size, so the elevator
 // comes up in its usual spot. A glass railing runs round the edge, and the city is far below.
 
@@ -403,17 +406,27 @@ export const PARACHUTE = { jump: { x: BALCONY_DOOR.u, z: BALCONY.maxZ - 0.45 }, 
 export function roofDrop(floors: number): number {
   return -streetBelow(Math.max(1, floors));
 }
-/** The DJ's stage, against the north edge west of the elevator, with the dance floor in front of it. */
-export const STAGE = { minX: -8, maxX: 2, minZ: FLOOR.minZ, maxZ: -9.2, height: 0.6 } as const;
-/** Where the DJ stands behind the decks, facing the dance floor (+z). */
-export const DJ_BOOTH = { x: -3, z: -11.3 } as const;
-/** LED tiles, a meter each, lighting up with the music. */
-export const DANCE_FLOOR = { minX: -8, maxX: 2, minZ: -9.2, maxZ: -2.2 } as const;
-/** The bar along the east side: its counter (x is its middle), with the bartender and the bottles behind it. */
+/**
+ * Two parts of the roof kept free of the café for other things to be built in (nothing is there yet
+ * but the roof's own deck and railing): a garden in the south-west corner, and a games corner against
+ * the north edge, where the DJ's stage and the dance floor used to be.
+ */
+export const ROOF_CLEAR = {
+  garden: { minX: -17.8, maxX: -4, minZ: 3, maxZ: 12.8 },
+  games: { minX: -9, maxX: 1, minZ: -12.5, maxZ: -2.5 },
+} as const;
+/** The café counter along the east side: its middle (x), with the barista and the shelves behind it. */
 export const ROOF_BAR = { x: 12.95, minZ: -6, maxZ: 4, depth: 0.7, height: 1.1 } as const;
-/** The fire pit in the lounge, in the south-west corner, with sofas round three sides of it. */
-export const FIRE_PIT = { x: -12, z: 8.2, r: 0.9 } as const;
-/** Tall tables to stand at, between the elevator and the bar. */
+/** Round café tables to sit at, each with a chair either side of it (x-wise), between the elevator and the counter. */
+export const CAFE_TABLES: readonly { x: number; z: number }[] = [
+  { x: 4.2, z: -5.8 },
+  { x: 4.2, z: -1.6 },
+  { x: 4.2, z: 2.6 },
+  { x: 10, z: -4.8 },
+  { x: 10, z: -0.8 },
+  { x: 10, z: 3 },
+];
+/** Tall tables to stand at, south of the café tables. */
 export const ROOF_TABLES: readonly { x: number; z: number }[] = [
   { x: 6.6, z: 5.2 },
   { x: 9.6, z: 8.8 },
@@ -446,9 +459,9 @@ export interface SeatDef {
   tv?: boolean;
   /** It faces the boss's monitor: E there, sitting down, plays Minesweeper on it. */
   game?: boolean;
-  /** Up on the rooftop bar, not in the office. */
+  /** Up on the rooftop café, not in the office. */
   roof?: boolean;
-  /** At the bar: E there, sitting down, orders a drink. */
+  /** At the counter: E there, sitting down, opens the menu. */
   bar?: boolean;
 }
 
@@ -469,15 +482,17 @@ export const SEATING: SeatDef[] = [
   { id: 'bench', label: '🪑 Bench', x: -9, y: 0, z: BALCONY.minZ + 0.3, rotY: 0, places: [-0.5, 0.5], hips: 0.47, depth: 0, out: 0.8 },
   { id: 'stool-1', label: '🪑 Stool', x: -0.6, y: 0, z: (BALCONY.minZ + BALCONY.maxZ) / 2 + 0.2, rotY: Math.PI / 2, places: [0], hips: 0.5, depth: 0, out: -0.7 },
   { id: 'stool-2', label: '🪑 Stool', x: 1, y: 0, z: (BALCONY.minZ + BALCONY.maxZ) / 2 + 0.2, rotY: -Math.PI / 2, places: [0], hips: 0.5, depth: 0, out: -0.7 },
-  // On the roof: bar stools along the counter, facing the bar…
+  // On the roof: stools along the café counter, facing it…
   ...[0, 1, 2, 3, 4, 5].map((i) => ({ id: `roof-stool-${i + 1}`, label: '🪑 Bar stool', x: ROOF_BAR.x - ROOF_BAR.depth / 2 - 0.45, y: 0, z: ROOF_BAR.minZ + 0.9 + i * 1.64, rotY: Math.PI / 2, places: [0], hips: 0.78, depth: 0, out: -0.75, roof: true, bar: true })),
-  // …sofas round the fire pit, open to the view on the south…
-  { id: 'roof-sofa-1', label: '🛋️ Sofa', x: FIRE_PIT.x, y: 0, z: FIRE_PIT.z - 2.3, rotY: 0, places: [-1.1, 0, 1.1], hips: 0.5, depth: -0.05, out: 0.8, roof: true },
-  { id: 'roof-sofa-2', label: '🛋️ Sofa', x: FIRE_PIT.x - 2.9, y: 0, z: FIRE_PIT.z + 0.4, rotY: Math.PI / 2, places: [-0.6, 0.6], hips: 0.5, depth: -0.05, out: 0.8, roof: true },
-  { id: 'roof-sofa-3', label: '🛋️ Sofa', x: FIRE_PIT.x + 2.9, y: 0, z: FIRE_PIT.z + 0.4, rotY: -Math.PI / 2, places: [-0.6, 0.6], hips: 0.5, depth: -0.05, out: 0.8, roof: true },
+  // …a chair either side of each café table, facing it…
+  ...CAFE_TABLES.flatMap(({ x, z }, i) =>
+    [-1, 1].map((s, j) => ({ id: `roof-chair-${i * 2 + j + 1}`, label: '🪑 Café chair', x: x + s * 0.78, y: 0, z, rotY: -s * (Math.PI / 2), places: [0], hips: 0.5, depth: 0, out: -0.7, roof: true })),
+  ),
   // …and sun loungers facing out over the city.
   ...LOUNGERS.map((x, i) => ({ id: `roof-lounger-${i + 1}`, label: '🏖️ Lounger', x, y: 0, z: FLOOR.maxZ - 1.5, rotY: 0, places: [0], hips: 0.42, depth: -0.2, out: -1, roof: true })),
 ];
+// The thinking garden's benches and loungers (shared/garden.ts) and the chess chairs (shared/chess-seats.ts).
+SEATING.push(...GARDEN_SEATS, ...CHESS_SEATS);
 export const SEATING_BY_ID = new Map(SEATING.map((s) => [s.id, s]));
 
 /** One place on a seat: where your feet go on its floor, the way you face, and the rest of what sitting there takes. */

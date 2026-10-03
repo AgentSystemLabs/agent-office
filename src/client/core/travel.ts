@@ -120,7 +120,7 @@ export function installTravel(ctx: Ctx, core: CoreState, parts: TravelParts) {
     if (!inOffice()) {
       if (to === ROOF || to === GARAGE) {
         parts.walking.stopWalkingTo();
-        toast(`There's no ${to === ROOF ? 'rooftop bar' : 'garage'} on this map (${plan().icon} ${plan().name})`, 'warn');
+        toast(`There's no ${to === ROOF ? 'rooftop café' : 'garage'} on this map (${plan().icon} ${plan().name})`, 'warn');
         return;
       }
       // Still up on a roof this map doesn't have: straight down to that floor.
@@ -279,12 +279,11 @@ export function installTravel(ctx: Ctx, core: CoreState, parts: TravelParts) {
     player.colliders = up ? r!.colliders : world.colliders;
     sky.setRoof(up, roofDrop(rooftop.roofFloors()));
     sound.setOutdoors(up);
-    sound.setDj(up ? rooftop.djAt : null);
     // You can see the whole city from up there (and its clouds); from the top floors, as far as the haze.
     camera.far = up ? 700 : FAR;
     camera.updateProjectionMatrix();
-    // Drinks stay at the bar (what you've had comes down with you).
-    if (!up) parts.bar.booze.putDown();
+    // What you ordered stays at the café.
+    if (!up) parts.bar.putDown();
     // Whatever was thrown up there while you were away, you didn't see: the boards start clean.
     if (up) parts.bargames.freshBoards(r!);
     const { hanger } = parts.hanging;

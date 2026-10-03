@@ -153,7 +153,7 @@ export class Dog {
    * it; unlike `ready`, a later breed never makes it wait again. Never rejects.
    */
   readonly firstReady = new Promise<void>((resolve) => (this.firstIn = resolve));
-  private coatMats: [THREE.MeshToonMaterial, THREE.MeshToonMaterial, THREE.MeshToonMaterial];
+  private coatMats: [THREE.MeshStandardMaterial, THREE.MeshStandardMaterial, THREE.MeshStandardMaterial];
   private coat = -1;
   private tag: THREE.Sprite | null = null;
   private tagName = '';
@@ -176,7 +176,7 @@ export class Dog {
   private costume: Theme | null = null;
   private outfit: THREE.Object3D[] = [];
   private wings: THREE.Object3D[] = [];
-  private rudolph: THREE.MeshToonMaterial | null = null;
+  private rudolph: THREE.MeshStandardMaterial | null = null;
 
   constructor(
     private sounds: DogSounds,

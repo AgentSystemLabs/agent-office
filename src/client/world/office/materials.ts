@@ -130,7 +130,7 @@ export function box(w: number, h: number, d: number) {
 
 /** The materials and textures a floor paints in its own colors. */
 export interface Looks {
-  wall: THREE.MeshToonMaterial;
-  trim: THREE.MeshToonMaterial;
+  wall: THREE.MeshStandardMaterial;
+  trim: THREE.MeshStandardMaterial;
   planks: THREE.CanvasTexture[];
 }

@@ -20,7 +20,7 @@ export class Worker {
   private body = new THREE.Group();
   /** Its moving parts, for what poses them from the other files here (a dance, a cell, a costume). */
   private rig: WorkerRig;
-  private bulb: THREE.MeshToonMaterial;
+  private bulb: THREE.MeshStandardMaterial;
   private bulbMesh: THREE.Mesh;
   private armL: THREE.Object3D;
   private armR: THREE.Object3D;
@@ -70,7 +70,7 @@ export class Worker {
   private globe: ReturnType<typeof globe>;
   /** Beside its laptop, where the globe floats (see setPropSpot). */
   private spot = new THREE.Vector3(-1, 1.1, 1.3);
-  private skin: THREE.MeshToonMaterial;
+  private skin: THREE.MeshStandardMaterial;
   /** Dressed up for a holiday (see setCostume), and what it's wearing. */
   private costume: Theme | null = null;
   private outfit: THREE.Object3D[] = [];

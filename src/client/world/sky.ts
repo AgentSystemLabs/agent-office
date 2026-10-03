@@ -695,19 +695,19 @@ export class Sky {
     }
     this.lightning(t, dt);
     const flash = this.flash;
-    const sunI = 2.2 * smooth(-3, 10, elD) * (1 - 0.8 * this.cover) * (1 - 0.6 * this.fog) * (1 - 0.65 * sp);
+    const sunI = 1.7 * smooth(-3, 10, elD) * (1 - 0.8 * this.cover) * (1 - 0.6 * this.fog) * (1 - 0.65 * sp);
     const moonI = 0.4 * smooth(-4, -12, elD) * (1 - 0.75 * this.cover);
-    const hemiI = lerp(0.38, 1.5 * (1 - 0.25 * this.cover) * (1 - 0.35 * this.storm), day);
-    const ambI = lerp(0.12, 0.5, day);
+    const hemiI = lerp(0.2, 0.55 * (1 - 0.25 * this.cover) * (1 - 0.35 * this.storm), day);
+    const ambI = lerp(0.06, 0.15, day);
     const { sun, hemi, ambient } = this.lights;
     hemi.intensity = hemiI + flash * 3;
     hemi.color.copy(C.hemiSkyNight).lerp(C.hemiSky, day).lerp(SPOOKY.hemiSky, sp * 0.5);
     hemi.groundColor.copy(C.hemiGroundNight).lerp(C.hemiGround, day).lerp(SPOOKY.hemiGround, sp * 0.5);
     ambient.intensity = ambI + flash;
     ambient.color.copy(C.ambientNight).lerp(C.white, day);
-    // A cartoon sun: never so low its shadows fill the room. At night the moon lights things, from across the sky.
+    // A real sun, low enough for long shadows and slanting light through the windows. At night the moon lights things, from across the sky.
     const moonlit = elD < -4;
-    const lightEl = (moonlit ? 50 : 25 + Math.max(0, elD) * 0.6) * DEG;
+    const lightEl = (moonlit ? 50 : 14 + Math.max(0, elD) * 0.65) * DEG;
     const lightAz = moonlit ? az + Math.PI : az;
     this.dir.set(Math.cos(lightEl) * Math.sin(lightAz), Math.sin(lightEl), -Math.cos(lightEl) * Math.cos(lightAz));
     sun.position.copy(sun.target.position).addScaledVector(this.dir, 45);

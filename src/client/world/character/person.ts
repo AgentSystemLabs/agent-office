@@ -3,7 +3,7 @@ import { HAIR_COLORS, HAIR_STYLES, SKIN_TONES, type Look } from '../../../shared
 import { EMOTE_BY_ID, type EmoteId } from '../../../shared/emotes';
 import type { CarriedIssue, Theme } from '../../../shared/protocol';
 import type { BarGame } from '../../../shared/bargames';
-import type { Drink } from '../../../shared/rooftop';
+import type { MenuItem } from '../../../shared/rooftop';
 import { HIPS, type PersonRig } from './rig';
 import { axeModel, dartModel } from '../../features/bargames/world';
 import { OpenBook } from '../../features/bookshelf/book';
@@ -12,7 +12,7 @@ import { UNDEAD_SKIN } from '../costumes';
 import { HolidayOutfit } from './person-outfit';
 import { disposeSprite, mesh, textSprite, toon, toonUnique } from '../toon';
 import { EXHALE_AT, REACH_TIME, SMOKE_CYCLE, dragCurve, reachCurve } from './curves';
-import { cigarette, coffeeMug, drinkGlass, putDownGlass } from './props';
+import { cigarette, coffeeMug, putDownGlass, serving } from './props';
 import { styleHair } from './person-hair';
 import { clubSwing, strike, swingStep, type Golf } from './person-golf';
 import { propPosition, throwStep, type Oche } from './person-throw';
@@ -40,9 +40,9 @@ export class Person {
   private legR: THREE.Object3D;
   private armL: THREE.Object3D;
   private armR: THREE.Object3D;
-  private shirt: THREE.MeshToonMaterial;
-  private skin: THREE.MeshToonMaterial;
-  private hairMat: THREE.MeshToonMaterial;
+  private shirt: THREE.MeshStandardMaterial;
+  private skin: THREE.MeshStandardMaterial;
+  private hairMat: THREE.MeshStandardMaterial;
   private hair = new THREE.Group();
   private look: Look;
   private label: THREE.Sprite | null = null;
@@ -65,7 +65,7 @@ export class Person {
   private mug = new THREE.Group();
   private cup: THREE.Group;
   private wantsMug = false;
-  /** A drink from the rooftop bar, in the mug's place. */
+  /** A drink or a bite from the rooftop café, in the mug's place. */
   private glass: { id: string; group: THREE.Group } | null = null;
   /** An issue card off the board, held out in front in both hands. */
   private card: HeldCard;
@@ -78,7 +78,7 @@ export class Person {
   private shootT = -1;
   pose: Pose = 'stand';
   private cig: THREE.Group;
-  private ember: THREE.MeshToonMaterial;
+  private ember: THREE.MeshStandardMaterial;
   /** Seconds into a smoke break, or -1 when not on one. */
   private smokeT = -1;
   private wispIn = 0;
@@ -348,15 +348,15 @@ export class Person {
     this.mug.visible = (on || !!this.glass) && !this.card.held && !this.book && !this.ball && this.oche?.game !== 'axe';
   }
 
-  /** A drink from the rooftop bar in the left hand (in place of a mug), or none (null). */
-  holdDrink(d: Drink | null) {
+  /** A drink or a bite from the rooftop café in the left hand (in place of a mug), or none (null). */
+  holdDrink(d: MenuItem | null) {
     if ((d?.id ?? null) === (this.glass?.id ?? null)) return;
     if (this.glass) {
       putDownGlass(this.glass.group);
       this.glass = null;
     }
     if (d) {
-      const group = drinkGlass(d, 1.4);
+      const group = serving(d, 1.4);
       group.position.set(0.02, -0.08, 0.1);
       this.mug.add(group);
       this.glass = { id: d.id, group };

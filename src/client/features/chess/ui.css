@@ -1,0 +1,3 @@
+.chess-hud { position: absolute; left: 50%; top: 14px; transform: translateX(-50%); width: max-content; max-width: min(560px, calc(100vw - 32px)); padding: 8px 14px 9px; display: grid; gap: 3px; text-align: center; pointer-events: none !important; }
+.chess-line { font-size: 14px; font-weight: 900; }
+.chess-tip { font-size: 12px; font-weight: 700; opacity: .75; }
