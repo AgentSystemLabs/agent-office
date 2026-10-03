@@ -4,7 +4,7 @@ import { voxelBall, voxelBox, voxelCapsule, voxelMaterial } from '../voxel';
 import { STATUS_BULB } from './worker-badges';
 
 /** A fine voxel office worker on the existing rig: +z is its face and its typing direction. */
-export function workerModel(body: THREE.Group, skin: THREE.MeshToonMaterial, bulb: THREE.MeshToonMaterial) {
+export function workerModel(body: THREE.Group, skin: THREE.MeshToonMaterial | THREE.MeshStandardMaterial, bulb: THREE.MeshToonMaterial | THREE.MeshStandardMaterial) {
   const face = voxelMaterial(toon('#f3caa4')), ink = voxelMaterial(toon('#293348'));
   const white = voxelMaterial(toon('#fff9ef')), pants = voxelMaterial(toon('#35475e'));
   voxelMaterial(skin); voxelMaterial(bulb);

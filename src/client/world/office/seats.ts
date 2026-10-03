@@ -97,7 +97,7 @@ export function buildDesk(def: DeskDef, index: number, trimMat: THREE.Material):
   stage.position.set(0.72, height - 0.07, 0.18);
   group.add(stage);
 
-  const ch = officeChair(PALETTE.chairs[index % PALETTE.chairs.length]);
+  const ch = chair(PALETTE.chairs[index % PALETTE.chairs.length]);
   ch.position.set(0, 0, 0.9);
   group.add(ch);
 
