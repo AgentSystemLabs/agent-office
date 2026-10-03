@@ -1,3 +1,4 @@
+import { blockCylinder, blockBall, blockCone, blockCapsule } from '../../world/blocky';
 import * as THREE from 'three';
 import { DRINKS, FOODS, type MenuItem } from '../../../shared/rooftop';
 import { FLOOR, ROOF_BAR } from '../../../shared/layout';
@@ -67,7 +68,7 @@ export function buildCafe({ group, statics, colliders, interactables, night }: R
   bar.add(mesh(new THREE.BoxGeometry(ROOF_BAR.depth, top - 0.06, blen), plaster, bx, (top - 0.06) / 2, bz));
   for (let z = ROOF_BAR.minZ + 0.15; z < ROOF_BAR.maxZ; z += 0.3) bar.add(mesh(new THREE.BoxGeometry(0.03, top - 0.2, 0.12), timber, front - 0.012, top / 2, z, false));
   bar.add(mesh(new THREE.BoxGeometry(ROOF_BAR.depth + 0.2, 0.06, blen + 0.2), toon('#dcb888'), bx - 0.05, top - 0.03, bz));
-  const footRail = mesh(new THREE.CylinderGeometry(0.03, 0.03, blen, 8), toon(BRASS), front - 0.2, 0.22, bz, false);
+  const footRail = mesh(blockCylinder(0.03, 0.03, blen, 8), toon(BRASS), front - 0.2, 0.22, bz, false);
   footRail.rotation.x = Math.PI / 2;
   bar.add(footRail);
   const underGlow = new THREE.MeshBasicMaterial({ color: '#ffb870' });
@@ -83,32 +84,32 @@ export function buildCafe({ group, statics, colliders, interactables, night }: R
   bar.add(mesh(new THREE.BoxGeometry(0.5, 0.4, 0.8), chrome, bx, top + 0.2, mz));
   bar.add(mesh(new THREE.BoxGeometry(0.52, 0.04, 0.82), dark, bx, top + 0.42, mz, false));
   bar.add(mesh(new THREE.BoxGeometry(0.02, 0.1, 0.7), toon('#c9772e'), bx - 0.26, top + 0.22, mz, false));
-  bar.add(mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.02, 14).rotateZ(Math.PI / 2), dark, bx - 0.26, top + 0.32, mz, false));
+  bar.add(mesh(blockCylinder(0.035, 0.035, 0.02, 14).rotateZ(Math.PI / 2), dark, bx - 0.26, top + 0.32, mz, false));
   bar.add(mesh(new THREE.BoxGeometry(0.2, 0.025, 0.7), dark, bx + 0.34, top + 0.015, mz, false));
   for (const dz of [-0.2, 0.2]) {
-    bar.add(mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.07, 12), dark, bx + 0.22, top + 0.26, mz + dz, false));
+    bar.add(mesh(blockCylinder(0.05, 0.05, 0.07, 12), dark, bx + 0.22, top + 0.26, mz + dz, false));
     bar.add(mesh(new THREE.BoxGeometry(0.2, 0.03, 0.04), toon('#1d1d1d'), bx + 0.34, top + 0.26, mz + dz, false));
-    bar.add(mesh(new THREE.CylinderGeometry(0.04, 0.034, 0.06, 12), china, bx + 0.34, top + 0.07, mz + dz, false));
+    bar.add(mesh(blockCylinder(0.04, 0.034, 0.06, 12), china, bx + 0.34, top + 0.07, mz + dz, false));
   }
   // …a grinder with a hopper of beans…
   bar.add(mesh(new THREE.BoxGeometry(0.22, 0.36, 0.26), dark, bx, top + 0.18, -3.6));
-  bar.add(mesh(new THREE.CylinderGeometry(0.1, 0.05, 0.22, 14), toon('#6b4a2e'), bx, top + 0.47, -3.6, false));
+  bar.add(mesh(blockCylinder(0.1, 0.05, 0.22, 14), toon('#6b4a2e'), bx, top + 0.47, -3.6, false));
   // …stacks of cups…
   for (const [z, n] of [
     [-4.5, 4],
     [-4.9, 3],
     [-5.3, 4],
   ] as const)
-    for (let k = 0; k < n; k++) bar.add(mesh(new THREE.CylinderGeometry(0.05, 0.04, 0.045, 12), china, bx - 0.05, top + 0.0225 + k * 0.04, z, false));
+    for (let k = 0; k < n; k++) bar.add(mesh(blockCylinder(0.05, 0.04, 0.045, 12), china, bx - 0.05, top + 0.0225 + k * 0.04, z, false));
   // …and a pot of herbs by the till.
-  bar.add(mesh(new THREE.CylinderGeometry(0.12, 0.09, 0.15, 12), toon('#c4703f'), bx - 0.1, top + 0.075, 3.4));
+  bar.add(mesh(blockCylinder(0.12, 0.09, 0.15, 12), toon('#c4703f'), bx - 0.1, top + 0.075, 3.4));
   for (const [x, y, z] of [
     [-0.06, 0.22, 0],
     [0.05, 0.25, 0.05],
     [0.02, 0.2, -0.07],
     [0.08, 0.2, -0.03],
   ])
-    bar.add(mesh(new THREE.SphereGeometry(0.075, 8, 6), toon('#5fb760'), bx - 0.1 + x, top + y, 3.4 + z, false));
+    bar.add(mesh(blockBall(0.075, 8, 6), toon('#5fb760'), bx - 0.1 + x, top + y, 3.4 + z, false));
 
   // The pastry case: a plaster base, glass all round, two shelves of croissants and pains au chocolat.
   const cz = 1.2;
@@ -129,7 +130,7 @@ export function buildCafe({ group, statics, colliders, interactables, night }: R
       const x = bx - 0.05 + (i % 2 ? 0.1 : -0.1);
       if ((i + shelf) % 3 === 2) {
         // A pain au chocolat.
-        const p = mesh(new THREE.CapsuleGeometry(0.045, 0.1, 4, 8), toon(golds[1]), x, top + y + 0.06, z, false);
+        const p = mesh(blockCapsule(0.045, 0.1, 4, 8), toon(golds[1]), x, top + y + 0.06, z, false);
         p.rotation.x = Math.PI / 2;
         bar.add(p);
         bar.add(mesh(new THREE.BoxGeometry(0.012, 0.012, 0.13), toon('#3b2214'), x, top + y + 0.108, z, false));
@@ -137,7 +138,7 @@ export function buildCafe({ group, statics, colliders, interactables, night }: R
         // A croissant: a crescent of puffed segments.
         for (let k = -2; k <= 2; k++) {
           const r = 0.034 - Math.abs(k) * 0.006;
-          const seg = mesh(new THREE.SphereGeometry(r, 8, 6), toon(golds[(i + k + 3) % 3]), x + k * 0.075 * 0.5, top + y + 0.012 + r, z + Math.abs(k) * 0.025, false);
+          const seg = mesh(blockBall(r, 8, 6), toon(golds[(i + k + 3) % 3]), x + k * 0.075 * 0.5, top + y + 0.012 + r, z + Math.abs(k) * 0.025, false);
           seg.scale.set(1.1, 0.9, 1);
           bar.add(seg);
         }
@@ -160,8 +161,8 @@ export function buildCafe({ group, statics, colliders, interactables, night }: R
     for (let z = 0.4; z < 3.5; z += 0.28) {
       k++;
       if (k % 3 === 0) statics.add(mesh(new THREE.BoxGeometry(0.1, 0.24, 0.17), toon(bagColors[k % 3]), wall - 0.2, y + 0.14, z, false));
-      else if (k % 3 === 1) statics.add(mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.2 + (k % 2) * 0.04, 10), toon(jarColors[k % 4]), wall - 0.2, y + 0.12, z, false));
-      else statics.add(mesh(new THREE.CylinderGeometry(0.05, 0.04, 0.07, 10), china, wall - 0.2, y + 0.055, z, false));
+      else if (k % 3 === 1) statics.add(mesh(blockCylinder(0.07, 0.07, 0.2 + (k % 2) * 0.04, 10), toon(jarColors[k % 4]), wall - 0.2, y + 0.12, z, false));
+      else statics.add(mesh(blockCylinder(0.05, 0.04, 0.07, 10), china, wall - 0.2, y + 0.055, z, false));
     }
   }
   colliders.push({ minX: back - 0.3, maxX: FLOOR.maxX, minZ: ROOF_BAR.minZ + 0.3, maxZ: ROOF_BAR.maxZ - 0.3, top: 99 });
@@ -200,24 +201,24 @@ export function buildCafe({ group, statics, colliders, interactables, night }: R
   const signMat = new THREE.MeshStandardMaterial({ map: sign, roughness: 0.9 });
   signMat.userData.outlineParameters = { visible: false };
   group.add(mesh(new THREE.PlaneGeometry(3.2, 0.8).rotateY(-Math.PI / 2), signMat, p0.x - 0.1, roofY - 0.55, bz, false));
-  for (const dz of [-1.4, 1.4]) statics.add(mesh(new THREE.CylinderGeometry(0.01, 0.01, 0.35, 4), toon(TIMBER_DARK), p0.x - 0.08, roofY - 0.2, bz + dz, false));
+  for (const dz of [-1.4, 1.4]) statics.add(mesh(blockCylinder(0.01, 0.01, 0.35, 4), toon(TIMBER_DARK), p0.x - 0.08, roofY - 0.2, bz + dz, false));
   // Pendant lamps along the counter, and pots hanging from the front beam.
   const pendant = bulb(night, '#ffd9a0', 0.55);
   for (const z of [-4.6, -2.3, 0, 2.3, 3.8]) {
-    statics.add(mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.75, 4), dark, bx + 0.1, roofY - 0.35, z, false));
-    statics.add(mesh(new THREE.ConeGeometry(0.17, 0.2, 14, 1, true), toon('#e9d3b0'), bx + 0.1, 2.5, z, true));
-    statics.add(mesh(new THREE.SphereGeometry(0.06, 8, 6), pendant, bx + 0.1, 2.46, z, false));
+    statics.add(mesh(blockCylinder(0.008, 0.008, 0.75, 4), dark, bx + 0.1, roofY - 0.35, z, false));
+    statics.add(mesh(blockCone(0.17, 0.2, 14, 1, true), toon('#e9d3b0'), bx + 0.1, 2.5, z, true));
+    statics.add(mesh(blockBall(0.06, 8, 6), pendant, bx + 0.1, 2.46, z, false));
   }
   for (const z of [-4.2, -1.1, 2.0]) {
-    statics.add(mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.5, 4), dark, p0.x + 0.05, roofY - 0.3, z, false));
-    statics.add(mesh(new THREE.CylinderGeometry(0.13, 0.09, 0.14, 10), toon('#c4703f'), p0.x + 0.05, 2.75, z));
+    statics.add(mesh(blockCylinder(0.008, 0.008, 0.5, 4), dark, p0.x + 0.05, roofY - 0.3, z, false));
+    statics.add(mesh(blockCylinder(0.13, 0.09, 0.14, 10), toon('#c4703f'), p0.x + 0.05, 2.75, z));
     for (const [dx, dy, dz] of [
       [0, 0.1, 0],
       [0.1, 0, 0.08],
       [-0.1, -0.1, -0.06],
       [0.05, -0.2, 0.05],
     ])
-      statics.add(mesh(new THREE.SphereGeometry(0.1, 8, 6), toon('#5fb760'), p0.x + 0.05 + dx, 2.82 + dy, z + dz, false));
+      statics.add(mesh(blockBall(0.1, 8, 6), toon('#5fb760'), p0.x + 0.05 + dx, 2.82 + dy, z + dz, false));
   }
 
   // String lights: over the pergola, and criss-crossing the tables from a pair of poles on their far side.
@@ -232,15 +233,15 @@ export function buildCafe({ group, statics, colliders, interactables, night }: R
     const n = Math.max(2, Math.round(curve.getLength() / 0.6));
     for (let i = 1; i < n; i++) {
       const p = curve.getPoint(i / n);
-      statics.add(mesh(new THREE.SphereGeometry(0.06, 8, 6), bulbMats[i % 2], p.x, p.y - 0.06, p.z, false));
+      statics.add(mesh(blockBall(0.06, 8, 6), bulbMats[i % 2], p.x, p.y - 0.06, p.z, false));
       glowAt.push(p.x, p.y - 0.06, p.z);
     }
   };
   for (let z = p0.z + 0.6; z < p1.z; z += 2.9) festoon(new THREE.Vector3(p0.x, roofY - 0.1, z), new THREE.Vector3(p1.x, roofY - 0.1, z + 1.4), 0.25);
   const poles = [-7.2, 4.2].map((z) => new THREE.Vector3(2.6, 3.4, z));
   for (const p of poles) {
-    statics.add(mesh(new THREE.CylinderGeometry(0.05, 0.07, 3.4, 8), toon(TIMBER_DARK), p.x, 1.7, p.z, false));
-    statics.add(mesh(new THREE.CylinderGeometry(0.25, 0.3, 0.1, 12), dark, p.x, 0.05, p.z, false));
+    statics.add(mesh(blockCylinder(0.05, 0.07, 3.4, 8), toon(TIMBER_DARK), p.x, 1.7, p.z, false));
+    statics.add(mesh(blockCylinder(0.25, 0.3, 0.1, 12), dark, p.x, 0.05, p.z, false));
     colliders.push({ minX: p.x - 0.12, maxX: p.x + 0.12, minZ: p.z - 0.12, maxZ: p.z + 0.12, top: 99 });
   }
   const corner = (z: number) => new THREE.Vector3(p0.x, roofY - 0.1, z);
@@ -276,7 +277,7 @@ export function buildCafe({ group, statics, colliders, interactables, night }: R
   // (The worker's body is the first thing in it: the apron goes on that, so it moves with it.)
   const apron = new THREE.Group();
   const cloth = new THREE.MeshStandardMaterial({ color: '#b5651d', roughness: 0.8, side: THREE.DoubleSide });
-  apron.add(mesh(new THREE.CylinderGeometry(0.295, 0.295, 0.3, 16, 1, true, -Math.PI * 0.42, Math.PI * 0.84), cloth, 0, 0.53, 0, false));
+  apron.add(mesh(blockCylinder(0.295, 0.295, 0.3, 16, 1, true, -Math.PI * 0.42, Math.PI * 0.84), cloth, 0, 0.53, 0, false));
   apron.add(mesh(new THREE.BoxGeometry(0.16, 0.09, 0.02), toon('#8f4e15'), 0, 0.5, 0.3, false));
   (barista.root.children[0] ?? barista.root).add(apron);
   barista.root.position.set(bx + ROOF_BAR.depth / 2 + 0.7, 0, bz);

@@ -1,3 +1,4 @@
+import { blockCylinder } from '../../world/blocky';
 import * as THREE from 'three';
 import { CHESS_SEATS, CHESS_TABLES } from '../../../shared/chess-seats';
 import type { SeatDef } from '../../../shared/layout';
@@ -106,7 +107,7 @@ function table(n: number, x: number, z: number): { root: THREE.Group; view: Ches
   root.add(mesh(roundedBox(TABLE_SIZE, 0.04, TABLE_SIZE, 0.035), walnut, 0, TABLE_H - 0.02, 0));
   const legAt = TABLE_SIZE / 2 - 0.07;
   for (const sx of [-1, 1]) {
-    for (const sz of [-1, 1]) root.add(mesh(new THREE.CylinderGeometry(0.026, 0.017, TABLE_H - 0.04, 14), walnut, sx * legAt, (TABLE_H - 0.04) / 2, sz * legAt));
+    for (const sz of [-1, 1]) root.add(mesh(blockCylinder(0.026, 0.017, TABLE_H - 0.04, 14), walnut, sx * legAt, (TABLE_H - 0.04) / 2, sz * legAt));
     root.add(mesh(new THREE.BoxGeometry(0.022, 0.07, legAt * 2), walnut, sx * legAt, TABLE_H - 0.075, 0));
     root.add(mesh(new THREE.BoxGeometry(legAt * 2, 0.07, 0.022), walnut, 0, TABLE_H - 0.075, sx * legAt));
   }
@@ -163,8 +164,8 @@ export function buildChessCorner(): ChessCorner {
   // The sign, on a post at the back of the rug, facing the tables.
   const signZ = cz - 2.55;
   const post = wood(WALNUT, 0.5);
-  group.add(mesh(new THREE.CylinderGeometry(0.035, 0.045, 1.9, 10), post, cx, 0.95, signZ));
-  group.add(mesh(new THREE.CylinderGeometry(0.13, 0.15, 0.04, 14), post, cx, 0.02, signZ));
+  group.add(mesh(blockCylinder(0.035, 0.045, 1.9, 10), post, cx, 0.95, signZ));
+  group.add(mesh(blockCylinder(0.13, 0.15, 0.04, 14), post, cx, 0.02, signZ));
   const face = new THREE.MeshStandardMaterial({ map: signTexture(), roughness: 0.6, metalness: 0 });
   const board = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.64, 0.05), [post, post, post, post, face, post]);
   board.position.set(cx, 1.55, signZ + 0.06);

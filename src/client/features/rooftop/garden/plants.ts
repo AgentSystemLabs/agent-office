@@ -1,3 +1,4 @@
+import { blockCylinder, blockBall } from '../../../world/blocky';
 import * as THREE from 'three';
 import type { Collider } from '../../../world/types';
 import { FoliageBatch, Solids, frondGeometry, lance, leafGeometry, place } from './leaves';
@@ -77,7 +78,7 @@ function trunk(g: Grow, x: number, y: number, z: number, h: number, r0: number, 
       pts.push(new THREE.Vector2(lerp(r0, r1, t) * (b as number), t * h));
     }
   }
-  const geo = new THREE.LatheGeometry(pts, 9);
+  const geo = new THREE.LatheGeometry(pts, 4);
   const lean = o.lean ?? new THREE.Vector2();
   const p = geo.attributes.position;
   for (let i = 0; i < p.count; i++) {
@@ -119,7 +120,7 @@ export function treeFern(g: Grow, x: number, y: number, z: number, h: number, fa
 export function palm(g: Grow, x: number, y: number, z: number, h: number, face?: number) {
   const lean = new THREE.Vector2((g.r() - 0.5) * 0.14, (g.r() - 0.5) * 0.14);
   const top = trunk(g, x, y, z, h, 0.1, 0.07, { color: '#7a6a55', grain: 0.2, seg: 0.1, bump: 0.12, lean });
-  g.s.add('wood', new THREE.CylinderGeometry(0.065, 0.07, 0.34, 8), '#8bb04e', new THREE.Matrix4().makeTranslation(top.x, top.y - 0.03, top.z), 0.08);
+  g.s.add('wood', blockCylinder(0.065, 0.07, 0.34, 8), '#8bb04e', new THREE.Matrix4().makeTranslation(top.x, top.y - 0.03, top.z), 0.08);
   rosette(g, g.t.palm, top.clone().setY(top.y + 0.1), 11, [1.45, 1.85], [1.1, -0.1], '#3f8a3a', 0.09, face);
   g.colliders.push(fixed(x + lean.x * h * 0.4, z + lean.y * h * 0.4, 0.15));
 }
@@ -132,7 +133,7 @@ export function banana(g: Grow, x: number, y: number, z: number, h: number, face
     const a = g.r() * 6.28;
     const p = (r: number, dy: number) => new THREE.Vector3(top.x + Math.cos(a) * r, top.y + dy, top.z + Math.sin(a) * r);
     stem(g, [p(0, -0.1), p(0.2, 0), p(0.4, -0.15), p(0.42, -0.4)], 0.022, '#7a8f4a');
-    g.s.add('cloth', new THREE.SphereGeometry(1, 10, 8), '#5a1d4c', new THREE.Matrix4().compose(p(0.42, -0.58), new THREE.Quaternion(), new THREE.Vector3(0.07, 0.17, 0.07)), 0.12);
+    g.s.add('cloth', blockBall(1, 10, 8), '#5a1d4c', new THREE.Matrix4().compose(p(0.42, -0.58), new THREE.Quaternion(), new THREE.Vector3(0.07, 0.17, 0.07)), 0.12);
   }
   g.colliders.push(fixed(x, z, 0.2));
 }

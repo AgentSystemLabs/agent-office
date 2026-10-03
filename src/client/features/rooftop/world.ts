@@ -1,3 +1,4 @@
+import { blockCylinder, blockBall, blockCone } from '../../world/blocky';
 import * as THREE from 'three';
 import { AXE_LANE } from '../../../shared/bargames';
 import { ELEVATOR, ELEVATOR_FRONT, FLOOR, SEATING_BY_ID, WALL_HEIGHT, WALL_T } from '../../../shared/layout';
@@ -118,7 +119,7 @@ export function buildRooftop(night: NightParts, floors: number): Rooftop {
     const pane = mesh(new THREE.PlaneGeometry(len, 0.72), glassMat, ex, 0.81, ez, false);
     if (!alongX) pane.rotation.y = Math.PI / 2;
     group.add(pane);
-    const rail = mesh(new THREE.CylinderGeometry(0.035, 0.035, len, 8), steel, ex, 1.19, ez, false);
+    const rail = mesh(blockCylinder(0.035, 0.035, len, 8), steel, ex, 1.19, ez, false);
     rail.rotation.set(alongX ? 0 : Math.PI / 2, 0, alongX ? Math.PI / 2 : 0);
     statics.add(rail);
     for (let a = 0; a <= len + 0.01; a += 2.4) {
@@ -140,7 +141,7 @@ export function buildRooftop(night: NightParts, floors: number): Rooftop {
   statics.add(mesh(new THREE.BoxGeometry(ELEVATOR.width, WALL_HEIGHT + 0.3, WALL_T), housing, ELEVATOR.x, (WALL_HEIGHT + 0.3) / 2, FLOOR.minZ - WALL_T / 2));
   statics.add(mesh(new THREE.BoxGeometry(ELEVATOR.width + 0.3, 0.3, ELEVATOR_FRONT - B.minZ + 0.2), toon('#8d99ae'), ELEVATOR.x, WALL_HEIGHT + 0.15, (B.minZ + ELEVATOR_FRONT) / 2 + 0.05));
   const beacon = bulb(night, '#ff5d5d', 0.6);
-  statics.add(mesh(new THREE.SphereGeometry(0.12, 10, 8), beacon, ELEVATOR.x, WALL_HEIGHT + 0.4, (B.minZ + ELEVATOR_FRONT) / 2, false));
+  statics.add(mesh(blockBall(0.12, 10, 8), beacon, ELEVATOR.x, WALL_HEIGHT + 0.4, (B.minZ + ELEVATOR_FRONT) / 2, false));
   colliders.push({ minX: ELEVATOR.x - hw, maxX: ELEVATOR.x + hw, minZ: B.minZ, maxZ: FLOOR.minZ, top: 99 });
 
   // The café, and its tables and chairs.
@@ -165,10 +166,10 @@ export function buildRooftop(night: NightParts, floors: number): Rooftop {
   }
   for (const x of [-0.8, 2]) {
     const z = FLOOR.maxZ - 1.1;
-    statics.add(mesh(new THREE.CylinderGeometry(0.04, 0.04, 2.6, 8), frame, x, 1.3, z, false));
-    statics.add(mesh(new THREE.ConeGeometry(1.5, 0.5, 12, 1, true), toon('#e9b872'), x, 2.6, z, true));
-    statics.add(mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.45, 12), frame, x, 0.225, z, false));
-    statics.add(mesh(new THREE.CylinderGeometry(0.3, 0.3, 0.04, 12), frame, x, 0.47, z, false));
+    statics.add(mesh(blockCylinder(0.04, 0.04, 2.6, 8), frame, x, 1.3, z, false));
+    statics.add(mesh(blockCone(1.5, 0.5, 12, 1, true), toon('#e9b872'), x, 2.6, z, true));
+    statics.add(mesh(blockCylinder(0.22, 0.22, 0.45, 12), frame, x, 0.225, z, false));
+    statics.add(mesh(blockCylinder(0.3, 0.3, 0.04, 12), frame, x, 0.47, z, false));
     colliders.push({ minX: x - 0.3, maxX: x + 0.3, minZ: z - 0.3, maxZ: z + 0.3, top: 0.49 });
   }
 
@@ -183,7 +184,7 @@ export function buildRooftop(night: NightParts, floors: number): Rooftop {
     for (let a = 0.4; a < len - 0.2; a += 0.7) {
       const px = alongX ? x0 + a : (x0 + x1) / 2;
       const pz = alongX ? (z0 + z1) / 2 : z0 + a;
-      statics.add(mesh(new THREE.SphereGeometry(0.38 + ((a * 13) % 3) * 0.06, 10, 8), a % 1.4 < 0.7 ? leaf : leafDark, px, 0.8, pz, false));
+      statics.add(mesh(blockBall(0.38 + ((a * 13) % 3) * 0.06, 10, 8), a % 1.4 < 0.7 ? leaf : leafDark, px, 0.8, pz, false));
     }
     colliders.push({ minX: x0, maxX: x1, minZ: z0, maxZ: z1, top: 0.6 });
   };
@@ -203,7 +204,7 @@ export function buildRooftop(night: NightParts, floors: number): Rooftop {
     [16.2, -11],
   ]) {
     statics.add(mesh(new THREE.BoxGeometry(2.2, 1.3, 2.4), toon('#dfe3e8'), x, 0.65, z));
-    statics.add(mesh(new THREE.CylinderGeometry(0.75, 0.75, 0.06, 20), toon('#565a75'), x, 1.31, z, false));
+    statics.add(mesh(blockCylinder(0.75, 0.75, 0.06, 20), toon('#565a75'), x, 1.31, z, false));
     const fan = new THREE.Group();
     for (let b = 0; b < 3; b++) {
       const blade = mesh(new THREE.BoxGeometry(1.2, 0.02, 0.22), toon('#2b2d42'), 0, 0, 0, false);

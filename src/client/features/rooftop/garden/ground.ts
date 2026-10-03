@@ -1,3 +1,4 @@
+import { blockCylinder, blockBall } from '../../../world/blocky';
 import * as THREE from 'three';
 import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { hash3 } from './leaves';
@@ -29,7 +30,7 @@ export function boulder(g: Grow, x: number, z: number, r: number, h: number, hex
 
 /** A low cushion of moss on the ground (or on a soil bed, at height `y`). */
 export function moss(g: Grow, x: number, z: number, r: number, y = 0) {
-  const geo = new THREE.SphereGeometry(1, 10, 5, 0, TAU, 0, Math.PI / 2);
+  const geo = blockBall(1, 10, 5, 0, TAU, 0, Math.PI / 2);
   const p = geo.attributes.position;
   for (let i = 0; i < p.count; i++) {
     const k = 1 + 0.3 * (hash3(p.getX(i) * 3, 0, p.getZ(i) * 3) - 0.5);
@@ -46,7 +47,7 @@ export function steppingStones(g: Grow, pts: [number, number][]) {
   for (let i = 0; i <= n; i++) {
     const c = curve.getPoint(i / n);
     const r = 0.17 + 0.07 * g.r();
-    const geo = new THREE.CylinderGeometry(1, 1.06, 1, 8);
+    const geo = blockCylinder(1, 1.06, 1, 8);
     g.s.add('stone', geo, tint(g, ['#8c908c', '#7d827e', '#9a9a92'][i % 3], 0.1), at(c.x + (g.r() - 0.5) * 0.12, 0.018, c.z + (g.r() - 0.5) * 0.12, g.r() * TAU, r * 1.15, 0.036, r * (0.8 + 0.2 * g.r())), 0.14, 0, 0.35);
     if (g.r() < 0.4) moss(g, c.x + (g.r() - 0.5) * 0.5, c.z + (g.r() - 0.5) * 0.5, 0.1 + 0.08 * g.r());
   }
@@ -54,12 +55,12 @@ export function steppingStones(g: Grow, pts: [number, number][]) {
 
 /** A tiny pond: a ring of stones round dark water with lily pads and a pink lotus. Returns the water, to go in the scene as it is. */
 export function pond(g: Grow, x: number, z: number, r: number): THREE.Mesh {
-  g.s.add('soil', new THREE.CylinderGeometry(r + 0.05, r + 0.05, 0.06, 24), '#232a26', at(x, 0.03, z), 0.08);
+  g.s.add('soil', blockCylinder(r + 0.05, r + 0.05, 0.06, 24), '#232a26', at(x, 0.03, z), 0.08);
   const n = 12;
   for (let i = 0; i < n; i++) {
     const a = (i / n) * TAU;
     const rr = 0.17 + 0.07 * g.r();
-    const geo = new THREE.IcosahedronGeometry(1, 1);
+    const geo = new THREE.BoxGeometry(1.5, 1.5, 1.5);
     geo.deleteAttribute('uv');
     geo.deleteAttribute('normal');
     const s = mergeVertices(geo);
@@ -67,7 +68,7 @@ export function pond(g: Grow, x: number, z: number, r: number): THREE.Mesh {
     g.s.add('stone', s, tint(g, ['#8c908c', '#7a7f7a', '#9d9b92'][i % 3], 0.1), at(x + Math.cos(a) * (r + 0.1), 0.07, z + Math.sin(a) * (r + 0.1), g.r() * TAU, rr * 1.2, rr * 0.8, rr), 0.12, 0, 0.5);
   }
   const water = new THREE.Mesh(
-    new THREE.CircleGeometry(r, 32).rotateX(-Math.PI / 2),
+    new THREE.PlaneGeometry(r * 1.8, r * 1.8).rotateX(-Math.PI / 2),
     new THREE.MeshStandardMaterial({ color: '#2f5b5a', roughness: 0.04, metalness: 0, transparent: true, opacity: 0.9, envMapIntensity: 1.6 }),
   );
   water.position.set(x, 0.095, z);
@@ -78,7 +79,7 @@ export function pond(g: Grow, x: number, z: number, r: number): THREE.Mesh {
     [0.12, 0.28, 0.1],
     [-0.1, -0.3, 0.09],
   ]) {
-    const pad = new THREE.CircleGeometry(s, 12, 0.4, 5.6).rotateX(-Math.PI / 2);
+    const pad = new THREE.PlaneGeometry(s * 1.6, s * 1.6).rotateX(-Math.PI / 2);
     g.s.add('moss', pad, tint(g, '#3f7d3c', 0.1), at(x + dx * (r / 0.72), 0.099, z + dz * (r / 0.72), g.r() * TAU), 0.1);
   }
   return water;

@@ -60,76 +60,24 @@ function cached(key: string, make: () => THREE.BufferGeometry): THREE.BufferGeom
   return g;
 }
 
-/** A capsule that tapers from radius r0 (round end at the origin) to r1 (round end L along -z). */
-function taperedCapsule(r0: number, r1: number, L: number): THREE.BufferGeometry {
-  return cached(`cap|${r0}|${r1}|${L}`, () => {
-    const pts: THREE.Vector2[] = [];
-    const cap = 6;
-    for (let i = 0; i <= cap; i++) {
-      const a = (i / cap) * (Math.PI / 2);
-      pts.push(new THREE.Vector2(Math.max(1e-4, r0 * Math.sin(a)), -r0 * Math.cos(a)));
-    }
-    for (let i = 0; i <= cap; i++) {
-      const a = (i / cap) * (Math.PI / 2);
-      pts.push(new THREE.Vector2(Math.max(1e-4, r1 * Math.cos(a)), L + r1 * Math.sin(a)));
-    }
-    return new THREE.LatheGeometry(pts, 14).rotateX(-Math.PI / 2);
-  });
+/** A block hand, in the look of the voxel people (see ../vox.ts): every part is a square-edged box. */
+function box(w: number, h: number, d: number): THREE.BufferGeometry {
+  return cached(`box|${w}|${h}|${d}`, () => new THREE.BoxGeometry(w, h, d));
 }
 
-const UNIT_SPHERE = () => cached('sphere', () => new THREE.SphereGeometry(1, 22, 16));
-
 function blob(mat: THREE.Material, hx: number, hy: number, hz: number, x: number, y: number, z: number): THREE.Mesh {
-  const m = new THREE.Mesh(UNIT_SPHERE(), mat);
-  m.scale.set(hx, hy, hz);
+  const m = new THREE.Mesh(box(hx * 1.8, hy * 1.8, hz * 1.8), mat);
   m.position.set(x, y, z);
   return m;
 }
 
-/** Fingers sit a little flatter top to bottom than side to side. */
+/** A finger segment: a block of width 2r running L along -z from the origin. */
 const FLAT = 0.86;
 
 function seg(mat: THREE.Material, r0: number, r1: number, L: number): THREE.Mesh {
-  const m = new THREE.Mesh(taperedCapsule(r0, r1, L), mat);
-  m.scale.y = FLAT;
+  const m = new THREE.Mesh(box(r0 * 2, r0 * 1.7, L), mat);
+  m.position.z = -L / 2;
   return m;
-}
-
-/** A sleeve hanging loose, with folds in the cloth. Runs along +z from the roll. */
-function sleeveTube(): THREE.BufferGeometry {
-  return cached('sleeve', () => {
-    const g = new THREE.CylinderGeometry(1, 1, 1, 40, 30, true).rotateX(Math.PI / 2);
-    const p = g.attributes.position as THREE.BufferAttribute;
-    const z0 = 0.14;
-    const z1 = 0.56;
-    for (let i = 0; i < p.count; i++) {
-      const a = Math.atan2(p.getY(i), p.getX(i));
-      const t = p.getZ(i) + 0.5;
-      const fold = 1 + 0.05 * (0.4 + t) * Math.sin(a * 5 + t * 9) + 0.03 * Math.sin(a * 9 - t * 17) + 0.025 * Math.sin(a * 3 + t * 31);
-      // Gathers in tight at the roll and falls looser further up.
-      const r = (0.064 + 0.014 * t) * fold;
-      p.setXYZ(i, Math.cos(a) * r, Math.sin(a) * r, z0 + t * (z1 - z0));
-    }
-    g.computeVertexNormals();
-    return g;
-  });
-}
-
-/** A roll of cloth: a lumpy torus around the forearm. */
-function clothRoll(R: number, r: number, seed: number): THREE.BufferGeometry {
-  return cached(`roll|${R}|${r}|${seed}`, () => {
-    const g = new THREE.TorusGeometry(R, r, 14, 44);
-    const p = g.attributes.position as THREE.BufferAttribute;
-    for (let i = 0; i < p.count; i++) {
-      const x = p.getX(i);
-      const y = p.getY(i);
-      const a = Math.atan2(y, x);
-      const k = 1 + 0.045 * Math.sin(a * 4 + seed) + 0.03 * Math.sin(a * 7 + seed * 2.3);
-      p.setXYZ(i, x * k, y * k, p.getZ(i) * (1 + 0.1 * Math.sin(a * 3 + seed)));
-    }
-    g.computeVertexNormals();
-    return g;
-  });
 }
 
 // Finger lengths (proximal, middle, distal) and base radius: index, middle, ring, pinky.
@@ -205,18 +153,17 @@ export function buildHand(side: 1 | -1, m: HandMaterials): HandRig {
   tRoot.add(j1);
   hand.add(tRoot);
 
-  // The forearm, tapering up into the sleeve.
-  const forearm = new THREE.Mesh(taperedCapsule(0.0285, 0.043, 0.22).clone().rotateY(Math.PI), skin);
-  forearm.scale.y = 0.82;
-  forearm.position.z = 0.005;
+  // The forearm, a block running back into the sleeve.
+  const forearm = new THREE.Mesh(box(0.06, 0.05, 0.22), skin);
+  forearm.position.z = 0.115;
 
-  // Sleeve rolled up to the forearm: two rolls of cloth, then it hangs loose with folds.
-  const roll1 = new THREE.Mesh(clothRoll(0.054, 0.017, 1), m.sleeve);
+  // Sleeve: two blocky cuffs, then a straight sleeve.
+  const roll1 = new THREE.Mesh(box(0.115, 0.1, 0.04), m.sleeve);
   roll1.position.z = 0.12;
-  const roll2 = new THREE.Mesh(clothRoll(0.059, 0.018, 2.4), m.sleeve);
-  roll2.position.z = 0.152;
-  roll2.rotation.x = 0.05;
-  const tube = new THREE.Mesh(sleeveTube(), m.sleeve);
+  const roll2 = new THREE.Mesh(box(0.125, 0.11, 0.04), m.sleeve);
+  roll2.position.z = 0.16;
+  const tube = new THREE.Mesh(box(0.135, 0.12, 0.36), m.sleeve);
+  tube.position.z = 0.38;
 
   const rig: HandRig = {
     hand,

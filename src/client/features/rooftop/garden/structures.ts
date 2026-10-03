@@ -1,3 +1,4 @@
+import { blockCylinder, blockCone, blockRing } from '../../../world/blocky';
 import * as THREE from 'three';
 import type { Kind, Solids } from './leaves';
 import { ivyStrand, tint, type Grow } from './plants';
@@ -40,8 +41,8 @@ export function lantern(g: Grow, x: number, z: number, hangFrom?: number) {
   const iron = '#2a2623';
   box(g.s, 'iron', iron, 0.17, 0.03, 0.17, x, y + 0.015, z);
   for (const sx of [-1, 1]) for (const sz of [-1, 1]) box(g.s, 'iron', iron, 0.015, 0.22, 0.015, x + sx * 0.075, y + 0.14, z + sz * 0.075);
-  g.s.add('iron', new THREE.ConeGeometry(0.13, 0.09, 4).rotateY(Math.PI / 4), iron, new THREE.Matrix4().makeTranslation(x, y + 0.295, z), 0);
-  g.s.add('iron', new THREE.TorusGeometry(0.035, 0.007, 5, 10), iron, new THREE.Matrix4().makeTranslation(x, y + 0.36, z), 0);
+  g.s.add('iron', blockCone(0.13, 0.09, 4).rotateY(Math.PI / 4), iron, new THREE.Matrix4().makeTranslation(x, y + 0.295, z), 0);
+  g.s.add('iron', blockRing(0.035, 0.007), iron, new THREE.Matrix4().makeTranslation(x, y + 0.36, z), 0);
   if (hangFrom !== undefined) box(g.s, 'iron', iron, 0.01, hangFrom - y - 0.36, 0.01, x, (hangFrom + y + 0.36) / 2, z);
   g.glow.push(new THREE.BoxGeometry(0.12, 0.2, 0.12).translate(x, y + 0.14, z));
 }
@@ -76,12 +77,12 @@ export function soundStone(g: Grow, x: number, z: number): THREE.Group {
   const turn = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), 0.6);
   g.s.add('stone', rock, tint(g, '#7b7f7a'), new THREE.Matrix4().compose(new THREE.Vector3(x, 0.36, z), turn, new THREE.Vector3(0.85, 1.0, 0.8)), 0.12, 0, 0.6);
   box(g.s, 'wood', '#8a5a36', 0.34, 0.05, 0.34, x, 0.76, z, 0.6);
-  g.s.add('wood', new THREE.CylinderGeometry(0.07, 0.08, 0.04, 12), '#5e3a22', new THREE.Matrix4().makeTranslation(x, 0.8, z), 0.05);
-  g.glow.push(new THREE.TorusGeometry(0.27, 0.012, 6, 28).rotateX(Math.PI / 2).translate(x, 0.5, z));
-  g.glow.push(new THREE.TorusGeometry(0.37, 0.008, 6, 32).rotateX(Math.PI / 2).translate(x, 0.34, z));
+  g.s.add('wood', blockCylinder(0.07, 0.08, 0.04, 12), '#5e3a22', new THREE.Matrix4().makeTranslation(x, 0.8, z), 0.05);
+  g.glow.push(blockRing(0.27, 0.012).translate(x, 0.5, z));
+  g.glow.push(blockRing(0.37, 0.008).translate(x, 0.34, z));
   g.colliders.push({ minX: x - 0.36, maxX: x + 0.36, minZ: z - 0.36, maxZ: z + 0.36, top: 0.85 });
   const target = new THREE.Group();
-  const hit = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.45, 0.85, 10), new THREE.MeshBasicMaterial({ visible: false }));
+  const hit = new THREE.Mesh(blockCylinder(0.42, 0.45, 0.85, 10), new THREE.MeshBasicMaterial({ visible: false }));
   hit.position.set(x, 0.42, z);
   target.add(hit);
   return target;
