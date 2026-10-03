@@ -3,7 +3,8 @@ import { CAR, CARS, SEATS, carPoint, type Box, type CarDef, type CarKind, type C
 import { FLOOR, SLAB, STREET_Y, WALL_T, streetBelow } from '../../../shared/layout';
 import type { Collider, Interactable } from '../../world/types';
 import type { Fixture, StreetSite } from '../../world/office/fixture';
-import { mergeByMaterial, mesh, toon } from '../../world/toon';
+import { piece } from '../../world/models';
+import { mergeByMaterial, mesh, toon, toonUnique } from '../../world/toon';
 
 const WIDTH = 1.9;
 const WHEEL_R = 0.36;
@@ -92,11 +93,53 @@ export interface CarModel {
   wheels: THREE.Object3D[];
 }
 
+/** The colours of the modelled cars' parts, by material name (see blender/scripts/build_cars.py); Paint is each car's own. */
+const CAR_COLORS: Record<string, string> = {
+  Dark: '#2b2d42',
+  Tire: '#1f1f26',
+  RimGold: '#e9b949',
+  RimSilver: '#d9dbe3',
+  Caliper: '#e63946',
+  Chrome: '#c9ccd6',
+  Badge: '#ffd400',
+  Seat: '#3a3340',
+};
+/** The cabin's glass is one skin, seen from inside too. */
+let carGlass: THREE.Material | undefined;
+
 /**
- * A cartoon supercar, nose toward +z, wheels on y = 0. A Lambo is a lime, orange or yellow wedge
- * with a wing; a Ferrari is curvy, round taillights and a yellow badge.
+ * A supercar, nose toward +z, wheels on y = 0: the Lambo or the Ferrari modelled in Blender (cars.glb),
+ * painted `color`, or the one built in code below if that didn't load.
  */
 export function supercar(kind: CarKind, color: string): CarModel {
+  const paint = toon(color);
+  const glass = (carGlass ??= Object.assign(toonUnique('#233347'), { side: THREE.DoubleSide }));
+  const lamp = toon('#fff6c9', { emissive: '#b8a960' });
+  const tail = toon('#ff2d3f', { emissive: '#a3001a' });
+  // The windshield left with the roof off is see-through, so from the driver's seat you see the hood and the road.
+  const screen = toon('#9fc3e6', { opacity: 0.3 });
+  const by = (name: string): THREE.Material =>
+    name === 'Paint' ? paint : name === 'Glass' ? glass : name === 'Screen' ? screen : name === 'Lamp' ? lamp : name === 'Tail' ? tail : toon(CAR_COLORS[name] ?? '#ff00ff');
+  const part = (name: string) => {
+    const o = piece('cars', name, by);
+    return o.name === name ? o : null;
+  };
+  const body = part(kind);
+  const top = part(`${kind}_top`);
+  const open = part(`${kind}_open`);
+  const wheels = [part(`${kind}_wheel_l`), part(`${kind}_wheel_r`)];
+  if (!body || !top || !open || !wheels[0] || !wheels[1]) return codedCar(kind, color);
+  open.visible = false;
+  const root = new THREE.Group();
+  root.add(body, top, open, ...(wheels as THREE.Object3D[]));
+  return { root, top, open, wheels: wheels as THREE.Object3D[] };
+}
+
+/**
+ * A cartoon supercar built in code, for when cars.glb didn't load. A Lambo is a lime, orange or
+ * yellow wedge with a wing; a Ferrari is curvy, round taillights and a yellow badge.
+ */
+function codedCar(kind: CarKind, color: string): CarModel {
   const g = new THREE.Group();
   const paint = toon(color);
   const glass = toon('#233347');
