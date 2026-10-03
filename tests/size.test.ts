@@ -33,7 +33,6 @@ const CEILINGS: Readonly<Record<string, number>> = {
   'src/client/features/golf/world.ts': 635,
   'src/client/features/bargames/world.ts': 617,
   'src/client/world/city.ts': 613,
-  'src/client/world/character/worker.ts': 605,
   'src/client/world/costumes.ts': 603,
 };
 
