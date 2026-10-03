@@ -1,6 +1,6 @@
 /* Signing the office's agents in to their providers. */
 .signins { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
-.signin { border: 3px solid var(--ink); border-radius: 14px; padding: 4px 14px 14px; background: #fff; }
+.signin { border: 3px solid var(--ink); border-radius: var(--radius-control); padding: 4px 14px 14px; background: #fff; }
 .signin.ok { background: #f3fbf6; }
 .signin .team-head { margin-top: 10px; }
 .signin-who { font-weight: 800; font-size: 14px; overflow-wrap: anywhere; text-align: right; }

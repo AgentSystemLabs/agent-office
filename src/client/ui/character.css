@@ -2,7 +2,7 @@
 .modal.charsel { width: min(780px, 100%); }
 .charsel .body { display: grid; grid-template-columns: 250px 1fr; gap: 18px; }
 .charsel-stage {
-  position: relative; min-height: 360px; overflow: hidden; border: 3px solid var(--ink); border-radius: 16px;
+  position: relative; min-height: 360px; overflow: hidden; border: 3px solid var(--ink); border-radius: var(--radius-control);
   background: radial-gradient(circle at 50% 30%, #ffffff 0, #e3f3ff 55%, #bfe3ff 100%);
 }
 .charsel-stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }
