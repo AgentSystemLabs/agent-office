@@ -111,12 +111,12 @@ export function buildHand(side: 1 | -1, m: HandMaterials): HandRig {
   hand.add(thumb);
 
   // A short forearm into a boxy cuff and sleeve.
-  const forearm = block(skin, 0.058, 0.046, 0.09);
-  forearm.position.z = 0.09 + PALM.d / 2 - 0.005;
+  const forearm = block(skin, 0.056, 0.042, 0.05);
+  forearm.position.z = 0.05 + PALM.d / 2 - 0.004;
   const cuff = block(m.sleeve, 0.086, 0.07, 0.04);
-  cuff.position.z = 0.15;
+  cuff.position.z = 0.115;
   const tube = block(m.sleeve, 0.098, 0.082, 0.22);
-  tube.position.z = 0.35;
+  tube.position.z = 0.3;
 
   const rig: HandRig = {
     hand,
