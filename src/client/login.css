@@ -1,25 +1,28 @@
-:root { --bg: #ffe8cc; --ink: #2b2d42; --card: #fffaf3; --accent: #ff8a5b; --muted: #7a6f65; --border: #2b2d42; }
+@import './styles/voxel-tokens.css';
+:root { --bg: #e4ebdc; --card: var(--paper); --border: var(--ink); }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 html, body { margin: 0; height: 100%; }
 body {
-  background: radial-gradient(circle at 20% 20%, #ffd6a5 0, transparent 40%), radial-gradient(circle at 80% 70%, #caffbf 0, transparent 45%), var(--bg);
-  font-family: 'Nunito', ui-rounded, 'SF Pro Rounded', system-ui, sans-serif;
+  background-color: var(--bg);
+  background-image: linear-gradient(90deg, rgba(41,70,74,.07) 1px, transparent 1px), linear-gradient(rgba(41,70,74,.07) 1px, transparent 1px);
+  background-size: 24px 24px;
+  font-family: var(--font);
   color: var(--ink); display: grid; place-items: center; padding: 16px;
 }
-.card { width: min(380px, 100%); background: var(--card); border: 3px solid var(--border); border-radius: 22px; padding: 28px; box-shadow: 0 8px 0 var(--border); text-align: center; }
+.card { width: min(380px, 100%); background: var(--card); border: 3px solid var(--border); border-radius: var(--radius-control); padding: 28px; box-shadow: var(--shadow); text-align: center; }
 .logo { display: grid; place-items: center; }
 h1 { margin: 8px 0 4px; font-size: 28px; }
 .sub { margin: 0 0 20px; color: var(--muted); }
 label { display: block; text-align: left; font-weight: 700; font-size: 14px; }
-input { width: 100%; margin-top: 6px; padding: 12px 14px; font-size: 16px; border: 3px solid var(--border); border-radius: 12px; background: #fff; color: var(--ink); outline: none; }
+input { width: 100%; margin-top: 6px; padding: 12px 14px; font-size: 16px; border: 3px solid var(--border); border-radius: var(--radius-control); background: #fff; color: var(--ink); outline: none; }
 input:focus { border-color: var(--accent); }
-button { margin-top: 16px; width: 100%; padding: 12px; font-size: 16px; font-weight: 800; border: 3px solid var(--border); border-radius: 12px; background: var(--accent); color: #fff; cursor: pointer; box-shadow: 0 4px 0 var(--border); }
+button { margin-top: 16px; width: 100%; padding: 12px; font-size: 16px; font-weight: 800; border: 3px solid var(--border); border-radius: var(--radius-control); background: var(--accent); color: #fff; cursor: pointer; box-shadow: 2px 3px 0 #174c50; }
 button:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--border); }
 button:disabled { opacity: .6; cursor: default; }
 .error { min-height: 1.2em; color: #c3423f; font-weight: 700; margin: 12px 0 0; }
-.warn { text-align: left; background: #fff3c4; border: 3px solid var(--border); border-radius: 12px; padding: 10px 12px; margin: 0 0 14px; font-size: 14px; }
-.secret { display: flex; gap: 8px; align-items: center; justify-content: center; background: #fff; border: 3px dashed var(--border); border-radius: 12px; padding: 14px; }
+.warn { text-align: left; background: #fff3c4; border: 3px solid var(--border); border-radius: var(--radius-control); padding: 10px 12px; margin: 0 0 14px; font-size: 14px; }
+.secret { display: flex; gap: 8px; align-items: center; justify-content: center; background: #fff; border: 3px dashed var(--border); border-radius: var(--radius-control); padding: 14px; }
 .secret code { font: 800 26px ui-monospace, Menlo, Consolas, monospace; letter-spacing: .04em; word-break: break-all; }
 button.mini { width: auto; margin: 0; padding: 6px 10px; font-size: 13px; box-shadow: 0 2px 0 var(--border); }
 .check { display: flex; gap: 8px; align-items: center; justify-content: center; margin-top: 14px; font-weight: 800; }
@@ -27,4 +30,7 @@ button.mini { width: auto; margin: 0; padding: 6px 10px; font-size: 13px; box-sh
 a { color: var(--ink); font-weight: 800; }
 label + label { margin-top: 12px; }
 .note { text-align: left; color: var(--muted); font-size: 13px; margin: 8px 0 0; }
-.role { display: inline-block; background: #fff3c4; border: 2px solid var(--border); border-radius: 999px; padding: 0 8px; font-size: 13px; font-weight: 800; }
+.role { display: inline-block; background: #fff3c4; border: 2px solid var(--border); border-radius: var(--radius-control); padding: 0 8px; font-size: 13px; font-weight: 800; }
+
+button:focus-visible, input:focus-visible, a:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+button:disabled { opacity: .55; cursor: not-allowed; box-shadow: none; }

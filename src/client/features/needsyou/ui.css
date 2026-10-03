@@ -2,15 +2,15 @@
    screen when one starts asking, and the pulse on what else says so (the top bar's button, the Workers panel). */
 .needs-you { position: absolute; top: 72px; left: 50%; transform: translateX(-50%); z-index: 2; display: flex; align-items: stretch; max-width: min(640px, calc(100vw - 24px)); border: 3px solid var(--ink); border-radius: var(--radius); background: var(--bad); color: #fff; --rest: var(--shadow); box-shadow: var(--rest); animation: needs-you-in .3s cubic-bezier(.2, 1.4, .4, 1), needs-you-ring 1.6s ease-out .3s infinite; }
 .needs-you button { border: 0; background: none; color: inherit; font: inherit; cursor: pointer; }
-.needs-you-go { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 8px 6px 8px 14px; text-align: left; border-radius: 12px 0 0 12px; }
+.needs-you-go { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 8px 6px 8px 14px; text-align: left; border-radius: var(--radius-control); }
 .needs-you-go:hover, .needs-you-x:hover { background: rgba(43, 45, 66, .18); }
 .needs-you-icon { font-size: 26px; line-height: 1; animation: needs-you-wave 1.2s ease-in-out infinite; transform-origin: 50% 90%; }
 .needs-you-text { display: grid; min-width: 0; }
 .needs-you-text strong { font-size: 17px; font-weight: 900; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .needs-you-ask { font-size: 13px; font-weight: 700; opacity: .95; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.needs-you-more { flex: none; padding: 2px 8px; border-radius: 999px; background: var(--ink); font-size: 12px; font-weight: 900; white-space: nowrap; }
+.needs-you-more { flex: none; padding: 2px 8px; border-radius: var(--radius-control); background: var(--ink); font-size: 12px; font-weight: 900; white-space: nowrap; }
 .needs-you .key { flex: none; margin: 0; box-shadow: 0 2px 0 var(--ink); }
-.needs-you-x { flex: none; width: 34px; font-size: 13px; font-weight: 900; border-left: 2px solid rgba(43, 45, 66, .35); border-radius: 0 12px 12px 0; }
+.needs-you-x { flex: none; width: 34px; font-size: 13px; font-weight: 900; border-left: 2px solid rgba(43, 45, 66, .35); border-radius: var(--radius-control); }
 /* The toasts come out under it, and it steps down from under the golf and darts meters. */
 #hud:has(.needs-you:not(.hidden)) #toasts { translate: 0 64px; }
 #hud:has(:is(.golf, .throw):not(.hidden)) .needs-you { translate: 0 48px; }
