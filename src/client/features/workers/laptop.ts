@@ -1,5 +1,5 @@
 import { laptopKeys } from '../../world/office/voxel-furniture';
-import { voxelBox, voxelMaterial } from '../../world/voxel';
+import { voxelBox, voxelMaterial, voxelSolid } from '../../world/voxel';
 import * as THREE from 'three';
 import { FLAG_BOLD, FLAG_DIM, FLAG_INVERSE, RGB_FLAG, type Run } from '../../../shared/protocol';
 import { mesh, roundedBox, toon } from '../../world/toon';
@@ -178,7 +178,7 @@ export class Laptop {
       // A ribbon bookmark hanging out of the pages.
       this.root.add(mesh(new THREE.BoxGeometry(0.03, 0.004, 0.16), toon('#9b1c1c'), 0.2, 0.06, 0.28, false));
     } else {
-      const shell = voxelMaterial(toon('#f0e8db'));
+      const shell = voxelSolid('#f0e8db');
       const dark = toon('#2b2d42');
       // Base with fine keycaps
       this.root.add(laptopKeys());

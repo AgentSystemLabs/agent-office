@@ -58,7 +58,7 @@ export function createScene(canvas: HTMLCanvasElement, renderer: THREE.WebGLRend
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   // Realistic look: filmic tone mapping, applied by the post pass (core/post.ts).
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 0.72;
+  renderer.toneMappingExposure = 0.95;
 
   const scene = new THREE.Scene();
   // The sky's color and the fog change with the time of day and the weather (world/sky.ts).
@@ -68,18 +68,20 @@ export function createScene(canvas: HTMLCanvasElement, renderer: THREE.WebGLRend
   // Image-based light: soft sky and bounce reflections on every surface.
   const pmrem = new THREE.PMREMGenerator(renderer);
   scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-  scene.environmentIntensity = 0.3;
+  scene.environmentIntensity = 0.22;
   pmrem.dispose();
 
-  const hemi = new THREE.HemisphereLight('#fff5e6', '#c9a27a', 0.5);
+  const hemi = new THREE.HemisphereLight('#ffe8c8', '#7f97b0', 0.58);
   const ambient = new THREE.AmbientLight('#ffffff', 0.15);
   scene.add(hemi, ambient);
+  const fill = new THREE.DirectionalLight('#bfd9ff', 0.55);
+  scene.add(fill);
   // The sun by day and the moon by night; the sky moves it (world/sky.ts).
   const sun = new THREE.DirectionalLight('#fff1d6', 2.2);
   sun.position.set(-8, 18, 10);
   sun.castShadow = true;
   sun.shadow.mapSize.set(4096, 4096);
-  sun.shadow.radius = 3;
+  sun.shadow.radius = 2.5;
   // Wide enough for the office, the garage under it and the balcony and lot out front, from wherever the sun is.
   Object.assign(sun.shadow.camera, { left: -32, right: 32, top: 30, bottom: -30, near: 1, far: 100 });
   sun.shadow.bias = -0.0008;
@@ -88,7 +90,7 @@ export function createScene(canvas: HTMLCanvasElement, renderer: THREE.WebGLRend
 
   const office = buildOffice();
   scene.add(office.group);
-  const sky = new Sky(scene, { sun, hemi, ambient }, office.night, () => store.officeNow());
+  const sky = new Sky(scene, { sun, hemi, ambient, fill }, office.night, () => store.officeNow());
   // Halloween or Christmas decorations, up while the building's dressed up for one (see dressUp).
   const holiday = new Holiday(office);
   scene.add(holiday.group);

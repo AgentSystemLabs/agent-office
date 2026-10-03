@@ -238,7 +238,7 @@ function readout(g: CanvasRenderingContext2D, x: number, text: string) {
 function cross(g: CanvasRenderingContext2D, x: number, y: number) {
   g.strokeStyle = '#e63946';
   g.lineWidth = 5;
-  g.lineCap = 'round';
+  g.lineCap = 'butt';
   g.beginPath();
   g.moveTo(x - 14, y - 14);
   g.lineTo(x + 14, y + 14);
@@ -249,5 +249,5 @@ function cross(g: CanvasRenderingContext2D, x: number, y: number) {
 
 function roundRect(g: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
   g.beginPath();
-  g.roundRect(x, y, w, h, r);
+  g.rect(x, y, w, h);
 }

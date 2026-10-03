@@ -1,4 +1,5 @@
-import { voxelBall, voxelCapsule, voxelMaterial } from '../voxel';
+import { voxelBall, voxelBox, voxelMaterial, voxelSolid } from '../voxel';
+import { personShapes } from './person-model';
 import * as THREE from 'three';
 import { HAIR_COLORS, HAIR_STYLES, SKIN_TONES, type Look } from '../../../shared/avatar';
 import { EMOTE_BY_ID, type EmoteId } from '../../../shared/emotes';
@@ -129,46 +130,41 @@ export class Person {
     const skin = (this.skin = voxelMaterial(toonUnique(SKIN_TONES[look.skin])));
     this.hairMat = voxelMaterial(toonUnique(HAIR_COLORS[look.hair]));
     this.hairMat.side = THREE.DoubleSide;
-    const pants = toon('#3d405b');
-    const ink = toon('#1d1d1d');
 
     this.root.add(this.body);
-    const torso = mesh(voxelCapsule(0.26, 0.28), this.shirt, 0, 0.72, 0);
+    // Blocky voxel people, as in the look prototype (see person-model.ts). Shirt, skin and hair are
+    // tinted by their materials; trousers, shoes and the face are baked in colour.
+    const baked = voxelSolid('#ffffff');
+    const shape = personShapes();
+    const torso = mesh(shape.torso, this.shirt, 0, 0, 0);
+    torso.add(mesh(shape.trim, baked, 0, 0, 0, false));
     this.body.add(torso);
     // Head
     const head = (this.head = new THREE.Group());
     head.position.y = 1.32;
-    head.add(mesh(voxelBall(0.34), skin));
+    head.add(mesh(shape.head, skin));
     head.add(this.hair);
     this.buildHair();
-    for (const sx of [-1, 1]) {
-      head.add(mesh(voxelBall(0.055), ink, sx * 0.12, 0.02, 0.3, false));
-      head.add(mesh(voxelBall(0.05), toon('#ff9f9f'), sx * 0.2, -0.08, 0.27, false));
-    }
-    const smile = (this.smile = mesh(new THREE.TorusGeometry(0.06, 0.015, 6, 12, Math.PI), ink, 0, -0.08, 0.32, false));
-    smile.rotation.z = Math.PI;
-    head.add(smile);
-    // Talking mouth: a flattened ball pressed into the face, scaled open and shut with the voice.
-    this.mouth = mesh(voxelBall(1), toon('#7a2635'), 0, -0.1, 0.295, false);
-    const tongue = mesh(voxelBall(1), toon('#ff8fa3'), 0, -0.5, 0, false);
-    tongue.scale.set(0.6, 0.45, 1.15);
-    this.mouth.add(tongue);
+    head.add(mesh(shape.face, baked, 0, 0, 0, false));
+    this.smile = mesh(shape.smile, baked, 0, 0, 0, false);
+    head.add(this.smile);
+    // Talking mouth: a dark block pressed into the face, scaled open and shut with the voice.
+    this.mouth = mesh(new THREE.BoxGeometry(1, 1, 1), toon('#7a2635'), 0, -0.145, 0.262, false);
     this.mouth.visible = false;
     head.add(this.mouth);
     this.body.add(head);
 
-    const limb = (len: number, r: number, mat: THREE.Material, x: number, y: number) => {
+    const limb = (x: number, y: number, parts: [THREE.BufferGeometry, THREE.Material][]) => {
       const pivot = new THREE.Group();
       pivot.position.set(x, y, 0);
-      pivot.add(mesh(voxelCapsule(r, len), mat, 0, -len / 2 - r / 2, 0));
+      for (const [geo, mat] of parts) pivot.add(mesh(geo, mat));
       this.body.add(pivot);
       return pivot;
     };
-    this.legL = limb(0.22, 0.1, pants, -0.12, HIPS);
-    this.legR = limb(0.22, 0.1, pants, 0.12, HIPS);
-    this.armL = limb(0.24, 0.08, this.shirt, -0.33, 0.9);
-    this.armR = limb(0.24, 0.08, this.shirt, 0.33, 0.9);
-    for (const arm of [this.armL, this.armR]) arm.add(mesh(voxelBall(0.085), skin, 0, -0.38, 0));
+    this.legL = limb(-0.12, HIPS, [[shape.leg, baked]]);
+    this.legR = limb(0.12, HIPS, [[shape.leg, baked]]);
+    this.armL = limb(-0.33, 0.9, [[shape.sleeve, this.shirt], [shape.hand, skin]]);
+    this.armR = limb(0.33, 0.9, [[shape.sleeve, this.shirt], [shape.hand, skin]]);
     // Forward is +z, so the character's left arm is the one on +x. The handle faces the hand.
     const cup = (this.cup = coffeeMug(1.4));
     cup.position.set(0.02, -0.08, 0.1);
@@ -201,8 +197,8 @@ export class Person {
     this.body.add(this.bookHolder);
     // Along the arm (the fist's -y) the finger points; the thumb sticks out of the front of the fist,
     // which is up once the arm is out in front.
-    this.thumb = mesh(voxelCapsule(0.035, 0.07).rotateX(Math.PI / 2), skin, 0, -0.38, 0.1, false);
-    this.finger = mesh(voxelCapsule(0.03, 0.09), skin, 0, -0.5, 0.02, false);
+    this.thumb = mesh(voxelBox(0.05, 0.05, 0.12, 0.02), skin, 0, -0.34, 0.09, false);
+    this.finger = mesh(voxelBox(0.05, 0.14, 0.05, 0.02), skin, 0, -0.52, 0.02, false);
     for (const m of [this.thumb, this.finger]) {
       m.visible = false;
       this.armL.add(m);

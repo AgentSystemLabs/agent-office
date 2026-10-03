@@ -25,7 +25,7 @@ export function voxelGeometry(form: Form, width: number, height: number, depth: 
   const positions: number[] = [], normals: number[] = [], colors: number[] = [];
   for (let i = 0; i < nx; i++) for (let j = 0; j < ny; j++) for (let k = 0; k < nz; k++) {
     if (!has(i, j, k)) continue;
-    const shade = 0.94 + ((i * 13 + j * 7 + k * 19) % 11) * 0.006;
+    const shade = 0.92 + ((i * 13 + j * 7 + k * 19) % 13) * 0.011;
     for (const n of directions) {
       if (has(i + n[0], j + n[1], k + n[2])) continue;
       const u = n[0] ? [0, 1, 0] : n[1] ? [0, 0, 1] : [1, 0, 0];
@@ -40,7 +40,7 @@ export function voxelGeometry(form: Form, width: number, height: number, depth: 
         normals.push(...n);
         const side = has(i + n[0] + a * u[0], j + n[1] + a * u[1], k + n[2] + a * u[2]);
         const other = has(i + n[0] + b * v[0], j + n[1] + b * v[1], k + n[2] + b * v[2]);
-        const ao = shade * (side && other ? 0.68 : side || other ? 0.86 : 1);
+        const ao = shade * (side && other ? 0.55 : side || other ? 0.8 : 1);
         colors.push(ao, ao, ao);
       }
     }
@@ -62,4 +62,13 @@ export const voxelCapsule = (r: number, length: number, s = 0.025) => voxelGeome
 export function voxelMaterial<T extends THREE.Material>(material: T): T {
   if ('vertexColors' in material) { material.vertexColors = true; material.needsUpdate = true; }
   return material;
+}
+
+const solids = new Map<string, THREE.MeshStandardMaterial>();
+
+/** A flat-coloured voxel material of its own, shared only between voxel meshes (the toon cache's are for meshes without vertex colours). */
+export function voxelSolid(color: string): THREE.MeshStandardMaterial {
+  let m = solids.get(color);
+  if (!m) solids.set(color, (m = new THREE.MeshStandardMaterial({ color, roughness: 0.7, metalness: 0, vertexColors: true })));
+  return m;
 }

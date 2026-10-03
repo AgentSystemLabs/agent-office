@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { toon } from '../toon';
-import { voxelBox, voxelGeometry, voxelMaterial } from '../voxel';
+import { voxelBox, voxelGeometry, voxelMaterial, voxelSolid } from '../voxel';
 
 /** Batch static parts by paint; a keyboard or a whole chair takes only a few draw calls. */
 export class VoxelFurniture {
@@ -16,7 +16,7 @@ export class VoxelFurniture {
     for (const [color, parts] of this.parts) {
       const geometry = mergeGeometries(parts)!;
       for (const p of parts) p.dispose();
-      const mesh = new THREE.Mesh(geometry, voxelMaterial(toon(color)));
+      const mesh = new THREE.Mesh(geometry, voxelSolid(color));
       mesh.castShadow = mesh.receiveShadow = true; group.add(mesh);
     }
     return group;

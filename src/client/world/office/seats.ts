@@ -1,5 +1,5 @@
 import { fineChair, deskDrawers } from './voxel-furniture';
-import { voxelBox, voxelMaterial } from '../voxel';
+import { voxelBox, voxelMaterial, voxelSolid } from '../voxel';
 import * as THREE from 'three';
 import { BEANBAGS, DESKS, DESK_SIZE, FLOOR, KIOSK, SEATING_BY_ID, STATIONS, STATION_AGENT, deskSeat, type DeskDef, type StationKind } from '../../../shared/layout';
 import { deskPoint } from '../../../shared/nav';
@@ -51,7 +51,7 @@ export function buildDesk(def: DeskDef, index: number, trimMat: THREE.Material):
   group.position.set(def.x, 0, def.z);
   group.rotation.y = def.rotY;
   const { width, depth, height } = DESK_SIZE;
-  group.add(mesh(voxelBox(width - 0.06, 0.08, depth - 0.04, 0.04), voxelMaterial(toon('#e4c99f')), 0, height - 0.04, 0));
+  group.add(mesh(voxelBox(width - 0.06, 0.08, depth - 0.04, 0.04), voxelSolid('#e4c99f'), 0, height - 0.04, 0));
   const legMat = toon('#8d99ae');
   for (const sx of [-1, 1]) {
     for (const sz of [-1, 1]) {

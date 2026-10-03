@@ -35,7 +35,7 @@ export function roundedBox(w: number, h: number, d: number, r = 0.06): THREE.Buf
   const shape = new THREE.Shape();
   const x = -w / 2;
   const y = -d / 2;
-  r = Math.min(r, w / 2, d / 2);
+  r = 0;
   shape.moveTo(x + r, y);
   shape.lineTo(x + w - r, y);
   shape.quadraticCurveTo(x + w, y, x + w, y + r);
@@ -68,14 +68,16 @@ function textTexture(text: string, opts: TextOpts) {
   canvas.height = h;
   ctx.font = font;
   if (opts.bg) {
+    // A hard-edged block sign: stepped drop shadow, ink outline and a bright top edge, no curves.
+    ctx.fillStyle = 'rgba(41, 70, 74, .38)';
+    ctx.fillRect(6, 6, w - 6, h - 6);
     ctx.fillStyle = opts.bg;
-    const r = h / 2;
-    ctx.beginPath();
-    ctx.roundRect(3, 3, w - 6, h - 6, r - 3);
-    ctx.fill();
-    ctx.lineWidth = 5;
+    ctx.fillRect(2, 2, w - 8, h - 8);
+    ctx.fillStyle = 'rgba(255, 255, 255, .4)';
+    ctx.fillRect(7, 7, w - 18, 4);
+    ctx.lineWidth = 4;
     ctx.strokeStyle = opts.border ?? '#2b2d42';
-    ctx.stroke();
+    ctx.strokeRect(2, 2, w - 8, h - 8);
   }
   ctx.fillStyle = opts.color ?? '#2b2d42';
   ctx.textAlign = 'center';
@@ -162,21 +164,19 @@ export function cardSprite(o: CardOpts): THREE.Sprite {
   const x0 = lw / 2;
   const x1 = w - lw / 2;
   const cx = w / 2;
-  const r = 18 * R;
   ctx.beginPath();
-  ctx.moveTo(x0 + r, top);
-  ctx.arcTo(x1, top, x1, bottom, r);
-  ctx.arcTo(x1, bottom, x0, bottom, r);
+  ctx.moveTo(x0, top);
+  ctx.lineTo(x1, top);
+  ctx.lineTo(x1, bottom);
   ctx.lineTo(cx + tail, bottom);
   ctx.lineTo(cx, bottom + tail);
   ctx.lineTo(cx - tail, bottom);
-  ctx.arcTo(x0, bottom, x0, top, r);
-  ctx.arcTo(x0, top, x1, top, r);
+  ctx.lineTo(x0, bottom);
   ctx.closePath();
   ctx.fillStyle = o.bg;
   ctx.fill();
   ctx.lineWidth = lw;
-  ctx.lineJoin = 'round';
+  ctx.lineJoin = 'miter';
   ctx.strokeStyle = o.border ?? INK;
   ctx.stroke();
 
@@ -184,7 +184,7 @@ export function cardSprite(o: CardOpts): THREE.Sprite {
   ctx.textBaseline = 'middle';
   if (o.chip) {
     ctx.beginPath();
-    ctx.roundRect(cx - chipW / 2, lw / 2, chipW, chipH, chipH / 2);
+    ctx.rect(cx - chipW / 2, lw / 2, chipW, chipH);
     ctx.fillStyle = o.chip.bg;
     ctx.fill();
     ctx.lineWidth = 4 * R;
