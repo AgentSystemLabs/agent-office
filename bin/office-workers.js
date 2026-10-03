@@ -42,9 +42,9 @@ export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 /** How long the office may take to come back when it's restarting (a dev reload, an upgrade). */
 const RETRY_MS = 6000;
 /** Sending several workers home waits on git for each; hiring may fetch from GitHub first. */
-const TIMEOUT_MS = { list: 15_000, tell: 15_000, pr: 45_000, hire: 90_000, home: 300_000 };
+const TIMEOUT_MS = { list: 15_000, tell: 15_000, model: 15_000, pr: 45_000, hire: 90_000, home: 300_000 };
 /** Where each call goes, under /office/workers. */
-const PATHS = { list: '', hire: '', home: '/home', tell: '/tell', pr: '/pr' };
+const PATHS = { list: '', hire: '', home: '/home', tell: '/tell', model: '/model', pr: '/pr' };
 
 /**
  * Reads `--flag value` and `--flag=value` options, and the words that aren't options.
@@ -323,6 +323,24 @@ export const TOOLS = [
     annotations: { destructiveHint: true, idempotentHint: false, openWorldHint: false },
   },
   {
+    name: 'choose_model',
+    title: 'Choose your model',
+    description:
+      'Switches the model you run on (Claude Code /model) to fit the task. Size the task first: high for planning, architecture, hard debugging and reviews; ' +
+      'medium for ordinary implementation; low for small edits, lookups, renames and chores. Call it at the start of a task, and again when the work changes size ' +
+      '(plan on high, then build on medium). The switch applies when your current step ends; the conversation carries on.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        tier: { type: 'string', enum: ['high', 'medium', 'low'], description: 'How big the task is.' },
+        model: { type: 'string', description: 'A specific model name instead of a tier.' },
+        reason: { type: 'string', description: 'A few words on why, shown to the office.' },
+      },
+      additionalProperties: false,
+    },
+    annotations: { destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  },
+  {
     name: 'tell_worker',
     title: 'Tell a worker',
     description: "Types a message into another agent's (worker's) terminal as its next prompt; one that stopped starts again with it. " + WORKER_NOTE,
@@ -366,6 +384,7 @@ const INSTRUCTIONS =
   "rather than looking for the agents with git, ps or HTTP calls. list_workers says where each one's pull request stands (merged: true means it merged), hire_worker " +
   'puts a new agent to work, send_home sends agents home and deletes their worktrees and branches, tell_worker gives one a prompt, and link_pr says which pull request is a ' +
   "worker's when list_workers does not show it. Everyone in the office sees who did what. " +
+  'choose_model switches your own model to fit the task: call it when you start a task (high for planning and hard problems, medium for ordinary work, low for small edits and lookups) and again when the work changes size. ' +
   'The office-workers command on your PATH does the same from a shell.';
 
 /** Runs a tool; resolves to its text, and whether nothing it was asked came off, or throws with why it failed. */
@@ -385,6 +404,10 @@ async function runTool(name, args, io) {
   if (name === 'tell_worker') {
     const answer = await call('tell', a, io);
     return { text: `Told ${answer.worker?.name ?? a.worker}.` };
+  }
+  if (name === 'choose_model') {
+    const answer = await call('model', a, io);
+    return { text: `Switching to ${answer.model}${answer.tier ? ` (${answer.tier})` : ''}; it applies when this step ends.` };
   }
   if (name === 'link_pr') return { text: formatLinked(await call('pr', a, io)) };
   throw new Error(`Unknown tool: ${name}`);

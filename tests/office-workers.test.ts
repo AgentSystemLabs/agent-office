@@ -159,7 +159,7 @@ test('answers MCP: the handshake, its tools, and a call', async () => {
   assert.equal((await handleMcp({ jsonrpc: '2.0', id: 2, method: 'initialize', params: { protocolVersion: '1999-01-01' } }, io))?.result.protocolVersion, '2025-11-25');
   assert.equal(await handleMcp({ jsonrpc: '2.0', method: 'notifications/initialized' }, io), undefined);
   const tools = await handleMcp({ jsonrpc: '2.0', id: 3, method: 'tools/list' }, io);
-  assert.deepEqual(tools?.result.tools.map((t: { name: string }) => t.name), ['list_workers', 'hire_worker', 'send_home', 'tell_worker', 'link_pr']);
+  assert.deepEqual(tools?.result.tools.map((t: { name: string }) => t.name), ['list_workers', 'hire_worker', 'send_home', 'choose_model', 'tell_worker', 'link_pr']);
   const linking = { env: ENV, fetch: (async (_url: unknown, init?: RequestInit) => new Response(JSON.stringify({ ok: true, worker: { name: 'Bolt', pr: { number: Number(JSON.parse(String(init?.body)).pr), state: 'open' }, merged: false } }))) as typeof fetch };
   const linked = await handleMcp({ jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name: 'link_pr', arguments: { worker: 'Bolt', pr: 7 } } }, linking);
   assert.deepEqual(linked?.result, { content: [{ type: 'text', text: 'Bolt: PR #7 open' }] });

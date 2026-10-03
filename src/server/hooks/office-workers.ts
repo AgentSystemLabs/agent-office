@@ -1,3 +1,4 @@
+import { pickModel } from '../model-tiers.js';
 import type http from 'node:http';
 import { notLeaving } from '../leave-on-merge.js';
 import { findWorker, readHireRequest, readHomeRequest, readPrRequest, workerRow, type PullsView } from '../office-workers.js';
@@ -65,7 +66,7 @@ export async function officeWorkers(ctx: Ctx, req: http.IncomingMessage, res: ht
       workers: list.map((w) => workerRow(w, view, me.id)),
     });
   }
-  if (req.method !== 'POST' || !['', '/home', '/tell', '/pr'].includes(action)) return send(res, 405, { error: 'GET /office/workers, or POST to /office/workers, /office/workers/home, /office/workers/tell or /office/workers/pr' });
+  if (req.method !== 'POST' || !['', '/home', '/tell', '/pr', '/model'].includes(action)) return send(res, 405, { error: 'GET /office/workers, or POST to /office/workers, /office/workers/home, /office/workers/tell or /office/workers/pr' });
   let body: unknown;
   try {
     body = JSON.parse((await readBody(req)) || '{}');
@@ -125,6 +126,19 @@ export async function officeWorkers(ctx: Ctx, req: http.IncomingMessage, res: ht
     if (err === 'Worker is not running') err = floor.workers.resume(w.id, text);
     if (err) return send(res, 400, { error: err });
     return send(res, 200, { ok: true, worker: row(w.id) });
+  }
+
+  if (action === '/model') {
+    const b = (body ?? {}) as { tier?: unknown; model?: unknown; reason?: unknown };
+    if (me.kind !== 'agent' || me.provider !== 'claude') return send(res, 400, { error: 'Only a Claude Code worker can change its own model' });
+    const pick = pickModel(b.tier, b.model);
+    if (typeof pick === 'string') return send(res, 400, { error: pick });
+    // Claude Code's own /model command, typed into its terminal: the conversation carries on in the new model.
+    const err = floor.workers.prompt(me.id, `/model ${pick.model}`, who);
+    if (err) return send(res, 400, { error: err });
+    const why = str(b.reason, 200).replace(/\s+/g, ' ').trim();
+    ctx.toastFloor(floor, `🧠 ${who} chose ${pick.model}${pick.tier ? ` (${pick.tier})` : ''}${why ? `: ${why}` : ''}`);
+    return send(res, 200, { ok: true, model: pick.model, ...(pick.tier ? { tier: pick.tier } : {}) });
   }
 
   if (action === '/pr') {
