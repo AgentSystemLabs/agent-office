@@ -404,6 +404,8 @@ Every change to the app that lands on `main` is published as a GitHub release by
 
 Click **FPS · 1V1** (or press **F8**) in the 3D office to join Office Strike, a tactical duel in a dedicated training arena. Two players on the same office server can play; the first to win five rounds wins. Movement, hits, cover, ammunition and scores are checked by the server. See [FPS controls and rules](docs/fps.md) for joining from another computer and starting a rematch.
 
+The arena includes original generated concrete, metal and timber textures and dock lobby art. [Art sources and prompts](docs/fps-art.md) document the assets used in the game.
+
 ## More
 
 - [Features](docs/features.md): everything in the office, room by room

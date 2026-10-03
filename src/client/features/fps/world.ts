@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { ARENA, type FpsPlayer, type FpsShot } from '../../../shared/fps';
+import { boxSurfaceUv, fpsMaterials } from './art';
 
 /** The office renderer draws this arena through the existing view registry. No extra canvas or loop. */
 export class FpsWorld {
@@ -18,10 +19,11 @@ export class FpsWorld {
     const sun = new THREE.DirectionalLight(0xffe5b2, 3); sun.position.set(-8, 15, 8); this.scene.add(sun);
     this.weaponScene.add(new THREE.HemisphereLight(0xe9f6ff, 0x313336, 3));
     const mat = (color: string, metalness = 0) => new THREE.MeshStandardMaterial({ color, roughness: .75, metalness });
-    const concrete = mat('#737b81'), floor = mat('#59646a'), orange = mat('#bc693b'), blue = mat('#3b7583');
-    const wood = mat('#b49466'), iron = mat('#343e46', .6), stripe = mat('#e5b558'), dark = mat('#26333f');
+    const { concrete, floor, orange, blue, wood, iron } = fpsMaterials();
+    const stripe = mat('#e5b558'), dark = mat('#26333f');
     const box = (parent: THREE.Object3D, x: number, y: number, z: number, w: number, h: number, d: number, material: THREE.Material) => {
-      const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material); mesh.position.set(x, y, z); parent.add(mesh); return mesh;
+      const geometry = boxSurfaceUv(new THREE.BoxGeometry(w, h, d), parent === this.rifle ? .35 : 2);
+      const mesh = new THREE.Mesh(geometry, material); mesh.position.set(x, y, z); parent.add(mesh); return mesh;
     };
     box(this.scene, 0, -.15, 0, 33, .3, 25, floor);
     for (let x = -15; x <= 15; x += 3) box(this.scene, x, .006, 0, .025, .01, 23, concrete);
@@ -56,7 +58,7 @@ export class FpsWorld {
     const label = this.sign('OFFICE STRIKE   /   TRAINING FACILITY 01', '#d8e4e8');
     label.position.set(-15.4, 3.7, 0); label.rotation.y = Math.PI / 2; this.scene.add(label);
     // Visible opponent dimensions follow the shared body/head hit volumes.
-    const body = box(this.opponent, 0, .95, 0, .6, .9, .4, blue);
+    const body = box(this.opponent, 0, .95, 0, .6, .9, .4, mat('#3b7583'));
     body.name = 'vest';
     box(this.opponent, 0, 1.57, 0, .4, .32, .4, iron);
     box(this.opponent, 0, 1.56, -.21, .3, .1, .03, dark);

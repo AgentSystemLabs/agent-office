@@ -25,3 +25,5 @@ Eliminating the opponent wins a round. A round lasts 90 seconds; if neither play
 Leaving the arena, switching floors, disconnecting or refreshing releases your seat. The remaining player returns to waiting, and a replacement starts a new match with fresh scores. Losing focus or opening a window releases movement and firing; it does not freeze the match. Matches are temporary and do not survive an office restart.
 
 This is a focused tactical duel inspired by Counter-Strike. It includes a dedicated dock arena, cover, a rifle, headshots and rounds; it does not include bomb planting, weapon purchases, teams or ranked matchmaking.
+
+The arena uses generated concrete, worn metal and timber albedo textures, and the lobby features original dock artwork. Textures are loaded when entering FPS, with world-scale UVs so walls and cover retain consistent detail. Artwork changes only appearance; the shared collision and hit geometry still determines gameplay. See [FPS art sources and generation prompts](fps-art.md) to reproduce or replace the assets.

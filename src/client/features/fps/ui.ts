@@ -1,10 +1,12 @@
 import { ARENA, FPS, type FpsPlayer, type FpsState } from '../../../shared/fps';
 import { h, openModal, type Modal } from '../../ui/dom';
 import './ui.css';
+import { FPS_ART } from './art';
 
 export function openFpsLobby(join: () => void): Modal {
   let modal: Modal;
   const panel = h('div.modal.fps-dialog', {},
+    h('img.fps-lobby-art', { src: FPS_ART.dock, alt: '夕阳下的训练码头，蓝橙集装箱与木箱组成战术通道', width: 1536, height: 1024 }),
     h('div.fps-eyebrow', {}, 'OFFICE / STRIKE'), h('h2', {}, '双人战术对决'),
     h('p', {}, '进入训练码头，与同一办公室服务器中的另一位玩家对战。'),
     h('div.fps-rules', {}, h('strong', {}, '1 vs 1'), h('span', {}, '先赢 5 回合'), h('span', {}, '每回合 90 秒')),

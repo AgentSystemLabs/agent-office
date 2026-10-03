@@ -16,7 +16,9 @@ async function join(name) {
   await context.addInitScript(name => localStorage.setItem('agent-office.profile', JSON.stringify({ name, color: '#4f86f7', look: { skin: 0, hair: 0, style: 0 } })), name);
   const page = await context.newPage(); page.on('pageerror', e => errors.push(e.message));
   await page.goto(url); await page.waitForFunction(() => window.__office?.net.up && !document.querySelector('#loading')?.offsetParent);
-  await page.locator('.fps-entry').click(); await page.screenshot({ path: path.join(out, `${name}-lobby.png`) });
+  await page.locator('.fps-entry').click();
+  await page.locator('.fps-lobby-art').evaluate(img => img.decode());
+  await page.screenshot({ path: path.join(out, `${name}-lobby.png`) });
   await page.locator('.fps-join').click(); return page;
 }
 async function state(page) { return page.evaluate(() => window.__fps.state()); }
@@ -31,7 +33,9 @@ async function pointAt(page, target, pitch = 0) {
 
 try {
   const a = await join('Alpha'); await a.waitForFunction(() => window.__fps.active());
-  assert.equal((await state(a)).phase, 'waiting'); await a.screenshot({ path: path.join(out, 'waiting.png') });
+  assert.equal((await state(a)).phase, 'waiting');
+  await a.waitForFunction(() => [...performance.getEntriesByType('resource')].filter(r => /\/(concrete|metal|wood)-[^/]+\.jpg$/.test(new URL(r.name).pathname)).length === 3);
+  await a.screenshot({ path: path.join(out, 'waiting.png') });
   const b = await join('Bravo');
   await a.waitForFunction(() => window.__fps.state()?.phase === 'live'); await b.waitForFunction(() => window.__fps.state()?.phase === 'live');
   assert.equal((await state(a)).players.length, 2);
