@@ -408,6 +408,8 @@ The arena includes original generated concrete, metal and timber textures and do
 
 Confirmed body hits and headshots have distinct sounds, brief directional blood particles and a hit marker; bullets striking cover produce material-specific impact sounds and small debris. These cues follow server shot results. The camera stays steady while firing and taking damage, with no hitstop or slowdown.
 
+For solo practice, choose **突击手**, **游击手** or **神枪手** in the FPS lobby and click **挑战 AI**. Four difficulty levels range from easy to expert, defaulting to hard. Each practice match is private and leaves the shared two-player arena available. Adjust aim sensitivity (0.20×–3.00×) in the lobby or Esc menu; preferences are saved in your browser. The Esc menu can also change the AI profile and difficulty during practice.
+
 ## More
 
 - [Features](docs/features.md): everything in the office, room by room

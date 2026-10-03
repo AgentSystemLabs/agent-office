@@ -16,6 +16,7 @@ async function join(name) {
   await context.addInitScript(name => localStorage.setItem('agent-office.profile', JSON.stringify({ name, color: '#4f86f7', look: { skin: 0, hair: 0, style: 0 } })), name);
   const page = await context.newPage(); page.on('pageerror', e => errors.push(e.message));
   await page.goto(url); await page.waitForFunction(() => window.__office?.net.up && !document.querySelector('#loading')?.offsetParent);
+  if (await page.locator('.backdrop .close').count()) await page.locator('.backdrop .close').last().click();
   await page.evaluate(() => {
     window.__shotChecks = [];
     window.__office.net.onMessage(msg => {
@@ -24,7 +25,7 @@ async function join(name) {
       window.__shotChecks.push({ shot: msg.shot, yaw: p.camYaw, pitch: p.lookPitch, sounds: window.__fps.sounds() });
     });
   });
-  await page.locator('.fps-entry').click();
+  await page.keyboard.press('F8');
   await page.locator('.fps-lobby-art').evaluate(img => img.decode());
   await page.screenshot({ path: path.join(out, `${name}-lobby.png`) });
   await page.locator('.fps-join').click(); return page;

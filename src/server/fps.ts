@@ -1,4 +1,6 @@
 import { FPS, idleInput, moveFps, traceShot, validInput, type FpsInput, type FpsPlayer, type FpsShot, type FpsState } from '../shared/fps.js';
+import { BOT_PROFILES, validBotOptions, type BotOptions } from '../shared/fps-bots.js';
+import { FpsBot } from './fps-bot.js';
 
 /** One two-seat duel per office, driven by a server clock, never by client-reported hits or positions. */
 export class FpsDuel {
@@ -11,6 +13,7 @@ export class FpsDuel {
   private winner: string | null = null;
   private reason = '';
   private lastTick = 0;
+  private bots = new Map<string, FpsBot>();
 
   state(now: number): FpsState {
     return { players: this.players.map(p => ({ ...p })), phase: this.phase, round: this.round, until: this.until, now, winner: this.winner, reason: this.reason };
@@ -28,9 +31,26 @@ export class FpsDuel {
     if (!this.players.some(p => p.id === id)) return false;
     this.players = this.players.filter(p => p.id !== id);
     this.inputs.delete(id); this.lastShot.delete(id);
+    if (!this.players.some(p => !p.bot)) { for (const botId of this.bots.keys()) { this.inputs.delete(botId); this.lastShot.delete(botId); } this.players = []; this.bots.clear(); }
     this.reset(now);
     this.reason = this.players.length ? '对手已离开 · 等待新对手' : '';
     return true;
+  }
+
+  practice(id: string, name: string, options: BotOptions, now: number): boolean {
+    if (!validBotOptions(options) || this.players.length) return false;
+    this.join(id, name, now);
+    const botId = `fps-ai:${id}`; this.join(botId, BOT_PROFILES[options.profile].name, now);
+    const bot = this.players.find(p => p.id === botId)!;
+    bot.bot = options.profile; bot.difficulty = options.difficulty; bot.ready = true;
+    this.bots.set(botId, new FpsBot({ ...options })); return true;
+  }
+
+  configureBot(id: string, options: BotOptions): boolean {
+    const bot = this.players.find(p => p.bot);
+    if (!validBotOptions(options) || !bot || !this.players.some(p => p.id === id && !p.bot)) return false;
+    bot.bot = options.profile; bot.difficulty = options.difficulty; bot.name = BOT_PROFILES[options.profile].name;
+    this.bots.set(bot.id, new FpsBot({ ...options })); return true;
   }
 
   input(id: string, input: FpsInput, now: number): void {
@@ -56,6 +76,12 @@ export class FpsDuel {
     if (this.phase === 'intermission' && now >= this.until) this.startRound(now);
     if (this.phase !== 'live') return [];
     if (now >= this.until) { this.endRound(null, '时间到 · 平局', now); return []; }
+    for (const p of this.players) {
+      const brain = this.bots.get(p.id), target = this.players.find(o => o.id !== p.id);
+      if (!brain || !target || !p.hp) continue;
+      const controls = brain.step(p, target, now, dt);
+      this.input(p.id, controls.input, now); if (controls.reload) this.reload(p.id, now);
+    }
     // Both players move before either shoots. A stale input releases all held controls.
     for (const p of this.players) {
       const sample = this.inputs.get(p.id);
@@ -83,12 +109,13 @@ export class FpsDuel {
 
   private reset(now: number) {
     this.round = 0; this.winner = null; this.reason = ''; this.lastTick = now;
-    for (const p of this.players) { p.score = 0; p.ready = false; }
+    for (const p of this.players) { p.score = 0; p.ready = !!p.bot; }
     this.startRound(now);
   }
 
   private startRound(now: number) {
     this.round++; this.winner = null; this.reason = ''; this.inputs.clear(); this.lastShot.clear();
+    for (const bot of this.bots.values()) bot.reset();
     const reverse = this.round % 2 === 0;
     this.players.forEach((p, i) => {
       const north = (i === 0) !== reverse;

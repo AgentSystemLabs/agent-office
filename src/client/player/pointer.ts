@@ -60,6 +60,8 @@ export abstract class PlayerInput {
   enabled = true;
   /** False while the mouse picks something else (an emote on the wheel), so it doesn't turn the camera. */
   mouseLook = true;
+  /** Activities can scale first-person aim without replacing pointer-lock or drag handling. */
+  lookSensitivity = 1;
 
   constructor(private dom: HTMLElement) {
     window.addEventListener('keydown', (e) => {
@@ -262,8 +264,9 @@ export abstract class PlayerInput {
   }
 
   private look(dx: number, dy: number) {
-    this.camYaw -= dx;
-    this.lookPitch = THREE.MathUtils.clamp(this.lookPitch - dy, -1.45, 1.45);
+    const sensitivity = Number.isFinite(this.lookSensitivity) ? THREE.MathUtils.clamp(this.lookSensitivity, .2, 3) : 1;
+    this.camYaw -= dx * sensitivity;
+    this.lookPitch = THREE.MathUtils.clamp(this.lookPitch - dy * sensitivity, -1.45, 1.45);
   }
 }
 

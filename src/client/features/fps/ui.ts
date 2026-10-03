@@ -1,19 +1,27 @@
 import { ARENA, FPS, type FpsPlayer, type FpsState } from '../../../shared/fps';
-import { h, openModal, type Modal } from '../../ui/dom';
+import { $, h, openModal, type Modal } from '../../ui/dom';
 import './ui.css';
 import { FPS_ART } from './art';
+import { FpsPreferences } from './preferences';
+import { BOT_DIFFICULTIES, type BotOptions } from '../../../shared/fps-bots';
 
-export function openFpsLobby(join: () => void): Modal {
+export function openFpsLobby(join: () => void, practice: (options: BotOptions) => void, preferences: FpsPreferences, sensitivity: (value: number) => void): Modal {
   let modal: Modal;
-  const panel = h('div.modal.fps-dialog', {},
+  const bot = preferences.botControl();
+  const content = h('div.fps-dialog-content', {},
     h('img.fps-lobby-art', { src: FPS_ART.dock, alt: '夕阳下的训练码头，蓝橙集装箱与木箱组成战术通道', width: 1536, height: 1024 }),
-    h('div.fps-eyebrow', {}, 'OFFICE / STRIKE'), h('h2', {}, '双人战术对决'),
-    h('p', {}, '进入训练码头，与同一办公室服务器中的另一位玩家对战。'),
+    h('div.fps-eyebrow', {}, 'OFFICE / STRIKE'),
+    h('p', {}, '与同一服务器的朋友单挑，或独自挑战 AI。'),
     h('div.fps-rules', {}, h('strong', {}, '1 vs 1'), h('span', {}, '先赢 5 回合'), h('span', {}, '每回合 90 秒')),
     h('p', {}, '双方配备步枪、100 生命值和 30 发弹匣。利用集装箱绕侧，击败对手；每回合重置补给并交换出生点。'),
     h('div.fps-controls', {}, 'WASD 移动 · Shift 静步 · Space 跳跃', h('br'), '鼠标瞄准 · 左键射击 · R 换弹 · Esc 暂停'),
+    preferences.control(sensitivity),
     h('button.btn.primary.fps-join', { onclick: () => { modal.close(); join(); } }, '加入竞技场 →'),
-    h('small', {}, '两位玩家需打开同一服务器的办公室，分别点击 FPS。'));
+    h('small', {}, '真人对战：两位玩家打开同一服务器，分别加入。'),
+    h('div.fps-practice-section', {}, h('h3', {}, '人机单挑'), bot.root,
+      h('button.btn.primary.fps-practice', { onclick: () => { const options = bot.options(); modal.close(); practice(options); } }, '挑战 AI →'),
+      h('small', {}, '立即开始独立训练，不占用朋友的双人竞技场。')));
+  const panel = h('div.modal.fps-dialog', {}, h('header', {}, h('h2', {}, '单挑竞技场')), content);
   modal = openModal(panel, { doing: 'FPS 对战大厅' }); return modal;
 }
 
@@ -39,7 +47,7 @@ export class FpsHud {
       h('div.fps-crosshair', {}, h('i'), h('i'), h('i'), h('i')), this.hit, this.banner,
       h('div.fps-bottom', {}, this.hp, h('div.fps-loadout', {}, '01 / ASSAULT', h('strong', {}, 'AR-30'), h('small', {}, '左键 射击  /  R 换弹')), this.ammo),
       h('div.fps-keyguide', {}, 'WASD 移动　SHIFT 静步　SPACE 跳跃　ESC 暂停'));
-    document.body.append(this.root); this.root.hidden = true;
+    $('app').append(this.root); this.root.hidden = true;
   }
 
   show(state: FpsState, you: string, now: number) {
@@ -48,7 +56,8 @@ export class FpsHud {
     this.root.hidden = false;
     this.title.textContent = `ROUND ${String(Math.max(1, state.round)).padStart(2, '0')} · FIRST TO ${FPS.wins}`;
     this.left.replaceChildren(h('span', {}, me.name), h('strong', {}, me.score));
-    this.right.replaceChildren(h('strong', {}, opponent?.score ?? '—'), h('span', {}, opponent?.name ?? '等待对手'));
+    this.right.replaceChildren(h('strong', {}, opponent?.score ?? '—'), h('span', {}, opponent?.name ?? '等待对手',
+      opponent?.difficulty ? h('small.fps-ai-level', {}, BOT_DIFFICULTIES[opponent.difficulty]) : null));
     const seconds = Math.max(0, Math.ceil((state.until - now) / 1000));
     this.clock.textContent = state.phase === 'live' ? `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}` : state.phase === 'finished' ? 'FINAL' : '1 V 1';
     this.hp.replaceChildren(h('small', {}, 'HEALTH'), h('strong', {}, me.hp), h('div.fps-healthbar', { style: `--hp:${me.hp}%` }));

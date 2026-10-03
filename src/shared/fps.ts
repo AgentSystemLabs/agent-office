@@ -1,4 +1,5 @@
 /** Shared arena geometry: rendering, movement and server hit tests use the same solids. */
+import type { BotDifficulty, BotProfile } from './fps-bots.js';
 export const FPS = { magazine: 30, reserve: 90, reload: 1800, shot: 120, round: 90000, wins: 5, eye: 1.55 } as const;
 export interface Solid { x: number; y: number; z: number; w: number; h: number; d: number; kind: 'wall' | 'crate' | 'container' }
 export const ARENA: readonly Solid[] = [
@@ -19,6 +20,7 @@ export const idleInput = (): FpsInput => ({ forward: 0, side: 0, yaw: 0, pitch: 
 export interface FpsPlayer {
   id: string; name: string; x: number; y: number; z: number; vy: number; yaw: number; pitch: number;
   hp: number; ammo: number; reserve: number; score: number; reloadUntil: number; ready: boolean;
+  bot?: BotProfile; difficulty?: BotDifficulty;
 }
 export type FpsPhase = 'waiting' | 'countdown' | 'live' | 'intermission' | 'finished';
 export interface FpsState { players: FpsPlayer[]; phase: FpsPhase; round: number; until: number; now: number; winner: string | null; reason: string }

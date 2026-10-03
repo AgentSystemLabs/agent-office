@@ -6,22 +6,28 @@ import { closeAllModals, h, modalOpen, openModal, toast, type Modal } from '../.
 import { FpsWorld } from './world';
 import { FpsHud, openFpsLobby } from './ui';
 import { impactKind } from './impact';
+import { FpsPreferences } from './preferences';
+import type { BotOptions } from '../../../shared/fps-bots';
 
 export function installFps(ctx: Ctx) {
   let wanted = false, active = false, state: FpsState | null = null, local: FpsPlayer | null = null;
   let arena: FpsWorld | null = null, pauseModal: Modal | null = null;
   let previousView = ctx.player.view, previousClick = ctx.player.onClick;
   let savedYaw = 0, savedPitch = 0, lastSend = 0, receivedAt = 0;
+  let savedSensitivity = ctx.player.lookSensitivity;
+  const preferences = new FpsPreferences();
+  const sensitivity = (value: number) => { if (active) ctx.player.lookSensitivity = value; };
   let fire = false, roundKey = '', reloadWas = false;
   const held = new Set<string>(), correction = new THREE.Vector3();
   const hud = new FpsHud(pause);
-  const lobby = () => openFpsLobby(() => {
+  const join = (bot?: BotOptions) => {
     if (!ctx.net.up) return toast('办公室连接已断开，请等待重连。', 'warn');
-    wanted = true; ctx.net.send({ t: 'fps.join' });
-  });
+    wanted = true; ctx.net.send(bot ? { t: 'fps.practice', bot } : { t: 'fps.join' });
+  };
+  const lobby = () => openFpsLobby(() => join(), bot => join(bot), preferences, sensitivity);
   const entry = h('button.fps-entry', { type: 'button', onclick: lobby }, 'FPS · 1V1  /  F8');
   ctx.keys.bind({ code: 'F8', preventDefault: true, repeat: false, run: () => { lobby(); } });
-  document.body.append(entry);
+  ctx.canvas.parentElement!.append(entry);
 
   function input(): FpsInput {
     const enabled = !modalOpen() && document.hasFocus() && !document.hidden && ctx.player.hasMouse;
@@ -37,10 +43,11 @@ export function installFps(ctx: Ctx) {
     closeAllModals(); ctx.activities.stopAll('start'); ctx.player.stopWalking();
     previousView = ctx.player.view; previousClick = ctx.player.onClick;
     savedYaw = ctx.player.camYaw; savedPitch = ctx.player.lookPitch;
+    savedSensitivity = ctx.player.lookSensitivity; ctx.player.lookSensitivity = preferences.sensitivity;
     ctx.player.stand(); ctx.player.setView('first'); ctx.player.clearKeys();
     ctx.player.onClick = () => {}; ctx.player.rig = () => { ctx.player.moving = false; };
     arena ??= new FpsWorld(); active = true; document.body.classList.add('fps-active');
-    ctx.player.lock(); ctx.net.send({ t: 'doing', what: 'FPS 双人对战' });
+    ctx.player.lock(); ctx.net.send({ t: 'doing', what: 'FPS 对战' });
   }
 
   function leave(send = true) {
@@ -52,6 +59,7 @@ export function installFps(ctx: Ctx) {
     if (send) ctx.net.send({ t: 'fps.leave' });
     ctx.player.rig = null; ctx.player.onClick = previousClick; ctx.player.setView(previousView);
     ctx.player.camYaw = savedYaw; ctx.player.lookPitch = savedPitch;
+    ctx.player.lookSensitivity = savedSensitivity;
     ctx.player.enabled = !modalOpen(); ctx.player.clearKeys(); ctx.player.updateCamera(true);
     document.body.classList.remove('fps-active'); hud.hide();
     ctx.net.send({ t: 'doing' }); ctx.hint.invalidate();
@@ -61,11 +69,18 @@ export function installFps(ctx: Ctx) {
   function pause() {
     if (!active || pauseModal || modalOpen()) return;
     clear();
-    const panel = h('div.modal.fps-dialog', {}, h('div.fps-eyebrow', {}, 'OFFICE / STRIKE'), h('h2', {}, state?.phase === 'finished' ? '对决已结束' : '对战菜单'),
+    const content = h('div.fps-dialog-content', {}, h('div.fps-eyebrow', {}, 'OFFICE / STRIKE'),
       h('p', {}, '比赛计时继续。关闭此窗口将返回瞄准。'),
+      preferences.control(sensitivity),
       h('button.btn.primary.fps-join', { onclick: () => pauseModal?.close() }, '返回竞技场'),
       h('button.btn', { onclick: () => leave() }, '退出对战，返回办公室'));
-    if (state?.phase === 'finished') panel.append(h('button.btn', { onclick: () => { ctx.net.send({ t: 'fps.rematch' }); pauseModal?.close(); } }, '准备再战（双方确认）'));
+    const opponent = state?.players.find(p => p.bot);
+    if (opponent?.bot && opponent.difficulty) {
+      const bot = preferences.botControl({ profile: opponent.bot, difficulty: opponent.difficulty });
+      content.append(bot.root, h('button.btn.fps-apply-bot', { onclick: () => ctx.net.send({ t: 'fps.bot', bot: bot.options() }) }, '应用人机设置'));
+    }
+    if (state?.phase === 'finished') content.append(h('button.btn', { onclick: () => { ctx.net.send({ t: 'fps.rematch' }); pauseModal?.close(); } }, opponent ? '再战一局' : '准备再战（双方确认）'));
+    const panel = h('div.modal.fps-dialog', {}, h('header', {}, h('h2', {}, state?.phase === 'finished' ? '对决已结束' : '对战菜单')), content);
     pauseModal = openModal(panel, { doing: 'FPS 对战菜单', onClose: () => { pauseModal = null; clear(); } });
   }
 
@@ -75,7 +90,7 @@ export function installFps(ctx: Ctx) {
     if (!me) { leave(false); return; }
     if (!active) enter();
     state = msg.state; receivedAt = performance.now();
-    const key = `${state.round}/${state.phase === 'waiting' ? 'waiting' : 'match'}`;
+    const key = `${state.players.map(p => p.id).join(',')}/${state.round}/${state.phase === 'waiting' ? 'waiting' : 'match'}`;
     if (!local || key !== roundKey) {
       arena?.clearShots();
       local = { ...me }; correction.set(0, 0, 0); roundKey = key;
@@ -110,6 +125,7 @@ export function installFps(ctx: Ctx) {
   ctx.activities.add({ id: 'fps', active: () => active, hidesHands: true, bothHands: true, takesCamera: true, stop: () => leave() });
   ctx.keys.add('guard', e => {
     if (!active || modalOpen() || e.ctrlKey || e.metaKey || e.altKey) return false;
+    if (e.code === 'F8') { if (!e.repeat) { clear(); lobby(); } e.preventDefault(); return true; }
     if (e.code === 'Escape') { pause(); e.preventDefault(); return true; }
     if (e.code === 'KeyR' && !e.repeat) ctx.net.send({ t: 'fps.reload' });
     held.add(e.code); if (e.code === 'Space' || e.code === 'Tab') e.preventDefault();
