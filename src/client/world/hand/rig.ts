@@ -1,15 +1,15 @@
 import * as THREE from 'three';
+import { voxelBox, voxelMaterial } from '../voxel';
 
 /**
- * A procedural first-person hand: wrist, palm with thenar and hypothenar pads, four fingers of three
- * segments each (index longest after the middle, pinky shortest), and a thumb set off at an angle. Camera
- * space as everywhere in the hands scene: -z is forward (where the fingers point), +y is the back of the hand.
- * Built for the right hand and mirrored by `side` for the left: the thumb is on -x for the right hand.
+ * A short, chunky block hand in the look of the voxel people: a square palm, four stubby two-block
+ * fingers, a stubby thumb, and a short forearm into a boxy sleeve. Camera space as everywhere in the
+ * hands scene: -z is forward (where the fingers point), +y is the back of the hand. Built for the
+ * right hand and mirrored by `side` for the left: the thumb is on -x for the right hand.
  */
 
 export interface HandMaterials {
   skin: THREE.MeshStandardMaterial;
-  /** A touch redder than the skin, for the knuckles. */
   knuckle: THREE.MeshStandardMaterial;
   nail: THREE.MeshStandardMaterial;
   sleeve: THREE.MeshStandardMaterial;
@@ -32,148 +32,106 @@ export function relaxedPose(): HandPose {
   return { curl: [1, 1, 1, 1], thumbOut: 1, thumbUp: 0, thumbCurl: 1, roll: 0 };
 }
 
-interface Digit {
-  base: THREE.Group;
-  prox: THREE.Group;
-  mid: THREE.Group;
-  dist: THREE.Group;
-}
-
 export interface HandRig {
   /** The wrist, hand and fingers (turns for `roll`). */
   hand: THREE.Group;
-  /** Forearm, wrist and hand in skin: hidden when a costume dresses the hand. */
+  /** Forearm and hand in skin: hidden when a costume dresses the hand. */
   skinned: THREE.Object3D[];
-  /** The rolled sleeve and the cloth above it. */
+  /** The cuff and the sleeve above it. */
   sleeve: THREE.Object3D[];
   apply(p: HandPose): void;
 }
 
 const geoCache = new Map<string, THREE.BufferGeometry>();
 
-function cached(key: string, make: () => THREE.BufferGeometry): THREE.BufferGeometry {
+function box(w: number, h: number, d: number): THREE.BufferGeometry {
+  const key = `${w}|${h}|${d}`;
   let g = geoCache.get(key);
-  if (!g) {
-    g = make();
-    geoCache.set(key, g);
-  }
+  if (!g) geoCache.set(key, (g = voxelBox(w, h, d, 0.007)));
   return g;
 }
 
-/** A block hand, in the look of the voxel people (see ../vox.ts): every part is a square-edged box. */
-function box(w: number, h: number, d: number): THREE.BufferGeometry {
-  return cached(`box|${w}|${h}|${d}`, () => new THREE.BoxGeometry(w, h, d));
-}
-
-function blob(mat: THREE.Material, hx: number, hy: number, hz: number, x: number, y: number, z: number): THREE.Mesh {
-  const m = new THREE.Mesh(box(hx * 1.8, hy * 1.8, hz * 1.8), mat);
-  m.position.set(x, y, z);
+/** A block that runs `d` along -z from the origin of its group. */
+function block(mat: THREE.Material, w: number, h: number, d: number): THREE.Mesh {
+  const m = new THREE.Mesh(box(w, h, d), mat);
+  m.position.z = -d / 2;
   return m;
 }
 
-/** A finger segment: a block of width 2r running L along -z from the origin. */
-const FLAT = 0.86;
-
-function seg(mat: THREE.Material, r0: number, r1: number, L: number): THREE.Mesh {
-  const m = new THREE.Mesh(box(r0 * 1.5, r0 * 2.4, L), mat);
-  m.position.z = -L / 2;
-  return m;
-}
-
-// Finger lengths (proximal, middle, distal) and base radius: index, middle, ring, pinky.
+const FINGER_W = 0.017;
+const FINGER_H = 0.027;
+/** Index to pinky: where each sits across the palm, and how long its two blocks are. */
 const FINGERS = [
-  { x: -0.03, z: -0.09, len: [0.03, 0.022, 0.018], r: 0.0135, fan: 0 },
-  { x: -0.01, z: -0.09, len: [0.032, 0.023, 0.019], r: 0.0135, fan: 0 },
-  { x: 0.01, z: -0.09, len: [0.032, 0.023, 0.019], r: 0.0135, fan: 0 },
-  { x: 0.03, z: -0.09, len: [0.029, 0.021, 0.017], r: 0.0135, fan: 0 },
+  { x: -0.0285, near: 0.025, far: 0.019 },
+  { x: -0.0095, near: 0.027, far: 0.02 },
+  { x: 0.0095, near: 0.025, far: 0.019 },
+  { x: 0.0285, near: 0.021, far: 0.016 },
 ] as const;
-// How far each joint folds per unit of curl (the pinky and ring curl most).
-const PROX = [0.28, 0.32, 0.38, 0.45];
-const MID = [0.45, 0.5, 0.55, 0.6];
-const DIST = [0.28, 0.3, 0.32, 0.34];
-const THUMB = { meta: 0.03, prox: 0.026, dist: 0.022 };
+const PALM = { w: 0.076, h: 0.034, d: 0.058 };
 
 export function buildHand(side: 1 | -1, m: HandMaterials): HandRig {
   const hand = new THREE.Group();
-  const skin = m.skin;
-  // One wrist block and one palm block, no overlapping pieces, so no flickering seams.
-  const wrist = blob(skin, 0.03, 0.02, 0.022, 0, 0, 0.006);
-  const palm = blob(skin, 0.05, 0.02, 0.052, 0, 0, -0.048);
-  hand.add(wrist, palm);
+  // Fine blocks with baked shading and a little colour jitter, like the people's, so the skin isn't one flat tone.
+  const skin = voxelMaterial(m.skin);
+  voxelMaterial(m.knuckle), voxelMaterial(m.nail), voxelMaterial(m.sleeve);
 
-  const digits: Digit[] = [];
-  FINGERS.forEach((f, i) => {
-    const [l1, l2, l3] = f.len;
-    const r = f.r;
-    const base = new THREE.Group();
-    base.position.set(side * f.x, 0.003, f.z);
-    base.rotation.y = side * f.fan;
+  const palm = block(skin, PALM.w, PALM.h, PALM.d);
+  palm.position.z = 0;
+  hand.add(palm);
+  // A flush over the knuckles.
+  const flush = block(m.knuckle, PALM.w - 0.012, 0.004, 0.014);
+  flush.position.set(0, PALM.h / 2 + 0.0005, -PALM.d + 0.01);
+  hand.add(flush);
+
+  const knuckles: { prox: THREE.Group; dist: THREE.Group }[] = [];
+  for (const f of FINGERS) {
     const prox = new THREE.Group();
-    prox.add(seg(skin, r, r * 0.9, l1));
-    const mid = new THREE.Group();
-    mid.position.z = -l1;
-    mid.add(seg(skin, r * 0.9, r * 0.82, l2));
+    prox.position.set(f.x, 0.002, -PALM.d);
+    prox.add(block(skin, FINGER_W, FINGER_H, f.near));
     const dist = new THREE.Group();
-    dist.position.z = -l2;
-    dist.add(seg(skin, r * 0.82, r * 0.64, l3));
-    // A natural, short nail on the back of the tip.
-    const s = r / 0.0098;
-    const nail = blob(m.nail, 0.0054 * s, 0.0011, 0.0072 * s, 0, r * 0.74 * FLAT, -l3 * 0.62);
-    nail.rotation.x = 0.06;
-    // Knuckles: a faint tint over the big joint and the middle one.
-    const k1 = blob(m.knuckle, r * 1.04, r * 0.9, r * 0.95, 0, r * 0.28, 0.001);
-    mid.add(dist);
-    prox.add(mid);
-    base.add(prox);
-    hand.add(base);
-    digits.push({ base, prox, mid, dist });
-  });
+    dist.position.z = -f.near;
+    dist.add(block(skin, FINGER_W - 0.0008, FINGER_H - 0.002, f.far));
+    // A pale nail on the back of the tip.
+    const nail = block(m.nail, FINGER_W - 0.006, 0.004, 0.009);
+    nail.position.set(0, (FINGER_H - 0.002) / 2 + 0.0005, -f.far + 0.0055);
+    dist.add(nail);
+    prox.add(dist);
+    hand.add(prox);
+    knuckles.push({ prox, dist });
+  }
 
-  // The thumb: set off at an angle from the palm, rolled a little so its nail faces up and out.
-  const tRoot = new THREE.Group();
-  tRoot.position.set(-side * 0.05, -0.004, -0.03);
-  tRoot.rotation.order = 'YXZ';
-  tRoot.add(seg(skin, 0.0135, 0.0118, THUMB.meta));
-  const j1 = new THREE.Group();
-  j1.position.z = -THUMB.meta;
-  j1.add(seg(skin, 0.0118, 0.0108, THUMB.prox));
-  const j2 = new THREE.Group();
-  j2.position.z = -THUMB.prox;
-  j2.add(seg(skin, 0.0108, 0.0086, THUMB.dist));
-  const tNail = blob(m.nail, 0.0066, 0.0012, 0.0082, 0, 0.0086 * FLAT * 0.78, -THUMB.dist * 0.6);
-  j1.add(j2);
-  tRoot.add(j1);
-  hand.add(tRoot);
+  // The thumb: a stubby two-block digit off the palm's side.
+  const thumb = new THREE.Group();
+  thumb.position.set(-side * (PALM.w / 2 + 0.004), -0.002, -0.018);
+  thumb.add(block(skin, 0.02, 0.026, 0.026));
+  const tip = new THREE.Group();
+  tip.position.z = -0.026;
+  tip.add(block(skin, 0.019, 0.025, 0.02));
+  thumb.add(tip);
+  hand.add(thumb);
 
-  // The forearm, a block running back into the sleeve.
-  const forearm = new THREE.Mesh(box(0.06, 0.05, 0.22), skin);
-  forearm.position.z = 0.115;
-
-  // Sleeve: two blocky cuffs, then a straight sleeve.
-  const roll1 = new THREE.Mesh(box(0.115, 0.1, 0.04), m.sleeve);
-  roll1.position.z = 0.12;
-  const roll2 = new THREE.Mesh(box(0.125, 0.11, 0.04), m.sleeve);
-  roll2.position.z = 0.16;
-  const tube = new THREE.Mesh(box(0.135, 0.12, 0.36), m.sleeve);
-  tube.position.z = 0.38;
+  // A short forearm into a boxy cuff and sleeve.
+  const forearm = block(skin, 0.058, 0.046, 0.09);
+  forearm.position.z = 0.09 + PALM.d / 2 - 0.005;
+  const cuff = block(m.sleeve, 0.086, 0.07, 0.04);
+  cuff.position.z = 0.15;
+  const tube = block(m.sleeve, 0.098, 0.082, 0.22);
+  tube.position.z = 0.35;
 
   const rig: HandRig = {
     hand,
     skinned: [forearm, hand],
-    sleeve: [roll1, roll2, tube],
+    sleeve: [cuff, tube],
     apply(p) {
       for (let i = 0; i < 4; i++) {
-        const raw = p.curl[i];
-        const c = 0.25 * raw + 0.22 * raw * raw;
-        const d = digits[i];
-        d.prox.rotation.x = -Math.min(PROX[i] * c, 1.45);
-        d.mid.rotation.x = -Math.min(MID[i] * c, 1.75);
-        d.dist.rotation.x = -Math.min(DIST[i] * c, 1.3);
+        // Relaxed fingers are nearly straight; a fist closes them right over.
+        const c = 0.22 * p.curl[i] + 0.2 * p.curl[i] * p.curl[i];
+        knuckles[i].prox.rotation.x = -Math.min(c * 0.5, 1.45);
+        knuckles[i].dist.rotation.x = -Math.min(c * 0.55, 1.5);
       }
       const up = p.thumbUp;
-      tRoot.rotation.set(-0.12 + 0.22 * up, side * (0.08 + 0.18 * p.thumbOut + 0.85 * up), side * (0.45 - 0.35 * up));
-      j1.rotation.x = -0.2 * p.thumbCurl * (1 - up * 0.8);
-      j2.rotation.x = -0.28 * p.thumbCurl * (1 - up * 0.8);
+      thumb.rotation.set(-0.1 + 0.2 * up, side * (0.12 + 0.2 * p.thumbOut + 0.8 * up), side * (0.2 - 0.15 * up));
+      tip.rotation.x = -0.3 * p.thumbCurl * (1 - up * 0.8);
       hand.rotation.z = -side * 1.2 * p.roll;
     },
   };

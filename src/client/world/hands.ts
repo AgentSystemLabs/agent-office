@@ -242,7 +242,7 @@ export class Hands {
     this.sleeve.color.set(c === 'halloween' ? '#3b1d5a' : c === 'christmas' ? '#d62828' : this.shirt);
     this.skin.color.set(c === 'christmas' ? '#2e9e48' : this.skinTone);
     if (c === 'halloween') this.skin.color.lerp(UNDEAD_SKIN, 0.8);
-    this.knuckle.color.copy(this.skin.color).lerp(KNUCKLE_FLUSH, 0.16);
+    this.knuckle.color.copy(this.skin.color).lerp(KNUCKLE_FLUSH, 0.3);
     this.nail.color.copy(this.skin.color).lerp(NAIL_PINK, 0.42);
   }
 
