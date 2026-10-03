@@ -98,7 +98,23 @@ export function openTerminalFor(): string | null {
   return current?.workerId ?? null;
 }
 
+/** Closes the terminal window, if one is open. */
+export function closeTerminal() {
+  current?.modal.close();
+}
+
+let divert: ((workerId: string) => boolean) | null = null;
+
+/**
+ * Lets something else show a worker's terminal in place of this window: the panel in a VR headset,
+ * where a window can't be seen. `fn` returns true when it has taken the terminal.
+ */
+export function divertTerminals(fn: ((workerId: string) => boolean) | null) {
+  divert = fn;
+}
+
 export function openTerminal(net: Net, workerId: string, onChanges?: () => void, find?: TerminalFind, opts: TerminalOptions = {}) {
+  if (divert?.(workerId)) return;
   if (current?.workerId === workerId) {
     if (find) current.find(find);
     return;

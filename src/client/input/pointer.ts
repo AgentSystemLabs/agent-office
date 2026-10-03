@@ -15,7 +15,7 @@ import { store } from '../state';
 import { modalOpen, toast } from '../ui/dom';
 import type { Interactable } from '../world/types';
 
-export type PointerParts = Pick<Parts, 'worlds' | 'rooftop' | 'place' | 'you' | 'boards' | 'cards' | 'seating' | 'hoops' | 'emotes' | 'hanging' | 'telescope' | 'hintbar'>;
+export type PointerParts = Pick<Parts, 'worlds' | 'rooftop' | 'place' | 'you' | 'boards' | 'cards' | 'seating' | 'hoops' | 'emotes' | 'hanging' | 'telescope' | 'hintbar' | 'xr'>;
 
 /** Listens for the mouse over the canvas, registers the aim tick ('aim'), and takes the player's clicks. */
 export function installPointer(ctx: Ctx, core: CoreState, parts: PointerParts) {
@@ -86,6 +86,9 @@ export function installPointer(ctx: Ctx, core: CoreState, parts: PointerParts) {
   /** What the ray through `ndc` lands on first, whether it is within reach (plus `slack` meters), and where it hit. */
   function aimedAt(ndc: THREE.Vector2, slack = 0): { it: Interactable; near: boolean; hit: THREE.Intersection } | null {
     raycaster.setFromCamera(ndc, camera);
+    // In a headset, you aim with the controller rather than the middle of the view.
+    const xrRay = ndc === CROSSHAIR ? parts.xr.aimRay() : null;
+    if (xrRay) raycaster.ray.copy(xrRay);
     eye.set(player.pos.x, player.pos.y + EYE_HEIGHT, player.pos.z);
     // (Workers standing in line in the castle carry their spot's interactable: see Court.)
     const roof = parts.rooftop.roof();
@@ -132,9 +135,10 @@ export function installPointer(ctx: Ctx, core: CoreState, parts: PointerParts) {
     const { seating, hoops } = parts;
     const firstPerson = player.view === 'first';
     aimedNote = null;
-    if (modalOpen() || parts.telescope.active || ctx.activities.busy()) target = null;
+    if (modalOpen() || parts.telescope.active || ctx.activities.busy() || parts.xr.onPanel()) target = null;
     else if (firstPerson) {
       const aim = aimedAt(CROSSHAIR);
+      parts.xr.landed(aim?.hit.point ?? null, !!aim?.near);
       target = aim?.near ? aim.it : (throneTarget() ?? seating.mySeat() ?? (inOffice() ? hoops.ballAtFeet() : null));
       if (aim?.near) aimedNote = noteUnder(aim);
     } else {

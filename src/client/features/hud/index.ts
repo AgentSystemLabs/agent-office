@@ -103,6 +103,16 @@ export function installHud(ctx: Ctx, core: CoreState, parts: HudParts) {
         title: () => (parts.xr.supported() ? 'Walk the office in the headset' : 'Needs the Meta Quest Browser over HTTPS'),
         run: () => parts.xr.toggle(),
       },
+      {
+        id: 'xr-ar',
+        icon: '🪟',
+        label: () => (parts.xr.kind() === 'ar' ? 'Exit AR' : 'Enter AR'),
+        section: 'Office',
+        shown: () => parts.xr.supportedAr() || parts.xr.kind() === 'ar',
+        on: () => parts.xr.kind() === 'ar',
+        title: () => 'Passthrough: the office in your room, life-size or as a model on the table',
+        run: () => parts.xr.toggleAr(),
+      },
       { id: 'lite', icon: '📱', label: '2D view', section: 'Office', title: () => 'The workers, their terminals and the boards without the 3D: for a phone or a slow computer', run: () => location.assign('/lite') },
       {
         id: 'upgrade',

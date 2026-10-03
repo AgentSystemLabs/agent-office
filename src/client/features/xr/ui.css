@@ -1,10 +1,16 @@
-/* Enter / Exit VR control — always on screen so a missing headset isn't silent. */
+/* Enter / Exit VR control — always on screen so a missing headset isn't silent — and Enter AR beside it. */
 
-.xr-enter {
+.xr-buttons {
   position: fixed;
   right: 16px;
   bottom: 16px;
   z-index: 80;
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+}
+
+.xr-enter {
   pointer-events: auto;
   border: 3px solid var(--ink, #2b2d42);
   border-radius: 14px;
@@ -44,6 +50,10 @@ body.xr-active #hud,
 body.xr-active .crosshair,
 body.xr-active .hint {
   visibility: hidden;
+}
+
+.xr-enter[hidden] {
+  display: none;
 }
 
 body.xr-active .xr-enter {
