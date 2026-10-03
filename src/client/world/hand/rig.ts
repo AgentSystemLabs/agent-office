@@ -88,23 +88,18 @@ const FINGERS = [
   { x: 0.03, z: -0.09, len: [0.029, 0.021, 0.017], r: 0.0135, fan: 0 },
 ] as const;
 // How far each joint folds per unit of curl (the pinky and ring curl most).
-const PROX = [0.16, 0.18, 0.2, 0.22];
-const MID = [0.2, 0.22, 0.24, 0.26];
-const DIST = [0.1, 0.1, 0.12, 0.12];
+const PROX = [0.28, 0.32, 0.38, 0.45];
+const MID = [0.45, 0.5, 0.55, 0.6];
+const DIST = [0.28, 0.3, 0.32, 0.34];
 const THUMB = { meta: 0.03, prox: 0.026, dist: 0.022 };
 
 export function buildHand(side: 1 | -1, m: HandMaterials): HandRig {
   const hand = new THREE.Group();
-  // Chunkier than life: a block hand reads as a mitten, not a skeleton.
-  hand.scale.set(1.12, 1.45, 1);
   const skin = m.skin;
-  const wrist = blob(skin, 0.031, 0.0185, 0.024, 0, 0, -0.004);
-  const palm = blob(skin, 0.043, 0.0165, 0.047, 0, 0, -0.05);
-  const thenar = blob(skin, 0.019, 0.013, 0.032, -side * 0.027, -0.007, -0.034);
-  thenar.rotation.y = side * 0.35;
-  const hypo = blob(skin, 0.013, 0.012, 0.033, side * 0.032, -0.003, -0.045);
-  const ridge = blob(skin, 0.043, 0.011, 0.012, 0, 0.004, -0.093);
-  hand.add(wrist, palm, thenar, hypo, ridge);
+  // One wrist block and one palm block, no overlapping pieces, so no flickering seams.
+  const wrist = blob(skin, 0.03, 0.02, 0.022, 0, 0, 0.006);
+  const palm = blob(skin, 0.05, 0.02, 0.052, 0, 0, -0.048);
+  hand.add(wrist, palm);
 
   const digits: Digit[] = [];
   FINGERS.forEach((f, i) => {
@@ -136,7 +131,7 @@ export function buildHand(side: 1 | -1, m: HandMaterials): HandRig {
 
   // The thumb: set off at an angle from the palm, rolled a little so its nail faces up and out.
   const tRoot = new THREE.Group();
-  tRoot.position.set(-side * 0.027, -0.006, -0.022);
+  tRoot.position.set(-side * 0.05, -0.004, -0.03);
   tRoot.rotation.order = 'YXZ';
   tRoot.add(seg(skin, 0.0135, 0.0118, THUMB.meta));
   const j1 = new THREE.Group();
@@ -168,7 +163,8 @@ export function buildHand(side: 1 | -1, m: HandMaterials): HandRig {
     sleeve: [roll1, roll2, tube],
     apply(p) {
       for (let i = 0; i < 4; i++) {
-        const c = p.curl[i];
+        const raw = p.curl[i];
+        const c = 0.25 * raw + 0.22 * raw * raw;
         const d = digits[i];
         d.prox.rotation.x = -Math.min(PROX[i] * c, 1.45);
         d.mid.rotation.x = -Math.min(MID[i] * c, 1.75);
