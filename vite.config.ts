@@ -1,4 +1,5 @@
 import { defineConfig, type Plugin } from 'vite';
+import { chineseEdition } from './build/chinese';
 import { createReadStream, existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
 
@@ -37,7 +38,7 @@ function excalidrawFonts(): Plugin {
 export default defineConfig({
   root: resolve(import.meta.dirname, 'src/client'),
   publicDir: resolve(import.meta.dirname, 'src/client/public'),
-  plugins: [excalidrawFonts()],
+  plugins: [excalidrawFonts(), chineseEdition()],
   define: {
     __EXCALIDRAW_ASSETS__: JSON.stringify(EXCALIDRAW_ASSETS),
   },

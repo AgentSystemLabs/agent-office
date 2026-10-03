@@ -412,6 +412,8 @@ For solo practice, choose **突击手**, **游击手** or **神枪手** in the F
 
 ## More
 
+The combined edition includes the existing Simplified Chinese office UI and the FPS arena in the same build. The desktop shortcut can open it as an Edge app window; press **F8** to play. See [Chinese desktop edition](docs/chinese-desktop.md). Browsers without pointer lock support can still use WASD and left-click fire while dragging to aim.
+
 - [Features](docs/features.md): everything in the office, room by room
 - [Agents](docs/agents.md): Claude Code, Codex and OpenCode, models and effort, and the office's prompts
 - [Configuration](docs/configuration.md): every command-line option, and where the office keeps its data

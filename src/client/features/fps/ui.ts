@@ -54,14 +54,14 @@ export class FpsHud {
     const me = state.players.find(p => p.id === you), opponent = state.players.find(p => p.id !== you);
     if (!me) return;
     this.root.hidden = false;
-    this.title.textContent = `ROUND ${String(Math.max(1, state.round)).padStart(2, '0')} · FIRST TO ${FPS.wins}`;
-    this.left.replaceChildren(h('span', {}, me.name), h('strong', {}, me.score));
-    this.right.replaceChildren(h('strong', {}, opponent?.score ?? '—'), h('span', {}, opponent?.name ?? '等待对手',
+    this.title.textContent = `第 ${Math.max(1, state.round)} 回合 · 先赢 ${FPS.wins} 回合`;
+    this.left.replaceChildren(h('span.peer-name', {}, me.name), h('strong', {}, me.score));
+    this.right.replaceChildren(h('strong', {}, opponent?.score ?? '—'), h('span.peer-name', {}, opponent?.name ?? '等待对手',
       opponent?.difficulty ? h('small.fps-ai-level', {}, BOT_DIFFICULTIES[opponent.difficulty]) : null));
     const seconds = Math.max(0, Math.ceil((state.until - now) / 1000));
-    this.clock.textContent = state.phase === 'live' ? `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}` : state.phase === 'finished' ? 'FINAL' : '1 V 1';
-    this.hp.replaceChildren(h('small', {}, 'HEALTH'), h('strong', {}, me.hp), h('div.fps-healthbar', { style: `--hp:${me.hp}%` }));
-    this.ammo.replaceChildren(h('strong', {}, me.ammo), h('span', {}, `/ ${me.reserve}`), h('small', {}, me.reloadUntil > now ? '换弹中…' : me.ammo ? 'AMMO / 5.56' : '弹匣已空 · 按 R 换弹'));
+    this.clock.textContent = state.phase === 'live' ? `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}` : state.phase === 'finished' ? '结束' : '1 V 1';
+    this.hp.replaceChildren(h('small', {}, '生命值'), h('strong', {}, me.hp), h('div.fps-healthbar', { style: `--hp:${me.hp}%` }));
+    this.ammo.replaceChildren(h('strong', {}, me.ammo), h('span', {}, `/ ${me.reserve}`), h('small', {}, me.reloadUntil > now ? '换弹中…' : me.ammo ? '弹药 / 5.56' : '弹匣已空 · 按 R 换弹'));
     let heading = '', subtitle = '';
     if (state.phase === 'waiting') { heading = '等待另一位玩家'; subtitle = state.reason || '请朋友打开同一服务器，点击 FPS 并加入'; }
     if (state.phase === 'countdown') { heading = String(seconds); subtitle = '准备对战 · 本回合已补满弹药'; }

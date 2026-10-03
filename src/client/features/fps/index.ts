@@ -30,7 +30,7 @@ export function installFps(ctx: Ctx) {
   ctx.canvas.parentElement!.append(entry);
 
   function input(): FpsInput {
-    const enabled = !modalOpen() && document.hasFocus() && !document.hidden && ctx.player.hasMouse;
+    const enabled = !modalOpen() && document.hasFocus() && !document.hidden && (ctx.player.hasMouse || !ctx.player.canLock);
     return { forward: enabled ? Number(held.has('KeyW')) - Number(held.has('KeyS')) : 0,
       side: enabled ? Number(held.has('KeyD')) - Number(held.has('KeyA')) : 0,
       yaw: Math.atan2(Math.sin(ctx.player.camYaw), Math.cos(ctx.player.camYaw)), pitch: THREE.MathUtils.clamp(ctx.player.lookPitch, -1.45, 1.45),
@@ -136,7 +136,7 @@ export function installFps(ctx: Ctx) {
   document.addEventListener('visibilitychange', clear);
   ctx.windowOpened.add(clear);
   ctx.canvas.addEventListener('pointerdown', e => {
-    if (active && !modalOpen() && e.button === 0 && ctx.player.hasMouse) fire = true;
+    if (active && !modalOpen() && e.button === 0 && (ctx.player.hasMouse || !ctx.player.canLock)) fire = true;
   });
   window.addEventListener('pointerup', e => { if (e.button === 0) fire = false; });
   document.addEventListener('pointerlockchange', () => {
