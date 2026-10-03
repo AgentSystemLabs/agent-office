@@ -243,6 +243,28 @@ test('answers the signed-in routes', async () => {
     assert.equal(await missing.text(), 'Not found');
   }
 
+  // VR dictation → Whisper: needs a session, OPENAI_API_KEY, and enough audio.
+  {
+    assert.equal((await fetch(base + '/api/transcribe', { method: 'POST', body: 'x' })).status, 401);
+    const headers = { cookie, origin: base, 'content-type': 'audio/webm' };
+    const prev = process.env.OPENAI_API_KEY;
+    delete process.env.OPENAI_API_KEY;
+    try {
+      const noKey = await fetch(base + '/api/transcribe', { method: 'POST', headers, body: Buffer.alloc(512) });
+      assert.equal(noKey.status, 501);
+      assert.match((await noKey.json()).error, /OPENAI_API_KEY/);
+      process.env.OPENAI_API_KEY = 'sk-test';
+      const tiny = await fetch(base + '/api/transcribe', { method: 'POST', headers, body: Buffer.alloc(10) });
+      assert.equal(tiny.status, 400);
+      assert.deepEqual(await tiny.json(), { error: 'Nothing to transcribe' });
+      const forged = await fetch(base + '/api/transcribe', { method: 'POST', headers: { ...headers, origin: 'http://evil.example' }, body: Buffer.alloc(512) });
+      assert.equal(forged.status, 403);
+    } finally {
+      if (prev === undefined) delete process.env.OPENAI_API_KEY;
+      else process.env.OPENAI_API_KEY = prev;
+    }
+  }
+
   const out = await post('/api/logout', {}, me);
   assert.equal(out.status, 200);
   assert.match(out.headers.get('set-cookie') ?? '', /Max-Age=0/);

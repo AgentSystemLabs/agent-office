@@ -35,6 +35,24 @@ You can also click a nearby desk to interact with it, or click a worker in the W
 
 On a phone, use the 2D view at `/lite` instead: a terminal there has a row of keys under it (**1** **2** **3**, the arrows, Enter, Tab, Esc, Ctrl+C) and a box to send a prompt. See [Features](features.md).
 
+## In VR (Quest / WebXR)
+
+Tap **🥽 Enter VR** (bottom-right, or in the ☰ menu) in the Meta Quest Browser over HTTPS. You don't need a physical keyboard.
+
+| Control | Action |
+| --- | --- |
+| Left stick | Walk (stick click to run) |
+| Right stick | Snap-turn left/right; up/down scrolls a floating window (or zooms the tabletop in AR) |
+| Trigger (either hand) | Click a VR surface, or use / open what the laser lands on |
+| A (right hand), hold | Dictate into the focused field, open window, or terminal |
+| B (right hand) | Close the window, or hide the virtual keyboard |
+| X / Y | Jump / ☰ menu |
+| Left grip | Next waiting worker (**N**) |
+| Right grip | Take the issue note you're pointing at (in AR: table ↔ life-size when you aren't) |
+| Left-hand card | Find, Menu, Queue, boards, Hire, Chat, Emotes, Mute, Talk, Keyboard, Dictate, Settings, Help, Recenter, Exit VR |
+
+Windows (settings, boards, issue cards, the palette…) float in front of you; point and click. Focus a text field and a full virtual keyboard appears. Worker terminals stay on their own panel with quick keys; **⌨ Type…** opens the keyboard instead of leaving VR. A wall card you point at opens as a floating window. Only a window that embeds another web page (an iframe) leaves VR so you can use the browser.
+
 ## In a terminal
 
 The prompt edits the way it does in your own terminal (iTerm2's *Natural Text Editing*, or VS Code's), in Claude Code, Codex, OpenCode and a shell alike:

@@ -95,7 +95,14 @@ parts.worlds = createWorlds(ctx);
 installSky(ctx);
 
 // ---- The install list ---------------------------------------------------------------------------
-parts.boards = installBoards(ctx, { aimedNote: () => parts.pointer.aimedNote(), pickUp: (it) => parts.cards.pickUp(it), boardActions: () => parts.actions.boardActions(), showQueue: () => parts.waiting.showQueue() });
+parts.boards = installBoards(ctx, {
+  aimedNote: () => parts.pointer.aimedNote(),
+  aimedPull: () => parts.pointer.aimedPull(),
+  pickUp: (it) => parts.cards.pickUp(it),
+  boardActions: () => parts.actions.boardActions(),
+  showQueue: () => parts.waiting.showQueue(),
+  clickOpens: () => parts.xr.active(),
+});
 parts.gallery = installGallery(ctx);
 installWhiteboard(ctx);
 // Onto whatever you're walking on: the office's floor and furniture, or the roof's.
@@ -146,7 +153,7 @@ parts.views = installWorkerViews(ctx, core, parts);
 parts.actions = installWorkerActions(ctx, core, parts);
 parts.waiting = installWaiting(ctx, core, parts);
 parts.needsYou = installNeedsYou(ctx, parts);
-installPalette(ctx, parts);
+parts.palette = installPalette(ctx, parts);
 parts.meeting = installMeeting(ctx, parts);
 parts.bookshelf = installBookshelf(ctx);
 installHerald(ctx, parts);
@@ -179,8 +186,8 @@ parts.pointer = installPointer(ctx, core, parts);
 installChat(ctx);
 parts.talk = installVoice(ctx, { tv: parts.tv });
 installDictation(ctx);
-parts.xr = installXR(ctx, parts);
 parts.hud = installHud(ctx, core, parts);
+parts.xr = installXR(ctx, parts);
 
 // ---- Main loop ---------------------------------------------------------------------------------------
 fitWindow(ctx);

@@ -45,11 +45,22 @@
   outline-offset: 2px;
 }
 
-/* Immersive: hide flat-screen chrome that doesn't project into the headset. */
+/* Immersive: hide flat-screen chrome that doesn't project into the headset.
+   Modals stay laid out (off to the side) so the VR window panel can rasterize them. */
 body.xr-active #hud,
 body.xr-active .crosshair,
 body.xr-active .hint {
   visibility: hidden;
+}
+
+body.xr-active #modal-root {
+  position: fixed;
+  left: -10000px;
+  top: 0;
+  width: 100vw;
+  height: 100vh;
+  /* Still "visible" for layout / getBoundingClientRect; the flat display doesn't show it. */
+  opacity: 1;
 }
 
 .xr-enter[hidden] {

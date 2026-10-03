@@ -48,6 +48,11 @@ export function modalOpen(): boolean {
   return stack.length > 0;
 }
 
+/** The topmost open window, or null. Used in VR to mirror it onto a floating panel. */
+export function topModal(): Modal | null {
+  return stack.length ? stack[stack.length - 1]! : null;
+}
+
 /** What the open windows say you're doing: the topmost one that says anything (a merge dialog over a PR is still "reading PR #12"). */
 export function doingNow(): string | undefined {
   for (let i = stack.length - 1; i >= 0; i--) if (stack[i].doing) return stack[i].doing;

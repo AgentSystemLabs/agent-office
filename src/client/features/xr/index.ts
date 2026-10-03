@@ -1,61 +1,56 @@
 /**
- * Immersive WebXR (Quest / headset): Enter VR, and Enter AR for passthrough (the office in your room,
- * life-size or on the table), a locomotion rig the headset sits on, controller → office key mapping,
- * controller rays to aim with, worker terminals on a panel floating in front of you, and leaving the
- * headset when any other HTML window opens (menus, boards).
+ * Immersive WebXR (Quest / headset): Enter VR / AR, a locomotion rig, controller rays, a left-hand
+ * action card, mirrored HTML windows, a virtual keyboard, push-to-talk dictation, and worker
+ * terminals on a floating panel — so the office stays usable without a physical keyboard.
  */
 import * as THREE from 'three';
 import type { Ctx } from '../../core/context';
 import type { Parts } from '../../core/parts';
 import { store } from '../../state';
-import { toast } from '../../ui/dom';
-import { closeTerminal, divertTerminals, openTerminal, openTerminalFor } from '../../ui/terminal';
+import { openBoard } from '../../ui/boards';
+import { topModal, toast } from '../../ui/dom';
+import { openHelp } from '../../ui/hud';
+import { togglePalette } from '../../ui/palette';
+import { closeTerminal, divertTerminals, openTerminalFor } from '../../ui/terminal';
 import { fireKey, makeXrControls, type XrHooks } from './controller';
+import { makeXrDictation, resolveSink } from './dictation';
+import { isTypable, XrKeyboard } from './keyboard';
 import { TermPanel } from './panel';
+import { PaletteCard, type CardAction } from './palette-card';
 import { Passthrough, Tabletop } from './passthrough';
+import { placeInFront } from './place';
 import { XrRays, type Hand } from './rays';
+import { pickSurfaces, type XrSurface } from './surface';
+import { WindowSurface } from './windows';
 import './ui.css';
 
 const XR_SHADOW = 1024;
-
-/** Optional features every Quest / desktop headset is happy to negotiate. */
 const XR_OPTIONAL = ['local-floor', 'bounded-floor', 'hand-tracking', 'layers'] as const;
-
 export type XrKind = 'vr' | 'ar';
 const MODE: Record<XrKind, XRSessionMode> = { vr: 'immersive-vr', ar: 'immersive-ar' };
 const HANDS: Hand[] = ['left', 'right'];
 
+export type XrParts = Pick<Parts, 'stage' | 'settings' | 'player' | 'hud' | 'waiting' | 'actions' | 'palette' | 'emotes'>;
+
 export interface XrApi {
-  /** Whether an immersive session (VR or passthrough) is presenting right now. */
   active(): boolean;
-  /** Which kind of session is presenting, or null. */
   kind(): XrKind | null;
-  /**
-   * Prefer a plain renderer.render over OutlineEffect: settings say so, or the headset
-   * has been dropping below ~72 fps.
-   */
   preferPlain(): boolean;
-  /** End the session if one is running (windows open, or the button). */
   end(): void;
-  /** Enter VR (or exit if already in). Same as the on-screen button. */
   toggle(): void;
-  /** Enter passthrough AR (or exit if already in). */
   toggleAr(): void;
-  /** Whether this browser can start immersive-vr (Quest Browser, etc.). */
   supported(): boolean;
-  /** Whether this browser can start immersive-ar (passthrough). */
   supportedAr(): boolean;
-  /** The aiming controller's ray (world space), while it's tracked and you're life-size; null otherwise. */
   aimRay(): THREE.Ray | null;
-  /** Whether the aiming controller points at the terminal panel, rather than at the office. */
+  /** Whether the aiming controller points at a VR surface (window, keyboard, card, terminal). */
   onPanel(): boolean;
-  /** Where the office's aim along aimRay landed on something to use (null for nothing), and whether it's in reach. */
   landed(point: THREE.Vector3 | null, near: boolean): void;
+  /** What the right grip does when it isn't toggling tabletop: take the aimed issue note. */
+  setTakeNote(fn: (() => void) | null): void;
 }
 
-/** Enables WebXR on the renderer, the Enter VR / AR controls, and the per-frame rig / controllers. */
-export function installXR(ctx: Ctx, parts: Pick<Parts, 'stage' | 'settings' | 'player'>): XrApi {
-  const { renderer, camera, scene } = { renderer: ctx.renderer, camera: ctx.camera, scene: ctx.scene };
+export function installXR(ctx: Ctx, parts: XrParts): XrApi {
+  const { renderer, camera, scene } = ctx;
   const { sun } = parts.stage;
   const player = ctx.player;
 
@@ -70,33 +65,31 @@ export function installXR(ctx: Ctx, parts: Pick<Parts, 'stage' | 'settings' | 'p
   const rig = new THREE.Group();
   rig.name = 'xr-rig';
   const lookDir = new THREE.Vector3();
-  const head = new THREE.Vector3();
   const controls = makeXrControls(player);
   const rays = new XrRays(renderer, rig);
   const panel = new TermPanel();
+  const windows = new WindowSurface();
+  const keyboard = new XrKeyboard();
+  const card = new PaletteCard();
   const passthrough = new Passthrough(renderer);
   const tabletop = new Tabletop();
   const raycaster = new THREE.Raycaster();
+  const surfaces: XrSurface[] = [card, keyboard, windows, panel];
 
   let session: XRSession | null = null;
   let kindNow: XrKind | null = null;
-  /** In passthrough, the office is a model on the table rather than life-size around you. */
   let table = false;
   const canEnter: Record<XrKind, boolean> = { vr: false, ar: false };
   let savedParent: THREE.Object3D | null = null;
   let savedView = player.view;
   let savedShadow = sun.shadow.mapSize.x;
-  /** Rolling frame-time estimate while presenting (ms). */
   let frameMs = 1000 / 90;
   let plain = false;
-  /** The panel button each hand points at this frame (-1: the panel but no button), and how far. */
-  const onPanelHit: Record<Hand, { button: number; distance: number } | null> = { left: null, right: null };
-  /** What the office's aim landed on this frame (see landed). */
+  let onSurface: ReturnType<typeof pickSurfaces> = { left: null, right: null };
   let aimed: { distance: number; near: boolean } | null = null;
-  /** A terminal to open in the browser once the session has ended (⌨ Type on the panel). */
-  let typeIn: string | null = null;
-  /** Pinches kept by the panel, so their release is too. */
   const pinchKept = new Set<Hand>();
+  /** Right grip takes a note when the pointer has set this. */
+  let takeNoteFn: (() => void) | null = null;
 
   const bar = document.createElement('div');
   bar.className = 'xr-buttons';
@@ -104,16 +97,20 @@ export function installXR(ctx: Ctx, parts: Pick<Parts, 'stage' | 'settings' | 'p
   const arBtn = xrButton('xr-enter-ar');
   arBtn.hidden = true;
   bar.append(arBtn, btn);
-  // Always visible: if VR isn't available, the label says why (was silently hidden before).
   document.body.appendChild(bar);
 
-  function active() {
-    return session !== null && renderer.xr.isPresenting;
-  }
+  const active = () => session !== null && renderer.xr.isPresenting;
+  const preferPlain = () => !parts.settings.xrOutline || plain;
 
-  function preferPlain() {
-    return !parts.settings.xrOutline || plain;
-  }
+  const dictation = makeXrDictation({
+    sink: () =>
+      resolveSink({
+        keyboard: keyboard.currentTarget(),
+        termSend: panel.workerId ? (data) => ctx.net.send({ t: 'term.input', workerId: panel.workerId!, data }) : null,
+        modalEl: topModal()?.el ?? null,
+      }),
+    setCaption: (t) => keyboard.setCaption(t),
+  });
 
   function paintBtn() {
     arBtn.hidden = session ? kindNow !== 'ar' : !canEnter.ar;
@@ -156,24 +153,32 @@ export function installXR(ctx: Ctx, parts: Pick<Parts, 'stage' | 'settings' | 'p
     camera.getWorldDirection(lookDir);
     player.camYaw = Math.atan2(-lookDir.x, -lookDir.z);
     player.lookPitch = Math.asin(THREE.MathUtils.clamp(lookDir.y, -1, 1));
-    // On the table you watch yourself walk: you face where you're going, not where the headset looks.
     if (!table) player.facing = Math.atan2(Math.sin(player.camYaw + Math.PI), Math.cos(player.camYaw + Math.PI));
   }
 
-  /** Life-size, standing in the office; or (passthrough only) the office as a model on the table. */
   function setTable(on: boolean) {
     table = on;
     player.view = on ? 'third' : 'first';
     if (on) tabletop.place(rig, camera, player.pos);
     else rig.scale.setScalar(1);
     if (panel.workerId) placePanel();
+    if (windows.active()) placeWindow();
+    if (keyboard.open) placeKeyboard();
   }
 
-  // ---- The terminal panel ------------------------------------------------------------------------
+  function placePanel() {
+    placeInFront(panel.mesh, rig, camera, scene, { distance: 1.1, y: -0.05 });
+  }
+  function placeWindow() {
+    placeInFront(windows.mesh, rig, camera, scene, { distance: 1.2, y: 0.05 });
+  }
+  function placeKeyboard() {
+    placeInFront(keyboard.mesh, rig, camera, scene, { distance: 0.85, y: -0.35, pitch: -0.35 });
+  }
+
   function openPanel(workerId: string) {
     if (panel.workerId !== workerId) {
       if (panel.workerId) ctx.net.send({ t: 'worker.detach', workerId: panel.workerId });
-      // Attached, so the keys you press on the panel reach the terminal.
       ctx.net.send({ t: 'worker.attach', workerId });
     }
     panel.open(workerId);
@@ -184,78 +189,190 @@ export function installXR(ctx: Ctx, parts: Pick<Parts, 'stage' | 'settings' | 'p
     if (!panel.workerId) return;
     ctx.net.send({ t: 'worker.detach', workerId: panel.workerId });
     panel.close();
+    if (keyboard.currentTarget()?.kind === 'term') keyboard.hide();
   }
 
-  /** Floats the panel a little over a meter in front of you, facing you, and carries it along with the rig. */
-  function placePanel() {
-    rig.updateMatrixWorld(true);
-    const s = rig.scale.x;
-    camera.getWorldPosition(head);
-    camera.getWorldDirection(lookDir).setY(0);
-    if (lookDir.lengthSq() < 1e-4) lookDir.set(0, 0, -1);
-    lookDir.normalize();
-    scene.add(panel.mesh);
-    panel.mesh.position.copy(head).addScaledVector(lookDir, 1.1 * s);
-    panel.mesh.position.y -= 0.15 * s;
-    panel.mesh.scale.setScalar(s);
-    panel.mesh.lookAt(head);
-    rig.attach(panel.mesh);
-  }
-
-  function pressPanel(button: number) {
+  panel.onAction = (act) => {
     const id = panel.workerId;
-    const act = id ? panel.press(button, performance.now()) : null;
-    if (!id || !act) return;
+    if (!id) return;
     if ('input' in act) ctx.net.send({ t: 'term.input', workerId: id, data: act.input });
     else if ('close' in act) closePanel();
     else {
-      // The browser's own keyboard can't come up inside the headset: type in the terminal window.
-      closePanel();
-      typeIn = id;
-      end();
+      keyboard.show({ kind: 'term', send: (data) => ctx.net.send({ t: 'term.input', workerId: id, data }) });
+      placeKeyboard();
     }
-  }
+  };
 
   divertTerminals((workerId) => {
     if (!active()) return false;
     openPanel(workerId);
     return true;
   });
-  // A reconnected office has forgotten which terminal the panel was attached to.
   ctx.messages.on('welcome', () => {
     if (panel.workerId && store.workers.has(panel.workerId)) ctx.net.send({ t: 'worker.attach', workerId: panel.workerId });
   });
-  // Sent home, or off another floor.
   store.on('workers', () => {
     if (panel.workerId && !store.workers.has(panel.workerId)) closePanel();
   });
 
-  // ---- Controllers ---------------------------------------------------------------------------------
+  windows.install({
+    isXr: active,
+    place: () => placeWindow(),
+    leaveFor(why) {
+      end();
+      toast(why, 'warn');
+    },
+  });
+
+  keyboard.onMic = () => dictation.toggle();
+
+  function runCard(id: CardAction) {
+    switch (id) {
+      case 'find':
+        togglePalette(() => parts.palette.paletteEntries());
+        break;
+      case 'menu':
+        fireKey('Tab', true);
+        fireKey('Tab', false);
+        break;
+      case 'next':
+        fireKey('KeyN', true);
+        fireKey('KeyN', false);
+        break;
+      case 'queue':
+        parts.waiting.showQueue();
+        break;
+      case 'issues':
+        openBoard('issues', ctx.net, parts.actions.boardActions());
+        break;
+      case 'pulls':
+        openBoard('pulls', ctx.net, parts.actions.boardActions());
+        break;
+      case 'hire': {
+        const hire = parts.palette.paletteEntries().find((e) => e.title === 'Hire a worker');
+        hire?.open();
+        break;
+      }
+      case 'chat':
+        fireKey('KeyT', true);
+        fireKey('KeyT', false);
+        break;
+      case 'emotes':
+        fireKey('KeyG', true);
+        break;
+      case 'mute':
+        fireKey('KeyM', true);
+        fireKey('KeyM', false);
+        break;
+      case 'talk':
+        fireKey('KeyV', true);
+        fireKey('KeyV', false);
+        break;
+      case 'keyboard':
+        if (keyboard.open) keyboard.hide();
+        else {
+          const el = document.activeElement;
+          if (isTypable(el)) keyboard.show({ kind: 'field', el });
+          else if (panel.workerId) keyboard.show({ kind: 'term', send: (data) => ctx.net.send({ t: 'term.input', workerId: panel.workerId!, data }) });
+          else {
+            const field = topModal()?.el.querySelector('input:not([type=button]):not([type=submit]):not([disabled]), textarea:not([disabled])') ?? null;
+            if (isTypable(field)) keyboard.show({ kind: 'field', el: field });
+            else toast('Click a text field first, or open a terminal', 'warn');
+          }
+          if (keyboard.open) placeKeyboard();
+        }
+        break;
+      case 'dictate':
+        dictation.toggle();
+        break;
+      case 'settings':
+        parts.hud.showSettings();
+        break;
+      case 'help':
+        openHelp();
+        break;
+      case 'recenter':
+        if (windows.active()) placeWindow();
+        if (panel.workerId) placePanel();
+        if (keyboard.open) placeKeyboard();
+        break;
+      case 'exit':
+        end();
+        break;
+    }
+  }
+  card.onAction = runCard;
+
+  document.addEventListener(
+    'focusin',
+    (e) => {
+      if (!active() || !isTypable(e.target)) return;
+      keyboard.show({ kind: 'field', el: e.target });
+      placeKeyboard();
+    },
+    true,
+  );
+
+  const leftGrip = renderer.xr.getControllerGrip(0);
+  const rightGrip = renderer.xr.getControllerGrip(1);
+  // Controllers may connect as either index; reparent the card when handedness is known.
+  for (const grip of [leftGrip, rightGrip]) {
+    grip.addEventListener('connected', (e) => {
+      if ((e as { data?: XRInputSource }).data?.handedness === 'left') {
+        grip.add(card.mesh);
+        card.mesh.position.set(0.05, 0.05, 0.08);
+        card.mesh.rotation.set(-0.9, 0.4, 0.2);
+      }
+    });
+  }
+  rig.add(leftGrip, rightGrip);
+
   const hooks: XrHooks = {
     snapYaw(dyaw) {
       rig.rotation.y += dyaw;
     },
     zoom(amount, dt) {
+      const hit = onSurface.right ?? onSurface.left;
+      if (hit?.surface.scroll) {
+        hit.surface.scroll(hit.hit, -amount);
+        return;
+      }
       if (table) tabletop.zoom(rig, amount, dt);
     },
     press(hand, code, down) {
+      if (code === 'XrDictate') {
+        if (down) dictation.press();
+        else dictation.release();
+        return true;
+      }
       if (code === 'XrGrip') {
-        if (down && kindNow === 'ar') {
-          setTable(!table);
-          toast(table ? 'On the table: left stick walks you, right stick turns and zooms it' : 'Life-size');
+        if (down) {
+          if (takeNoteFn) takeNoteFn();
+          else if (kindNow === 'ar') {
+            setTable(!table);
+            toast(table ? 'On the table: left stick walks you, right stick turns and zooms it' : 'Life-size');
+          }
         }
         return true;
       }
       if (code === 'KeyE') {
         if (down) rays.active = hand;
-        const hit = onPanelHit[hand];
+        const hit = onSurface[hand];
         if (!hit) return false;
-        if (down) pressPanel(hit.button);
-        return true;
+        return hit.surface.press?.(hand, hit.hit, down) ?? true;
       }
-      if (code === 'Escape' && panel.workerId) {
-        if (down) closePanel();
-        return true;
+      if (code === 'Escape') {
+        if (down) {
+          if (keyboard.open) {
+            keyboard.hide();
+            return true;
+          }
+          if (panel.workerId && !topModal()) {
+            closePanel();
+            return true;
+          }
+        }
+        return false;
       }
       return false;
     },
@@ -268,13 +385,15 @@ export function installXR(ctx: Ctx, parts: Pick<Parts, 'stage' | 'settings' | 'p
     fireKey('KeyE', down);
   };
 
-  // ---- Sessions ------------------------------------------------------------------------------------
   function onSessionEnd() {
     if (!session) return;
     session = null;
     kindNow = null;
     controls.reset();
     closePanel();
+    keyboard.hide();
+    windows.close();
+    card.hide();
     passthrough.leave();
     table = false;
     rig.scale.setScalar(1);
@@ -290,9 +409,6 @@ export function installXR(ctx: Ctx, parts: Pick<Parts, 'stage' | 'settings' | 'p
     document.body.classList.remove('xr-active');
     plain = false;
     paintBtn();
-    const id = typeIn;
-    typeIn = null;
-    if (id && store.workers.has(id)) setTimeout(() => openTerminal(ctx.net, id), 0);
   }
 
   async function startSession(kind: XrKind) {
@@ -302,9 +418,7 @@ export function installXR(ctx: Ctx, parts: Pick<Parts, 'stage' | 'settings' | 'p
       return;
     }
     try {
-      const s = await navigator.xr.requestSession(MODE[kind], {
-        optionalFeatures: [...XR_OPTIONAL],
-      });
+      const s = await navigator.xr.requestSession(MODE[kind], { optionalFeatures: [...XR_OPTIONAL] });
       s.addEventListener('end', onSessionEnd);
       await renderer.xr.setSession(s);
       session = s;
@@ -320,7 +434,6 @@ export function installXR(ctx: Ctx, parts: Pick<Parts, 'stage' | 'settings' | 'p
       scene.add(rig);
       rig.scale.setScalar(1);
       rig.position.set(player.pos.x, player.pos.y + player.stepOffset, player.pos.z);
-      // Align the rig so "forward" matches where you were looking before Enter VR.
       rig.rotation.set(0, player.camYaw, 0);
       camera.rotation.set(0, 0, 0);
       camera.position.set(0, 0, 0);
@@ -328,7 +441,12 @@ export function installXR(ctx: Ctx, parts: Pick<Parts, 'stage' | 'settings' | 'p
       document.body.classList.add('xr-active');
       frameMs = 1000 / 90;
       plain = !parts.settings.xrOutline;
-      // A terminal window you had open comes along on the panel.
+      card.show();
+      if (!card.mesh.parent) {
+        leftGrip.add(card.mesh);
+        card.mesh.position.set(0.05, 0.05, 0.08);
+        card.mesh.rotation.set(-0.9, 0.4, 0.2);
+      }
       const open = openTerminalFor();
       if (open) {
         closeTerminal();
@@ -336,14 +454,13 @@ export function installXR(ctx: Ctx, parts: Pick<Parts, 'stage' | 'settings' | 'p
       }
       if (kind === 'ar') {
         passthrough.enter();
-        // Before the headset has a pose the table lands where the session starts; this frame's pose is a tick away.
         setTimeout(() => active() && kindNow === 'ar' && setTable(true), 100);
       }
       paintBtn();
       toast(
         kind === 'ar'
-          ? 'Passthrough on — right grip switches between the table and life-size, right stick turns and zooms'
-          : 'VR on — left stick walk, trigger points and uses, B back. Terminals float in front of you',
+          ? 'Passthrough on — right grip switches table / life-size; left-hand card has the usual actions'
+          : 'VR on — left stick walk, trigger clicks, hold A to dictate, left-hand card for Find / Menu / …',
       );
     } catch (err) {
       console.warn('WebXR session failed', err);
@@ -358,12 +475,10 @@ export function installXR(ctx: Ctx, parts: Pick<Parts, 'stage' | 'settings' | 'p
   function end() {
     session?.end().catch(() => {});
   }
-
   function toggle() {
     if (session) end();
     else void startSession('vr');
   }
-
   function toggleAr() {
     if (session) end();
     else void startSession('ar');
@@ -379,10 +494,8 @@ export function installXR(ctx: Ctx, parts: Pick<Parts, 'stage' | 'settings' | 'p
     e.stopPropagation();
     toggleAr();
   });
-
   paintBtn();
 
-  // Probe support; keep the VR button visible either way so a missing headset isn't silent.
   if (navigator.xr?.isSessionSupported) {
     void navigator.xr
       .isSessionSupported('immersive-vr')
@@ -392,9 +505,7 @@ export function installXR(ctx: Ctx, parts: Pick<Parts, 'stage' | 'settings' | 'p
           btn.textContent = 'VR headset not found';
           btn.disabled = true;
           btn.title = 'Open this page in the Meta Quest Browser (not a desktop tab)';
-        } else {
-          paintBtn();
-        }
+        } else paintBtn();
       })
       .catch(() => {
         canEnter.vr = false;
@@ -408,16 +519,15 @@ export function installXR(ctx: Ctx, parts: Pick<Parts, 'stage' | 'settings' | 'p
         paintBtn();
       })
       .catch(() => {});
-  } else {
-    paintBtn();
-  }
+  } else paintBtn();
 
-  // HTML overlays can't draw inside an immersive session: leave VR so the window is usable.
-  // (Terminals don't open a window in VR: they go on the panel, see divertTerminals.)
+  // Only leave VR for windows the panel can't draw (iframes); everything else is mirrored.
   ctx.windowOpened.add(() => {
     if (!active()) return;
+    const modal = topModal();
+    if (modal && !modal.el.querySelector('iframe')) return;
     end();
-    toast('Left VR so you can use the window — tap Enter VR to go back');
+    toast('Left VR — that window needs the browser (a web page inside it)');
   });
 
   ctx.ticks.add('pre', ({ delta, dt }) => {
@@ -427,13 +537,10 @@ export function installXR(ctx: Ctx, parts: Pick<Parts, 'stage' | 'settings' | 'p
     controls.tick(session, dt, hooks);
   });
 
-  // After the player has moved: put the rig on their feet (or the table under them), aim movement
-  // with the headset, and see what each hand points at on the panel before the office aims.
   ctx.ticks.add('me', ({ dt }) => {
     if (!active()) return;
     if (table) {
       tabletop.follow(rig, player.pos, dt);
-      // You're a little figure on the table: there to be seen.
       ctx.me.root.visible = true;
     } else {
       rig.position.set(player.pos.x, player.pos.y + player.stepOffset, player.pos.z);
@@ -441,28 +548,20 @@ export function installXR(ctx: Ctx, parts: Pick<Parts, 'stage' | 'settings' | 'p
     rig.updateMatrixWorld(true);
     syncLookFromHeadset();
     aimed = null;
-    for (const hand of HANDS) {
-      const ray = panel.workerId ? rays.rayOf(hand) : null;
-      if (ray) raycaster.ray.copy(ray);
-      const hit = ray ? panel.hit(raycaster) : null;
-      onPanelHit[hand] = hit;
-      panel.setHover(hand, hit?.button ?? -1);
-    }
+    onSurface = pickSurfaces(surfaces, rays, raycaster, HANDS);
   });
 
-  // Passthrough: once the sky has set the fog for the frame, cut the office out of the world.
   ctx.ticks.add('env', () => passthrough.update(scene, ctx.inOffice() && !ctx.upTop(), table, player.pos.y));
 
-  // The lasers, out to what each hand points at, and the panel's picture.
   ctx.ticks.add('hud', ({ now }) => {
     if (!active()) return;
     for (const hand of HANDS) {
-      const hit = onPanelHit[hand];
-      if (hit) rays.show(hand, hit.distance, 'panel');
+      const hit = onSurface[hand];
+      if (hit) rays.show(hand, hit.hit.distance, 'panel');
       else if (hand === rays.active && aimed) rays.show(hand, aimed.distance, aimed.near ? 'near' : 'far');
       else rays.show(hand, null, 'far');
     }
-    panel.paint(now);
+    for (const s of surfaces) s.paint?.(now);
   });
 
   return {
@@ -475,10 +574,13 @@ export function installXR(ctx: Ctx, parts: Pick<Parts, 'stage' | 'settings' | 'p
     supported: () => canEnter.vr,
     supportedAr: () => canEnter.ar,
     aimRay: () => (active() && !table ? rays.rayOf(rays.active) : null),
-    onPanel: () => active() && !!onPanelHit[rays.active],
+    onPanel: () => active() && !!onSurface[rays.active],
     landed(point, near) {
       const ray = point && rays.rayOf(rays.active);
       aimed = ray ? { distance: ray.origin.distanceTo(point), near } : null;
+    },
+    setTakeNote(fn) {
+      takeNoteFn = fn;
     },
   };
 }

@@ -4,7 +4,7 @@
  * and the meeting room's two. What E does at each is defined with it.
  */
 import type * as THREE from 'three';
-import type { GhIssue } from '../../../shared/protocol';
+import type { GhIssue, GhPull } from '../../../shared/protocol';
 import type { Ctx } from '../../core/context';
 import { aside, boardHint, hintTitle, key, onE } from '../../core/hint';
 import { store, type Topic } from '../../state';
@@ -12,7 +12,7 @@ import { openBoard } from '../../ui/boards';
 import { inProgress } from '../../ui/github/progress';
 import type { BoardActions } from '../../ui/github/prompts';
 import { clip } from '../../ui/dom';
-import { openIssue } from '../../ui/pull';
+import { openIssue, openPull } from '../../ui/pull';
 import { openServices } from '../../ui/services';
 import { BoardTexture, QueueBoardTexture, ServicesBoardTexture } from './world';
 import { MachineTexture } from './machine';
@@ -32,12 +32,16 @@ declare module '../../world/types' {
 export interface BoardsDeps {
   /** The note on the issues board you're pointing at, if any (see aimedNote in input/pointer.ts). */
   aimedNote(): GhIssue | null;
+  /** The note on the PR board you're pointing at, if any. */
+  aimedPull(): GhPull | null;
   /** Takes an issue's card off the board, into your hands (see features/carrying). */
   pickUp(it: GhIssue): void;
   /** What a board's buttons do: hand an issue to a worker, call a meeting about it… */
   boardActions(): BoardActions;
   /** The task queue's window. */
   showQueue(): void;
+  /** In VR, the trigger opens a note as a floating window instead of taking it. */
+  clickOpens(): boolean;
 }
 
 export function installBoards(ctx: Ctx, deps: BoardsDeps) {
@@ -104,20 +108,39 @@ export function installBoards(ctx: Ctx, deps: BoardsDeps) {
     reach: 9,
     hint: () => {
       const aimedNote = deps.aimedNote();
-      if (aimedNote) return { k: String(aimedNote.number), parts: [hintTitle(clip(`📌 #${aimedNote.number} ${aimedNote.title}`, 60)), key('E', 'Take it'), key('O', 'Read it')] };
+      if (aimedNote) {
+        if (deps.clickOpens()) {
+          return { k: String(aimedNote.number), parts: [hintTitle(clip(`📌 #${aimedNote.number} ${aimedNote.title}`, 60)), key('E', 'Open it'), aside('grip takes it')] };
+        }
+        return { k: String(aimedNote.number), parts: [hintTitle(clip(`📌 #${aimedNote.number} ${aimedNote.title}`, 60)), key('E', 'Take it'), key('O', 'Read it')] };
+      }
       return issuesTex.hasNotes ? { k: 'notes', parts: [hintTitle('📌 Issues board'), key('E', 'Open'), aside('or point at a note to take it')] } : boardHint('📌 Issues board');
     },
     use: (_it, key, note) => {
-      // A note on the issues board: E takes it straight off the cork, O opens it to read first.
-      if (note && key === 'E') return deps.pickUp(note);
+      // A note on the issues board: E takes it (or opens it in VR), O opens it to read first.
+      if (note && key === 'E') {
+        if (deps.clickOpens()) return openIssue(note, ctx.net, deps.boardActions());
+        return deps.pickUp(note);
+      }
       if (note && key === 'O') return openIssue(note, ctx.net, deps.boardActions());
       if (key === 'E') openBoard('issues', ctx.net, deps.boardActions());
     },
   });
   ctx.interactions.define('pulls', {
     reach: 9,
-    hint: () => boardHint('🔀 Pull request board'),
-    use: onE(() => openBoard('pulls', ctx.net, deps.boardActions())),
+    hint: () => {
+      const pull = deps.aimedPull();
+      if (pull && deps.clickOpens()) {
+        return { k: String(pull.number), parts: [hintTitle(clip(`🔀 #${pull.number} ${pull.title}`, 60)), key('E', 'Open it')] };
+      }
+      return boardHint('🔀 Pull request board');
+    },
+    use: (_it, key) => {
+      if (key !== 'E') return;
+      const pull = deps.aimedPull();
+      if (pull && deps.clickOpens()) return openPull(pull, ctx.net, deps.boardActions());
+      openBoard('pulls', ctx.net, deps.boardActions());
+    },
   });
   ctx.interactions.define('services', {
     reach: 9,
@@ -150,5 +173,5 @@ export function installBoards(ctx: Ctx, deps: BoardsDeps) {
     if (w.meetingSign) showOn(w.meetingSign, meetingSignTex.texture);
   }
 
-  return { issuesTex, renderPullsBoard, renderServicesBoard, renderQueueBoard, dressBoards, cardMoved };
+  return { issuesTex, pullsTex, renderPullsBoard, renderServicesBoard, renderQueueBoard, dressBoards, cardMoved };
 }

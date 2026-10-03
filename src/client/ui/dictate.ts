@@ -36,6 +36,11 @@ export function onDictating(fn: (on: boolean) => void) {
   watchers.add(fn);
 }
 
+/** Tells every watcher dictation started or stopped (the desktop 🎤, and VR's hold-A). */
+export function notifyDictating(on: boolean) {
+  watchers.forEach((fn) => fn(on));
+}
+
 // A window that closes takes its 🎤 with it.
 onModalChange(() => {
   if (active && !active.button.isConnected) active.abort();
@@ -77,7 +82,7 @@ export function dictation(target: DictateTarget, opts: { label?: string } = {}):
         if (listening && listening === mine) {
           listening = null;
           active = null;
-          watchers.forEach((fn) => fn(false));
+          notifyDictating(false);
         }
         paint();
         if (problem) toast(problem, 'warn');
@@ -88,7 +93,7 @@ export function dictation(target: DictateTarget, opts: { label?: string } = {}):
     listening = mine;
     active = { button, abort: () => mine.abort() };
     paint();
-    watchers.forEach((fn) => fn(true));
+    notifyDictating(true);
   };
   const talk = new PushToTalk({ live: () => !!listening, start, stop: () => listening?.stop() });
 

@@ -5,7 +5,7 @@
  */
 import * as THREE from 'three';
 import { SLAB } from '../../shared/layout';
-import type { GhIssue } from '../../shared/protocol';
+import type { GhIssue, GhPull } from '../../shared/protocol';
 import type { Ctx } from '../core/context';
 import type { CoreState } from '../core/ctx';
 import type { Parts } from '../core/parts';
@@ -26,6 +26,8 @@ export function installPointer(ctx: Ctx, core: CoreState, parts: PointerParts) {
   let target: Interactable | null = null;
   /** The note on the issues board under the crosshair (or, in third person, the mouse), which E takes. */
   let aimedNote: GhIssue | null = null;
+  /** The note on the PR board under the crosshair, which E opens in VR. */
+  let aimedPull: GhPull | null = null;
   /** Where the mouse is over the scene, for pointing at notes in third person; null when it's off it. */
   let pointer: THREE.Vector2 | null = null;
 
@@ -125,6 +127,13 @@ export function installPointer(ctx: Ctx, core: CoreState, parts: PointerParts) {
     return n === undefined ? null : (store.issues.items.find((i) => i.number === n) ?? null);
   }
 
+  /** The pull request whose note on the PR board an aim lands on, or null. */
+  function pullUnder(aim: { it: Interactable; hit: THREE.Intersection } | null): GhPull | null {
+    if (aim?.it.kind !== 'pulls' || aim.hit.object !== ctx.world().boardMeshes.pulls || !aim.hit.uv) return null;
+    const n = parts.boards.pullsTex.noteAt(aim.hit.uv);
+    return n === undefined ? null : (store.pulls.items.find((i) => i.number === n) ?? null);
+  }
+
   canvas.addEventListener('pointermove', (e) => {
     const r = canvas.getBoundingClientRect();
     (pointer ??= new THREE.Vector2()).set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
@@ -135,12 +144,16 @@ export function installPointer(ctx: Ctx, core: CoreState, parts: PointerParts) {
     const { seating, hoops } = parts;
     const firstPerson = player.view === 'first';
     aimedNote = null;
+    aimedPull = null;
     if (modalOpen() || parts.telescope.active || ctx.activities.busy() || parts.xr.onPanel()) target = null;
     else if (firstPerson) {
       const aim = aimedAt(CROSSHAIR);
       parts.xr.landed(aim?.hit.point ?? null, !!aim?.near);
       target = aim?.near ? aim.it : (throneTarget() ?? seating.mySeat() ?? (inOffice() ? hoops.ballAtFeet() : null));
-      if (aim?.near) aimedNote = noteUnder(aim);
+      if (aim?.near) {
+        aimedNote = noteUnder(aim);
+        aimedPull = pullUnder(aim);
+      }
     } else {
       target = throneTarget() ?? seating.mySeat() ?? pickTarget();
       // By the issues board, the mouse points at the note you'd take.
@@ -150,6 +163,14 @@ export function installPointer(ctx: Ctx, core: CoreState, parts: PointerParts) {
       }
     }
     parts.boards.issuesTex.lift(aimedNote?.number ?? null);
+    parts.boards.pullsTex.lift(aimedPull?.number ?? null);
+    // In VR, the right grip takes the issue note you're pointing at.
+    if (parts.xr.active()) {
+      const note = aimedNote;
+      parts.xr.setTakeNote(note ? () => parts.cards.pickUp(note) : null);
+    } else {
+      parts.xr.setTakeNote(null);
+    }
     parts.hintbar.renderHint();
     parts.hintbar.renderCrosshair();
   });
@@ -193,6 +214,7 @@ export function installPointer(ctx: Ctx, core: CoreState, parts: PointerParts) {
     /** Lets go of what you were pointing at (looking through the telescope, say). */
     clearTarget: () => void (target = null),
     aimedNote: () => aimedNote,
+    aimedPull: () => aimedPull,
     usable,
     use,
   };

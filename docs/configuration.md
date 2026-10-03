@@ -29,6 +29,8 @@ agent-office [dir] [options]
       --trust-proxy       Trust X-Forwarded-* (behind Caddy/nginx)
       --turn <url>        Add a TURN server for voice, e.g. turn:user:pass@host:3478
                           (env AGENT_OFFICE_TURN, several separated by spaces)
+                          For VR dictation on browsers without speech recognition, set
+                          OPENAI_API_KEY so the office can call Whisper (see below)
       --budget <usd>      Daily tracked Claude Code budget (OpenCode/Codex/Grok/Muse/DSH excluded)
       --budget-pause      ...and nobody can hire a new worker until the next day
       --max-workers <n>   Run at most n workers at once, across every floor (env AGENT_OFFICE_MAX_WORKERS)
@@ -62,3 +64,12 @@ agent-office tunnel [office@address | url] [--port <n>] [--office-port <n>] [--n
   the worker stops it. Given an SSH address it opens the tunnel to the office too.
   See docs/tunnel.md.
 ```
+
+## Environment
+
+| Variable | What it does |
+| --- | --- |
+| `OPENAI_API_KEY` | When someone dictates in VR (or any browser without built-in speech recognition), the office records the mic and posts the audio to OpenAI Whisper via `POST /api/transcribe`. Without this key those browsers get a toast saying so; Chrome / Edge / Safari keep using their own recognizer and never need it. |
+| `AGENT_OFFICE_TURN` | TURN URLs for voice across strict NATs (same as `--turn`). |
+| `AGENT_OFFICE_PASSWORD` | Office password (same as `--password`). |
+| `AGENT_OFFICE_HOME` / `AGENT_OFFICE_PROJECTS` | Where the office keeps its data / clones new floors (same as `--home` / `--projects`). |

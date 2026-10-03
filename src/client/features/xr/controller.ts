@@ -1,7 +1,7 @@
 /**
  * Quest / WebXR controller input: left thumbstick walks (WASD virtual keys), stick click runs,
- * right stick snap-turns (and, up and down, zooms the tabletop), face buttons / trigger map to the
- * office's keys (E, Esc, Space, Tab, N). The XR feature sees every press first (see XrHooks.press).
+ * right stick snap-turns (or scrolls a mirrored window), face buttons / trigger map to the office's
+ * keys. Hold A to dictate. The XR feature sees every press first (see XrHooks.press).
  */
 import type { PlayerController } from '../../player';
 import type { Hand } from './rays';
@@ -16,16 +16,16 @@ const MOVE_CODES = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ShiftLeft'] as const;
  * Codes starting `Xr` are the headset's own, never sent to the office as keys.
  */
 const LEFT_BUTTONS: Record<number, string> = {
-  0: 'KeyE', // trigger → interact (more natural than face button alone)
+  0: 'KeyE', // trigger → interact / click a surface
   1: 'KeyN', // grip → next waiting worker
   4: 'Space', // X → jump
   5: 'Tab', // Y → menu
 };
 const RIGHT_BUTTONS: Record<number, string> = {
-  0: 'KeyE', // trigger → interact
-  1: 'XrGrip', // grip → tabletop / life-size, in passthrough
-  4: 'KeyE', // A → interact
-  5: 'Escape', // B → close / free
+  0: 'KeyE', // trigger → interact / click a surface
+  1: 'XrGrip', // grip → take a note, or tabletop / life-size in passthrough
+  4: 'XrDictate', // A → hold to dictate
+  5: 'Escape', // B → close window / hide keyboard
 };
 
 export interface XrHooks {
@@ -52,14 +52,10 @@ export function fireKey(code: string, down: boolean) {
 
 /** Builds the per-frame controller reader for one player. */
 export function makeXrControls(player: PlayerController): XrControls {
-  /** Which button indices were down last frame, per handedness. */
   const wasDown = { left: new Set<number>(), right: new Set<number>() };
-  /** Buttons whose press the XR feature kept, so their release is kept too. */
   const kept = { left: new Set<number>(), right: new Set<number>() };
-  /** Right stick was past the snap threshold last frame (edge-trigger snap turns). */
   let snapLatched = false;
 
-  /** Quest profiles put the stick on 0/1 or 2/3 — pick whichever has more deflection. */
   function axesOf(pad: Gamepad): { x: number; y: number } {
     const a0 = pad.axes[0] ?? 0;
     const a1 = pad.axes[1] ?? 0;
@@ -75,7 +71,6 @@ export function makeXrControls(player: PlayerController): XrControls {
       if (run) player.holdVirtual('ShiftLeft');
       return;
     }
-    // y < 0 is forward on Quest sticks.
     if (y < -DEAD) player.holdVirtual('KeyW');
     if (y > DEAD) player.holdVirtual('KeyS');
     if (x < -DEAD) player.holdVirtual('KeyA');

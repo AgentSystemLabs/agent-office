@@ -1,7 +1,7 @@
 /**
  * A worker's terminal floating in front of you in VR: its live screen (the frames its laptop shows)
  * on a canvas texture, and a row of keys under it you point a controller at, to answer the agent
- * (pick 1, Enter, Esc, Ctrl+C) without taking the headset off. Typing a prompt leaves VR (⌨ Type).
+ * (pick 1, Enter, Esc, Ctrl+C) without taking the headset off. ⌨ Type opens the virtual keyboard.
  */
 import * as THREE from 'three';
 import { isAsleep } from '../../../shared/status';
@@ -9,6 +9,8 @@ import { store } from '../../state';
 import { STATUS_LABEL } from '../../ui/dom';
 import { TERM_THEME } from '../../ui/termtheme';
 import { paintScreen } from '../workers/laptop';
+import type { Hand } from './rays';
+import { planeHit, type SurfaceHit, type XrSurface } from './surface';
 
 const W = 2048;
 const H = 1408;
@@ -42,7 +44,7 @@ const KEYS: { label: string; act: PanelAction; wide?: true }[] = [
   { label: '⇥', act: { input: '\t' } },
   { label: 'Esc', act: { input: '\x1b' } },
   { label: '^C', act: { input: '\x03' } },
-  { label: 'Type a prompt…', act: { type: true }, wide: true },
+  { label: '⌨ Type…', act: { type: true }, wide: true },
 ];
 
 /** The keys along the bottom, then ✕ in the header, in canvas pixels. */
@@ -62,15 +64,17 @@ const BUTTONS: Button[] = (() => {
   return out;
 })();
 
-export class TermPanel {
+export class TermPanel implements XrSurface {
   readonly mesh: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
   /** Whose terminal is up, or null when the panel's away. */
   workerId: string | null = null;
+  /** What a button press does (send input, open the keyboard, close). */
+  onAction: ((act: PanelAction) => void) | null = null;
   private readonly canvas = document.createElement('canvas');
   private readonly g: CanvasRenderingContext2D;
   private readonly texture: THREE.CanvasTexture;
   /** The buttons each hand is pointing at (index into BUTTONS), -1 for none. */
-  private readonly hover = { left: -1, right: -1 };
+  private readonly hoverBtn = { left: -1, right: -1 };
   private flashed = -1;
   private flashUntil = 0;
   /** What was last painted, so an unchanged frame isn't painted again. */
@@ -93,6 +97,10 @@ export class TermPanel {
     this.mesh.visible = false;
   }
 
+  active() {
+    return !!this.workerId;
+  }
+
   open(workerId: string) {
     this.workerId = workerId;
     this.drawn = '';
@@ -101,27 +109,29 @@ export class TermPanel {
 
   close() {
     this.workerId = null;
-    this.hover.left = this.hover.right = -1;
+    this.hoverBtn.left = this.hoverBtn.right = -1;
     this.mesh.visible = false;
     this.mesh.removeFromParent();
   }
 
-  /** Where `ray` meets the panel (world space), and the button there (-1 for none), or null if it misses. */
-  hit(raycaster: THREE.Raycaster): { button: number; distance: number } | null {
-    if (!this.workerId) return null;
-    const [h] = raycaster.intersectObject(this.mesh, false);
-    if (!h?.uv) return null;
-    const px = h.uv.x * W;
-    const py = (1 - h.uv.y) * H;
-    return { button: BUTTONS.findIndex((b) => px >= b.x && px <= b.x + b.w && py >= b.y && py <= b.y + b.h), distance: h.distance };
+  hit(raycaster: THREE.Raycaster): SurfaceHit | null {
+    return planeHit(this.mesh, raycaster);
   }
 
-  setHover(hand: 'left' | 'right', button: number) {
-    this.hover[hand] = button;
+  hover(hand: Hand, hit: SurfaceHit | null) {
+    this.hoverBtn[hand] = hit ? buttonAt(hit.u * W, hit.v * H) : -1;
+  }
+
+  press(_hand: Hand, hit: SurfaceHit, down: boolean): boolean {
+    if (!down) return true;
+    const i = buttonAt(hit.u * W, hit.v * H);
+    const act = this.pressButton(i, performance.now());
+    if (act) this.onAction?.(act);
+    return true;
   }
 
   /** What pressing `button` does, lighting it up for a moment; null for none, or a key while the worker sleeps. */
-  press(button: number, now: number): PanelAction | null {
+  pressButton(button: number, now: number): PanelAction | null {
     const b = BUTTONS[button];
     const w = this.workerId ? store.workers.get(this.workerId) : undefined;
     if (!b || !w) return null;
@@ -131,14 +141,13 @@ export class TermPanel {
     return b.act;
   }
 
-  /** Paints the panel again if the screen, the worker or what you're pointing at has changed. */
   paint(now: number) {
     const id = this.workerId;
     if (!id) return;
     const w = store.workers.get(id);
     const screen = store.screens.get(id);
     const flash = now < this.flashUntil ? this.flashed : -1;
-    const key = `${id}|${screen?.version ?? -1}|${w?.status}|${w?.name}|${this.hover.left}|${this.hover.right}|${flash}`;
+    const key = `${id}|${screen?.version ?? -1}|${w?.status}|${w?.name}|${this.hoverBtn.left}|${this.hoverBtn.right}|${flash}`;
     if (key === this.drawn) return;
     this.drawn = key;
     const g = this.g;
@@ -149,7 +158,6 @@ export class TermPanel {
     g.roundRect(0, 0, W, H, 36);
     g.fill();
 
-    // The header: whose terminal, and how it's doing.
     g.textBaseline = 'middle';
     g.fillStyle = w?.color ?? '#888';
     g.beginPath();
@@ -169,7 +177,7 @@ export class TermPanel {
 
     BUTTONS.forEach((b, i) => {
       const lit = i === flash;
-      const pointed = i === this.hover.left || i === this.hover.right;
+      const pointed = i === this.hoverBtn.left || i === this.hoverBtn.right;
       const off = asleep && 'input' in b.act;
       g.fillStyle = lit ? '#ffd166' : pointed ? '#4a5078' : '#2d3047';
       g.beginPath();
@@ -188,4 +196,8 @@ export class TermPanel {
     });
     this.texture.needsUpdate = true;
   }
+}
+
+function buttonAt(px: number, py: number): number {
+  return BUTTONS.findIndex((b) => px >= b.x && px <= b.x + b.w && py >= b.y && py <= b.y + b.h);
 }

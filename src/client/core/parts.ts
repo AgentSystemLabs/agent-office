@@ -41,6 +41,7 @@ import type { installSmoke } from '../features/smoke';
 import type { installTelescope } from '../features/telescope';
 import type { installTv } from '../features/tv';
 import type { installVoice } from '../features/voice';
+import type { installPalette } from '../features/palette';
 import type { installWaiting } from '../features/waiting';
 import type { installWalking } from '../features/walking';
 import type { installXR } from '../features/xr';
@@ -125,6 +126,8 @@ export interface Parts {
   emotes: Made<typeof installEmotes>;
   talk: Made<typeof installVoice>;
   hud: Made<typeof installHud>;
+  /** The command palette (Ctrl+K): find a worker, issue, board or action. */
+  palette: Made<typeof installPalette>;
   /** Immersive WebXR (Quest): Enter VR, locomotion rig, controllers. */
   xr: Made<typeof installXR>;
 }
