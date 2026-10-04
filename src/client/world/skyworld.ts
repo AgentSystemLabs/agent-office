@@ -8,11 +8,11 @@ import { Vox } from './vox';
 const AUTUMN = ['#d9782b', '#c9482f', '#e8a23b', '#e58aa3', '#7aa93f', '#5f8f35', '#b9552c'];
 
 /** A terraced cloud of blocks: wide flat layers stacked into a soft hill, lavender underneath. */
-function cloudGeometry(rand: () => number): THREE.BufferGeometry {
-  const s = 2.2;
+export function cloudGeometry(rand: () => number): THREE.BufferGeometry {
+  const s = 3;
   const v = new Vox(s, 0.03);
-  const w = 8 + rand() * 12;
-  const d = 6 + rand() * 8;
+  const w = 14 + rand() * 18;
+  const d = 10 + rand() * 12;
   const lumps = 2 + Math.floor(rand() * 3);
   for (let n = 0; n < lumps; n++) {
     const cx = (rand() - 0.5) * w * 1.1;
@@ -21,7 +21,7 @@ function cloudGeometry(rand: () => number): THREE.BufferGeometry {
     const rz = d * (0.5 + rand() * 0.35);
     for (let layer = 0; layer < 4; layer++) {
       const k = 1 - layer * 0.24;
-      const shade = ['#cdbfe6', '#e3dcf3', '#f1ecfa', '#ffffff'][layer];
+      const shade = ['#d8cdee', '#e8e1f6', '#f4f0fb', '#ffffff'][layer];
       v.ell(cx, layer * s, cz, rx * k, s * 0.55, rz * k, shade);
     }
   }
@@ -106,7 +106,7 @@ export function buildSkyWorld(cloud: THREE.MeshStandardMaterial, bulbMat: (color
     const m = new THREE.Mesh(clouds[n % clouds.length], cloud);
     m.position.set(Math.cos(a) * dist, 8 + rand() * 80, Math.sin(a) * dist);
     m.rotation.y = rand() * Math.PI * 2;
-    m.scale.setScalar(0.8 + rand() * 1.2);
+    m.scale.setScalar(1.2 + rand() * 1.6);
     group.add(m);
   }
 

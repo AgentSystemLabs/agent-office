@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { FLOOR, SLAB, STREET_Y, WALL_T, roofDrop } from '../../shared/layout';
 import { mulberry32 } from '../../shared/rng';
 import type { NightParts } from './outside';
+import { cloudGeometry } from './skyworld';
+import { leafyGeometry, treeMaterial } from './voxtrees';
 import { tilingCanvasTexture } from './texture';
 import { mergeByMaterial, mesh, toon } from './toon';
 import { buildTower } from './tower';
@@ -194,9 +196,9 @@ function groundTexture(): THREE.CanvasTexture {
 
 function tree(r: () => number): THREE.Group {
   const t = new THREE.Group();
-  const s = 0.8 + r() * 0.7;
-  t.add(mesh(new THREE.CylinderGeometry(0.25 * s, 0.32 * s, 2.4 * s, 6), toon('#8a5a3b'), 0, 1.2 * s, 0, false));
-  t.add(mesh(new THREE.SphereGeometry(1.9 * s, 8, 6), toon(r() < 0.5 ? '#5fb760' : '#4ea657'), 0, 3.4 * s, 0, false));
+  const m = new THREE.Mesh(leafyGeometry(r() < 0.5 ? '#5fb760' : '#4ea657', Math.floor(r() * 4)), treeMaterial);
+  m.scale.setScalar(0.8 + r() * 0.7);
+  t.add(m);
   return t;
 }
 
@@ -544,26 +546,21 @@ export function buildCity(night: NightParts): City {
 
   // Clouds, drifting past at about the height of the towers.
   const cloud = night.clouds;
+  cloud.fog = false;
+  cloud.vertexColors = true;
+  cloud.needsUpdate = true;
+  const cityClouds = Array.from({ length: 4 }, () => cloudGeometry(r));
   const sky = new THREE.Group();
   for (let k = 0; k < 9; k++) {
     const a = (k / 9) * Math.PI * 2 + r();
     const dist = 220 + r() * 120;
-    const c = new THREE.Group();
-    for (const [dx, dy, rad] of [
-      [0, 0, 9],
-      [10, -2, 7],
-      [-10, -2, 6.5],
-      [4, 4, 6],
-    ]) {
-      const puff = mesh(new THREE.SphereGeometry(rad, 12, 9), cloud, dx, dy, 0, false);
-      puff.scale.y = 0.7;
-      c.add(puff);
-    }
+    const c = new THREE.Mesh(cityClouds[k % cityClouds.length], cloud);
+    c.scale.setScalar(2.2 + r() * 1.4);
+    c.rotation.y = r() * 6.28;
     c.position.set(Math.cos(a) * dist, 40 + r() * 50, Math.sin(a) * dist);
-    c.lookAt(0, c.position.y, 0);
     sky.add(c);
   }
-  group.add(mergeByMaterial(sky));
+  group.add(sky);
 
   let floorsNow = 0;
   let wingsNow = '';

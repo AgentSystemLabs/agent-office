@@ -2,9 +2,11 @@ import * as THREE from 'three';
 import { ELEVATOR, ELEVATOR_FRONT, FLOOR, ROAD, SLAB, STREET_Y, WALL_T } from '../../shared/layout';
 import { LOT, SIDE_LOT } from '../../shared/garage';
 import { STREET_END, shoreX } from '../../shared/scenic';
+import { mulberry32 } from '../../shared/rng';
 import type { Collider } from './types';
 import type { Fixture, StreetSite } from './office/fixture';
 import { canvasTexture } from './texture';
+import { leafyGeometry, treeMaterial } from './voxtrees';
 import { buildSkyWorld, type SkyWorld } from './skyworld';
 import { mergeByMaterial, mesh, textPlane, toon, toonUnique } from './toon';
 
@@ -182,12 +184,33 @@ export function buildGarage(group: THREE.Group, colliders: Collider[]) {
   group.add(mergeByMaterial(parts));
 }
 
+/** Grass in blocks: a field of square tufts in a handful of greens, a block (2 m) to a square, sharp however far it stretches. */
+function grassTexture(w: number, d: number): THREE.CanvasTexture {
+  const n = 32;
+  const rand = mulberry32(99);
+  const tones = ['#8fcf6b', '#9bd777', '#84c561', '#a5dd80', '#7bbb5a'];
+  const t = canvasTexture(n * 4, n * 4, (g) => {
+    for (let y = 0; y < n; y++)
+      for (let x = 0; x < n; x++) {
+        g.fillStyle = tones[Math.floor(rand() * tones.length)];
+        g.fillRect(x * 4, y * 4, 4, 4);
+        if (rand() < 0.05) {
+          g.fillStyle = ['#f2e86d', '#f4a6c0', '#ffffff'][Math.floor(rand() * 3)];
+          g.fillRect(x * 4 + 1, y * 4 + 1, 2, 2);
+        }
+      }
+  });
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.magFilter = THREE.NearestFilter;
+  t.repeat.set(w / 8, d / 8);
+  return t;
+}
+
 export function tree(scale: number): THREE.Group {
   const t = new THREE.Group();
-  t.add(mesh(new THREE.CylinderGeometry(0.22, 0.3, 2.2, 8), toon('#8a5a3b'), 0, 1.1, 0));
-  t.add(mesh(new THREE.SphereGeometry(1.6, 12, 10), toon('#5fb760'), 0, 3.2, 0));
-  t.add(mesh(new THREE.SphereGeometry(1.1, 12, 10), toon('#3f8f45'), 0.8, 3.9, 0.4));
-  t.add(mesh(new THREE.SphereGeometry(1.0, 12, 10), toon('#6fcf6a'), -0.7, 3.8, -0.3));
+  const m = new THREE.Mesh(leafyGeometry('#5fb760', Math.floor(scale * 13)), treeMaterial);
+  m.castShadow = true;
+  t.add(m);
   t.scale.setScalar(scale);
   return t;
 }
@@ -310,7 +333,7 @@ export function neighbourBoxes(): { minX: number; maxX: number; minZ: number; ma
  * sidewalks and street lamps, trees and neighbours' buildings, and in `sky` some clouds.
  */
 export function buildStreet(group: THREE.Group, colliders: Collider[], night: NightParts, sky: THREE.Group): SkyWorld {
-  const lawn = new THREE.Mesh(new THREE.PlaneGeometry(REACH - LAWN_WEST, REACH * 2), toon('#a7d98b'));
+  const lawn = new THREE.Mesh(new THREE.PlaneGeometry(REACH - LAWN_WEST, REACH * 2), new THREE.MeshStandardMaterial({ map: grassTexture((REACH - LAWN_WEST) / 2, REACH), roughness: 0.95, metalness: 0 }));
   lawn.rotation.x = -Math.PI / 2;
   lawn.position.set((LAWN_WEST + REACH) / 2, G - 0.03, 0);
   lawn.receiveShadow = true;

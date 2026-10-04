@@ -258,7 +258,7 @@ export function mergeByMaterial(root: THREE.Object3D): THREE.Group {
     const m = o as THREE.Mesh;
     if (!m.isMesh) return;
     const geo = m.geometry.index ? m.geometry.toNonIndexed() : m.geometry.clone();
-    for (const k of Object.keys(geo.attributes)) if (k !== 'position' && k !== 'normal') geo.deleteAttribute(k);
+    for (const k of Object.keys(geo.attributes)) if (k !== 'position' && k !== 'normal' && !(k === 'color' && (m.material as THREE.Material & { vertexColors?: boolean }).vertexColors)) geo.deleteAttribute(k);
     geo.applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv, m.matrixWorld));
     const mat = m.material as THREE.Material;
     const key = `${mat.uuid}${m.castShadow ? '+' : '-'}`;

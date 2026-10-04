@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { mesh, toon } from '../toon';
 import { G } from './kit';
+import { leafyGeometry, pineGeometry, treeMaterial } from '../voxtrees';
 
 // What grows along the loop (and the rocks): pines, leafy trees, palms and boulders, each standing on
 // the street's level.
@@ -11,30 +12,22 @@ export const AUTUMN = ['#f4a259', '#e76f51', '#e9c46a'];
 
 /** A pine, feet at (x, z) on the street's level: three cones on a stubby trunk. */
 export function pine(into: THREE.Group, x: number, z: number, s: number, color: string, turn: number) {
-  const g = new THREE.Group();
-  // No ends on the trunk or the cones: nobody sees under a pine.
-  g.add(mesh(new THREE.CylinderGeometry(0.18, 0.26, 1.6, 6, 1, true), toon('#6f4e37'), 0, 0.8, 0));
-  const leaf = toon(color);
-  g.add(mesh(new THREE.ConeGeometry(1.9, 3.2, 7, 1, true), leaf, 0, 2.7, 0));
-  g.add(mesh(new THREE.ConeGeometry(1.45, 2.6, 7, 1, true), leaf, 0, 4.1, 0));
-  g.add(mesh(new THREE.ConeGeometry(0.95, 2.1, 7, 1, true), leaf, 0, 5.4, 0));
-  g.position.set(x, G, z);
-  g.rotation.y = turn;
-  g.scale.set(s, s * (0.9 + (turn % 0.3)), s);
-  into.add(g);
+  const m = new THREE.Mesh(pineGeometry(color, Math.floor(Math.abs(turn) * 7)), treeMaterial);
+  m.castShadow = true;
+  m.position.set(x, G, z);
+  m.rotation.y = Math.round(turn / (Math.PI / 2)) * (Math.PI / 2);
+  m.scale.set(s, s * (0.9 + (turn % 0.3)), s);
+  into.add(m);
 }
 
-/** A leafy tree: a trunk and a couple of faceted blobs of leaves. */
+/** A leafy tree: a trunk and a crown of leaf blocks. */
 export function leafy(into: THREE.Group, x: number, z: number, s: number, color: string, turn: number) {
-  const g = new THREE.Group();
-  g.add(mesh(new THREE.CylinderGeometry(0.2, 0.28, 2.1, 6, 1, true), toon('#8a5a3b'), 0, 1.05, 0));
-  const leaf = toon(color);
-  g.add(mesh(new THREE.IcosahedronGeometry(1.7, 1), leaf, 0, 3.2, 0));
-  g.add(mesh(new THREE.IcosahedronGeometry(1.15, 1), leaf, 0.8, 3.9, 0.35));
-  g.position.set(x, G, z);
-  g.rotation.y = turn;
-  g.scale.setScalar(s);
-  into.add(g);
+  const m = new THREE.Mesh(leafyGeometry(color, Math.floor(Math.abs(turn) * 7)), treeMaterial);
+  m.castShadow = true;
+  m.position.set(x, G, z);
+  m.rotation.y = Math.round(turn / (Math.PI / 2)) * (Math.PI / 2);
+  m.scale.setScalar(s);
+  into.add(m);
 }
 
 /** A palm, leaning a little: a trunk in segments, fronds drooping all round, and coconuts. */
