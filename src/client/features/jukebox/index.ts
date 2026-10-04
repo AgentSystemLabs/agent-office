@@ -3,6 +3,7 @@ import type { Ctx } from '../../core/context';
 import { aside, hintTitle, key, onE } from '../../core/hint';
 import { store } from '../../state';
 import { clip } from '../../ui/dom';
+import { SURAHS, surahOf } from './quran';
 import { openJukebox } from './ui';
 import type { SettingsPane } from '../../ui/settings';
 
@@ -32,8 +33,9 @@ export function installJukebox(ctx: Ctx, deps: JukeboxDeps) {
     reach: 4,
     hint: () => {
       const j = store.jukebox;
-      const what = j.on ? trackTitle(j) : '';
-      return { k: `${j.on}|${what}`, parts: [hintTitle('🎵 Jukebox'), aside(j.on ? `♪ ${clip(what, 40)}` : 'off'), key('E', j.on ? 'Change the song' : 'Put on a song')] };
+      const sn = surahOf(j.url);
+      const what = j.on ? (sn ? SURAHS[sn - 1] : trackTitle(j)) : '';
+      return { k: `${j.on}|${what}`, parts: [hintTitle('📖 Quran'), aside(j.on ? `♪ ${clip(what, 40)}` : 'off'), key('E', j.on ? 'Change the surah' : 'Play a surah')] };
     },
     use: onE(() => showJukebox()),
   });
