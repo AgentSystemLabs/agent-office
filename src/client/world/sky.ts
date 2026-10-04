@@ -469,7 +469,7 @@ export class Sky {
       const y = rand(0.08, 1);
       const a = rand(0, Math.PI * 2);
       const r = Math.sqrt(1 - y * y);
-      starPos.push(Math.cos(a) * r * 170, y * 170, Math.sin(a) * r * 170);
+      starPos.push(Math.cos(a) * r * 300, y * 300, Math.sin(a) * r * 300);
     }
     const starGeo = new THREE.BufferGeometry();
     starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starPos, 3));
@@ -479,8 +479,8 @@ export class Sky {
       m.material.userData.outlineParameters = { visible: false };
       return m;
     };
-    this.sunDisc = disc(5, '#fff4c8');
-    this.moonDisc = disc(3.2, '#f2f1ea');
+    this.sunDisc = disc(9.4, '#fff4c8');
+    this.moonDisc = disc(6, '#f2f1ea');
     this.moonDisc.material.map = moonTexture();
     this.dome.add(this.spookyDome, this.stars, this.sunDisc, this.moonDisc);
     scene.add(this.dome);
@@ -778,7 +778,7 @@ export class Sky {
     const clear = (1 - this.cover) * (1 - this.fog);
     this.stars.material.opacity = (1 - day) ** 2 * clear;
     this.stars.visible = this.stars.material.opacity > 0.01;
-    const up = (e: number, a: number, m: THREE.Mesh) => m.position.set(Math.cos(e) * Math.sin(a) * 160, Math.sin(e) * 160, -Math.cos(e) * Math.cos(a) * 160);
+    const up = (e: number, a: number, m: THREE.Mesh) => m.position.set(Math.cos(e) * Math.sin(a) * 300, Math.sin(e) * 300, -Math.cos(e) * Math.cos(a) * 300);
     up(el, az, this.sunDisc);
     this.sunDisc.material.color.copy(C.sunLow).lerp(C.white, smooth(0, 20, elD));
     this.sunDisc.material.opacity = smooth(-3, 0, elD) * clear;
@@ -790,7 +790,7 @@ export class Sky {
     skyward(SPOOKY_MOON.el, SPOOKY_MOON.az, this.moonTo);
     u.moonDir.value.copy(this.moonTo);
     this.moonAt.lerp(this.moonTo, sp);
-    this.moonDisc.position.copy(this.moonAt.lengthSq() > 1e-6 ? this.moonAt : this.moonTo).normalize().multiplyScalar(160);
+    this.moonDisc.position.copy(this.moonAt.lengthSq() > 1e-6 ? this.moonAt : this.moonTo).normalize().multiplyScalar(300);
     this.moonDisc.scale.setScalar(1 + 2.2 * sp);
     this.moonDisc.material.color.copy(C.white).lerp(SPOOKY.moon, sp);
     this.moonDisc.material.opacity = Math.max(smooth(2, -2, elD) * clear, sp * (1 - 0.5 * this.cover));
