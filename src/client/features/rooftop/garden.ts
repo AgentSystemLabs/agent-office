@@ -1,10 +1,11 @@
 import * as THREE from 'three';
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { GARDEN, GARDEN_POND, GARDEN_SEATS, THINK_SPOT } from '../../../shared/garden';
 import type { SeatDef } from '../../../shared/layout';
 import type { Collider, Interactable } from '../../world/types';
 import { boulder, moss, pond, steppingStones } from './garden/ground';
-import { FoliageBatch, Solids, hash3, rng } from './garden/leaves';
+import { hash3, rng } from './garden/leaves';
+import { VoxBatch } from './garden/voxkit';
+import { Blocks } from './garden/voxscene';
 import * as P from './garden/plants';
 import { bench, lounge } from './garden/seats';
 import { SOIL, lantern, pergola, planterBed, soundStone } from './garden/structures';
@@ -59,27 +60,25 @@ function seatCollider(s: SeatDef, w: number, d: number, dz: number, top: number)
 export function buildGarden(): Garden {
   const group = new THREE.Group();
   const interactables: Interactable[] = [];
-  const g: P.Grow = { f: new FoliageBatch(new THREE.Box3(new THREE.Vector3(GARDEN.minX - 0.4, 0, GARDEN.minZ - 0.5), new THREE.Vector3(GARDEN.maxX + 0.4, 0, GARDEN.maxZ + 0.4))), s: new Solids(), r: rng(20261003), t: P.templates(), colliders: [], glow: [] };
+  const limit = new THREE.Box3(new THREE.Vector3(GARDEN.minX - 0.4, 0, GARDEN.minZ - 0.5), new THREE.Vector3(GARDEN.maxX + 0.4, 0, GARDEN.maxZ + 0.4));
+  const g: P.Grow = { v: new VoxBatch(limit), b: new Blocks(0.05), fine: new Blocks(0.025), glowB: new Blocks(0.025, 0), r: rng(20261003), colliders: [] };
   const { r } = g;
   const jit = (v: number) => (r() - 0.5) * v;
 
-  // The ground: earth and moss in soft patches, a little uneven, fading into the deck on the east.
-  const ground = new THREE.PlaneGeometry(12.5, 9, 25, 18).rotateX(-Math.PI / 2).translate((GARDEN.minX - 5) / 2, 0, (GARDEN.minZ + GARDEN.maxZ) / 2);
-  const gp = ground.attributes.position;
-  const gcol = new Float32Array(gp.count * 4);
+  // The ground: earth and moss in soft patches, a layer of blocks just under the deck's top, fading into the deck on the east.
+  const turf = new Blocks(0.05, 0.06);
   const [earth, mossy, lush, c] = [new THREE.Color('#4a3b2c'), new THREE.Color('#4a7a38'), new THREE.Color('#5f8f45'), new THREE.Color()];
-  for (let i = 0; i < gp.count; i++) {
-    const [x, z] = [gp.getX(i), gp.getZ(i)];
-    const n = smooth(x / 1.8, z / 1.8) * 0.65 + smooth(x / 0.7 + 9, z / 0.7) * 0.35;
-    c.copy(earth).lerp(mossy, THREE.MathUtils.smoothstep(n, 0.35, 0.6)).lerp(lush, THREE.MathUtils.smoothstep(n, 0.65, 0.85));
-    gcol.set([c.r, c.g, c.b, 1 - THREE.MathUtils.smoothstep(x + 0.8 * smooth(z * 1.3, 4), -6.4, -5.1)], i * 4);
-    gp.setY(i, 0.014 + 0.01 * smooth(x * 2, z * 2));
-  }
-  ground.setAttribute('color', new THREE.BufferAttribute(gcol, 4));
-  ground.computeVertexNormals();
-  const soil = new THREE.MeshStandardMaterial({ vertexColors: true, transparent: true, roughness: 1, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
-  const dirt = new THREE.Mesh(ground, soil);
-  dirt.receiveShadow = true;
+  const [gx0, gx1, gz0, gz1] = [(GARDEN.minX - 5) / 2 - 6.25, (GARDEN.minX - 5) / 2 + 6.25, (GARDEN.minZ + GARDEN.maxZ) / 2 - 4.5, (GARDEN.minZ + GARDEN.maxZ) / 2 + 4.5];
+  for (let i = Math.floor(gx0 / 0.05); i < gx1 / 0.05; i++)
+    for (let k = Math.floor(gz0 / 0.05); k < gz1 / 0.05; k++) {
+      const [x, z] = [(i + 0.5) * 0.05, (k + 0.5) * 0.05];
+      if (hash3(i, 3, k) < THREE.MathUtils.smoothstep(x + 0.8 * smooth(z * 1.3, 4), -6.4, -5.1)) continue;
+      const n = smooth(x / 1.8, z / 1.8) * 0.65 + smooth(x / 0.7 + 9, z / 0.7) * 0.35;
+      c.copy(earth).lerp(mossy, THREE.MathUtils.smoothstep(n, 0.35, 0.6)).lerp(lush, THREE.MathUtils.smoothstep(n, 0.65, 0.85));
+      turf.v.put(i, -1, k, '#' + c.getHexString(), 0.1);
+    }
+  const dirt = turf.mesh();
+  dirt.position.y = 0.012;
   group.add(dirt);
 
   // ---- Beds along the north, west and south sides, and a pair flanking the way in from the east --------
@@ -179,7 +178,13 @@ export function buildGarden(): Garden {
   bunch(-13.0, 10.9, P.PETALS.orange, 3, 'head', 0);
 
   const spot = GARDEN_POND;
-  const water = pond(g, spot.x, spot.z, spot.r);
+  pond(g, spot.x, spot.z, spot.r);
+  const water = new THREE.Mesh(
+    new THREE.PlaneGeometry(spot.r * 1.8, spot.r * 1.8).rotateX(-Math.PI / 2),
+    new THREE.MeshStandardMaterial({ color: '#2f5b5a', roughness: 0.04, metalness: 0, transparent: true, opacity: 0.9, envMapIntensity: 1.6 }),
+  );
+  water.position.set(spot.x, 0.095, spot.z);
+  water.receiveShadow = true;
   P.flower(g, spot.x - 0.2, 0.1, spot.z + 0.12, 0.1, P.PETALS.pink, 'head');
   P.flower(g, spot.x + 0.18, 0.1, spot.z - 0.2, 0.08, P.PETALS.white, 'head');
   g.colliders.push({ minX: spot.x - 0.85, maxX: spot.x + 0.85, minZ: spot.z - 0.85, maxZ: spot.z + 0.85, top: 99 });
@@ -239,9 +244,9 @@ export function buildGarden(): Garden {
 
   // ---- Merge it all --------------------------------------------------------------------------------------
   const wind = { value: 0 };
-  group.add(g.s.build(), g.f.build(wind), water);
+  group.add(g.b.mesh(), g.fine.mesh(), g.v.build(wind), water);
   const glowMat = new THREE.MeshStandardMaterial({ color: '#ffe2b0', emissive: '#ff9f45', emissiveIntensity: 0.9, roughness: 0.35 });
-  const glow = new THREE.Mesh(mergeGeometries(g.glow)!, glowMat);
+  const glow = new THREE.Mesh(g.glowB.v.build(), glowMat);
   group.add(glow);
   const light = new THREE.PointLight('#ffb36b', 0, 9, 1.4);
   light.position.set(-10.6, 2.1, 8);

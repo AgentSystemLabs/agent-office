@@ -1,6 +1,7 @@
 // The weather controller on the left: pick where in the world the office is (its sun, clock and live
 // forecast), set the weather and its strength by hand, or scrub the time of day. It is only for you:
 // nobody else's sky changes (the shared one comes from server/sky.ts).
+import * as THREE from 'three';
 import type { Weather, SkyState } from '../../../shared/protocol';
 import type { Ctx } from '../../core/context';
 import { store } from '../../state';
@@ -51,6 +52,18 @@ export function installWeather(ctx: Ctx): void {
   let preview: { hour?: number; weather?: Weather; intensity?: number } = {};
   let place = '';
   let busy = false;
+  /** Fog thickness 0–1 set by hand (null: whatever the weather makes). The sky sets the fog each frame, so it is overridden right after. */
+  let fog: number | null = null;
+  const skyUpdate = sky.update.bind(sky);
+  sky.update = (dt, t, camera) => {
+    skyUpdate(dt, t, camera);
+    if (fog !== null && ctx.scene.fog instanceof THREE.Fog) {
+      // At 0 there is no fog or haze at all: the edges go out past anything drawn.
+      const far = fog <= 0.001 ? 1e6 : 600 - (600 - 22) * Math.pow(fog, 0.55);
+      ctx.scene.fog.far = far;
+      ctx.scene.fog.near = fog <= 0.001 ? 1e5 : fog > 0.7 ? 0 : far * 0.25;
+    }
+  };
 
   const apply = () => {
     if (pin && store.sky) sky.set({ ...store.sky, ...pin });
@@ -66,6 +79,8 @@ export function installWeather(ctx: Ctx): void {
   const weatherRow = h('div.wx-row');
   const strength = h('input', { type: 'range', min: 0, max: 100, value: 80, 'aria-label': 'Weather strength', oninput: () => { preview = { ...preview, weather: preview.weather ?? store.sky?.weather ?? 'clear', intensity: Number(strength.value) / 100 }; apply(); }, onchange: () => strength.blur() }) as HTMLInputElement;
   const clock = h('input', { type: 'range', min: 0, max: 24, step: 0.25, value: 12, 'aria-label': 'Time of day', oninput: () => { preview = { ...preview, hour: Number(clock.value) % 24 }; apply(); }, onchange: () => clock.blur() }) as HTMLInputElement;
+  const fogLabel = h('span.wx-val');
+  const fogSlider = h('input', { type: 'range', min: 0, max: 100, value: 0, 'aria-label': 'Fog strength', oninput: () => { fog = Number(fogSlider.value) / 100; paint(); }, onchange: () => fogSlider.blur() }) as HTMLInputElement;
   const hourLabel = h('span.wx-val');
   const strengthLabel = h('span.wx-val');
   const live = (what: 'weather' | 'time') => h('button.btn.wx-mini', { type: 'button', onclick: () => {
@@ -84,6 +99,7 @@ export function installWeather(ctx: Ctx): void {
     h('label.wx-label', {}, 'Where'), select, status,
     h('div.wx-head', {}, h('label.wx-label', {}, 'Weather'), live('weather')), weatherRow,
     h('div.wx-head', {}, h('label.wx-label', {}, 'Strength'), strengthLabel), strength,
+    h('div.wx-head', {}, h('label.wx-label', {}, 'Fog'), fogLabel, h('button.btn.wx-mini', { type: 'button', onclick: () => { fog = null; paint(); } }, 'Auto')), fogSlider,
     h('div.wx-head', {}, h('label.wx-label', {}, 'Time of day'), hourLabel, live('time')), clock,
   );
   const toggle = h('button.wx-toggle', { type: 'button', 'aria-expanded': 'true', onclick: () => {
@@ -108,6 +124,8 @@ export function installWeather(ctx: Ctx): void {
     const k = preview.intensity ?? (preview.weather ? 0.8 : now?.intensity ?? 0);
     strength.value = String(Math.round(k * 100));
     strengthLabel.textContent = Math.round(k * 100) + '%';
+    fogLabel.textContent = fog === null ? 'auto' : Math.round(fog * 100) + '%';
+    if (fog !== null) fogSlider.value = String(Math.round(fog * 100));
     hourLabel.textContent = preview.hour === undefined ? 'live' : fmtHour(preview.hour);
     status.textContent = busy ? 'Fetching the forecast…' : pin?.city ? pin.city + (pin.temp !== undefined ? ', ' + pin.temp + ' °C' : '') : now?.city ? now.city + (now.temp !== undefined ? ', ' + now.temp + ' °C' : '') : 'Using the office’s own sky';
   }

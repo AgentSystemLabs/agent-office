@@ -171,7 +171,7 @@ export class FoliageBatch {
   }
 
   build(wind: { value: number }): THREE.Mesh {
-    const m = new THREE.Mesh(mergeGeometries(this.geos)!, foliageMaterial(wind));
+    const m = new THREE.Mesh(this.geos.length ? mergeGeometries(this.geos)! : new THREE.BufferGeometry(), foliageMaterial(wind));
     for (const g of this.geos) g.dispose();
     m.castShadow = true;
     m.receiveShadow = true;
