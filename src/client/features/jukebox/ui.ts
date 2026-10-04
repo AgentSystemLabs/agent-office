@@ -1,6 +1,6 @@
 import './ui.css';
 import { STREAM } from '../../../shared/jukebox';
-import { QURAN_SITE, SURAHS, surahOf, surahUrl } from './quran';
+import { QURAN_SITE, RECITATIONS, SURAHS, surahOf, surahUrl } from './quran';
 import type { Net } from '../../net';
 import { store } from '../../state';
 import { h, openModal, toast } from '../../ui/dom';
@@ -12,13 +12,15 @@ export function openJukebox(net: Net, openVolume: () => void) {
   const list = h('ul.svc-list');
   const find = h('input', { type: 'text', placeholder: 'Find a surah…', 'aria-label': 'Find a surah', spellcheck: 'false', autocomplete: 'off' }) as HTMLInputElement;
   const site = h('a.btn', { href: QURAN_SITE, target: '_blank', rel: 'noopener' }, '📖 Open Quran.com');
+  const watch = h('button.btn', { type: 'button' }, '▶️ Watch recitations');
+  const video = h('div.jb-video');
   const volume = h('button.btn', { type: 'button' }, '🔈 Your volume');
   const el = h(
     'div.modal.jukebox',
     { role: 'dialog', 'aria-label': 'Quran' },
     h('header', {}, h('h2', {}, '📖 Quran'), close),
-    h('div.body', {}, now, h('label', { style: 'margin-top:16px' }, 'Choose a surah'), find, list, h('p.setting-note', {}, 'Recitation by Mishari Alafasy, from Quran.com.')),
-    h('footer', {}, h('span.grow', {}, 'Everyone on this floor hears the same recitation, louder the closer they are to the lounge.'), site, volume),
+    h('div.body', {}, now, video, h('label', { style: 'margin-top:16px' }, 'Choose a surah'), find, list, h('p.setting-note', {}, 'Recitation by Mishari Alafasy, from Quran.com.')),
+    h('footer', {}, h('span.grow', {}, 'Everyone on this floor hears the same recitation, louder the closer they are to the lounge.'), watch, site, volume),
   );
 
   const button = (label: string, title: string, send: () => void, primary = false) => h(primary ? 'button.btn.primary' : 'button.btn', { type: 'button', title, onclick: send }, label);
@@ -64,6 +66,11 @@ export function openJukebox(net: Net, openVolume: () => void) {
     );
   };
   find.addEventListener('input', render);
+  watch.addEventListener('click', () => {
+    if (video.firstChild) return video.replaceChildren();
+    net.send({ t: 'jukebox.stop' });
+    video.replaceChildren(h('iframe', { src: RECITATIONS, title: 'Quran recitations', allow: 'autoplay; encrypted-media; fullscreen', allowfullscreen: 'true', referrerpolicy: 'strict-origin-when-cross-origin' }));
+  });
 
   const modal = openModal(el, { doing: '📖 listening to the Quran', onClose: store.on('jukebox', render) });
   close.addEventListener('click', () => modal.close());

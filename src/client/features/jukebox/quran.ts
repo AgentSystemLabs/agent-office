@@ -23,3 +23,6 @@ export function surahOf(url: string | undefined): number {
   const m = /\/mishari_al_afasy\/murattal\/(\d+)\.mp3$/.exec(url ?? '');
   return m ? Number(m[1]) : 0;
 }
+
+/** A YouTube playlist of recitations, shown in the window (plays for you only). */
+export const RECITATIONS = 'https://www.youtube.com/embed/videoseries?list=PLaPr5hj0xxM4OrOh0PXxj0nJ8spgyDwVO&rel=0';
