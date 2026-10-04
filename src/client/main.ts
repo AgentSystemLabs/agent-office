@@ -53,6 +53,7 @@ import { installMeeting } from './features/meeting';
 import { installNeedsYou } from './features/needsyou';
 import { installPalette } from './features/palette';
 import { installPeers } from './features/peers';
+import { installWeather } from './features/weather';
 import { installRooftop } from './features/rooftop';
 import { installSeating } from './features/seating';
 import { installSmoke } from './features/smoke';
@@ -182,6 +183,7 @@ installChat(ctx);
 parts.talk = installVoice(ctx, { tv: parts.tv });
 installDictation(ctx);
 parts.hud = installHud(ctx, core, parts);
+installWeather(ctx);
 
 // ---- Main loop ---------------------------------------------------------------------------------------
 fitWindow(ctx);
