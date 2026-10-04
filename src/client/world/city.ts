@@ -7,6 +7,8 @@ import { leafyGeometry, treeMaterial } from './voxtrees';
 import { tilingCanvasTexture } from './texture';
 import { mergeByMaterial, mesh, toon } from './toon';
 import { buildTower } from './tower';
+import { buildVancouver } from './vancity';
+import { inSea, inZone, offRoad } from './vanzones';
 
 // The city around the rooftop bar: the building's own floors going down to the street (as the tower
 // looks from outside, world/tower.ts), a grid of streets with cars running along them, parks, and
@@ -246,16 +248,6 @@ function rise(ring: number, drop: number): number {
   return ring === 0 ? k : ring === 1 ? Math.sqrt(k) : 1;
 }
 
-interface Car {
-  /** Along x (true) or z. */
-  alongX: boolean;
-  /** The lane's line across the street, and which way it drives (±1). */
-  lane: number;
-  dir: number;
-  at: number;
-  speed: number;
-}
-
 export function buildCity(night: NightParts): City {
   const group = new THREE.Group();
   /** Everything down on the street, which is as far below the roof as the building is tall. */
@@ -290,6 +282,8 @@ export function buildCity(night: NightParts): City {
       if (dist > RADIUS) continue;
       // The block the office stands on: a plaza round it.
       if (i === 0 && j === 0) continue;
+      // Vancouver's landmarks, the water and Stanley Park have these blocks.
+      if (inZone(bx, bz, 24) || inSea(bx, bz, 70)) continue;
       // Now and then a park, with trees.
       if (r() < 0.1 && dist > 60) {
         const park = mesh(new THREE.PlaneGeometry(inner, inner).rotateX(-Math.PI / 2), toon('#8fcf7a'), bx, 0.03, bz, false);
@@ -484,65 +478,16 @@ export function buildCity(night: NightParts): City {
       }
     }
   }
+  for (let i = lampPos.length - 3; i >= 0; i -= 3) if (offRoad(lampPos[i], lampPos[i + 2])) lampPos.splice(i, 3);
   const lampGeo = new THREE.BufferGeometry();
   lampGeo.setAttribute('position', new THREE.Float32BufferAttribute(lampPos, 3));
   const lamps = new THREE.Points(lampGeo, new THREE.PointsMaterial({ size: 4, map: glow, color: '#ffcf8a', transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }));
   lamps.visible = false;
   street.add(lamps);
 
-  // Cars, up and down the streets round the office's block.
-  const cars: Car[] = [];
-  const lanes: [boolean, number][] = [
-    [true, STREET_Z],
-    [true, STREET_Z - PERIOD],
-    [false, STREET_X],
-    [false, STREET_X - PERIOD],
-    [true, STREET_Z + PERIOD],
-    [false, STREET_X + PERIOD],
-  ];
-  for (const [alongX, line] of lanes) {
-    for (let k = 0; k < 7; k++) {
-      const dir = k % 2 ? 1 : -1;
-      cars.push({ alongX, lane: line + dir * (ROAD / 4) * (alongX ? 1 : -1), dir, at: -RADIUS + r() * RADIUS * 2, speed: 9 + r() * 6 });
-    }
-  }
-  const body = new THREE.BoxGeometry(4.2, 1.05, 1.9).translate(0, 0.9, 0);
-  const cabin = new THREE.BoxGeometry(2.2, 0.7, 1.7).translate(-0.3, 1.75, 0);
-  const carGeo = mergeGeometries([body, cabin]);
-  const carMesh = new THREE.InstancedMesh(carGeo, toon('#ffffff'), cars.length);
-  const paints = ['#ef476f', '#ffd166', '#06d6a0', '#118ab2', '#f4f1de', '#3d405b', '#e07a5f', '#8ecae6'];
-  cars.forEach((_, i) => carMesh.setColorAt(i, new THREE.Color(paints[Math.floor(r() * paints.length)])));
-  const headMat = new THREE.MeshBasicMaterial({ color: '#fff6d0' });
-  const tailMat = new THREE.MeshBasicMaterial({ color: '#ff2d2d' });
-  const heads = new THREE.InstancedMesh(new THREE.BoxGeometry(0.12, 0.3, 1.6).translate(2.12, 0.95, 0), headMat, cars.length);
-  const tails = new THREE.InstancedMesh(new THREE.BoxGeometry(0.12, 0.25, 1.6).translate(-2.12, 0.95, 0), tailMat, cars.length);
-  for (const m of [carMesh, heads, tails]) {
-    m.frustumCulled = false;
-    street.add(m);
-  }
-  const place = new THREE.Matrix4();
-  const q = new THREE.Quaternion();
-  const up = new THREE.Vector3(0, 1, 0);
-  const at = new THREE.Vector3();
-  const one = new THREE.Vector3(1, 1, 1);
-  const moveCars = (dt: number) => {
-    cars.forEach((c, i) => {
-      c.at += c.dir * c.speed * dt;
-      if (c.at > RADIUS) c.at -= RADIUS * 2;
-      if (c.at < -RADIUS) c.at += RADIUS * 2;
-      if (c.alongX) at.set(c.at, 0, c.lane);
-      else at.set(c.lane, 0, c.at);
-      // The car's nose is +x: turned to face the way it's going.
-      const yaw = c.alongX ? (c.dir > 0 ? 0 : Math.PI) : c.dir > 0 ? -Math.PI / 2 : Math.PI / 2;
-      q.setFromAxisAngle(up, yaw);
-      place.compose(at, q, one);
-      carMesh.setMatrixAt(i, place);
-      heads.setMatrixAt(i, place);
-      tails.setMatrixAt(i, place);
-    });
-    for (const m of [carMesh, heads, tails]) m.instanceMatrix.needsUpdate = true;
-  };
-  moveCars(0);
+  // Downtown Vancouver, its traffic and its people (see vancity.ts).
+  const van = buildVancouver(mulberry32(1913), { period: PERIOD, road: ROAD, walk: WALK, streetX: STREET_X, streetZ: STREET_Z, radius: RADIUS }, lampPos);
+  street.add(van.group);
 
   // Clouds, drifting past at about the height of the towers.
   const cloud = night.clouds;
@@ -583,27 +528,11 @@ export function buildCity(night: NightParts): City {
       }
     },
     update(t, dt, dark) {
-      moveCars(dt);
+      van.update(t, dt, dark);
       lamps.visible = dark > 0.02;
       lamps.material.opacity = dark;
-      headMat.color.setScalar(0.75 + 0.25 * dark);
       // The masts' lights blink, a second on and a second off, brighter at night.
       beaconMat.opacity = (Math.sin(t * Math.PI) > 0 ? 1 : 0.08) * (0.35 + 0.65 * dark);
     },
   };
-}
-
-/** Puts geometries (position and normal only) into one. */
-function mergeGeometries(geos: THREE.BufferGeometry[]): THREE.BufferGeometry {
-  const pos: number[] = [];
-  const norm: number[] = [];
-  for (const g of geos) {
-    const flat = g.index ? g.toNonIndexed() : g;
-    pos.push(...(flat.getAttribute('position').array as Float32Array));
-    norm.push(...(flat.getAttribute('normal').array as Float32Array));
-  }
-  const out = new THREE.BufferGeometry();
-  out.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  out.setAttribute('normal', new THREE.Float32BufferAttribute(norm, 3));
-  return out;
 }

@@ -7,22 +7,27 @@ import { Vox } from './vox';
 
 const AUTUMN = ['#d9782b', '#c9482f', '#e8a23b', '#e58aa3', '#7aa93f', '#5f8f35', '#b9552c'];
 
-/** A terraced cloud of blocks: wide flat layers stacked into a soft hill, lavender underneath. */
+/** A cloud of fine blocks: a flat lavender base with rounded white puffs heaped on it, shaded by height. */
 export function cloudGeometry(rand: () => number): THREE.BufferGeometry {
-  const s = 3;
-  const v = new Vox(s, 0.03);
+  const s = 1;
+  const v = new Vox(s, 0.035);
   const w = 14 + rand() * 18;
   const d = 10 + rand() * 12;
-  const lumps = 2 + Math.floor(rand() * 3);
+  const shade = (_i: number, j: number) => (j < 1 ? '#cfc4e8' : j < 3 ? '#e1daf2' : j < 6 ? '#f0ecfa' : '#ffffff');
+  const lumps = 3 + Math.floor(rand() * 3);
   for (let n = 0; n < lumps; n++) {
     const cx = (rand() - 0.5) * w * 1.1;
     const cz = (rand() - 0.5) * d * 1.1;
-    const rx = w * (0.45 + rand() * 0.35);
-    const rz = d * (0.5 + rand() * 0.35);
-    for (let layer = 0; layer < 4; layer++) {
-      const k = 1 - layer * 0.24;
-      const shade = ['#d8cdee', '#e8e1f6', '#f4f0fb', '#ffffff'][layer];
-      v.ell(cx, layer * s, cz, rx * k, s * 0.55, rz * k, shade);
+    const rx = w * (0.4 + rand() * 0.3);
+    const rz = d * (0.45 + rand() * 0.3);
+    v.ell(cx, 1.5, cz, rx, 2.2, rz, (i, j, k) => shade(i, j));
+    // Puffs on top, each a smaller ball, so the outline rolls instead of stepping.
+    const puffs = 4 + Math.floor(rand() * 4);
+    for (let q = 0; q < puffs; q++) {
+      const px = cx + (rand() - 0.5) * rx * 1.4;
+      const pz = cz + (rand() - 0.5) * rz * 1.4;
+      const pr = 3 + rand() * 4.5;
+      v.ell(px, 2 + pr * 0.45, pz, pr * 1.2, pr * 0.8, pr, (i, j, k) => shade(i, j));
     }
   }
   return v.build();
