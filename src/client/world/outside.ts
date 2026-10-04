@@ -5,6 +5,7 @@ import { STREET_END, shoreX } from '../../shared/scenic';
 import type { Collider } from './types';
 import type { Fixture, StreetSite } from './office/fixture';
 import { canvasTexture } from './texture';
+import { buildSkyWorld, type SkyWorld } from './skyworld';
 import { mergeByMaterial, mesh, textPlane, toon, toonUnique } from './toon';
 
 const G = STREET_Y;
@@ -308,7 +309,7 @@ export function neighbourBoxes(): { minX: number; maxX: number; minZ: number; ma
  * Everything outside, down on the street: grass, the lot in front of the garage, a road with
  * sidewalks and street lamps, trees and neighbours' buildings, and in `sky` some clouds.
  */
-export function buildStreet(group: THREE.Group, colliders: Collider[], night: NightParts, sky: THREE.Group) {
+export function buildStreet(group: THREE.Group, colliders: Collider[], night: NightParts, sky: THREE.Group): SkyWorld {
   const lawn = new THREE.Mesh(new THREE.PlaneGeometry(REACH - LAWN_WEST, REACH * 2), toon('#a7d98b'));
   lawn.rotation.x = -Math.PI / 2;
   lawn.position.set((LAWN_WEST + REACH) / 2, G - 0.03, 0);
@@ -384,41 +385,15 @@ export function buildStreet(group: THREE.Group, colliders: Collider[], night: Ni
   // Solid: you (and a car) stop at their walls instead of walking in.
   for (const n of neighbourBoxes()) colliders.push({ minX: n.minX, maxX: n.maxX, minZ: n.minZ, maxZ: n.maxZ, bottom: G, top: G + n.top });
 
-  // Puffy clouds, too far off for the fog to hide.
-  const cloud = night.clouds;
-  cloud.fog = false;
-  const puffs = new THREE.Group();
-  for (const [x, y, z, s] of [
-    [-70, 34, -60, 1.3],
-    [-10, 40, -90, 1.6],
-    [60, 36, -70, 1.2],
-    [90, 30, 20, 1.4],
-    [-95, 32, 30, 1.1],
-    [30, 38, 95, 1.5],
-    [-45, 36, 90, 1.2],
-  ]) {
-    const c = new THREE.Group();
-    for (const [dx, dy, r] of [
-      [0, 0, 5],
-      [5.5, -1, 3.8],
-      [-5.5, -1.2, 3.6],
-      [2.5, 2.4, 3.4],
-    ]) {
-      const puff = mesh(new THREE.SphereGeometry(r, 14, 10), cloud, dx, dy, 0, false);
-      puff.scale.y = 0.75;
-      c.add(puff);
-    }
-    c.position.set(x, y, z);
-    c.scale.setScalar(s);
-    c.lookAt(0, y, 0);
-    puffs.add(c);
-  }
-  sky.add(mergeByMaterial(puffs));
+  // The voxel sky world: terraced clouds and floating islands, too far off for the fog to hide.
+  const world = buildSkyWorld(night.clouds, (c) => bulb(night, c, 0.9));
+  sky.add(world.group);
+  return world;
 }
 
 /** The street out front, the city along it, and the clouds over it all. */
 export const street: Fixture<never, StreetSite> = (site) => {
   // The clouds stay up in the sky, however far down the street is.
-  buildStreet(site.ground, site.groundColliders, site.get('night'), site.group);
-  return {};
+  const world = buildStreet(site.ground, site.groundColliders, site.get('night'), site.group);
+  return { update: (t) => world.update(t) };
 };
