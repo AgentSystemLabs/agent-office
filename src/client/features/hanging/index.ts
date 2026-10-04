@@ -86,7 +86,7 @@ export function installHanging(ctx: Ctx, deps: HangingDeps) {
     const spot = hanger.spot;
     ctx.hint.draw(el, `hang|${hanger.moving}|${spot ? spot.ok : '-'}`, () => {
       const title = !spot ? '🖼️ Aim at a wall' : !spot.ok ? "🚫 Something's in the way" : hanger.moving ? '🖼️ Moving a picture' : '🖼️ Hanging a picture';
-      return [h('span.title', {}, title), key('Click', 'Hang'), key('Scroll', 'Size'), key('Esc', 'Cancel')];
+      return [h('span.title', {}, title), key('Click', 'Hang'), key('Scroll', 'Size'), key('Esc', "취소")];
     });
   }
 

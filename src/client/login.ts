@@ -1,4 +1,4 @@
-export {}; // a module, so its names don't clash with the other pages' scripts
+import { localizeError } from './ui/error-ko';
 
 const form = document.getElementById('form') as HTMLFormElement;
 const nameRow = document.getElementById('name-row') as HTMLLabelElement;
@@ -21,9 +21,9 @@ if (linkKey) {
   void fetch('/api/link', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key: linkKey }) })
     .then(async (res) => {
       if (res.ok) return location.replace(NEXT);
-      error.textContent = ((await res.json().catch(() => ({}))) as { error?: string }).error ?? 'Could not sign in';
+      error.textContent = localizeError(((await res.json().catch(() => ({}))) as { error?: string }).error ?? "로그인하지 못했습니다");
     })
-    .catch(() => void (error.textContent = 'Server unreachable'));
+    .catch(() => void (error.textContent = "서버에 연결할 수 없습니다"));
 }
 
 // Ask for a name once people have accounts; it's optional while the shared password still works.
@@ -34,7 +34,7 @@ void fetch('/api/login', { cache: 'no-store' })
     nameRow.hidden = false;
     nameInput.required = !shared;
     nameNote.hidden = !shared;
-    sub.textContent = shared ? 'Knock knock. Who is it?' : 'Knock knock. Who is it? Sign in with your own account.';
+    sub.textContent = shared ? "계정으로 로그인하세요." : "내 계정의 이름과 비밀번호로 로그인하세요.";
     try {
       nameInput.value = localStorage.getItem(NAME_KEY) ?? '';
     } catch {
@@ -65,10 +65,10 @@ form.addEventListener('submit', async (e) => {
       return;
     }
     const body = await res.json().catch(() => ({}));
-    error.textContent = body.error ?? 'Could not sign in';
+    error.textContent = localizeError(body.error ?? "로그인하지 못했습니다");
     input.select();
   } catch {
-    error.textContent = 'Server unreachable';
+    error.textContent = "서버에 연결할 수 없습니다";
   } finally {
     submit.disabled = false;
   }

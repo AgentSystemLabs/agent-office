@@ -10,13 +10,13 @@ const version = (v: VersionInfo) => h('span.version', {}, h('code', {}, v.sha), 
 /** The ⬆️ panel: what's running, what's new upstream, and the button to upgrade. */
 export function openUpgrade(net: Net) {
   const body = h('div.body.upgrade');
-  const close = h('button.btn.close', { 'aria-label': 'Close' }, '✕');
-  const recheck = h('button.btn', { type: 'button', onclick: () => net.send({ t: 'upgrade.check' }) }, '🔄 Check again');
-  const go = h('button.btn.primary', { type: 'button', onclick: () => net.send({ t: 'upgrade.start' }) }, '⬆️ Upgrade now');
+  const close = h('button.btn.close', { 'aria-label': "닫기" }, '✕');
+  const recheck = h('button.btn', { type: 'button', onclick: () => net.send({ t: 'upgrade.check' }) }, "🔄 다시 확인");
+  const go = h('button.btn.primary', { type: 'button', onclick: () => net.send({ t: 'upgrade.start' }) }, "⬆️ 지금 업데이트");
   const el = h(
     'div.modal',
-    { role: 'dialog', 'aria-label': 'Upgrade the office', style: 'width:min(620px,100%)' },
-    h('header', {}, h('h2', {}, '⬆️ Upgrade the office'), close),
+    { role: 'dialog', 'aria-label': "Agent Office 업데이트", style: 'width:min(620px,100%)' },
+    h('header', {}, h('h2', {}, "⬆️ Agent Office 업데이트"), close),
     body,
     h('footer', {}, h('span.grow', {}), recheck, go),
   );
@@ -24,36 +24,36 @@ export function openUpgrade(net: Net) {
   const render = () => {
     const u = store.upgrade;
     body.replaceChildren();
-    if (u.current) body.append(h('label', {}, 'Running now'), version(u.current));
+    if (u.current) body.append(h('label', {}, "현재 버전"), version(u.current));
     const busy = u.phase === 'building' || u.phase === 'restarting';
     recheck.disabled = !!u.checking || busy;
     go.disabled = !u.latest || !!u.checking || busy;
 
     if (u.phase === 'building') {
-      body.append(h('p.upgrade-status.busy', {}, h('span.spinner'), `Building ${u.latest?.sha ?? 'the new version'}${u.by ? ` (started by ${u.by})` : ''}. The office keeps working until it restarts, usually in a minute or two.`));
+      body.append(h('p.upgrade-status.busy', {}, h('span.spinner'), `${u.latest?.sha ?? "새 버전"}을(를) 빌드하는 중${u.by ? ` (요청: ${u.by})` : ''}. 보통 1~2분 후 재시작하며 그전까지 계속 사용할 수 있습니다.`));
     } else if (u.phase === 'failed' && u.error) {
       body.append(h('pre.upgrade-error', {}, u.error));
     }
-    if (u.checking) body.append(h('p.upgrade-status.busy', {}, h('span.spinner'), 'Checking GitHub for changes…'));
+    if (u.checking) body.append(h('p.upgrade-status.busy', {}, h('span.spinner'), "GitHub에서 변경 사항을 확인하는 중…"));
     else if (u.error && u.phase !== 'failed') body.append(h('p.upgrade-status.error', {}, u.error));
-    else if (!u.latest && u.checkedAt) body.append(h('p.upgrade-status.ok', {}, `✅ Up to date (checked ${timeAgo(u.checkedAt)})`));
+    else if (!u.latest && u.checkedAt) body.append(h('p.upgrade-status.ok', {}, `✅ 최신 버전입니다 (확인: ${timeAgo(u.checkedAt)})`));
 
     if (u.latest) {
       const n = u.behind ?? u.changes?.length ?? 0;
       const shown = u.changes?.length ?? 0;
       body.append(
-        h('label', { style: 'margin-top:14px' }, `New: ${n >= 50 ? '50+' : n} change${n === 1 ? '' : 's'}`),
+        h('label', { style: 'margin-top:14px' }, `새 변경 사항 ${n >= 50 ? '50+' : n}개`),
         h('ul.changes', {}, ...(u.changes ?? []).map((c) => h('li', {}, h('code', {}, c.sha), ' ', c.subject))),
       );
-      if (n > shown) body.append(h('p.note', {}, `…and ${n >= 50 ? 'more' : `${n - shown} more`}`));
+      if (n > shown) body.append(h('p.note', {}, `…and ${n >= 50 ? 'more' : `외 ${n - shown}개`}`));
       if (!busy) {
         const awake = [...store.workers.values()].some((w) => !isAsleep(w.status));
         body.append(
           h(
             'p.note',
             {},
-            'Upgrading builds the new version while the office keeps running, then restarts it. Everyone reconnects on the new version automatically. ',
-            awake ? 'Workers keep working through the restart, and whatever they were in the middle of carries on.' : '',
+            "사용 중인 상태에서 새 버전을 빌드한 뒤 다시 시작합니다. 모든 참여자는 새 버전에 자동으로 재접속합니다. ",
+            awake ? "재시작 중에도 직원들의 작업은 계속되며 진행 중인 내용을 이어갑니다." : '',
           ),
         );
       }
@@ -87,7 +87,7 @@ function restartDialog(title: string, ...content: (Node | string)[]) {
   if (!restartModal) {
     closeAllModals();
     restartBody = h('div.body');
-    const el = h('div.modal.restart', { role: 'alertdialog', 'aria-label': 'The office is upgrading' }, h('header', {}, h('h2', {})), restartBody);
+    const el = h('div.modal.restart', { role: 'alertdialog', 'aria-label': "Agent Office 업데이트 중" }, h('header', {}, h('h2', {})), restartBody);
     // Closing it only hides it: the reload still comes once the office is back.
     restartModal = openModal(el, {
       backdropCloses: false,
@@ -106,16 +106,16 @@ export function showRestarting(u: UpgradeState, net: Net) {
   net.expectRestart();
   restartPending = true;
   restartDialog(
-    '🛠️ Upgrading the office',
+    "🛠️ Agent Office 업데이트 중",
     h('div.restart-art', {}, '🏗️'),
-    h('p', {}, `${u.by ? `${u.by} is upgrading` : 'Upgrading'} the office${u.latest ? ` to ${u.latest.sha}: “${u.latest.subject}”` : ''}.`),
-    h('p.upgrade-status.busy', {}, h('span.spinner'), 'Restarting… you’ll be back in a few seconds. No need to do anything.'),
+    h('p', {}, `${u.by ? `${u.by}이(가) 업데이트 중` : "업데이트 중"}${u.latest ? ` · ${u.latest.sha}: '${u.latest.subject}'` : ''}.`),
+    h('p.upgrade-status.busy', {}, h('span.spinner'), "다시 시작하는 중… 몇 초 뒤 자동으로 연결됩니다."),
   );
   clearTimeout(slowTimer);
   slowTimer = setTimeout(
     () =>
       restartBody?.append(
-        h('p.note', {}, 'This is taking longer than usual. ', h('button.btn', { type: 'button', onclick: () => location.reload() }, 'Try reloading')),
+        h('p.note', {}, "평소보다 오래 걸리고 있습니다. ", h('button.btn', { type: 'button', onclick: () => location.reload() }, "새로고침해 보세요")),
       ),
     3 * 60_000,
   );
@@ -126,10 +126,10 @@ export function showUpgraded(u: UpgradeState) {
   clearTimeout(slowTimer);
   const v = u.current;
   restartDialog(
-    '✨ The office has been upgraded',
+    "✨ Agent Office 업데이트 완료",
     h('div.restart-art', {}, '🎉'),
-    v ? h('p', {}, 'Now running ', h('code', {}, v.sha), `: “${v.subject}”`) : h('p', {}, 'A new version is running.'),
-    h('p.upgrade-status.ok', {}, h('span.spinner'), 'Loading the new version…'),
+    v ? h('p', {}, "현재 버전: ", h('code', {}, v.sha), `: “${v.subject}”`) : h('p', {}, "새 버전으로 실행 중입니다."),
+    h('p.upgrade-status.ok', {}, h('span.spinner'), "새 버전을 불러오는 중…"),
   );
   setTimeout(() => location.reload(), 2500);
 }

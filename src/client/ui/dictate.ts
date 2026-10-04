@@ -25,7 +25,7 @@ export interface Dictation {
   drop(): void;
 }
 
-const TITLE = 'Dictate: hold to talk (or hold Ctrl+Space) and let go, and what you said is typed in. A quick click leaves it listening until you click again';
+const TITLE = "버튼이나 Ctrl+Space를 누른 채 말하면 놓을 때 글로 입력됩니다. 짧게 클릭하면 다시 클릭할 때까지 듣습니다";
 
 /** The one that's listening now: there's one microphone, so a second 🎤 cuts off the first. */
 let active: { button: HTMLElement; abort(): void } | null = null;
@@ -51,20 +51,20 @@ export function dictation(target: DictateTarget, opts: { label?: string } = {}):
   if (speechSupport() === 'none') return { button: null, live, key: () => false, drop() {} };
   checkOnDevice();
 
-  const button = h('button.btn.dictate-mic', { type: 'button', title: TITLE, 'aria-label': 'Dictate', 'aria-pressed': 'false' }, opts.label ? `🎤 ${opts.label}` : '🎤');
+  const button = h('button.btn.dictate-mic', { type: 'button', title: TITLE, 'aria-label': "음성 입력", 'aria-pressed': 'false' }, opts.label ? `🎤 ${opts.label}` : '🎤');
   let listening: Listening | null = null;
   const paint = (interim = '') => {
     const on = !!listening;
     button.classList.toggle('live', on);
     button.setAttribute('aria-pressed', String(on));
     live.classList.toggle('hidden', !on);
-    live.textContent = !on ? '' : interim ? `🎙️ ${tail(interim)}` : '🎙️ Listening…';
+    live.textContent = !on ? '' : interim ? `🎙️ ${tail(interim)}` : "🎙️ 듣는 중…";
   };
 
   const start = () => {
     if (listening || target.off?.()) return;
     if (speechSupport() === 'insecure') {
-      toast('Dictation needs HTTPS (or localhost), like voice. Ask whoever runs the office to enable TLS.', 'warn');
+      toast("음성 입력은 HTTPS 또는 localhost에서 사용할 수 있습니다. 운영자에게 TLS 설정을 요청하세요.", 'warn');
       return;
     }
     active?.abort();

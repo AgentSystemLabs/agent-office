@@ -46,7 +46,7 @@ export const MAP_LIMITS = { tables: 40, seats: 12, props: 400 } as const;
 /** The dais a throne stands on when its map doesn't say. */
 export const DEFAULT_DAIS = { width: 8, depth: 4.5, height: 0.9, steps: 3 } as const;
 
-const DEFAULT_BOARD_LABEL: Record<BoardKey, string> = { issues: 'Issues', queue: '📋 Task queue', pulls: 'Pull Requests', services: '🌐 Services' };
+const DEFAULT_BOARD_LABEL: Record<BoardKey, string> = { issues: "이슈", queue: "📋 작업 대기열", pulls: 'Pull Requests', services: "🌐 실행 중인 서비스" };
 
 // ---- The office -----------------------------------------------------------------------------------
 
@@ -63,7 +63,7 @@ function officePlan(): MapPlan {
   for (const k of BOARD_KEYS) boards[k] = { ...BOARDS[k] };
   return {
     id: OFFICE_MAP,
-    name: 'Office',
+    name: "사무실",
     icon: '🏢',
     description: 'The office: desks, a lounge, the boss’s loft upstairs, a floor for every project, and a bar on the roof.',
     style: 'office',

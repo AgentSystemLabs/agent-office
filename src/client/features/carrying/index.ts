@@ -111,7 +111,7 @@ export function installCarrying(ctx: Ctx, deps: CarryingDeps) {
     if (it.kind === 'herald') {
       const deskId = deps.heraldSeat();
       if (!deskId) toast('Every seat at the tables is taken', 'warn');
-      else if (hiringPaused()) toast('💸 Budget spent — hiring resumes tomorrow', 'warn');
+      else if (hiringPaused()) toast("💸 오늘 예산을 모두 사용했습니다. 내일부터 다시 고용할 수 있습니다", 'warn');
       else if (!deps.officeIsFull()) {
         const { provider, model, effort } = officeChoice(store.project);
         deps.heraldHires.set(deskId, { floor: store.floor, at: performance.now() });
@@ -122,7 +122,7 @@ export function installCarrying(ctx: Ctx, deps: CarryingDeps) {
     }
     if (it.kind !== 'desk' || !it.deskId) return false;
     const w = store.workerAtDesk(it.deskId);
-    const why = w ? cantTakeCard(w) : hiringPaused() ? '💸 Budget spent — hiring resumes tomorrow' : '';
+    const why = w ? cantTakeCard(w) : hiringPaused() ? "💸 오늘 예산을 모두 사용했습니다. 내일부터 다시 고용할 수 있습니다" : '';
     if (why) toast(why, 'warn');
     else if (w) {
       ctx.net.send({ t: 'worker.prompt', workerId: w.id, prompt, issue: card.issue });
@@ -150,7 +150,7 @@ export function installCarrying(ctx: Ctx, deps: CarryingDeps) {
   function cantTakeCard(w: WorkerInfo): string {
     if (w.kind === 'shell') return `${w.name} is a shell, not an agent`;
     if (w.lost) return `${w.name}'s worktree was deleted — press E at its desk to fix it`;
-    if (isAsleep(w.status)) return `${w.name} is asleep — press R to resume first`;
+    if (isAsleep(w.status)) return `${w.name}이(가) 잠든 상태입니다. 먼저 R을 눌러 재개하세요`;
     if (w.status === 'needs_input') return `${w.name} is waiting on an answer — open the terminal first`;
     return '';
   }
@@ -167,7 +167,7 @@ export function installCarrying(ctx: Ctx, deps: CarryingDeps) {
     }
     if (it?.kind === 'herald') {
       const paused = hiringPaused();
-      return { k: `herald|${paused}`, parts: parts(paused ? h('span.cost', {}, '💸 Budget spent — hiring resumes tomorrow') : key('E', 'Send someone out for it')) };
+      return { k: `herald|${paused}`, parts: parts(paused ? h('span.cost', {}, "💸 오늘 예산을 모두 사용했습니다. 내일부터 다시 고용할 수 있습니다") : key('E', 'Send someone out for it')) };
     }
     if (it?.kind === 'meeting' || (it?.kind === 'desk' && it.deskId && ctx.plan().byId.get(it.deskId)?.room && !store.workerAtDesk(it.deskId))) {
       return { k: 'meeting', parts: parts(key('E', 'Call a meeting about it')) };
@@ -176,7 +176,7 @@ export function installCarrying(ctx: Ctx, deps: CarryingDeps) {
       const w = store.workerAtDesk(it.deskId);
       if (!w) {
         const paused = hiringPaused();
-        return { k: String(paused), parts: parts(paused ? h('span.cost', {}, '💸 Budget spent — hiring resumes tomorrow') : key('E', 'Hire a worker for it')) };
+        return { k: String(paused), parts: parts(paused ? h('span.cost', {}, "💸 오늘 예산을 모두 사용했습니다. 내일부터 다시 고용할 수 있습니다") : key('E', 'Hire a worker for it')) };
       }
       const why = cantTakeCard(w);
       return { k: w.id + w.status + why, parts: parts(why ? aside(why) : key('E', `Hand it to ${w.name}`)) };

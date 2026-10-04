@@ -14,11 +14,11 @@ import { outsideSetting } from './settings-sky';
 import { choiceRow } from './settings-rows';
 
 const VIEWS: [ViewMode, string, string][] = [
-  ['first', '👀 First person', 'See through your own eyes. Click the office to look around with the mouse and click things to use them. Esc frees the mouse.'],
-  ['third', '🎥 Third person', 'Follow your character from behind. Drag to orbit the camera, scroll to zoom, and click things to use them.'],
+  ['first', "👀 1인칭", "캐릭터의 시점으로 봅니다. 사무실을 클릭하면 마우스로 둘러보고 사물을 클릭해 사용할 수 있습니다. Esc로 마우스를 해제합니다."],
+  ['third', "🎥 3인칭", "캐릭터를 뒤에서 바라봅니다. 드래그로 시점을 돌리고 휠로 확대·축소합니다. 사물을 클릭하면 사용할 수 있습니다."],
 ];
 
-const THEME_LABEL: Record<ThemePick, string> = { auto: '📅 By the calendar', halloween: '🎃 Halloween', christmas: '🎄 Christmas', off: 'Off' };
+const THEME_LABEL: Record<ThemePick, string> = { auto: "📅 날짜에 맞게", halloween: "🎃 핼러윈", christmas: "🎄 크리스마스", off: "끄기" };
 
 const WEBHOOK_NAME: Record<WebhookKind, string> = { slack: 'Slack', discord: 'Discord', other: 'a webhook' };
 
@@ -26,19 +26,19 @@ const WEBHOOK_NAME: Record<WebhookKind, string> = { slack: 'Slack', discord: 'Di
 export type SettingsPane = 'you' | 'sound' | 'notify' | 'building' | 'workers';
 
 const PANES: { id: SettingsPane; icon: string; label: string; blurb: string }[] = [
-  { id: 'you', icon: '🧍', label: 'You', blurb: 'How you look, how you see the office, and how you’re signed in.' },
-  { id: 'sound', icon: '🔊', label: 'Sound & voice', blurb: 'How loud the office is for you, and how voice chat works.' },
-  { id: 'notify', icon: '🔔', label: 'Notifications', blurb: 'Hear about a worker that needs someone, or finished, while you’re somewhere else.' },
-  { id: 'building', icon: '🏢', label: 'Building', blurb: 'The map, the decorations, the sky, the dog, and where new floors are cloned.' },
-  { id: 'workers', icon: '🤖', label: 'Workers', blurb: 'What workers start on, how many run at once, when they go home and what the office tells them.' },
+  { id: 'you', icon: '🧍', label: "내 설정", blurb: "캐릭터 외모, 화면 시점, 로그인 정보를 설정합니다." },
+  { id: 'sound', icon: '🔊', label: "소리와 음성", blurb: "사무실 소리의 크기와 음성 채팅 방식을 설정합니다." },
+  { id: 'notify', icon: '🔔', label: "알림", blurb: "다른 화면을 보고 있을 때도 직원의 응답 요청과 작업 완료를 알려줍니다." },
+  { id: 'building', icon: '🏢', label: "사무실 설정", blurb: "맵, 장식, 하늘, 강아지와 프로젝트 저장 폴더를 설정합니다." },
+  { id: 'workers', icon: '🤖', label: "직원", blurb: "기본 에이전트, 동시 작업 인원, 퇴근 조건과 작업 지시 문구를 설정합니다." },
 ];
 
 /** Who a setting is for, shown by its name: some are yours alone, some the whole office's. */
 type Scope = 'you' | 'floor' | 'office';
 const SCOPE: Record<Scope, [label: string, title: string]> = {
-  you: ['Just you', 'Only for you, kept in this browser'],
-  floor: ['This floor', 'The same for everyone on this floor'],
-  office: ['Everyone', 'The same for everyone in the building'],
+  you: ["나만 적용", "이 브라우저에 저장되며 나에게만 적용됩니다"],
+  floor: ["현재 프로젝트", "이 프로젝트의 모든 참여자에게 적용됩니다"],
+  office: ["모두에게 적용", "사무실의 모든 참여자에게 적용됩니다"],
 };
 
 /** One setting: its name and who it's for, then whatever sets it. */
@@ -50,7 +50,7 @@ let lastPane: SettingsPane = 'you';
 
 /** `outside` describes the sky over the office (see describeSky), once the server has said. `first` opens on that category instead of the last one. */
 export function openSettings(net: Net, settings: Settings, onChange: (s: Settings) => void, onCharacter: () => void, sound: Pick<OfficeSound, 'ding' | 'needsYou'>, notifier: DesktopNotifier, onSignOut: () => void, outside?: { now: string; live: boolean }, first?: SettingsPane) {
-  const seg = h('div.seg', { role: 'radiogroup', 'aria-label': 'Camera view' });
+  const seg = h('div.seg', { role: 'radiogroup', 'aria-label': "화면 시점" });
   const note = h('p.setting-note');
   const paint = () => {
     seg.replaceChildren(
@@ -87,8 +87,8 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
       const v = Math.round(settings[level] * 100);
       slider.value = String(v);
       slider.style.setProperty('--fill', `${v}%`);
-      pct.textContent = settings[muted] ? 'Muted' : `${v}%`;
-      mute.textContent = settings[muted] ? '🔊 Unmute' : '🔇 Mute';
+      pct.textContent = settings[muted] ? "음소거 중" : `${v}%`;
+      mute.textContent = settings[muted] ? "🔊 음소거 해제" : "🔇 음소거";
       mute.setAttribute('aria-pressed', String(settings[muted]));
       mute.classList.toggle('danger', settings[muted]);
       row.classList.toggle('muted', settings[muted]);
@@ -108,7 +108,7 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
     });
     return row;
   };
-  const soundRow = volumeRow('Office sounds volume', 'volume', 'muted', () => sound.ding('done'));
+  const soundRow = volumeRow("사무실 효과음 크기", 'volume', 'muted', () => sound.ding('done'));
 
   /** Changes some of your own settings, and has the office take them up. */
   const change = (some: Partial<Settings>) => {
@@ -116,19 +116,19 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
     onChange(settings);
   };
   // Voice chat: an open mic, or muted until you hold V.
-  const talkRow = choiceRow('Voice chat', [[false, '🎙️ Open mic'], [true, '✋ Push to talk']], () => settings.pushToTalk, (pushToTalk) => change({ pushToTalk }));
-  const musicRow = volumeRow('Jukebox volume', 'music', 'musicMuted');
+  const talkRow = choiceRow("음성 채팅", [[false, "🎙️ 마이크 항상 켜기"], [true, "✋ 키를 누를 때만 말하기"]], () => settings.pushToTalk, (pushToTalk) => change({ pushToTalk }));
+  const musicRow = volumeRow("주크박스 음량", 'music', 'musicMuted');
 
   // The swish of the book's pages at the bookshelf, on or off.
-  const pagesRow = choiceRow('Page turns at the bookshelf', [[true, '📖 On'], [false, 'Off']], () => settings.pageTurns, (pageTurns) => change({ pageTurns }));
+  const pagesRow = choiceRow("책장 넘기는 소리", [[true, "📖 켜기"], [false, "끄기"]], () => settings.pageTurns, (pageTurns) => change({ pageTurns }));
   // The alarm when a worker stops to ask you something; picking one plays it.
-  const alarmRow = choiceRow<NeedsYouSound>('When a worker needs you', [['once', '🔔 Ring once'], ['remind', '🔁 Keep reminding me'], ['off', '🔕 Off']], () => settings.needsYouSound, (needsYouSound) => {
+  const alarmRow = choiceRow<NeedsYouSound>("직원이 응답을 요청할 때", [['once', "🔔 한 번 알림"], ['remind', "🔁 확인할 때까지 알림"], ['off', "🔕 끄기"]], () => settings.needsYouSound, (needsYouSound) => {
     change({ needsYouSound });
     if (needsYouSound !== 'off') sound.needsYou();
   });
 
   // The building's holiday theme, for everyone.
-  const themeRow = h('div.seg', { role: 'radiogroup', 'aria-label': 'Holiday theme' });
+  const themeRow = h('div.seg', { role: 'radiogroup', 'aria-label': "시즌 테마" });
   const themeNote = h('p.setting-note');
   const paintTheme = () => {
     const { pick, active, by, at } = store.theme;
@@ -151,19 +151,19 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
     );
     const now =
       active === 'halloween'
-        ? 'Halloween: the workers are zombies, your hands are an undead warlock’s, the dog’s in costume, the sky’s gone creepy and there are jack-o’-lanterns everywhere.'
+        ? "핼러윈에는 직원들이 좀비로 변하고 강아지도 분장합니다. 으스스한 하늘과 호박 장식으로 사무실을 꾸밉니다."
         : active === 'christmas'
-          ? 'Christmas: the workers are elves, your hands are in mittens, the dog’s Rudolph, and it’s snowing outside.'
-          : 'No decorations up right now.';
-    const how = pick === 'auto' ? ' By the calendar it’s Halloween through October and Christmas through December.' : '';
-    themeNote.textContent = `${now}${how} It’s the same for everyone in the building${by ? `, set by ${by}${at ? ` ${timeAgo(at)}` : ''}` : ''}.`;
+          ? "크리스마스에는 직원들이 요정으로 변하고 강아지는 루돌프가 됩니다. 장갑을 끼고 창밖의 눈을 즐겨보세요."
+          : "현재 시즌 장식이 없습니다.";
+    const how = pick === 'auto' ? " 날짜에 맞추면 10월에는 핼러윈, 12월에는 크리스마스 테마를 적용합니다." : '';
+    themeNote.textContent = `${now}${how} 사무실 전체에 동일하게 적용됩니다${by ? `, 설정: ${by}${at ? ` ${timeAgo(at)}` : ''}` : ''}.`;
   };
   paintTheme();
 
   // The building's map, for everyone: the office, the castle, the space station, or one of your own. Opening Settings
   // has the office read its folder of maps again, so one you just added or fixed shows up.
   net.send({ t: 'map.set' });
-  const mapRow = h('div.seg', { role: 'radiogroup', 'aria-label': 'Map' });
+  const mapRow = h('div.seg', { role: 'radiogroup', 'aria-label': "맵" });
   const mapNote = h('p.setting-note');
   const mapBad = h('p.setting-note.bad', { style: 'white-space: pre-line' });
   const paintMap = () => {
@@ -179,7 +179,7 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
             'aria-checked': String(pick === m.id),
             class: pick === m.id ? 'on' : '',
             disabled: !!m.error,
-            title: m.error ? `${m.id} won't load: ${m.error}` : m.description,
+            title: m.error ? `${m.id}을(를) 불러올 수 없습니다: ${m.error}` : m.description,
             onclick: () => {
               if (!m.error && store.map.pick !== m.id) net.send({ t: 'map.set', map: m.id });
             },
@@ -189,9 +189,9 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
       ),
     );
     const now = choices.find((m) => m.id === pick) ?? choices[0];
-    mapNote.textContent = `${now.description} It’s the same on every floor, for everyone in the building${by ? `, picked by ${by}${at ? ` ${timeAgo(at)}` : ''}` : ''}. Maps of your own go in the office’s .agent-office/maps/ folder as JSON (see docs/maps.md).`;
+    mapNote.textContent = `${now.description} 모든 프로젝트와 참여자에게 적용됩니다${by ? `, 선택: ${by}${at ? ` ${timeAgo(at)}` : ''}` : ''}. 직접 만든 맵은 .agent-office/maps/ 폴더에 JSON으로 저장하세요 (docs/maps.md 참고).`;
     const broken = choices.filter((m) => m.error);
-    mapBad.textContent = broken.map((m) => `⚠️ ${m.id} won't load: ${m.error}`).join('\n');
+    mapBad.textContent = broken.map((m) => `⚠️ ${m.id}을(를) 불러올 수 없습니다: ${m.error}`).join('\n');
     mapBad.hidden = !broken.length;
   };
   paintMap();
@@ -218,13 +218,13 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
               paintNotify();
             },
           },
-          '🔔 Turn on notifications',
+          "🔔 알림 허용",
         ),
       );
     } else if (perm === 'granted') {
       for (const [value, label] of [
-        [true, '🔔 On'],
-        [false, '🔕 Off'],
+        [true, "🔔 켜기"],
+        [false, "🔕 끄기"],
       ] as const) {
         notifyRow.append(
           h(
@@ -244,34 +244,34 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
           ),
         );
       }
-      if (on) notifyRow.append(h('button.btn', { type: 'button', onclick: () => notifier.sample() }, 'Show me one'));
+      if (on) notifyRow.append(h('button.btn', { type: 'button', onclick: () => notifier.sample() }, "테스트 알림 보기"));
     }
     notifyNote.textContent =
       perm === 'unsupported'
-        ? 'This browser can’t show notifications from the office here. They need https or localhost (an SSH tunnel counts).'
+        ? "이 환경에서는 브라우저 알림을 표시할 수 없습니다. HTTPS 또는 localhost로 접속하세요. SSH 터널도 사용할 수 있습니다."
         : perm === 'denied'
-          ? 'Your browser blocks notifications from the office. Allow them in the site settings (the icon left of the address), then open this again.'
-          : 'When a worker needs you or finishes while you’re in another tab or app, you get a notification. Click it to go straight to that worker: you’re put at its desk with its terminal open. The tab title counts the workers waiting on someone either way.';
+          ? "브라우저에서 이 사이트의 알림을 차단하고 있습니다. 주소창 왼쪽 아이콘의 사이트 설정에서 알림을 허용한 뒤 다시 열어주세요."
+          : "다른 탭이나 앱을 보고 있어도 직원의 응답 요청과 작업 완료 알림을 받습니다. 알림을 클릭하면 해당 직원의 책상과 터미널로 바로 이동합니다. 탭 제목에서도 대기 중인 직원 수를 확인할 수 있습니다.";
   };
   paintNotify();
 
   // The office's Slack / Discord webhook, shared by everyone.
   const hookStatus = h('p.setting-note');
-  const hookInput = h('input', { type: 'text', placeholder: 'https://hooks.slack.com/services/…', 'aria-label': 'Slack or Discord webhook URL', spellcheck: 'false', autocomplete: 'off' }) as HTMLInputElement;
-  const hookSave = h('button.btn.primary', { type: 'button' }, 'Save');
-  const hookTest = h('button.btn', { type: 'button' }, 'Send a test');
-  const hookRemove = h('button.btn.danger', { type: 'button' }, 'Remove');
+  const hookInput = h('input', { type: 'text', placeholder: 'https://hooks.slack.com/services/…', 'aria-label': "Slack 또는 Discord webhook URL", spellcheck: 'false', autocomplete: 'off' }) as HTMLInputElement;
+  const hookSave = h('button.btn.primary', { type: 'button' }, "저장");
+  const hookTest = h('button.btn', { type: 'button' }, "테스트 전송");
+  const hookRemove = h('button.btn.danger', { type: 'button' }, "제거");
   const hookActions = h('div.seg', { style: 'margin-top:8px' }, hookTest, hookRemove);
   const paintHook = () => {
     const { webhook, error, lastSentAt } = store.notify;
     hookActions.classList.toggle('hidden', !webhook);
-    hookSave.textContent = webhook ? 'Replace' : 'Save';
+    hookSave.textContent = webhook ? "변경" : "저장";
     hookStatus.classList.toggle('bad', !!error);
     hookStatus.textContent = !webhook
-      ? 'Paste an incoming webhook from Slack or Discord, and the office posts to that channel when a worker needs input or finishes and nobody has its terminal open. It’s for everyone in the office.'
+      ? "Slack 또는 Discord의 수신 webhook을 붙여넣으세요. 직원이 응답을 기다리거나 작업을 끝냈는데 아무도 터미널을 보고 있지 않으면 해당 채널로 알림을 보냅니다. 사무실 전체에 적용됩니다."
       : error
-        ? `⚠️ Posting to ${WEBHOOK_NAME[webhook.kind]} (${webhook.hint}) failed: ${error}`
-        : `📣 Posting to ${WEBHOOK_NAME[webhook.kind]} (${webhook.hint}), set by ${webhook.by} ${timeAgo(webhook.at)}${lastSentAt ? ` · last message ${timeAgo(lastSentAt)}` : ''}.`;
+        ? `⚠️ ${WEBHOOK_NAME[webhook.kind]} (${webhook.hint}) 알림 전송 실패: ${error}`
+        : `📣 ${WEBHOOK_NAME[webhook.kind]} (${webhook.hint})에 알림 전송 · 설정: ${webhook.by} ${timeAgo(webhook.at)}${lastSentAt ? ` · 마지막 전송 ${timeAgo(lastSentAt)}` : ''}.`;
   };
   paintHook();
   const saveHook = () => {
@@ -292,7 +292,7 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
   let agentTouched = false;
   agent.element.addEventListener('change', () => (agentTouched = true));
   agent.element.addEventListener('input', () => (agentTouched = true));
-  const agentSave = h('button.btn.primary', { type: 'button' }, 'Save');
+  const agentSave = h('button.btn.primary', { type: 'button' }, "저장");
   const agentBack = h('button.btn', { type: 'button' });
   const agentActions = h('div.seg', { style: 'margin-top:8px' }, agentSave, agentBack);
   const agentNow = h('p.outside-now');
@@ -306,12 +306,12 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
     agentNow.classList.toggle('hidden', admin);
     agentNow.textContent = choiceLabel(now);
     agentBack.classList.toggle('hidden', !picked);
-    agentBack.textContent = `Back to ${store.project?.agentCmd.split(' ')[0].split(/[\\/]/).pop() ?? 'the --agent'}`;
+    agentBack.textContent = `${store.project?.agentCmd.split(' ')[0].split(/[\\/]/).pop() ?? 'the --agent'}(으)로 돌아가기`;
     if (!agentTouched) agent.set(now);
     agentNote.textContent =
-      'Every worker starts on this: hired at a desk, handed an issue or a pull request from the boards, taken off the queue, the board agents and meetings. Where you start one, ✏️ Edit picks another just for it.' +
-      (picked ? ` Set by ${picked.by} ${timeAgo(picked.at)}.` : ' It’s the agent the office was started with, on its own default model.') +
-      (admin ? '' : ' Admins can change it.');
+      "책상에서 고용하거나 이슈·PR·대기열에서 시작하는 직원, 게시판 담당과 회의 참여 직원 모두 이 설정을 기본으로 사용합니다. 개별 작업은 ✏️ 수정에서 다른 에이전트를 선택할 수 있습니다." +
+      (picked ? ` 설정: ${picked.by} ${timeAgo(picked.at)}.` : " 앱을 실행할 때 지정한 에이전트와 해당 에이전트의 기본 모델입니다.") +
+      (admin ? '' : " 관리자가 변경할 수 있습니다.");
   };
   paintAgent();
   agentSave.addEventListener('click', () => {
@@ -329,17 +329,17 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
   const promptsNote = h('p.setting-note');
   const paintPrompts = () => {
     const n = rewrittenPrompts();
-    promptsOpen.textContent = store.me.admin ? '📝 Edit the prompts…' : '📝 Read the prompts…';
+    promptsOpen.textContent = store.me.admin ? "📝 작업 지시 문구 수정…" : "📝 작업 지시 문구 보기…";
     promptsNote.textContent =
-      'What 🤖 Hand to a worker, 🔍 Review and the boards’ other buttons tell a worker, the note the queue adds to a task, the board agents’ briefs, the meeting room’s parts and the sign writer’s instructions. ' +
-      (n ? `${n} of them rewritten.` : 'All as the office wrote them.') +
-      (store.me.admin ? '' : ' Admins can rewrite them.');
+      "직원에게 맡기기, 검토, 대기열, 게시판 담당, 회의와 표지판 작성에 사용할 지시 문구입니다. " +
+      (n ? `${n}개를 수정했습니다.` : "모두 기본 지시 문구를 사용합니다.") +
+      (store.me.admin ? '' : " 관리자가 수정할 수 있습니다.");
   };
   paintPrompts();
 
   // The most workers the office runs at once, across every floor. Admins set it.
-  const limitInput = h('input', { type: 'text', inputmode: 'numeric', 'aria-label': 'Most workers at once', spellcheck: 'false', autocomplete: 'off' }) as HTMLInputElement;
-  const limitSave = h('button.btn.primary', { type: 'button' }, 'Set limit');
+  const limitInput = h('input', { type: 'text', inputmode: 'numeric', 'aria-label': "동시 작업 최대 인원", spellcheck: 'false', autocomplete: 'off' }) as HTMLInputElement;
+  const limitSave = h('button.btn.primary', { type: 'button' }, "한도 설정");
   const limitClear = h('button.btn', { type: 'button' });
   const limitRow = h('div.webhook', {}, limitInput, limitSave, limitClear);
   const limitNote = h('p.setting-note');
@@ -347,16 +347,16 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
     const m = store.machine;
     const admin = store.me.admin;
     limitRow.classList.toggle('hidden', !admin);
-    limitInput.placeholder = m.ceiling ? `1 to ${m.ceiling}` : 'e.g. 6';
-    limitClear.textContent = m.ceiling ? `Back to ${m.ceiling}` : 'No limit';
+    limitInput.placeholder = m.ceiling ? `1~${m.ceiling}` : "예: 6";
+    limitClear.textContent = m.ceiling ? `${m.ceiling}(으)로 돌아가기` : "제한 없음";
     limitClear.classList.toggle('hidden', !m.set);
     const now =
       m.limit === undefined
-        ? `No limit: the office hires a worker for every free seat. ${m.workers} ${m.workers === 1 ? 'is' : 'are'} here now, across every floor.`
-        : `At most ${m.limit} worker${m.limit === 1 ? '' : 's'} at once, across every floor (${m.workers} now), shells and board agents too. Hiring past that is refused.`;
-    const from = m.set ? ` Set by ${m.set.by} ${timeAgo(m.set.at)}.` : '';
-    const cap = m.ceiling ? ` The office was started with --max-workers ${m.ceiling}, so it can't go any higher.` : '';
-    limitNote.textContent = now + from + cap + (admin ? '' : ' Admins can change it.');
+        ? `인원 제한이 없습니다. 빈 책상마다 직원을 고용할 수 있습니다. 현재 전체 프로젝트에서 ${m.workers}명이 실행 중입니다.`
+        : `전체 프로젝트에서 최대 ${m.limit}명을 동시에 실행합니다 (현재 ${m.workers}명). Shell과 게시판 담당도 포함하며, 한도를 넘으면 추가 고용할 수 없습니다.`;
+    const from = m.set ? ` 설정: ${m.set.by} ${timeAgo(m.set.at)}.` : '';
+    const cap = m.ceiling ? ` 실행 시 --max-workers ${m.ceiling}을 지정했으므로 이보다 높게 설정할 수 없습니다.` : '';
+    limitNote.textContent = now + from + cap + (admin ? '' : " 관리자가 변경할 수 있습니다.");
   };
   paintLimit();
   const saveLimit = () => {
@@ -372,14 +372,14 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
   limitClear.addEventListener('click', () => net.send({ t: 'machine.limit', limit: null }));
 
   // Whether a worker whose pull request merged goes home by itself, for everyone.
-  const leaveRow = h('div.seg', { role: 'radiogroup', 'aria-label': 'Workers whose pull request merged' });
+  const leaveRow = h('div.seg', { role: 'radiogroup', 'aria-label': "PR이 병합된 직원 자동 퇴근" });
   const leaveNote = h('p.setting-note');
   const paintLeave = () => {
     const { on, by, at } = store.leaveOnMerge;
     leaveRow.replaceChildren(
       ...([
-        [true, '🏠 Go home by themselves'],
-        [false, '🪑 Stay until sent home'],
+        [true, "🏠 자동 퇴근"],
+        [false, "🪑 직접 퇴근시킬 때까지 대기"],
       ] as const).map(([value, label]) =>
         h(
           'button.btn',
@@ -397,16 +397,16 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
       ),
     );
     const now = on
-      ? 'Once a worker’s pull request merges, it goes home as soon as it isn’t working or waiting on you and nobody has its terminal open, and its worktree and branch are deleted. A worktree with uncommitted changes, or commits that aren’t on GitHub, is kept.'
-      : 'A worker whose pull request merged stays at its desk, outlined in purple, until someone sends it home. Turned on, the ones already merged go too.';
-    leaveNote.textContent = `${now} It’s the same for everyone in the building${by ? `, set by ${by}${at ? ` ${timeAgo(at)}` : ''}` : ''}.`;
+      ? "PR이 병합된 직원은 작업과 응답 대기가 끝나고 터미널을 보는 사람이 없으면 자동 퇴근합니다. 해당 worktree와 브랜치도 정리하지만, 커밋하지 않은 변경이나 GitHub에 올리지 않은 커밋이 있으면 보존합니다."
+      : "끄면 PR이 병합된 직원도 보라색 테두리로 표시된 채 책상에 남습니다. 켜면 이미 병합된 직원에게도 자동 퇴근이 적용됩니다.";
+    leaveNote.textContent = `${now} 사무실 전체에 동일하게 적용됩니다${by ? `, 설정: ${by}${at ? ` ${timeAgo(at)}` : ''}` : ''}.`;
   };
   paintLeave();
 
   // Where the elevator clones new projects on the office's machine. Admins move it.
-  const dirInput = h('input', { type: 'text', placeholder: '~/Workspace', 'aria-label': 'Workspace folder', spellcheck: 'false', autocomplete: 'off' }) as HTMLInputElement;
-  const dirSave = h('button.btn.primary', { type: 'button' }, 'Save');
-  const dirDefault = h('button.btn', { type: 'button' }, 'Use the default');
+  const dirInput = h('input', { type: 'text', placeholder: '~/Workspace', 'aria-label': "프로젝트 저장 폴더", spellcheck: 'false', autocomplete: 'off' }) as HTMLInputElement;
+  const dirSave = h('button.btn.primary', { type: 'button' }, "저장");
+  const dirDefault = h('button.btn', { type: 'button' }, "기본값 사용");
   const dirRow = h('div.webhook', {}, dirInput, dirSave);
   const dirActions = h('div.seg', { style: 'margin-top:8px' }, dirDefault);
   const dirNote = h('p.setting-note');
@@ -417,9 +417,9 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
     dirRow.classList.toggle('hidden', !admin);
     dirActions.classList.toggle('hidden', !admin || !custom);
     dirNote.textContent =
-      `New projects from the elevator are cloned into ${dir}/<owner>/<repo> on the office’s machine.` +
-      (custom && by && at ? ` Set by ${by} ${timeAgo(at)}.` : '') +
-      (admin ? ' A checkout of the same repository that’s already there is used as it is. Floors you already have stay where they are.' : ' An admin can move it.');
+      `새 프로젝트는 이 컴퓨터의 ${dir}/<소유자>/<저장소>에 복제됩니다.` +
+      (custom && by && at ? ` 설정: ${by} ${timeAgo(at)}.` : '') +
+      (admin ? " 같은 저장소가 해당 위치에 있으면 기존 파일을 사용합니다. 이미 추가한 프로젝트의 위치는 바뀌지 않습니다." : " 관리자가 저장 폴더를 변경할 수 있습니다.");
   };
   paintDir();
   const saveDir = () => {
@@ -434,48 +434,48 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
   dirDefault.addEventListener('click', () => net.send({ t: 'floor.projectsDir', dir: '' }));
 
   // The dog on this floor: its name, breed and coat, for everyone here (see settings-dog.ts).
-  const { section: dogSection, paint: paintDog } = dogSetting(net, (body) => setting('Office dog', 'floor', ...body));
+  const { section: dogSection, paint: paintDog } = dogSetting(net, (body) => setting("사무실 강아지", 'floor', ...body));
 
   // What the sky's doing, and which clock it keeps (see settings-sky.ts).
-  const sky = outside && outsideSetting(net, outside, (body) => setting('Outside', 'office', ...body));
+  const sky = outside && outsideSetting(net, outside, (body) => setting("창밖 풍경", 'office', ...body));
   const account = store.me.account;
-  const signOut = h('button.btn', { type: 'button' }, '🚪 Sign out');
+  const signOut = h('button.btn', { type: 'button' }, "🚪 로그아웃");
   signOut.addEventListener('click', onSignOut);
-  const character = h('button.btn', { type: 'button' }, account ? '🧍 Change your look' : '🧍 Change your look & name');
+  const character = h('button.btn', { type: 'button' }, account ? "🧍 캐릭터 꾸미기" : "🧍 캐릭터와 이름 변경");
   const panes: Record<SettingsPane, Node[]> = {
     you: [
-      setting('Your character', null, character),
-      setting('Camera view', 'you', seg, note),
-      setting('Signed in', null, h('div.volume', {}, signOut), h('p.setting-note', {}, account ? `As ${account.name}, with your own account (${account.role}).` : 'With the shared office password.')),
+      setting("내 캐릭터", null, character),
+      setting("화면 시점", 'you', seg, note),
+      setting("로그인 정보", null, h('div.volume', {}, signOut), h('p.setting-note', {}, account ? `${account.name} 계정으로 로그인 중 (${account.role}).` : "사무실 공용 비밀번호로 로그인했습니다.")),
     ],
     sound: [
-      setting('Office sounds', 'you', soundRow, h('p.setting-note', {}, 'Workers typing, footsteps, the coffee machine, birds and rain outside, the dog, the ding when a worker is done and the alarm when one needs you. Voice chat isn’t affected.')),
-      setting('When a worker needs you', 'you', alarmRow, h('p.setting-note', {}, 'An alarm the moment a worker stops to ask you something or wants a permission. Keep reminding me rings it again, softly, every 30 seconds until someone opens that worker’s terminal. It’s as loud as the office sounds are.')),
-      setting('Page turns at the bookshelf', 'you', pagesRow, h('p.setting-note', {}, 'A soft swish each time the book in your hands turns a page, as you open a doc or scroll through one. The 🔈 at the top of the bookshelf turns it off too.')),
-      setting('Jukebox', 'you', musicRow, h('p.setting-note', {}, 'The jukebox in the lounge. Everyone on the floor hears the same song, louder the closer they are to it; this is how loud it is for you alone.')),
-      setting('Voice chat', 'you', talkRow, h('p.setting-note', {}, 'Either way, V joins voice, holding V talks and you’re muted once you let go, and M mutes or unmutes. With push to talk you join muted. Leave voice from the ☰ menu.')),
+      setting("사무실 효과음", 'you', soundRow, h('p.setting-note', {}, "직원의 타자 소리, 발걸음, 커피 머신, 새와 빗소리, 강아지, 작업 완료음과 응답 요청 알림의 크기를 조절합니다. 음성 채팅에는 영향을 주지 않습니다.")),
+      setting("직원이 응답을 요청할 때", 'you', alarmRow, h('p.setting-note', {}, "직원이 질문하거나 승인을 요청하면 알림이 울립니다. 반복 알림을 선택하면 누군가 터미널을 열 때까지 30초마다 부드럽게 다시 알려줍니다. 음량은 사무실 효과음 설정을 따릅니다.")),
+      setting("책장 넘기는 소리", 'you', pagesRow, h('p.setting-note', {}, "문서를 열거나 스크롤할 때 책장 넘기는 소리가 납니다. 책장 상단의 🔈 버튼으로도 끌 수 있습니다.")),
+      setting("주크박스", 'you', musicRow, h('p.setting-note', {}, "라운지의 주크박스는 같은 층에 있는 모두에게 같은 곡을 들려줍니다. 가까울수록 크게 들리며, 여기서는 내 음량만 조절합니다.")),
+      setting("음성 채팅", 'you', talkRow, h('p.setting-note', {}, "V로 음성 채팅에 참여하고, V를 누른 채 말할 수 있습니다. M으로 음소거를 전환합니다. 눌러서 말하기 모드에서는 음소거 상태로 참여합니다. 나가려면 ☰ 메뉴를 사용하세요.")),
     ],
     notify: [
-      setting('Desktop notifications', 'you', notifyRow, notifyNote),
-      setting('Team notifications (Slack / Discord)', 'office', h('div.webhook', {}, hookInput, hookSave), hookActions, hookStatus),
+      setting("브라우저 알림", 'you', notifyRow, notifyNote),
+      setting("팀 알림 (Slack / Discord)", 'office', h('div.webhook', {}, hookInput, hookSave), hookActions, hookStatus),
     ],
     building: [
-      setting('Map', 'office', mapRow, mapNote, mapBad),
-      setting('Holiday theme', 'office', themeRow, themeNote),
+      setting("맵", 'office', mapRow, mapNote, mapBad),
+      setting("시즌 테마", 'office', themeRow, themeNote),
       ...(sky ? [sky.section] : []),
       dogSection,
-      setting('Workspace folder', 'office', dirRow, dirActions, dirNote),
+      setting("프로젝트 저장 폴더", 'office', dirRow, dirActions, dirNote),
     ],
     workers: [
-      setting('Default worker', 'office', agentNow, agent.element, agentActions, agentNote),
-      setting('Worker limit', 'office', limitRow, limitNote),
-      setting('Workers whose pull request merged', 'office', leaveRow, leaveNote),
-      setting('Prompts', 'office', promptsOpen, promptsNote),
+      setting("기본 에이전트", 'office', agentNow, agent.element, agentActions, agentNote),
+      setting("동시 작업 인원", 'office', limitRow, limitNote),
+      setting("PR이 병합된 직원 자동 퇴근", 'office', leaveRow, leaveNote),
+      setting("작업 지시 문구", 'office', promptsOpen, promptsNote),
     ],
   };
 
   // The categories down the side, the one picked on the right.
-  const nav = h('nav.settings-nav', { role: 'tablist', 'aria-orientation': 'vertical', 'aria-label': 'Settings' });
+  const nav = h('nav.settings-nav', { role: 'tablist', 'aria-orientation': 'vertical', 'aria-label': "설정" });
   const tabs = new Map<SettingsPane, HTMLButtonElement>();
   const bodies = new Map<SettingsPane, HTMLElement>();
   for (const p of PANES) {
@@ -506,8 +506,8 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
     tabs.get(next)!.focus();
   });
 
-  const close = h('button.btn.close', { 'aria-label': 'Close' }, '✕');
-  const el = h('div.modal.settings', { role: 'dialog', 'aria-label': 'Settings' }, h('header', {}, h('h2', {}, '⚙️ Settings'), close), h('div.settings-body', {}, nav, ...bodies.values()));
+  const close = h('button.btn.close', { 'aria-label': "닫기" }, '✕');
+  const el = h('div.modal.settings', { role: 'dialog', 'aria-label': "설정" }, h('header', {}, h('h2', {}, "⚙️ 설정"), close), h('div.settings-body', {}, nav, ...bodies.values()));
   const offNotify = store.on('notify', paintHook);
   const offDog = store.on('dog', paintDog);
   const offTheme = store.on('theme', paintTheme);
@@ -517,7 +517,7 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
   const offDir = [store.on('projectsDir', paintDir), store.on('me', paintDir)];
   const offPrompts = [store.on('prompts', paintAgent), store.on('prompts', paintPrompts), store.on('me', paintAgent), store.on('me', paintPrompts)];
   const modal = openModal(el, {
-    doing: '⚙️ in settings',
+    doing: "⚙️ 설정 중",
     onClose: () => {
       offNotify();
       offDog();

@@ -9,6 +9,8 @@
 
 # 🏢 Agent Office
 
+This branch includes a Korean interface for the main office workflows and the 2D view. Agent and model names, command arguments, repository content and terminal output keep their original wording. See [한국어 화면 사용 안내](docs/korean-ui.md) for usage and update notes.
+
 **A 3D office your team shares with its coding agents.**
 
 Sit **Claude Code**, **Codex**, **OpenCode**, **Grok**, **Muse**, **DeepSeek Harness** and **Cursor** workers at desks, watch each one's terminal on the laptop in front of it,

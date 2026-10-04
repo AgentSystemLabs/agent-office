@@ -30,16 +30,16 @@ export function openRepoPulls(workerId: string, actions: RepoPullsActions) {
   const title = h('h2');
   const note = h('p', { style: 'margin:0 0 12px;font-weight:700' });
   const list = h('ul.repo-pulls');
-  const close = h('button.btn', { type: 'button' }, 'Close');
-  const missing = h('button.btn.primary', { type: 'button' }, '🔀 Open the missing PRs');
-  const el = h('div.modal', { role: 'dialog', 'aria-label': 'Pull requests' }, h('header', {}, title), h('div.body', {}, note, list), h('footer', {}, h('span.grow'), close, missing));
+  const close = h('button.btn', { type: 'button' }, "닫기");
+  const missing = h('button.btn.primary', { type: 'button' }, "🔀 아직 없는 PR 생성");
+  const el = h('div.modal', { role: 'dialog', 'aria-label': "Pull requests" }, h('header', {}, title), h('div.body', {}, note, list), h('footer', {}, h('span.grow'), close, missing));
 
   const render = () => {
     const w = store.workers.get(workerId);
     if (!w?.worktree) return modal.close();
     const repos = workerRepos(w);
-    title.textContent = `🔀 ${w.name}'s pull requests`;
-    note.textContent = `One change across ${repos.length} repositories, each on 🌿 ${w.worktree.branch}. Each repository it commits to gets a pull request of its own, and each one lists the others.`;
+    title.textContent = `🔀 ${w.name}의 Pull requests`;
+    note.textContent = `🌿 ${w.worktree.branch} 브랜치로 저장소 ${repos.length}개를 함께 작업합니다. 커밋한 저장소마다 PR을 생성하고 서로 연결합니다.`;
     list.replaceChildren(
       ...repos.map((r) => {
         const floor = r.floor ? store.floors.find((f) => f.id === r.floor)?.name : store.currentFloor()?.name;
@@ -47,19 +47,19 @@ export function openRepoPulls(workerId: string, actions: RepoPullsActions) {
         return h(
           'li',
           {},
-          h('span.name', {}, `📁 ${r.name}`, h('small', {}, floor ? `${floor} floor${r.floor ? '' : ' · this one'}` : 'no longer in the building')),
+          h('span.name', {}, `📁 ${r.name}`, h('small', {}, floor ? `${floor} floor${r.floor ? '' : ' · this one'}` : "프로젝트 목록에서 제거됨")),
           pr
-            ? h('button.btn', { type: 'button', title: r.floor ? 'Open it on GitHub' : 'Open it', onclick: () => (r.floor ? window.open(pr.url, '_blank', 'noopener') : (modal.close(), actions.openPull(pr.number, pr.url))) }, `🔀 #${pr.number}${r.floor ? ' ↗' : ''}`)
-            : h('span.none', {}, 'No PR yet'),
-          h('button.btn', { type: 'button', title: `What ${w.name} changed in ${r.name}`, onclick: () => (modal.close(), actions.changes(r.floor)) }, '🌿 Changes'),
+            ? h('button.btn', { type: 'button', title: r.floor ? "GitHub에서 열기" : "열기", onclick: () => (r.floor ? window.open(pr.url, '_blank', 'noopener') : (modal.close(), actions.openPull(pr.number, pr.url))) }, `🔀 #${pr.number}${r.floor ? ' ↗' : ''}`)
+            : h('span.none', {}, "아직 PR 없음"),
+          h('button.btn', { type: 'button', title: `${r.name}에서 ${w.name}이(가) 변경한 내용`, onclick: () => (modal.close(), actions.changes(r.floor)) }, "🌿 변경 사항"),
         );
       }),
     );
     const busy = isBusy(w.status);
     missing.classList.toggle('hidden', repos.every((r) => r.pr));
     missing.disabled = !!w.prOpening || busy;
-    missing.textContent = w.prOpening ? '⏳ Opening…' : '🔀 Open the missing PRs';
-    missing.title = busy ? `${w.name} is still at it — wait until it's done` : 'Pushes the branch in each repository with commits and no pull request yet, and opens one there';
+    missing.textContent = w.prOpening ? "⏳ 생성 중…" : "🔀 아직 없는 PR 생성";
+    missing.title = busy ? `${w.name}이(가) 아직 작업 중입니다. 완료될 때까지 기다려주세요` : "커밋이 있지만 PR이 없는 저장소에 브랜치를 push하고 PR을 생성합니다";
   };
 
   const unsub = store.on('workers', () => render());

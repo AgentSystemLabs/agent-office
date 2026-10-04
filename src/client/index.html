@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="ko">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -20,8 +20,8 @@
         </svg>
         <span class="loading-shadow" aria-hidden="true"></span>
         <div class="loading-name">Agent Office</div>
-        <div class="loading-bar" role="progressbar" aria-label="Loading" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span class="loading-fill"></span></div>
-        <p class="loading-say">Loading the office</p>
+        <div class="loading-bar" role="progressbar" aria-label="불러오는 중" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span class="loading-fill"></span></div>
+        <p class="loading-say">사무실을 준비하는 중</p>
       </div>
     </div>
     <div id="app">
@@ -30,49 +30,49 @@
       <div id="telescope-view" class="telescope-view" aria-hidden="true">
         <div class="telescope-glass"></div>
         <div class="telescope-reticle" aria-hidden="true"></div>
-        <button id="telescope-exit" class="btn telescope-exit" type="button">Exit telescope <span class="key">Esc</span></button>
+        <button id="telescope-exit" class="btn telescope-exit" type="button">망원경 그만 보기 <span class="key">Esc</span></button>
       </div>
       <div id="hud">
         <div id="compass"></div>
         <header class="topbar">
-          <div class="project panel" id="project" role="button" tabindex="-1" title="Floors: go to another project">
+          <div class="project panel" id="project" role="button" tabindex="-1" title="프로젝트 목록: 다른 프로젝트로 이동">
             <div class="project-name"><span id="project-name">Agent Office</span><span id="floors-waiting" class="svc-count hidden"></span></div>
             <div class="project-meta" id="project-meta"></div>
           </div>
           <!-- Filled by ui/menu.ts: pinned actions, what needs you right now, and the ☰ menu with everything else. -->
-          <nav id="dock" class="dock" aria-label="Office"></nav>
+          <nav id="dock" class="dock" aria-label="사무실"></nav>
         </header>
         <aside class="side">
           <section id="people-panel" class="panel people">
-            <h3>In the office <span id="people-count" class="count"></span><button class="panel-x" data-hud="people" aria-label="Hide" title="Hide (☰ brings it back)">✕</button></h3>
+            <h3>사무실 참여자 <span id="people-count" class="count"></span><button class="panel-x" data-hud="people" aria-label="숨기기" title="숨기기 (☰ 메뉴에서 다시 표시)">✕</button></h3>
             <ul id="people"></ul>
           </section>
           <section id="workers-panel" class="panel workers">
-            <h3>Workers <span id="worker-count" class="count"></span><span id="workers-cost" class="cost" title="Spent by the workers at their desks"></span><button class="panel-x" data-hud="workers" aria-label="Hide" title="Hide (☰ brings it back)">✕</button></h3>
-            <button id="waiting" class="hidden" title="Go to the next worker waiting on someone: the ones that need you first (N)"></button>
+            <h3>직원 <span id="worker-count" class="count"></span><span id="workers-cost" class="cost" title="직원들의 작업에 사용한 금액"></span><button class="panel-x" data-hud="workers" aria-label="숨기기" title="숨기기 (☰ 메뉴에서 다시 표시)">✕</button></h3>
+            <button id="waiting" class="hidden" title="응답을 기다리는 다음 직원으로 이동: 확인이 필요한 직원부터 (N)"></button>
             <ul id="workers"></ul>
           </section>
           <section id="spend" class="panel spend">
-            <h3>Spend<button class="panel-x" data-hud="spend" aria-label="Hide" title="Hide (☰ brings it back)">✕</button></h3>
+            <h3>사용 금액<button class="panel-x" data-hud="spend" aria-label="숨기기" title="숨기기 (☰ 메뉴에서 다시 표시)">✕</button></h3>
             <div id="usage" class="usage hidden"></div>
           </section>
-          <section id="limits" class="panel limits hidden" title="Read again now"></section>
+          <section id="limits" class="panel limits hidden" title="지금 새로고침"></section>
         </aside>
         <section class="chat" id="chat">
           <ul id="chat-log"></ul>
-          <input id="chat-input" maxlength="500" placeholder="Press T to chat" autocomplete="off" />
+          <input id="chat-input" maxlength="500" placeholder="T를 눌러 채팅" autocomplete="off" />
         </section>
-        <div id="crosshair" class="crosshair hidden"><span class="look-hint">Click to look around</span></div>
+        <div id="crosshair" class="crosshair hidden"><span class="look-hint">클릭해서 둘러보기</span></div>
         <div id="hint" class="hint hidden"></div>
         <div id="shot-meter" class="shot-meter hidden" aria-hidden="true"><span class="sweet"></span><span class="mark"></span></div>
         <div id="toasts"></div>
-        <div id="caffeine" class="caffeine panel hidden" aria-label="Coffee buzz left">
+        <div id="caffeine" class="caffeine panel hidden" aria-label="커피 효과 남은 시간">
           <span id="caffeine-cups"></span>
           <span class="bar"><span id="caffeine-fill"></span></span>
           <span id="caffeine-left" class="left"></span>
         </div>
         <div id="shares"></div>
-        <div id="conn" class="conn hidden">Reconnecting…</div>
+        <div id="conn" class="conn hidden">다시 연결하는 중…</div>
         <div id="upgrade-banner" class="conn upgrading hidden"></div>
       </div>
       <div id="modal-root"></div>

@@ -29,9 +29,9 @@ const TYPING_SHOWS_MS = 2500;
 
 /** "Sam is typing…", "Sam and Ada are typing…", "Sam and 2 others are typing…". */
 function typingLine(names: string[]): string {
-  if (names.length === 1) return `${names[0]} is typing…`;
-  if (names.length === 2) return `${names[0]} and ${names[1]} are typing…`;
-  return `${names[0]} and ${names.length - 1} others are typing…`;
+  if (names.length === 1) return `${names[0]}님이 입력 중…`;
+  if (names.length === 2) return `${names[0]}님과 ${names[1]}님이 입력 중…`;
+  return `${names[0]}님 외 ${names.length - 1}명이 입력 중…`;
 }
 
 /**
@@ -55,12 +55,12 @@ function initials(name: string): string {
 
 /** Sends a file dropped or pasted into a worker's terminal to the office; where the office keeps it. */
 async function uploadDrop(workerId: string, f: File): Promise<string> {
-  const name = f.name || 'That file';
-  if (f.size > DROP_MAX_BYTES) throw new Error(`${name} is too big to drop into a terminal (${DROP_MAX_BYTES / 1024 / 1024} MB at most)`);
+  const name = f.name || "해당 파일";
+  if (f.size > DROP_MAX_BYTES) throw new Error(`${name} 파일이 너무 큽니다. 터미널에 추가할 수 있는 최대 크기는 ${DROP_MAX_BYTES / 1024 / 1024} MB입니다`);
   const q = new URLSearchParams({ floor: store.floor ?? '', worker: workerId, name: f.name });
   const res = await fetch(`/api/term/drop?${q}`, { method: 'POST', headers: { 'content-type': f.type || 'application/octet-stream' }, body: f });
   const r = (await res.json().catch(() => ({}))) as { path?: string; error?: string };
-  if (!res.ok || !r.path) throw new Error(r.error ?? `${name} could not be dropped into the terminal`);
+  if (!res.ok || !r.path) throw new Error(r.error ?? `${name}을(를) 터미널에 추가하지 못했습니다`);
   return r.path;
 }
 
@@ -75,14 +75,14 @@ export interface TerminalOptions {
 
 /** The keypad's keys: what each types, or a function of the terminal for the ones that depend on its mode. */
 const KEYPAD: { label: string; title: string; keys: string | ((term: Terminal) => string) }[] = [
-  { label: '1', title: 'Pick 1 (yes, in a permission prompt)', keys: '1' },
-  { label: '2', title: 'Pick 2', keys: '2' },
-  { label: '3', title: 'Pick 3', keys: '3' },
-  { label: '↑', title: 'Up', keys: (t) => (t.modes.applicationCursorKeysMode ? '\x1bOA' : '\x1b[A') },
-  { label: '↓', title: 'Down', keys: (t) => (t.modes.applicationCursorKeysMode ? '\x1bOB' : '\x1b[B') },
+  { label: '1', title: "1 선택 (승인 요청에서는 '예')", keys: '1' },
+  { label: '2', title: "2 선택", keys: '2' },
+  { label: '3', title: "3 선택", keys: '3' },
+  { label: '↑', title: "위", keys: (t) => (t.modes.applicationCursorKeysMode ? '\x1bOA' : '\x1b[A') },
+  { label: '↓', title: "아래", keys: (t) => (t.modes.applicationCursorKeysMode ? '\x1bOB' : '\x1b[B') },
   { label: '⏎', title: 'Enter', keys: '\r' },
   { label: '⇥', title: 'Tab', keys: '\t' },
-  { label: 'Esc', title: 'Esc: close a menu, or interrupt the agent', keys: '\x1b' },
+  { label: 'Esc', title: "Esc: 메뉴 닫기 또는 에이전트 중단", keys: '\x1b' },
   { label: '^C', title: 'Ctrl+C', keys: '\x03' },
 ];
 
@@ -114,23 +114,23 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void,
   const viewers = h('div.viewers', {});
   const modelsBtn = h('button.btn', {
     type: 'button',
-    title: 'OpenCode models: Ctrl+X then M (use /models if custom bindings override it)',
-    'aria-label': 'OpenCode models',
-  }, '🧠 Models');
+    title: "OpenCode 모델 선택: Ctrl+X 다음 M (단축키를 바꿨다면 /models 사용)",
+    'aria-label': "OpenCode 모델",
+  }, "🧠 모델 선택");
   const typed = h('span.typed', {});
   // The Esc key leaves the terminal, so this is how Esc reaches the program: to close a menu like
   // Claude's /skills, or to interrupt it. Ctrl+[ does the same from the keyboard.
   const escBtn = h('button.btn', {
     type: 'button',
-    title: 'Send Esc to the terminal (Ctrl+[): closes a menu like /skills, or interrupts the agent. The Esc key on its own leaves the terminal',
-    'aria-label': 'Send Esc to the terminal',
+    title: "터미널에 Esc 전달 (Ctrl+[): /skills 같은 메뉴를 닫거나 에이전트를 중단합니다. Esc 키만 누르면 터미널 창을 닫습니다",
+    'aria-label': "터미널에 Esc 전달",
   }, '⎋ Esc');
-  const changesBtn = h('button.btn', { type: 'button', title: 'What this worker changed: files, diff, commit, open a PR (C at the desk)' }, '🌿 Changes');
-  const closeBtn = h('button.btn.close', { title: 'Leave terminal (Esc or Ctrl+]) · ⎋ Esc or Ctrl+[ sends Esc to the terminal', 'aria-label': 'Close' }, '✕');
-  const host = h('div.term-host', { 'data-drop': '📎 Drop screenshots or files here to put them in the terminal' });
-  const keys = h('div.term-keys', { role: 'group', 'aria-label': 'Keys' });
-  const say = h('input', { type: 'text', placeholder: 'Reply, or tell it what to do next…', 'aria-label': 'Prompt', enterkeyhint: 'send', autocomplete: 'off' }) as HTMLInputElement;
-  const sayBtn = h('button.btn.primary', { type: 'submit' }, 'Send');
+  const changesBtn = h('button.btn', { type: 'button', title: "직원의 변경 사항: 파일, diff, 커밋, PR 생성 (책상 앞에서 C)" }, "🌿 변경 사항");
+  const closeBtn = h('button.btn.close', { title: "터미널 창 닫기 (Esc 또는 Ctrl+]) · ⎋ Esc 또는 Ctrl+[로 터미널에 Esc 전달", 'aria-label': "닫기" }, '✕');
+  const host = h('div.term-host', { 'data-drop': "📎 스크린샷이나 파일을 끌어 놓으면 터미널에 추가됩니다" });
+  const keys = h('div.term-keys', { role: 'group', 'aria-label': "단축키" });
+  const say = h('input', { type: 'text', placeholder: 'Reply, or tell it what to do next…', 'aria-label': "작업 지시", enterkeyhint: 'send', autocomplete: 'off' }) as HTMLInputElement;
+  const sayBtn = h('button.btn.primary', { type: 'submit' }, "보내기");
   const sayForm = h('form.term-say', {}, dictateField(say), sayBtn);
   const keypad = opts.keypad ? h('div.term-keypad', {}, keys, sayForm) : null;
   const tabs = termTabs(workerId, { host, keypad, focusTerm: () => term.focus() });
@@ -144,11 +144,11 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void,
         term.paste(`${text} `);
       },
     },
-    { label: 'Dictate' },
+    { label: "음성 입력" },
   );
   host.append(mic.live);
   // The keypad has an Esc of its own, and a 🎤 on its prompt box.
-  const el = h('div.modal.term', { role: 'dialog', 'aria-label': `${info.name} terminal` }, h('header', {}, dot, title, pill, cost, viewers, typed, modelsBtn, keypad ? null : mic.button, keypad ? null : escBtn, onChanges ? changesBtn : null, closeBtn), tabs.bar, host, tabs.pages, keypad);
+  const el = h('div.modal.term', { role: 'dialog', 'aria-label': `${info.name} 터미널` }, h('header', {}, dot, title, pill, cost, viewers, typed, modelsBtn, keypad ? null : mic.button, keypad ? null : escBtn, onChanges ? changesBtn : null, closeBtn), tabs.bar, host, tabs.pages, keypad);
 
   const term = new Terminal({
     fontFamily: 'ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
@@ -203,12 +203,12 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void,
       ...people.map((v) =>
         h(
           'span.avatar',
-          { class: v.typing ? 'typing' : '', style: `background:${v.color}`, title: `${v.name}${v.you ? ' (you)' : ''}${v.typing ? ' · typing' : ''}` },
+          { class: v.typing ? 'typing' : '', style: `background:${v.color}`, title: `${v.name}${v.you ? " (나)" : ''}${v.typing ? " · 입력 중" : ''}` },
           initials(v.name),
         ),
       ),
     );
-    viewers.title = people.length ? `In this terminal: ${people.map((v) => (v.you ? `${v.name} (you)` : v.name)).join(', ')}` : '';
+    viewers.title = people.length ? `이 터미널의 참여자: ${people.map((v) => (v.you ? `${v.name} (나)` : v.name)).join(', ')}` : '';
     const typists = people.filter((v) => v.typing && !v.you).map((v) => v.name);
     typed.classList.toggle('now', typists.length > 0);
     if (typists.length) {
@@ -216,7 +216,7 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void,
       typed.title = '';
     } else {
       typed.textContent = w.lastInput ? `⌨️ ${w.lastInput.by}` : '';
-      typed.title = w.lastInput ? `${w.lastInput.by} typed here last, ${timeAgo(w.lastInput.at)}` : '';
+      typed.title = w.lastInput ? `마지막 입력: ${w.lastInput.by}, ${timeAgo(w.lastInput.at)}` : '';
     }
   };
   /** Everyone in the terminal, one face per person however many windows they have it open in, you first. */
@@ -258,7 +258,7 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void,
     const workerProvider = w.kind === 'agent' ? resolvedProvider(w.provider, store.project) : undefined;
     const usageState = w.kind === 'agent' ? providerUsageState(w.provider, store.project, w.usage) : undefined;
     const waiting = usageState === 'waiting' ? providerWaitingLabel(workerProvider, store.project) : '';
-    cost.textContent = w.kind !== 'agent' ? '' : usageState === 'tracked' && w.usage ? usageLabel(w.usage, workerProvider) : waiting ? waiting : usageState === 'untracked' ? 'usage untracked' : '';
+    cost.textContent = w.kind !== 'agent' ? '' : usageState === 'tracked' && w.usage ? usageLabel(w.usage, workerProvider) : waiting ? waiting : usageState === 'untracked' ? "사용량 집계 안 됨" : '';
     cost.title = w.kind === 'agent' && w.usage ? usageTitle(w.usage, workerProvider) : w.kind === 'agent' ? providerUsageNote(workerProvider!) : '';
     renderPresence(w);
     const openCode = w.kind === 'agent' && resolvedProvider(w.provider, store.project) === 'opencode';
@@ -281,7 +281,7 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void,
   const jumpTo = (f: TerminalFind) => {
     const buf = term.buffer.active;
     const row = findLine(buf, f.needle, f.fromEnd);
-    if (row === undefined) return toast('That line has scrolled out of the terminal since', 'warn');
+    if (row === undefined) return toast("해당 줄이 터미널의 기록 범위를 벗어났습니다", 'warn');
     let end = row;
     while (buf.getLine(end + 1)?.isWrapped) end++;
     // A marker follows the line when the terminal reflows, which it does as the window settles.
@@ -335,10 +335,10 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void,
 
   const modal = openModal(el, {
     backdropCloses: true,
-    doing: `💻 in ${info.name}'s terminal`,
+    doing: `💻 ${info.name}의 터미널을 보는 중`,
     onClose: (byEsc) => {
       // Leaving with Esc while the program wanted one (you were in /skills, say): say how to send it one.
-      if (byEsc && ready && screenMentionsEsc(term)) toast(`Esc left the terminal. To send ${store.workers.get(workerId)?.name ?? info.name} an Esc (to close a menu), use ⎋ Esc at the top or Ctrl+[`);
+      if (byEsc && ready && screenMentionsEsc(term)) toast(`Esc로 터미널 창을 닫았습니다. ${store.workers.get(workerId)?.name ?? info.name}의 메뉴를 닫으려면 상단의 ⎋ Esc 또는 Ctrl+[를 사용하세요`);
       listeners.delete(onMsg);
       unsub();
       unsubPeers();
@@ -426,7 +426,7 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void,
       el.classList.toggle('uploading', --uploading > 0);
     }
   };
-  const hasFiles = (e: DragEvent) => !!e.dataTransfer?.types.includes('Files');
+  const hasFiles = (e: DragEvent) => !!e.dataTransfer?.types.includes("파일");
   // The whole screen is the drop zone while the terminal is open, so a near miss doesn't open the file in the browser.
   let dragDepth = 0;
   const dragEnd = () => {

@@ -78,7 +78,7 @@ export function loadingScreen(watchModels: (fn: (p: ModelsProgress) => void) => 
 
   let files: ModelsProgress = { asked: 0, done: 0 };
   let frameDrawn = () => {};
-  const frame: Step = { say: 'Loading the office', done: new Promise<void>((resolve) => (frameDrawn = resolve)) };
+  const frame: Step = { say: "사무실을 준비하는 중", done: new Promise<void>((resolve) => (frameDrawn = resolve)) };
   /** Every step and whether it has settled, the first frame's first. */
   const steps = [{ step: frame, settled: false }];
   let drawn = false;
@@ -98,13 +98,13 @@ export function loadingScreen(watchModels: (fn: (p: ModelsProgress) => void) => 
     fillTo((files.done + steps.filter((s) => s.settled).length) / (files.asked + steps.length));
     // Files still coming in before the office is built, then whichever step is next.
     const unpacking = !given && files.done < files.asked;
-    const say = (unpacking ? 'Unpacking the office' : steps.find((s) => !s.settled)?.step.say) ?? 'Opening the doors';
+    const say = (unpacking ? "사무실 공간을 만드는 중" : steps.find((s) => !s.settled)?.step.say) ?? "사무실 문을 여는 중";
     if (line && line.textContent !== say) line.textContent = say;
   };
   const gate = new Gate((why) => {
     if (why === 'cap') {
       const waiting = steps.filter((s) => !s.settled).map((s) => s.step.say);
-      if (files.done < files.asked) waiting.push(`${files.asked - files.done} of ${files.asked} model files`);
+      if (files.done < files.asked) waiting.push(`모델 파일 ${files.asked - files.done}/${files.asked}`);
       console.warn(`The office went ${capMs / 1000} s with nothing happening, so in you go anyway. Still waiting on: ${waiting.join('; ')}`);
     }
     gone = true;

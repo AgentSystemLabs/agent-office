@@ -51,9 +51,9 @@ test('an office from before waitingSince goes by who was hired first', () => {
 });
 
 test('the Workers panel counts who needs input and who is done', () => {
-  assert.equal(waitingLabel(waitingInOrder([worker('a', 'needs_input', 1), worker('b', 'needs_input', 2), worker('c', 'done', 3)])), '🙋 2 need you · ✅ 1 done');
-  assert.equal(waitingLabel([worker('a', 'needs_input', 1)]), '🙋 1 needs you');
-  assert.equal(waitingLabel([worker('c', 'done', 3)]), '✅ 1 done');
+  assert.equal(waitingLabel(waitingInOrder([worker('a', 'needs_input', 1), worker('b', 'needs_input', 2), worker('c', 'done', 3)])), '🙋 응답 필요 2명 · ✅ 완료 1명');
+  assert.equal(waitingLabel([worker('a', 'needs_input', 1)]), '🙋 응답 필요 1명');
+  assert.equal(waitingLabel([worker('c', 'done', 3)]), '✅ 완료 1명');
   assert.equal(waitingLabel([]), '');
 });
 

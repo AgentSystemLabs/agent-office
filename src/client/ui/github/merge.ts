@@ -26,20 +26,20 @@ export function conflicted(d: GhPullDetail) {
 export function mergeStatus(d: GhPullDetail): MergeStatus {
   const failing = d.checks.filter((c) => c.state === 'fail').length;
   const pending = d.checks.filter((c) => c.state === 'pending').length;
-  if (d.state === 'MERGED') return { icon: '🎉', text: 'Merged.', cls: 'ok', can: false, auto: false };
-  if (d.state === 'CLOSED') return { icon: '🗑️', text: 'Closed without merging.', cls: 'muted', can: false, auto: false };
-  if (d.isDraft) return { icon: '📝', text: 'This is still a draft. Mark it ready for review on GitHub before merging.', cls: 'muted', can: false, auto: false };
+  if (d.state === 'MERGED') return { icon: '🎉', text: "병합되었습니다.", cls: 'ok', can: false, auto: false };
+  if (d.state === 'CLOSED') return { icon: '🗑️', text: "병합하지 않고 닫았습니다.", cls: 'muted', can: false, auto: false };
+  if (d.isDraft) return { icon: '📝', text: "아직 초안입니다. GitHub에서 검토 준비 완료로 바꾼 뒤 병합하세요.", cls: 'muted', can: false, auto: false };
   if (conflicted(d))
-    return { icon: '⚠️', text: `This branch has conflicts with ${d.baseRefName} that must be resolved first.`, cls: 'bad', can: false, auto: false };
-  if (d.mergeStateStatus === 'BEHIND') return { icon: '⤵️', text: `The branch is behind ${d.baseRefName}, and this repo wants it up to date before merging.`, cls: 'warn', can: true, auto: true };
+    return { icon: '⚠️', text: `${d.baseRefName}과(와) 충돌하는 브랜치입니다. 먼저 충돌을 해결하세요.`, cls: 'bad', can: false, auto: false };
+  if (d.mergeStateStatus === 'BEHIND') return { icon: '⤵️', text: `이 브랜치가 ${d.baseRefName}보다 뒤처져 있습니다. 이 저장소에서는 최신 변경을 반영한 뒤 병합해야 합니다.`, cls: 'warn', can: true, auto: true };
   if (d.mergeStateStatus === 'BLOCKED') {
-    const why = d.reviewDecision === 'CHANGES_REQUESTED' ? 'changes were requested' : d.reviewDecision === 'REVIEW_REQUIRED' ? 'it needs an approving review' : failing ? `${failing} check${failing > 1 ? 's are' : ' is'} failing` : pending ? 'required checks are still running' : 'a branch rule is not met yet';
-    return { icon: '🚫', text: `Merging is blocked: ${why}.`, cls: 'bad', can: true, auto: true };
+    const why = d.reviewDecision === 'CHANGES_REQUESTED' ? "수정 요청이 있습니다" : d.reviewDecision === 'REVIEW_REQUIRED' ? "승인된 검토가 필요합니다" : failing ? `검사 ${failing}개 실패` : pending ? "필수 검사가 진행 중입니다" : "브랜치 규칙을 아직 충족하지 못했습니다";
+    return { icon: '🚫', text: `병합할 수 없습니다: ${why}.`, cls: 'bad', can: true, auto: true };
   }
-  if (failing) return { icon: '❌', text: `${failing} check${failing > 1 ? 's' : ''} failing. It can still be merged.`, cls: 'warn', can: true, auto: false };
-  if (pending || d.mergeStateStatus === 'UNSTABLE') return { icon: '🟡', text: 'Checks are still running. It can be merged now, or once they pass.', cls: 'warn', can: true, auto: true };
-  if (d.mergeStateStatus === 'UNKNOWN' || d.mergeable === 'UNKNOWN') return { icon: '⏳', text: 'GitHub is still working out whether this can merge. Refresh in a moment.', cls: 'muted', can: true, auto: false };
-  return { icon: '✅', text: `Ready to merge: no conflicts with ${d.baseRefName}${d.checks.length ? ' and all checks passed' : ''}.`, cls: 'ok', can: true, auto: false };
+  if (failing) return { icon: '❌', text: `검사 ${failing}개가 실패했지만 병합은 가능합니다.`, cls: 'warn', can: true, auto: false };
+  if (pending || d.mergeStateStatus === 'UNSTABLE') return { icon: '🟡', text: "검사가 진행 중입니다. 지금 병합하거나 통과한 뒤 병합할 수 있습니다.", cls: 'warn', can: true, auto: true };
+  if (d.mergeStateStatus === 'UNKNOWN' || d.mergeable === 'UNKNOWN') return { icon: '⏳', text: "GitHub에서 병합 가능 여부를 확인 중입니다. 잠시 후 새로고침하세요.", cls: 'muted', can: true, auto: false };
+  return { icon: '✅', text: `병합할 수 있습니다. ${d.baseRefName}과(와) 충돌이 없습니다${d.checks.length ? ", 모든 검사 통과" : ''}.`, cls: 'ok', can: true, auto: false };
 }
 
 export function checksList(checks: GhCheck[]) {
@@ -54,7 +54,7 @@ export function checksList(checks: GhCheck[]) {
 
 // ---- Merge dialog -------------------------------------------------------------------------------
 
-const METHOD_LABEL: Record<GhMergeMethod, string> = { squash: 'Squash and merge', merge: 'Create a merge commit', rebase: 'Rebase and merge' };
+const METHOD_LABEL: Record<GhMergeMethod, string> = { squash: "Squash 후 병합", merge: "Merge commit으로 병합", rebase: "Rebase 후 병합" };
 
 export function openMerge(it: GhPull, d: GhPullDetail, net: Net, handToWorker: () => void, onMerged: () => void) {
   const st = mergeStatus(d);
@@ -72,7 +72,7 @@ export function openMerge(it: GhPull, d: GhPullDetail, net: Net, handToWorker: (
         h('button.btn', { type: 'button', class: m === method ? 'on' : '', onclick: () => ((method = m), savePref(MERGE_KEY, { method, deleteBranch }), renderMethods()) }, METHOD_LABEL[m]),
       ),
     );
-    go.textContent = auto.checked ? '⏱ Merge when ready' : `🔀 ${METHOD_LABEL[method]}`;
+    go.textContent = auto.checked ? "⏱ 조건 충족 시 병합" : `🔀 ${METHOD_LABEL[method]}`;
   };
   auto.addEventListener('change', renderMethods);
   const del = h('input', { type: 'checkbox', id: 'merge-del' }) as HTMLInputElement;
@@ -82,26 +82,26 @@ export function openMerge(it: GhPull, d: GhPullDetail, net: Net, handToWorker: (
     savePref(MERGE_KEY, { method, deleteBranch });
   });
   const result = h('div.gh-merge-result.hidden');
-  const cancel = h('button.btn', { type: 'button' }, 'Cancel');
+  const cancel = h('button.btn', { type: 'button' }, "취소");
   // Conflicts can't be merged from here, so fixing them is the main button.
   const worker = conflicted(d)
-    ? h('button.btn.primary', { type: 'button', title: 'A new worker merges the base in, resolves the conflicts, then merges it the way picked above' }, '✨ New worker: fix conflicts & merge')
-    : h('button.btn', { type: 'button', title: 'A worker fixes whatever is in the way, then merges' }, '🤖 Hand to a worker');
+    ? h('button.btn.primary', { type: 'button', title: "새 직원이 기준 브랜치를 반영하고 충돌을 해결한 뒤 선택한 방식으로 병합합니다" }, "✨ 새 직원에게 충돌 해결 및 병합 맡기기")
+    : h('button.btn', { type: 'button', title: "직원이 병합을 막는 문제를 해결한 뒤 병합합니다" }, "🤖 직원에게 맡기기");
 
   const el = h(
     'div.modal.gh-merge',
-    { role: 'dialog', 'aria-label': `Merge PR #${it.number}` },
-    h('header', {}, h('h2', {}, `🔀 Merge #${it.number}`)),
+    { role: 'dialog', 'aria-label': `PR #${it.number} 병합` },
+    h('header', {}, h('h2', {}, `🔀 #${it.number} 병합`)),
     h(
       'div.body',
       {},
       h('p.gh-merge-title', {}, it.title, h('small', {}, `${it.headRefName} → ${it.baseRefName}`)),
       h('div.gh-status', { class: st.cls }, h('span', {}, st.icon), st.text),
       d.checks.length ? checksList(d.checks) : null,
-      h('label', { style: 'margin-top:14px' }, 'How'),
+      h('label', { style: 'margin-top:14px' }, "병합 방식"),
       methodBtns,
-      h('label.gh-check', { for: 'merge-del' }, del, `Delete ${it.headRefName} after merging`),
-      st.auto ? h('label.gh-check', { for: 'merge-auto', title: 'gh pr merge --auto (the repo must allow auto-merge)' }, auto, 'Merge automatically once the requirements pass') : null,
+      h('label.gh-check', { for: 'merge-del' }, del, `병합 후 ${it.headRefName} 삭제`),
+      st.auto ? h('label.gh-check', { for: 'merge-auto', title: 'gh pr merge --auto (the repo must allow auto-merge)' }, auto, "필수 조건을 충족하면 자동 병합") : null,
       result,
     ),
     h('footer', {}, st.can || conflicted(d) ? null : worker, h('span.grow'), cancel, conflicted(d) ? worker : go),
@@ -120,7 +120,7 @@ export function openMerge(it: GhPull, d: GhPullDetail, net: Net, handToWorker: (
     busy = true;
     go.disabled = true;
     result.className = 'gh-merge-result';
-    result.replaceChildren(h('span.spinner'), auto.checked && st.auto ? 'Asking GitHub to merge it when ready…' : 'Merging…');
+    result.replaceChildren(h('span.spinner'), auto.checked && st.auto ? "GitHub에 조건 충족 시 병합을 요청하는 중…" : "병합 중…");
     mergeWaiters.set(it.number, (msg) => {
       mergeWaiters.delete(it.number);
       busy = false;

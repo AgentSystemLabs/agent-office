@@ -23,7 +23,7 @@ export function hintTitle(text: string) {
 
 /** A board you open with E. */
 export function boardHint(name: string): Hint {
-  return { k: '', parts: [hintTitle(name), key('E', 'Open')] };
+  return { k: '', parts: [hintTitle(name), key('E', "열기")] };
 }
 
 /** A use that's E only: every other key does nothing there. */

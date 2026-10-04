@@ -41,7 +41,7 @@ const WT_KEY = 'agent-office.worktree';
 
 export function openAsk(opts: AskOptions) {
   let to: string | null = opts.newDesk ? null : (opts.workers[0]?.id ?? null);
-  const ta = h('textarea', { rows: opts.initial ? 9 : 5, placeholder: opts.placeholder ?? 'What should the worker do?', 'aria-label': 'Prompt' }) as HTMLTextAreaElement;
+  const ta = h('textarea', { rows: opts.initial ? 9 : 5, placeholder: opts.placeholder ?? "직원에게 맡길 작업을 적어주세요", 'aria-label': "작업 지시" }) as HTMLTextAreaElement;
   ta.value = opts.initial ?? '';
   const wtBox = h('input', { type: 'checkbox', id: 'ask-wt' }) as HTMLInputElement;
   try {
@@ -49,7 +49,7 @@ export function openAsk(opts: AskOptions) {
   } catch {
     // storage blocked
   }
-  const wtRow = h('label.ask-wt', { for: 'ask-wt', title: 'Isolate the new worker on its own branch so parallel workers never collide' }, wtBox, '🌿 Work in its own git worktree & branch');
+  const wtRow = h('label.ask-wt', { for: 'ask-wt', title: "다른 직원과 충돌하지 않도록 별도 브랜치에서 작업합니다" }, wtBox, "🌿 별도의 Git worktree와 브랜치에서 작업");
   const repos = repoPicker(opts.worktreeOption ? opts.repoOptions : undefined, wtBox);
   const provider: ProviderPicker | null = opts.providerOption ? providerPicker(store.project, 'ask-provider') : null;
   const submit = h('button.btn.primary', { type: 'submit' });
@@ -61,14 +61,14 @@ export function openAsk(opts: AskOptions) {
     wtRow.classList.toggle('hidden', !!id || !opts.worktreeOption);
     repos.element?.classList.toggle('hidden', !!id);
     provider?.element.classList.toggle('hidden', !!id);
-    submit.textContent = id ? 'Send ✨' : 'Hire & start';
+    submit.textContent = id ? "작업 보내기 ✨" : "직원 고용 및 작업 시작";
   };
-  if (opts.newDesk) choices.append(h('button.btn', { type: 'button', 'data-to': '', onclick: () => pick(null) }, `✨ New worker · ${opts.newDesk}`));
+  if (opts.newDesk) choices.append(h('button.btn', { type: 'button', 'data-to': '', onclick: () => pick(null) }, `✨ 새 직원 · ${opts.newDesk}`));
   for (const w of opts.workers) {
-    choices.append(h('button.btn', { type: 'button', 'data-to': w.id, title: `Type it into ${w.name}'s prompt`, onclick: () => pick(w.id) }, h('span.dot', { style: `background:${w.color}` }), w.name, h('small', {}, STATUS_LABEL[w.status] ?? w.status)));
+    choices.append(h('button.btn', { type: 'button', 'data-to': w.id, title: `${w.name}에게 작업 지시 입력`, onclick: () => pick(w.id) }, h('span.dot', { style: `background:${w.color}` }), w.name, h('small', {}, STATUS_LABEL[w.status] ?? w.status)));
   }
 
-  const cancel = h('button.btn', { type: 'button' }, 'Cancel');
+  const cancel = h('button.btn', { type: 'button' }, "취소");
   const form = h(
     'form.modal.ask',
     { role: 'dialog', 'aria-label': opts.title },
@@ -76,16 +76,16 @@ export function openAsk(opts: AskOptions) {
     h(
       'div.body',
       {},
-      h('label', {}, 'Send to'),
+      h('label', {}, "작업을 맡길 직원"),
       choices,
-      opts.context ? h('details.ask-context', {}, h('summary', {}, 'The worker is told first…'), h('pre', {}, opts.context)) : null,
-      h('label', { style: 'margin-top:14px' }, 'Prompt'),
+      opts.context ? h('details.ask-context', {}, h('summary', {}, "직원에게 먼저 전달할 내용…"), h('pre', {}, opts.context)) : null,
+      h('label', { style: 'margin-top:14px' }, "작업 지시"),
       dictateField(ta),
       provider?.element ?? null,
       wtRow,
       repos.element,
     ),
-    h('footer', {}, h('span.grow', {}, 'Enter to send · Shift+Enter for a new line'), cancel, submit),
+    h('footer', {}, h('span.grow', {}, "Enter로 보내기 · Shift+Enter로 줄바꿈"), cancel, submit),
   ) as HTMLFormElement;
   form.noValidate = true;
   pick(to);

@@ -6,7 +6,7 @@ import { h, openModal, toast } from '../../ui/dom';
 
 /** The jukebox: what's on, the tunes to pick from, skip and stop, and a box for a stream. */
 export function openJukebox(net: Net, openVolume: () => void) {
-  const close = h('button.btn.close', { 'aria-label': 'Close' }, '✕');
+  const close = h('button.btn.close', { 'aria-label': "닫기" }, '✕');
   const now = h('div.jb-now');
   const list = h('ul.svc-list');
   const url = h('input', { type: 'text', placeholder: 'https://… internet radio, or a link to an .mp3', 'aria-label': 'Stream or audio file link', spellcheck: 'false', autocomplete: 'off' }) as HTMLInputElement;
@@ -14,7 +14,7 @@ export function openJukebox(net: Net, openVolume: () => void) {
   const volume = h('button.btn', { type: 'button' }, '🔈 Your volume');
   const el = h(
     'div.modal.jukebox',
-    { role: 'dialog', 'aria-label': 'Jukebox' },
+    { role: 'dialog', 'aria-label': "주크박스" },
     h('header', {}, h('h2', {}, '🎵 Jukebox'), close),
     h(
       'div.body',

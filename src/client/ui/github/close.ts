@@ -25,7 +25,7 @@ export function openClose(kind: 'issue' | 'pull', it: GhIssue | GhPull, net: Net
   const del = h('input', { type: 'checkbox', id: 'close-del' }) as HTMLInputElement;
   const w = pull && workerForPull(store.workers.values(), pull);
   const result = h('div.gh-merge-result.hidden');
-  const cancel = h('button.btn', { type: 'button' }, 'Cancel');
+  const cancel = h('button.btn', { type: 'button' }, "취소");
   const noun = pull ? 'pull request' : 'issue';
 
   const el = h(

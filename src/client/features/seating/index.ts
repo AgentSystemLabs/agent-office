@@ -51,7 +51,7 @@ export function installSeating(ctx: Ctx, deps: SeatingDeps) {
 
   /** Someone else's screen is up on the TV. */
   function tvShowing(): boolean {
-    return deps.shares().some(([who]) => who !== 'You');
+    return deps.shares().some(([who]) => who !== "내 설정");
   }
 
   /** E at a seat: sit down on it. Sitting there already, get up, or on the couch facing the TV, watch it. */
@@ -113,7 +113,7 @@ export function installSeating(ctx: Ctx, deps: SeatingDeps) {
       if (ctx.player.seat?.seatId === seat.id) {
         const tv = !!seat.tv && tvShowing();
         const use = tv ? 'Watch the TV' : seat.game ? 'Play Minesweeper' : seat.bar ? 'Order a drink' : '';
-        return { k: `${seat.id}|sitting|${tv}`, parts: [hintTitle(seat.label), aside('sitting'), ...(use ? [key('E', use), key('W A S D', 'Get up')] : [key('E', 'Get up')])] };
+        return { k: `${seat.id}|sitting|${tv}`, parts: [hintTitle(seat.label), aside('sitting'), ...(use ? [key('E', use), key('W A S D', "일어나기")] : [key('E', "일어나기")])] };
       }
       const full = !freePlace(seat);
       return { k: `${seat.id}|${full}`, parts: [hintTitle(seat.label), seat.game ? aside('💣 Minesweeper on the monitor') : '', full ? aside('no room') : key('E', 'Sit down')] };

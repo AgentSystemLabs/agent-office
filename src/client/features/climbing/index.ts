@@ -162,7 +162,7 @@ export function installClimbing(ctx: Ctx, deps: ClimbingDeps) {
       k = `ladder|${up}|${down}|${atFloor}|${busy}`;
       parts = busy
         ? [title('🪜 Climbing…')]
-        : [title('🪜 On the ladder'), up ? key('W', `Up to ${up}`) : aside('top floor'), key('S', down ? `Down to ${down}` : atFloor ? 'Step off' : 'Down'), key('E', atFloor ? 'Step off' : 'Let go')];
+        : [title('🪜 On the ladder'), up ? key('W', `Up to ${up}`) : aside('top floor'), key('S', down ? `Down to ${down}` : atFloor ? 'Step off' : "아래"), key('E', atFloor ? 'Step off' : 'Let go')];
     } else {
       const how = climber.sliding;
       k = `pole|${how}`;

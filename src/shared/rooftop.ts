@@ -8,7 +8,7 @@
  * project floor's id, which is only ever lowercase letters, digits and dashes.
  */
 export const ROOF = '@roof';
-export const ROOF_NAME = 'Rooftop bar';
+export const ROOF_NAME = "루프탑 바";
 
 /** What a drink comes in: a pint, a wine glass, a martini glass, a tall glass or a shot glass. */
 export type Glass = 'pint' | 'wine' | 'martini' | 'highball' | 'shot';

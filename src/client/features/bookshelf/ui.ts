@@ -155,7 +155,7 @@ export function openBookshelf(deps: ShelfDeps) {
 
   const filter = h('input', { type: 'text', placeholder: 'Filter the docs…', 'aria-label': 'Filter the docs', spellcheck: 'false', autocomplete: 'off' }) as HTMLInputElement;
   const count = h('div.bs-count', {}, 'Looking along the shelves…');
-  const list = h('ul.bs-list', { role: 'listbox', 'aria-label': 'Docs' });
+  const list = h('ul.bs-list', { role: 'listbox', 'aria-label': "문서" });
   const crumbs = h('div.bs-crumbs');
   const meta = h('div.bs-meta');
   const toc = h('select.bs-toc', { 'aria-label': 'Jump to a heading', title: 'Jump to a heading' }) as HTMLSelectElement;
@@ -328,7 +328,7 @@ export function openBookshelf(deps: ShelfDeps) {
     const words = doc.text.split(/\s+/).filter(Boolean).length;
     meta.replaceChildren(
       [`${Math.max(1, Math.round(words / 220))} min read`, info ? size(info.size) : '', info ? `updated ${timeAgo(info.mtime)}` : ''].filter(Boolean).join(' · '),
-      repoUrl ? h('a', { href: `${repoUrl}/blob/HEAD/${path.split('/').map(encodeURIComponent).join('/')}`, target: '_blank', rel: 'noopener noreferrer', title: 'Open it on GitHub' }, 'GitHub ↗') : '',
+      repoUrl ? h('a', { href: `${repoUrl}/blob/HEAD/${path.split('/').map(encodeURIComponent).join('/')}`, target: '_blank', rel: 'noopener noreferrer', title: "GitHub에서 열기" }, 'GitHub ↗') : '',
     );
     turnedAt = 0;
     jump(hash);

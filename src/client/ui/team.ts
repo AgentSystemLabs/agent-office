@@ -71,7 +71,7 @@ export async function copy(text: string): Promise<boolean> {
 export function copyButton(label: string, text: () => string, cls = '') {
   const btn = h('button.btn', { type: 'button', class: cls }, label);
   btn.addEventListener('click', async () => {
-    btn.textContent = (await copy(text())) ? '✓ Copied' : 'Copy failed';
+    btn.textContent = (await copy(text())) ? "✓ 복사됨" : "복사하지 못했습니다";
     setTimeout(() => (btn.textContent = label), 1600);
   });
   return btn;
@@ -87,14 +87,14 @@ export function openTeam(net: Net) {
   let os = guessOs();
   let status: HTMLElement | null = null;
   const body = h('div.body.team');
-  const close = h('button.btn.close', { 'aria-label': 'Close' }, '✕');
+  const close = h('button.btn.close', { 'aria-label': "닫기" }, '✕');
   const message = (t: TeamState) => (t.tailnet ? tailnetMessage(t) : inviteMessage(t, os));
-  const copyMsg = copyButton('✉️ Copy invite message', () => (store.team ? message(store.team) : ''), 'primary');
-  const footer = h('footer', {}, h('span.grow', {}, 'Invited people still need to sign in: the office password, or an account from 🔑 Accounts.'), copyMsg);
-  const el = h('div.modal', { role: 'dialog', 'aria-label': 'Invite teammates', style: 'width:min(680px,100%)' }, h('header', {}, h('h2', {}, '👥 Invite teammates'), close), body, footer);
+  const copyMsg = copyButton("✉️ 초대 안내 복사", () => (store.team ? message(store.team) : ''), 'primary');
+  const footer = h('footer', {}, h('span.grow', {}, "초대받은 사람도 로그인해야 합니다. 사무실 비밀번호나 🔑 계정 관리에서 만든 개인 계정을 사용하세요."), copyMsg);
+  const el = h('div.modal', { role: 'dialog', 'aria-label': "팀원 초대", style: 'width:min(680px,100%)' }, h('header', {}, h('h2', {}, "👥 팀원 초대"), close), body, footer);
 
-  const input = h('input', { type: 'text', maxlength: 40, placeholder: 'GitHub username', 'aria-label': 'GitHub username', autocomplete: 'off', spellcheck: 'false' }) as HTMLInputElement;
-  const inviteBtn = h('button.btn.primary', { type: 'submit' }, 'Invite');
+  const input = h('input', { type: 'text', maxlength: 40, placeholder: "GitHub 사용자명", 'aria-label': "GitHub 사용자명", autocomplete: 'off', spellcheck: 'false' }) as HTMLInputElement;
+  const inviteBtn = h('button.btn.primary', { type: 'submit' }, "초대");
   const form = h('form.invite-row', {}, input, inviteBtn) as HTMLFormElement;
   const setStatus = (text: string, kind: 'busy' | 'ok' | 'error') => {
     status = h('p.team-status', { class: kind }, text);
@@ -105,7 +105,7 @@ export function openTeam(net: Net) {
     const github = input.value.trim();
     if (!github) return input.focus();
     inviteBtn.disabled = true;
-    setStatus(`Fetching ${github}'s keys from GitHub…`, 'busy');
+    setStatus(`GitHub에서 ${github}의 SSH key를 확인하는 중…`, 'busy');
     net.send({ t: 'team.invite', github });
   });
 
@@ -114,15 +114,15 @@ export function openTeam(net: Net) {
     const t = store.team;
     const typing = document.activeElement === input;
     body.replaceChildren();
-    if (!t) return body.append(h('p.empty', {}, 'Loading…'));
+    if (!t) return body.append(h('p.empty', {}, "불러오는 중…"));
     footer.classList.toggle('hidden', !!t.unavailable);
     if (t.unavailable) return body.append(h('p', { style: 'margin:0;font-weight:700' }, t.unavailable));
     if (t.tailnet) return renderTailnet(t);
 
     body.append(
-      h('label', {}, 'Invite someone by their GitHub username'),
+      h('label', {}, "GitHub 사용자명으로 초대"),
       form,
-      h('p.note', {}, 'Their SSH keys from github.com/<username>.keys can open a tunnel to this office — nothing else: no shell on the machine, no other ports.'),
+      h('p.note', {}, "github.com/<username>.keys의 SSH key로 이 사무실에만 터널을 열 수 있습니다. 이 컴퓨터의 Shell이나 다른 포트에는 접근할 수 없습니다."),
     );
     if (status) body.append(status);
     if (t.error) body.append(h('p.team-status.error', {}, t.error));
@@ -135,22 +135,22 @@ export function openTeam(net: Net) {
       ),
     );
     body.append(
-      h('div.team-head', {}, h('h4', {}, 'Then send them this'), tabs),
-      h('div.cmd', {}, h('pre', {}, tunnelCommand(t, os)), copyButton('Copy', () => tunnelCommand(t, os))),
+      h('div.team-head', {}, h('h4', {}, "이 안내를 초대받은 사람에게 보내세요"), tabs),
+      h('div.cmd', {}, h('pre', {}, tunnelCommand(t, os)), copyButton("복사", () => tunnelCommand(t, os))),
       h(
         'p.note',
         {},
-        `It opens the tunnel and http://localhost:${t.port} in their browser. They keep the terminal open while they're in. `,
-        t.fingerprint ? h('span', {}, 'The first time, ssh asks whether to trust the server: the fingerprint must be ', h('code', {}, t.fingerprint), '.') : null,
+        `터널을 연결하고 브라우저에서 http://localhost:${t.port}을 엽니다. 사용하는 동안 터미널을 열어 두어야 합니다. `,
+        t.fingerprint ? h('span', {}, "처음 연결할 때 SSH에서 서버 신뢰 여부를 묻습니다. fingerprint가 다음 값과 일치해야 합니다: ", h('code', {}, t.fingerprint), '.') : null,
       ),
     );
     // Railway's TCP proxy, a Fly.io app's IP address and the port Dokploy or Coolify publishes
     // (addresses with a port of their own) answer every IP; AWS's firewall doesn't.
     if (!t.ssh?.startsWith('ssh://')) {
-      body.append(h('p.note', {}, 'SSH only answers IP addresses you allowed. If theirs isn\'t, run ', h('code', {}, `${t.deploy ?? 'deploy/aws.sh'} allow <their-ip>`), ' (or ', h('code', {}, 'allow anywhere'), ') on your machine.'));
+      body.append(h('p.note', {}, "허용한 IP만 SSH로 접속할 수 있습니다. 상대의 IP가 허용되지 않았다면 내 컴퓨터에서 ", h('code', {}, `${t.deploy ?? 'deploy/aws.sh'} allow <their-ip>`), ' (or ', h('code', {}, "모든 IP 허용"), ') on your machine.'));
     }
 
-    body.append(h('h4', {}, `Invited `, h('span.count', {}, String(t.members.length))), memberList(t));
+    body.append(h('h4', {}, `초대된 사용자 `, h('span.count', {}, String(t.members.length))), memberList(t));
     if (typing || !focused) setTimeout(() => input.focus(), 30);
     focused = true;
   };
@@ -160,18 +160,18 @@ export function openTeam(net: Net) {
     const url = `https://${t.tailnet}`;
     const link = (path: string, text: string) => h('a', { href: `${TAILSCALE_ADMIN}/${path}`, target: '_blank', rel: 'noopener' }, text);
     body.append(
-      h('label', {}, 'Everyone on your Tailscale network opens'),
-      h('div.cmd', {}, h('pre', {}, url), copyButton('Copy', () => url)),
-      h('p.note', {}, 'Nothing to run and no terminal to keep open. It comes over HTTPS, so voice and screen sharing work.'),
-      h('h4', {}, "Someone who isn't on it"),
+      h('label', {}, "같은 Tailscale 네트워크의 참여자는 다음 주소로 접속합니다"),
+      h('div.cmd', {}, h('pre', {}, url), copyButton("복사", () => url)),
+      h('p.note', {}, "별도 명령이나 열린 터미널이 필요 없습니다. HTTPS로 연결되므로 음성 채팅과 화면 공유도 사용할 수 있습니다."),
+      h('h4', {}, "네트워크에 없는 사람"),
       h(
         'p.note',
         {},
-        'Share this one machine with them: on Tailscale\'s ',
+        "이 컴퓨터만 공유하려면 Tailscale의 ",
         link('machines', 'Machines'),
-        ' page, open ',
+        " 페이지에서 ",
         h('code', {}, t.tailnet!.split('.')[0]),
-        ', choose Share… and send them the link. Once they accept, they reach this machine and nothing else of yours. Or add them to your network under ',
+        "을 열고 Share…로 링크를 보내세요. 수락하면 이 컴퓨터에만 접근할 수 있습니다. 전체 네트워크에 초대하려면 ",
         link('users', 'Users'),
         '.',
       ),
@@ -179,24 +179,24 @@ export function openTeam(net: Net) {
     if (status) body.append(status);
     if (t.error) body.append(h('p.team-status.error', {}, t.error));
     // People invited before the office went on the tailnet can still tunnel in, until they're removed.
-    if (t.members.length) body.append(h('h4', {}, 'Invited by SSH key ', h('span.count', {}, String(t.members.length))), memberList(t));
+    if (t.members.length) body.append(h('h4', {}, "SSH key로 초대됨 ", h('span.count', {}, String(t.members.length))), memberList(t));
   };
 
   const memberList = (t: TeamState) => {
     const list = h('ul.team-list');
     for (const m of t.members) {
-      const remove = h('button.btn', { type: 'button', title: `Remove ${m.name}'s access` }, 'Remove');
+      const remove = h('button.btn', { type: 'button', title: `${m.name}의 접속 권한 해제` }, "제거");
       remove.addEventListener('click', () =>
         confirmDialog(
-          `Remove ${m.name}?`,
-          `Their keys stop working right away. Every open tunnel drops for a moment too (other teammates just re-run their command). ${m.name} still knows the office password.`,
-          'Remove',
+          `${m.name}의 접속 권한을 해제할까요?`,
+          `해당 key는 즉시 사용할 수 없게 됩니다. 열린 터널도 잠시 끊기므로 다른 팀원은 명령을 다시 실행해야 합니다. ${m.name}은(는) 사무실 비밀번호를 여전히 알고 있습니다.`,
+          "제거",
           () => net.send({ t: 'team.remove', name: m.name }),
         ),
       );
-      list.append(h('li', {}, h('span.name', {}, m.name), h('span.keys', {}, `${m.keys} key${m.keys === 1 ? '' : 's'}`), remove));
+      list.append(h('li', {}, h('span.name', {}, m.name), h('span.keys', {}, `key ${m.keys}개`), remove));
     }
-    if (!t.members.length) list.append(h('li.empty', {}, 'Nobody yet'));
+    if (!t.members.length) list.append(h('li.empty', {}, "아직 없습니다"));
     return list;
   };
 
@@ -204,7 +204,7 @@ export function openTeam(net: Net) {
     inviteBtn.disabled = false;
     if (msg.error) return setStatus(msg.error, 'error');
     input.value = '';
-    setStatus(`✅ ${msg.name} is invited (${msg.keys} key${msg.keys === 1 ? '' : 's'}). Send them the command below.`, 'ok');
+    setStatus(`✅ ${msg.name}을(를) 초대했습니다 (key ${msg.keys}개). 아래 명령을 전달하세요.`, 'ok');
   };
   const unsub = store.on('team', render);
   const modal = openModal(el, {

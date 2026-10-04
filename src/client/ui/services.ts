@@ -40,7 +40,7 @@ function elsewhere(s: ServicesState): boolean {
 
 function describe(svc: ServiceInfo): { who: string; color: string; branch?: string } {
   const w = store.workers.get(svc.workerId);
-  return { who: w?.name ?? 'A worker', color: w?.color ?? '#8d99ae', branch: w?.worktree?.branch };
+  return { who: w?.name ?? "직원", color: w?.color ?? '#8d99ae', branch: w?.worktree?.branch };
 }
 
 export function openServices() {
@@ -48,13 +48,13 @@ export function openServices() {
   let picked: number | null = null;
   let copied: number | null = null;
   const body = h('div.body.team.services');
-  const close = h('button.btn.close', { 'aria-label': 'Close' }, '✕');
+  const close = h('button.btn.close', { 'aria-label': "닫기" }, '✕');
   const tabs = h('div.os-tabs');
-  const footer = h('footer', {}, h('span.grow', {}, 'Tunnels go through the office, so the office password still guards every page. Keep the terminal open while you look.'));
+  const footer = h('footer', {}, h('span.grow', {}, "터널은 사무실을 통해 연결되므로 각 페이지에 로그인 인증이 적용됩니다. 사용하는 동안 터미널을 열어 두세요."));
   const el = h(
     'div.modal',
-    { role: 'dialog', 'aria-label': 'Services', style: 'width:min(760px,100%)' },
-    h('header', {}, h('h2', {}, '🌐 Services'), tabs, close),
+    { role: 'dialog', 'aria-label': "실행 중인 서비스", style: 'width:min(760px,100%)' },
+    h('header', {}, h('h2', {}, "🌐 실행 중인 서비스"), tabs, close),
     body,
     footer,
   );
@@ -75,15 +75,15 @@ export function openServices() {
       ),
     );
     footer.firstElementChild!.textContent = direct
-      ? 'Every link goes through the office, so the office sign-in still guards every page.'
-      : 'Tunnels go through the office, so the office password still guards every page. Keep the terminal open while you look.';
+      ? "모든 링크는 사무실을 통해 연결되므로 로그인 인증이 적용됩니다."
+      : "터널은 사무실을 통해 연결되므로 각 페이지에 로그인 인증이 적용됩니다. 사용하는 동안 터미널을 열어 두세요.";
     body.replaceChildren(
       h(
         'p.note',
         { style: 'margin:0 0 12px' },
         direct
-          ? 'Web servers the workers are running. Each has its own link on your Tailscale network: open it, or click the row to copy it for someone else on the network.'
-          : 'Web servers the workers are running. Click one to copy a command that opens it on your computer — run it in a terminal and the page opens by itself.',
+          ? "직원들이 실행한 웹 서버입니다. 각 서비스에는 Tailscale 링크가 있습니다. 직접 열거나 행을 클릭해 같은 네트워크의 참여자에게 공유할 수 있습니다."
+          : "직원들이 실행한 웹 서버입니다. 클릭하면 내 컴퓨터에서 여는 명령을 복사합니다. 터미널에 실행하면 페이지가 자동으로 열립니다.",
       ),
     );
     if (!direct && elsewhere(s)) {
@@ -91,17 +91,17 @@ export function openServices() {
         h(
           'div.svc-auto',
           {},
-          h('p', {}, '⚡ Open them all, by themselves'),
+          h('p', {}, "⚡ 모든 서비스 자동으로 열기"),
           h(
             'p.note',
             {},
-            'Run this on your computer and leave it running. Every server a worker starts opens on the same port there (',
+            "내 컴퓨터에서 이 명령을 실행한 채 두세요. 직원이 시작한 서버가 같은 포트로 열립니다 (",
             h('code', {}, 'localhost:5173'),
-            ' is the worker’s), and closes when the worker stops it. It needs the ',
+            "는 직원의 서버 포트). 직원이 서버를 끄면 연결도 종료됩니다. 내 컴퓨터에 ",
             h('code', {}, 'agent-office'),
-            ' command on your computer: the install line in the README.',
+            " 명령이 필요합니다. README의 설치 방법을 참고하세요.",
           ),
-          h('div.cmd', {}, h('pre', {}, autoTunnel()), copyButton('Copy', () => autoTunnel())),
+          h('div.cmd', {}, h('pre', {}, autoTunnel()), copyButton("복사", () => autoTunnel())),
         ),
       );
     }
@@ -110,8 +110,8 @@ export function openServices() {
         h(
           'div.svc-empty',
           {},
-          h('p', {}, 'Nothing running yet.'),
-          h('p.note', {}, 'When a worker starts a web server — ', h('code', {}, 'npm run dev'), ', a preview build, ', h('code', {}, 'python -m http.server'), ' — it shows up here within a few seconds. Try prompting: “start the dev server in the background so we can review it”.'),
+          h('p', {}, "아직 실행 중인 서비스가 없습니다."),
+          h('p.note', {}, "직원이 웹 서버를 실행하면 (", h('code', {}, 'npm run dev'), ", 미리보기 빌드, ", h('code', {}, 'python -m http.server'), " 등) 몇 초 안에 여기에 표시됩니다. '확인할 수 있도록 개발 서버를 백그라운드에서 실행해줘'라고 요청해 보세요."),
         ),
       );
       return;
@@ -120,18 +120,18 @@ export function openServices() {
     for (const svc of s.items) {
       const { who, color, branch } = describe(svc);
       const on = picked === svc.port;
-      const title = direct ? `Open ${serviceUrl(svc.port)}` : `Open ${serviceUrl(svc.port)} (needs the tunnel, unless the office runs on this computer)`;
-      const open = h('a.btn', { href: serviceUrl(svc.port), target: '_blank', rel: 'noopener', title }, 'Open ↗');
+      const title = direct ? `${serviceUrl(svc.port)} 열기` : `${serviceUrl(svc.port)} 열기 (사무실이 다른 컴퓨터에서 실행 중이면 터널 필요)`;
+      const open = h('a.btn', { href: serviceUrl(svc.port), target: '_blank', rel: 'noopener', title }, "열기 ↗");
       open.addEventListener('click', (e) => e.stopPropagation());
       const li = h(
         'li',
-        { class: on ? 'on' : '', tabindex: 0, role: 'button', title: direct ? 'Copy the link' : 'Copy the tunnel command' },
+        { class: on ? 'on' : '', tabindex: 0, role: 'button', title: direct ? "링크 복사" : "터널 연결 명령 복사" },
         h('span.dot', { style: `background:${color}` }),
         h(
           'div.svc-main',
           {},
           h('div.svc-title', {}, svc.title || svc.command),
-          h('div.svc-meta', {}, [who, branch ? `🌿 ${branch}` : '', svc.title ? svc.command : '', `started ${timeAgo(svc.since)}`].filter(Boolean).join(' · ')),
+          h('div.svc-meta', {}, [who, branch ? `🌿 ${branch}` : '', svc.title ? svc.command : '', `시작: ${timeAgo(svc.since)}`].filter(Boolean).join(' · ')),
         ),
         h('span.svc-port', {}, `:${svc.port}`),
         open,
@@ -151,25 +151,25 @@ export function openServices() {
     if (svc && direct) {
       body.append(
         copied === svc.port
-          ? h('p.team-status.ok', {}, `✅ Copied ${serviceUrl(svc.port)}. Anyone on the network who's signed in to the office can open it.`)
-          : h('p.team-status', {}, `The link for :${svc.port}: ${serviceUrl(svc.port)}`),
+          ? h('p.team-status.ok', {}, `✅ ${serviceUrl(svc.port)}을(를) 복사했습니다. 같은 네트워크에서 사무실에 로그인한 참여자가 열 수 있습니다.`)
+          : h('p.team-status', {}, `:${svc.port} 링크: ${serviceUrl(svc.port)}`),
       );
     } else if (svc) {
       const cmd = serviceTunnel(s, svc.port, os);
       body.append(
         copied === svc.port
-          ? h('p.team-status.ok', {}, `✅ Copied. Paste it in a terminal: it opens ${serviceUrl(svc.port)} once the tunnel is up.`)
-          : h('p.team-status', {}, `The command for :${svc.port} — run it in a terminal, and it opens ${serviceUrl(svc.port)}.`),
-        h('div.cmd', {}, h('pre', {}, cmd), copyButton('Copy', () => cmd)),
+          ? h('p.team-status.ok', {}, `✅ 복사했습니다. 터미널에서 실행하면 터널 연결 후 ${serviceUrl(svc.port)}이(가) 열립니다.`)
+          : h('p.team-status', {}, `:${svc.port} 연결 명령입니다. 터미널에서 실행하면 ${serviceUrl(svc.port)}이(가) 열립니다.`),
+        h('div.cmd', {}, h('pre', {}, cmd), copyButton("복사", () => cmd)),
       );
     } else if (picked !== null) {
-      body.append(h('p.team-status.error', {}, `The server on :${picked} stopped.`));
+      body.append(h('p.team-status.error', {}, `:${picked} 서버가 종료되었습니다.`));
     }
     if (direct) return;
     body.append(
       s.ssh
-        ? h('p.note', {}, 'It uses the same SSH access as the office. Not invited yourself (you set the office up)? Run ', h('code', {}, `${s.deploy ?? 'deploy/aws.sh'} service <port>`), ' instead.')
-        : h('p.note', {}, 'Replace ', h('code', {}, 'you@your-server'), ' with how you SSH to the office\'s machine. If the office runs on this computer, just click Open.'),
+        ? h('p.note', {}, "사무실과 같은 SSH 접근 권한을 사용합니다. 직접 설치해 본인을 초대하지 않았다면 ", h('code', {}, `${s.deploy ?? 'deploy/aws.sh'} service <port>`), "을 실행하세요.")
+        : h('p.note', {}, "다음 값을 ", h('code', {}, 'you@your-server'), "사무실 컴퓨터의 SSH 주소로 바꾸세요. 이 컴퓨터에서 실행 중이면 열기만 누르면 됩니다."),
     );
   };
 
@@ -177,7 +177,7 @@ export function openServices() {
   // Keeps "up 5m" fresh.
   const tick = setInterval(render, 30_000);
   const modal = openModal(el, {
-    doing: '🌐 at the services board',
+    doing: "🌐 서비스 목록을 보는 중",
     onClose: () => {
       unsubs.forEach((u) => u());
       clearInterval(tick);

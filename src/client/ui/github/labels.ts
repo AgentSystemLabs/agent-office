@@ -37,7 +37,7 @@ export function openLabels(kind: 'issue' | 'pull', it: GhIssue | GhPull, net: Ne
   const none = h('p.gh-quiet.hidden');
   const result = h('div.gh-merge-result.hidden');
   const summary = h('span.grow');
-  const cancel = h('button.btn', { type: 'button' }, 'Cancel');
+  const cancel = h('button.btn', { type: 'button' }, "취소");
   const save = h('button.btn.primary', { type: 'button' }, '🏷️ Save labels');
   const el = h(
     'div.modal.gh-merge.gh-labeler',
@@ -152,5 +152,5 @@ export function openLabels(kind: 'issue' | 'pull', it: GhIssue | GhPull, net: Ne
 /** The button that opens the label picker, after an issue's or PR's labels. */
 export function labelButton(kind: 'issue' | 'pull', it: () => GhIssue | GhPull, net: Net, onSaved: (labels: GhLabel[]) => void) {
   const has = it().labels.length > 0;
-  return h('button.btn.gh-label-edit', { type: 'button', title: 'Change the labels', 'aria-label': 'Change the labels', onclick: () => openLabels(kind, it(), net, onSaved) }, has ? '🏷️ Edit' : '🏷️ Add labels');
+  return h('button.btn.gh-label-edit', { type: 'button', title: "라벨 변경", 'aria-label': "라벨 변경", onclick: () => openLabels(kind, it(), net, onSaved) }, has ? '🏷️ Edit' : '🏷️ Add labels');
 }
