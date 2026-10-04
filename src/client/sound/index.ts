@@ -15,7 +15,7 @@
  */
 import type { GongWhy } from '../../shared/protocol';
 import { birdsong, Fridge, nightCrickets, startRoomTone, startWind } from './ambience';
-import { ding } from './alerts';
+import { ding, intercom } from './alerts';
 import { arcade } from '../features/cabinet/sound';
 import { ball, type BallSound } from '../features/basketball/sound';
 import { Dj, hiccup, pour } from '../features/bar/sound';
@@ -266,6 +266,11 @@ export class OfficeSound {
 
   ding(kind: 'done' | 'needs_input') {
     ding(this.a, kind);
+  }
+
+  /** Subtle intercom PA broadcast chime played on prompt broadcast. */
+  intercom() {
+    intercom(this.a);
   }
 
   /** The alarm for a worker that needs you, or (`again`) the soft reminder while it still does. */

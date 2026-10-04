@@ -1,5 +1,6 @@
 import './style.css';
 import { Net } from './net';
+import { initBossMode, refreshBossPanel } from './ui/boss-panel';
 import { DesktopNotifier } from './notify';
 import { store, loadProfile, loadSettings } from './state';
 import { PlayerController, groundAt } from './player';
@@ -101,7 +102,7 @@ installWhiteboard(ctx);
 parts.confetti = new Confetti((x, z, y) => groundAt(ctx.player.colliders, x, z, y, false));
 ctx.scene.add(parts.confetti.mesh);
 parts.tv = installTv(ctx, { shares: () => parts.talk.currentShares(), watch: () => parts.talk.watchShare() });
-parts.arcade = installArcade(ctx);
+parts.arcade = installArcade(ctx, { openWorkerTerminal: (id) => parts.waiting.openWorkerTerminal(id), get sound() { return parts.sound; } });
 parts.rooftop = installRooftop(ctx, { ambient: parts.stage.ambient, hemi: parts.stage.hemi });
 
 // You, and how you talk to the office.
@@ -179,6 +180,16 @@ installChat(ctx);
 parts.talk = installVoice(ctx, { tv: parts.tv });
 installDictation(ctx);
 parts.hud = installHud(ctx, core, parts);
+
+// ---- Boss Mode -------------------------------------------------------------------------------
+// Wire the boss panel up once the HUD and net are ready.
+// `openWorkerTerminal` opens the terminal for a clicked worker, reusing the same mechanism
+// that "Walk up to desk → E → hire" uses for viewing terminals.
+initBossMode(parts.net, (id) => parts.waiting.openWorkerTerminal(id), parts.sound);
+
+// Keep the boss panel in sync whenever the worker list changes.
+store.on('workers', () => refreshBossPanel(parts.net, (id) => parts.waiting.openWorkerTerminal(id)));
+
 
 // ---- Main loop ---------------------------------------------------------------------------------------
 fitWindow(ctx);
