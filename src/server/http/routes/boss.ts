@@ -3,18 +3,26 @@ import { exec } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import type { Route } from '../router.js';
+import type { Session } from '../../auth.js';
+import type { Ctx } from '../../office/context.js';
+import type { Route, RouteRequest } from '../router.js';
 import { readBody, send } from '../util.js';
 
 const execAsync = promisify(exec);
+
+/** Boss controls can alter workers or execute commands, so a regular member is never enough. */
+function isOfficeAdmin(ctx: Pick<Ctx, 'meOf'>, accountId?: string): boolean {
+  return ctx.meOf(accountId).admin;
+}
 
 export const bossRoutes = {
   /** POST /api/boss/command - Execute host commands with absolute permissions */
   command: {
     method: 'POST',
     path: '/api/boss/command',
-    auth: 'public',
-    async handle(ctx, { req, res }) {
+    auth: 'session',
+    async handle(ctx: Ctx, { req, res, session }: RouteRequest & { session: Session }) {
+      if (!isOfficeAdmin(ctx, session.account?.id)) return send(res, 403, { error: 'Office admin access is required' });
       try {
         const raw = await readBody(req, 65536);
         const data = JSON.parse(raw) as { command?: string };
@@ -65,8 +73,9 @@ export const bossRoutes = {
   talk: {
     method: 'POST',
     path: '/api/boss/talk',
-    auth: 'public',
-    async handle(ctx, { req, res }) {
+    auth: 'session',
+    async handle(ctx: Ctx, { req, res, session }: RouteRequest & { session: Session }) {
+      if (!isOfficeAdmin(ctx, session.account?.id)) return send(res, 403, { error: 'Office admin access is required' });
       try {
         const raw = await readBody(req, 65536);
         const data = JSON.parse(raw) as {
@@ -146,8 +155,9 @@ export const bossRoutes = {
   state: {
     method: 'GET',
     path: '/api/boss/state',
-    auth: 'public',
-    handle(ctx, { res }) {
+    auth: 'session',
+    handle(ctx: Ctx, { res, session }: RouteRequest & { session: Session }) {
+      if (!isOfficeAdmin(ctx, session.account?.id)) return send(res, 403, { error: 'Office admin access is required' });
       const rootDir = ctx.cfg.dir;
 
       // Scan workers

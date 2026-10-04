@@ -3,9 +3,13 @@ import assert from 'node:assert/strict';
 import { bossRoutes } from '../src/server/http/routes/boss.js';
 
 test('Boss Office Routes Unit Tests', async (t) => {
+  assert.equal(bossRoutes.command.auth, 'session');
+  assert.equal(bossRoutes.talk.auth, 'session');
+  assert.equal(bossRoutes.state.auth, 'session');
   // Mock office context
   const mockCtx: any = {
     cfg: { dir: process.cwd() },
+    meOf: () => ({ admin: true }),
     floors: new Map([
       ['f1', {
         workers: {
@@ -40,7 +44,7 @@ test('Boss Office Routes Unit Tests', async (t) => {
       setHeader: () => {}
     };
 
-    await bossRoutes.command.handle(mockCtx, { req, res, url: new URL('http://x/api/boss/command'), path: '/api/boss/command' });
+    await bossRoutes.command.handle(mockCtx, { req, res, session: { account: { id: 'admin' } }, url: new URL('http://x/api/boss/command'), path: '/api/boss/command' });
 
     assert.equal(responseStatus, 200);
     const parsed = JSON.parse(responseBody);
@@ -67,7 +71,7 @@ test('Boss Office Routes Unit Tests', async (t) => {
       setHeader: () => {}
     };
 
-    await bossRoutes.talk.handle(mockCtx, { req, res, url: new URL('http://x/api/boss/talk'), path: '/api/boss/talk' });
+    await bossRoutes.talk.handle(mockCtx, { req, res, session: { account: { id: 'admin' } }, url: new URL('http://x/api/boss/talk'), path: '/api/boss/talk' });
 
     assert.equal(responseStatus, 200);
     const parsed = JSON.parse(responseBody);
@@ -96,7 +100,7 @@ test('Boss Office Routes Unit Tests', async (t) => {
       setHeader: () => {}
     };
 
-    await bossRoutes.talk.handle(mockCtx, { req, res, url: new URL('http://x/api/boss/talk'), path: '/api/boss/talk' });
+    await bossRoutes.talk.handle(mockCtx, { req, res, session: { account: { id: 'admin' } }, url: new URL('http://x/api/boss/talk'), path: '/api/boss/talk' });
 
     assert.equal(responseStatus, 200);
     const parsed = JSON.parse(responseBody);
@@ -116,7 +120,7 @@ test('Boss Office Routes Unit Tests', async (t) => {
       setHeader: () => {}
     };
 
-    bossRoutes.state.handle(mockCtx, { req, res, url: new URL('http://x/api/boss/state'), path: '/api/boss/state' });
+    bossRoutes.state.handle(mockCtx, { req, res, session: { account: { id: 'admin' } }, url: new URL('http://x/api/boss/state'), path: '/api/boss/state' });
 
     assert.equal(responseStatus, 200);
     const parsed = JSON.parse(responseBody);
@@ -124,5 +128,41 @@ test('Boss Office Routes Unit Tests', async (t) => {
     assert.equal(parsed.workers.length, 2);
     assert.equal(parsed.workers[0].name, 'CEO');
     assert.ok(parsed.budget);
+  });
+
+  await t.test('Boss routes reject members before executing commands or prompting workers', async () => {
+    mockCtx.meOf = () => ({ admin: false });
+    promptedCalls.length = 0;
+    let responseStatus = 0;
+    let responseBody = '';
+    const req: any = {
+      on: (event: string, cb: any) => {
+        if (event === 'data') cb(Buffer.from(JSON.stringify({ command: 'echo should-not-run' })));
+        if (event === 'end') cb();
+      }
+    };
+    const res: any = {
+      writeHead: (status: number) => { responseStatus = status; },
+      end: (data: string) => { responseBody = data; },
+      setHeader: () => {}
+    };
+
+    await bossRoutes.command.handle(mockCtx, { req, res, session: { account: { id: 'member' } }, url: new URL('http://x/api/boss/command'), path: '/api/boss/command' });
+    assert.equal(responseStatus, 403);
+    assert.match(responseBody, /admin access is required/);
+    assert.equal(promptedCalls.length, 0);
+
+    const talkReq: any = {
+      on: (event: string, cb: any) => {
+        if (event === 'data') cb(Buffer.from(JSON.stringify({ recipient: 'all', prompt: 'should-not-send' })));
+        if (event === 'end') cb();
+      }
+    };
+    await bossRoutes.talk.handle(mockCtx, { req: talkReq, res, session: { account: { id: 'member' } }, url: new URL('http://x/api/boss/talk'), path: '/api/boss/talk' });
+    assert.equal(responseStatus, 403);
+    assert.equal(promptedCalls.length, 0);
+
+    bossRoutes.state.handle(mockCtx, { req: {}, res, session: { account: { id: 'member' } }, url: new URL('http://x/api/boss/state'), path: '/api/boss/state' });
+    assert.equal(responseStatus, 403);
   });
 });
