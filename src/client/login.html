@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="en">
+<html lang="ko">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Agent Office · Sign in</title>
+    <title>Agent Office · 로그인</title>
     <link rel="icon" href="/favicon.svg" />
     <link rel="stylesheet" href="./login.css" />
   </head>
@@ -13,12 +13,12 @@
         <svg viewBox="0 0 64 64" width="72" height="72"><rect x="6" y="30" width="52" height="8" rx="3" fill="#e0a96d"/><rect x="18" y="14" width="28" height="18" rx="3" fill="#2b2d42"/><rect x="21" y="17" width="22" height="12" rx="1" fill="#7cf29a"/><circle cx="32" cy="50" r="9" fill="#ff8a5b"/><circle cx="29" cy="48" r="1.8" fill="#222"/><circle cx="35" cy="48" r="1.8" fill="#222"/></svg>
       </div>
       <h1>Agent Office</h1>
-      <p class="sub" id="sub">Knock knock. What's the password?</p>
+      <p class="sub" id="sub">사무실 비밀번호를 입력해 주세요.</p>
       <form id="form">
-        <label id="name-row" hidden>Your name<input id="name" type="text" maxlength="24" autocomplete="username" spellcheck="false" /></label>
-        <label>Password<input id="password" type="password" autocomplete="current-password" autofocus required /></label>
-        <p id="name-note" class="note" hidden>Came in with the shared office password? Leave your name blank.</p>
-        <button type="submit" id="submit">Come on in</button>
+        <label id="name-row" hidden>표시 이름<input id="name" type="text" maxlength="24" autocomplete="username" spellcheck="false" /></label>
+        <label>비밀번호<input id="password" type="password" autocomplete="current-password" autofocus required /></label>
+        <p id="name-note" class="note" hidden>공용 비밀번호로 입장하려면 이름을 비워 두세요.</p>
+        <button type="submit" id="submit">입장하기</button>
         <p id="error" class="error" role="alert"></p>
       </form>
     </main>

@@ -41,9 +41,9 @@ export function openWhiteboard(net: Net) {
   const floor = store.floor;
   if (!floor) return toast('Take the elevator to a floor first', 'warn');
   const people = h('div.wb-people');
-  const close = h('button.btn.close', { 'aria-label': 'Close', title: 'Close (Esc)' }, '✕');
+  const close = h('button.btn.close', { 'aria-label': "닫기", title: "닫기 (Esc)" }, '✕');
   const host = h('div.wb-host', {}, h('div.wb-loading', {}, '✏️ Getting the markers out…'));
-  const el = h('div.wb-window', { role: 'dialog', 'aria-label': 'Whiteboard' }, h('header', {}, h('h2', {}, '📝 Whiteboard'), people, close), host);
+  const el = h('div.wb-window', { role: 'dialog', 'aria-label': "화이트보드" }, h('header', {}, h('h2', {}, '📝 Whiteboard'), people, close), host);
   // Esc first gets you out of whatever you're doing in Excalidraw (typing, drawing, a menu, a tool),
   // then lets go of what's selected, and once there's nothing left, closes the window.
   const onKey = (e: KeyboardEvent) => {

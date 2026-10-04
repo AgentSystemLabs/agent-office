@@ -73,7 +73,7 @@ export function installPalette(ctx: Ctx, parts: PaletteParts) {
       const open = () => waiting.openWorkerTerminal(w.id);
       out.push({
         icon: desk?.station ? STATION_INFO[desk.station].icon : w.kind === 'shell' ? '🐚' : '🧑‍💻',
-        kind: 'Worker',
+        kind: "직원",
         title: w.name,
         detail: [w.task?.name, desk?.label, STATUS_LABEL[w.status]].filter(Boolean).join(' · '),
         keywords: [w.title, w.worktree?.branch],
@@ -87,24 +87,24 @@ export function installPalette(ctx: Ctx, parts: PaletteParts) {
     out.push({
       icon: '✨',
       kind: 'Action',
-      title: 'Hire a worker',
+      title: "직원 고용",
       detail: free ? `At ${free.label}, the free desk nearest you` : 'Every desk is taken',
       keywords: ['new worker', 'spawn an agent'],
       open: free ? hireAt(free) : () => toast('Every desk on this floor is taken', 'warn'),
       walk: free ? () => walkThen(deskSpot(free)!, free.label, hireAt(free), free) : undefined,
     });
-    out.push(at('queue', 'the task queue', { icon: '📋', kind: 'Action', title: 'Open the task queue', detail: 'Issues and tasks waiting for a worker', keywords: ['backlog', 'tasks'], open: showQueue }));
-    out.push({ icon: '⚙️', kind: 'Action', title: 'Settings', keywords: ['preferences', 'options'], open: () => parts.hud.showSettings() });
-    if (store.invites) out.push({ icon: '👥', kind: 'Action', title: 'Invite teammates', keywords: ['team', 'add people'], open: () => openTeam(net) });
-    else if (store.me.admin) out.push({ icon: '👥', kind: 'Action', title: 'Invite people', detail: 'Accounts', keywords: ['invite teammates', 'accounts', 'team'], open: () => openAccounts(net) });
-    out.push({ icon: '🖼️', kind: 'Action', title: 'Hang a picture', detail: 'On a wall of this floor', keywords: ['decorate', 'frame', 'art'], open: hanging.startHanging });
-    out.push({ icon: '🔎', kind: 'Action', title: 'Search the chat and every terminal', keywords: ['find'], open: showSearch });
+    out.push(at('queue', 'the task queue', { icon: '📋', kind: 'Action', title: 'Open the task queue', detail: "직원에게 맡길 이슈와 대기 중인 작업", keywords: ['backlog', 'tasks'], open: showQueue }));
+    out.push({ icon: '⚙️', kind: 'Action', title: "설정", keywords: ['preferences', 'options'], open: () => parts.hud.showSettings() });
+    if (store.invites) out.push({ icon: '👥', kind: 'Action', title: "팀원 초대", keywords: ['team', 'add people'], open: () => openTeam(net) });
+    else if (store.me.admin) out.push({ icon: '👥', kind: 'Action', title: 'Invite people', detail: "계정 관리", keywords: ['invite teammates', 'accounts', 'team'], open: () => openAccounts(net) });
+    out.push({ icon: '🖼️', kind: 'Action', title: "그림 걸기", detail: 'On a wall of this floor', keywords: ['decorate', 'frame', 'art'], open: hanging.startHanging });
+    out.push({ icon: '🔎', kind: 'Action', title: "채팅과 모든 터미널 검색", keywords: ['find'], open: showSearch });
 
-    out.push(at('issues', 'the Issues board', { icon: '📌', kind: 'Board', title: 'Issues board', open: () => openBoard('issues', net, actions.boardActions()) }));
+    out.push(at('issues', 'the Issues board', { icon: '📌', kind: 'Board', title: "이슈 게시판", open: () => openBoard('issues', net, actions.boardActions()) }));
     out.push(at('pulls', 'the PR board', { icon: '🔀', kind: 'Board', title: 'PR board', keywords: ['pull requests'], open: () => openBoard('pulls', net, actions.boardActions()) }));
-    out.push(at('services', 'the Services board', { icon: '🌐', kind: 'Board', title: 'Services board', detail: 'Web servers the workers are running', open: () => openServices() }));
-    out.push(at('whiteboard', 'the whiteboard', { icon: '📝', kind: 'Board', title: 'Whiteboard', open: () => openWhiteboard(net) }));
-    out.push(at('meeting', 'the meeting room', { icon: '🤝', kind: 'Board', title: 'Meeting room', keywords: ['call a meeting'], open: () => meeting.showMeeting() }));
+    out.push(at('services', 'the Services board', { icon: '🌐', kind: 'Board', title: 'Services board', detail: "직원들이 실행한 웹 서버", open: () => openServices() }));
+    out.push(at('whiteboard', 'the whiteboard', { icon: '📝', kind: 'Board', title: "화이트보드", open: () => openWhiteboard(net) }));
+    out.push(at('meeting', 'the meeting room', { icon: '🤝', kind: 'Board', title: "회의실", keywords: ['call a meeting'], open: () => meeting.showMeeting() }));
 
     for (const pr of store.pulls.items) {
       out.push(

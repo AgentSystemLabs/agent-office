@@ -256,7 +256,7 @@ export class Dog {
     const s = this.state;
     if (!s) return '';
     const moving = performance.now() < this.arriveAt;
-    const w = s.workerId ? (workerName(s.workerId) ?? 'a worker') : 'a worker';
+    const w = s.workerId ? (workerName(s.workerId) ?? "직원") : "직원";
     if (s.following) return `following ${personName(s.following) ?? 'someone'}`;
     switch (s.act) {
       case 'bark':

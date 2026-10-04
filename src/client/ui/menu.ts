@@ -32,12 +32,12 @@ export interface HudAction {
 }
 
 const PANELS: { id: HudPanel; icon: string; label: string; what: string }[] = [
-  { id: 'workers', icon: '🤖', label: 'Workers', what: 'Every desk and what it’s up to' },
-  { id: 'people', icon: '👥', label: 'People', what: 'Who’s here, on which floor' },
-  { id: 'spend', icon: '💸', label: 'Spend', what: 'Today, the budget, all time' },
-  { id: 'limits', icon: '⏳', label: 'Claude limits', what: 'The plan’s 5-hour and week' },
-  { id: 'chat', icon: '💬', label: 'Chat', what: 'T opens it either way' },
-  { id: 'floor', icon: '🏢', label: 'Floor details', what: 'Branch, folder, default agent' },
+  { id: 'workers', icon: '🤖', label: "직원", what: "책상별 직원과 작업 현황" },
+  { id: 'people', icon: '👥', label: "참여자", what: "접속 중인 참여자와 현재 층" },
+  { id: 'spend', icon: '💸', label: "사용 금액", what: "오늘 사용량, 예산, 누적 금액" },
+  { id: 'limits', icon: '⏳', label: "Claude 사용 한도", what: "요금제의 5시간·주간 사용 한도" },
+  { id: 'chat', icon: '💬', label: "채팅", what: "T를 누르면 채팅창이 열립니다" },
+  { id: 'floor', icon: '🏢', label: "프로젝트 정보", what: "브랜치, 저장 폴더, 기본 에이전트" },
 ];
 
 /** The element each panel is. */
@@ -47,7 +47,7 @@ const PIN_SVG = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="tr
 
 /** The ✕ in a panel's heading, which hides it until you turn it back on from the ☰ menu. */
 export function panelHide(id: HudPanel): HTMLElement {
-  return h('button.panel-x', { type: 'button', 'data-hud': id, 'aria-label': 'Hide', title: 'Hide (☰ brings it back)' }, '✕');
+  return h('button.panel-x', { type: 'button', 'data-hud': id, 'aria-label': "숨기기", title: "숨기기 (☰ 메뉴에서 다시 표시)" }, '✕');
 }
 
 export interface Hud {
@@ -70,7 +70,7 @@ export function mountHud(actions: HudAction[], settings: Settings, save: () => v
   const pinned = (a: HudAction) => settings.pins.includes(a.id);
   let menu: Modal | null = null;
 
-  const menuBtn = h('button.btn.dock-btn.dock-menu', { type: 'button', 'aria-label': 'Menu', 'aria-haspopup': 'menu', 'aria-expanded': 'false', title: 'Menu: everything else, and what shows on screen (Tab)' }, h('span.burger', { 'aria-hidden': 'true' }, h('i'), h('i'), h('i')));
+  const menuBtn = h('button.btn.dock-btn.dock-menu', { type: 'button', 'aria-label': "메뉴", 'aria-haspopup': 'menu', 'aria-expanded': 'false', title: "전체 메뉴와 화면 표시 설정 (Tab)" }, h('span.burger', { 'aria-hidden': 'true' }, h('i'), h('i'), h('i')));
   menuBtn.addEventListener('click', () => toggleMenu());
 
   function applyPanels() {
@@ -117,7 +117,7 @@ export function mountHud(actions: HudAction[], settings: Settings, save: () => v
     const on = settings.hud[id];
     return h(
       'button.btn.dock-btn.dock-panel',
-      { type: 'button', 'aria-pressed': String(on), title: `${title}${on ? ' · click to hide' : ' · click to show'}`, onclick: () => setPanel(id, !settings.hud[id]) },
+      { type: 'button', 'aria-pressed': String(on), title: `${title}${on ? " · 클릭해서 숨기기" : " · 클릭해서 표시"}`, onclick: () => setPanel(id, !settings.hud[id]) },
       icon,
       h('span.lbl', {}, label),
       n ? h('span.n', {}, String(n)) : null,
@@ -127,14 +127,14 @@ export function mountHud(actions: HudAction[], settings: Settings, save: () => v
   function render() {
     const items: HTMLElement[] = actions.filter((a) => offered(a) && (pinned(a) || a.status?.())).map(dockButton);
     const people = store.peers.size;
-    if (people > 1 || settings.hud.people) items.push(panelChip('people', '👥', 'People', people, `${people} in the office`));
+    if (people > 1 || settings.hud.people) items.push(panelChip('people', '👥', "참여자", people, `사무실 참여자 ${people}명`));
     const workers = [...store.workers.values()];
     // Hired onto desks, bean bags and the meeting room's table; the board agents at their kiosks don't count.
     const hired = workers.filter((w) => !DESK_BY_ID.get(w.deskId)?.station).length;
     const waiting = workers.filter(waitingOnSomeone).length;
-    const workersTitle = hired || waiting ? `${hired} worker${hired === 1 ? '' : 's'} on this floor${waiting ? `, ${waiting} waiting on someone` : ''}` : 'No workers on this floor yet';
+    const workersTitle = hired || waiting ? `이 프로젝트의 직원 ${hired}명${waiting ? `, 응답 대기 ${waiting}명` : ''}` : "이 프로젝트에는 아직 직원이 없습니다";
     // Who's waiting has its own button on the bar (the 'waiting' action), so this just counts them.
-    items.push(panelChip('workers', '🤖', 'Workers', hired, workersTitle));
+    items.push(panelChip('workers', '🤖', "직원", hired, workersTitle));
     // Redrawn only when it looks different, so a busy worker's updates don't swap a button out from under a click.
     const next = h('div', {}, ...items);
     if (next.innerHTML !== [...dock.children].filter((c) => c !== menuBtn).map((c) => c.outerHTML).join('')) dock.replaceChildren(...items, menuBtn);
@@ -170,8 +170,8 @@ export function mountHud(actions: HudAction[], settings: Settings, save: () => v
       pin.innerHTML = PIN_SVG;
       const paintPin = () => {
         pin.setAttribute('aria-pressed', String(pinned(a)));
-        pin.setAttribute('aria-label', `Pin ${labelOf(a)} to the top bar`);
-        pin.title = pinned(a) ? 'Unpin from the top bar' : 'Pin to the top bar';
+        pin.setAttribute('aria-label', `${labelOf(a)} 상단 바에 고정`);
+        pin.title = pinned(a) ? "상단 바 고정 해제" : "상단 바에 고정";
       };
       paintPin();
       pin.addEventListener('click', () => {
@@ -200,10 +200,10 @@ export function mountHud(actions: HudAction[], settings: Settings, save: () => v
     const rows = (s: HudAction['section']) => actions.filter((a) => a.section === s && offered(a)).map(row);
     const el = h(
       'div.hud-menu',
-      { role: 'menu', 'aria-label': 'Menu' },
-      h('div.menu-col', {}, ...section('Open', rows('Open')), ...section('Together', rows('Together'))),
-      h('div.menu-col', {}, ...section('Show on screen', PANELS.map(toggle)), ...section('Office', rows('Office'))),
-      h('p.menu-foot', {}, 'Pin what you use most to keep it on the top bar. ', h('kbd', {}, 'Tab'), ' opens and closes this menu.'),
+      { role: 'menu', 'aria-label': "메뉴" },
+      h('div.menu-col', {}, ...section("열기", rows('Open')), ...section("함께하기", rows('Together'))),
+      h('div.menu-col', {}, ...section("화면에 표시", PANELS.map(toggle)), ...section("사무실", rows('Office'))),
+      h('p.menu-foot', {}, "자주 쓰는 기능은 상단 바에 고정하세요. ", h('kbd', {}, 'Tab'), " 키로 이 메뉴를 열고 닫습니다."),
     );
     // On the window, so the keys work wherever focus is while the menu is up.
     const onKey = (e: KeyboardEvent) => menuKey(el, e);

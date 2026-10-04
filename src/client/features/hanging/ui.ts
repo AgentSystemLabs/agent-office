@@ -27,26 +27,26 @@ const TIP = 'Paste a link to an image. Online, right-click any picture and choos
 export function openHangDialog(opts: { initial?: Decoration; onDone(choice: HangChoice): void }) {
   const init = opts.initial;
   const urlIn = h('input', { type: 'text', placeholder: 'https://…/picture.png', 'aria-label': 'Image link', spellcheck: 'false', autocomplete: 'off' }) as HTMLInputElement;
-  const titleIn = h('input', { type: 'text', maxlength: 80, placeholder: 'Optional', 'aria-label': 'Title', autocomplete: 'off' }) as HTMLInputElement;
+  const titleIn = h('input', { type: 'text', maxlength: 80, placeholder: 'Optional', 'aria-label': "제목", autocomplete: 'off' }) as HTMLInputElement;
   urlIn.value = init?.url ?? '';
   titleIn.value = init?.title ?? '';
   let frame = init?.frame ?? lastFrame();
   const frames = h('div.seg', { role: 'radiogroup', 'aria-label': 'Frame' });
   const preview = h('div.hang-preview');
   const status = h('p.hang-status', {}, TIP);
-  const submit = h('button.btn.primary', { type: 'submit', disabled: true }, init ? 'Save' : 'Pick a spot on the wall →') as HTMLButtonElement;
-  const cancel = h('button.btn', { type: 'button' }, 'Cancel');
-  const close = h('button.btn.close', { type: 'button', 'aria-label': 'Close' }, '✕');
+  const submit = h('button.btn.primary', { type: 'submit', disabled: true }, init ? "저장" : 'Pick a spot on the wall →') as HTMLButtonElement;
+  const cancel = h('button.btn', { type: 'button' }, "취소");
+  const close = h('button.btn.close', { type: 'button', 'aria-label': "닫기" }, '✕');
   const form = h(
     'form.modal.hang',
-    { role: 'dialog', 'aria-label': init ? 'Edit picture' : 'Hang a picture' },
+    { role: 'dialog', 'aria-label': init ? 'Edit picture' : "그림 걸기" },
     h('header', {}, h('h2', {}, init ? '🖼️ Edit picture' : '🖼️ Hang a picture'), close),
     h(
       'div.body',
       {},
       h('label', {}, 'Image link'),
       urlIn,
-      h('label', { style: 'margin-top:12px' }, 'Title'),
+      h('label', { style: 'margin-top:12px' }, "제목"),
       titleIn,
       h('label', { style: 'margin-top:12px' }, 'Frame'),
       frames,
@@ -172,9 +172,9 @@ export function openPicture(d: Decoration, actions: { move(): void; edit(): void
     (err) => stage.replaceChildren(h('p.hang-status.error', {}, `⚠️ ${(err as Error).message}`)),
   );
   const link = h('a', { href: d.url, target: '_blank', rel: 'noopener noreferrer' }, 'Open the original ↗');
-  const close = h('button.btn.close', { type: 'button', 'aria-label': 'Close' }, '✕');
+  const close = h('button.btn.close', { type: 'button', 'aria-label': "닫기" }, '✕');
   const takeDown = h('button.btn.danger', { type: 'button' }, 'Take down');
-  const edit = h('button.btn', { type: 'button' }, '✏️ Edit');
+  const edit = h('button.btn', { type: 'button' }, "✏️ 수정");
   const move = h('button.btn.primary', { type: 'button' }, '↔️ Move');
   const el = h(
     'div.modal.picture',

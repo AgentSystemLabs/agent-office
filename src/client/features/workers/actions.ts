@@ -73,7 +73,7 @@ export function installWorkerActions(ctx: Ctx, core: CoreState, parts: WorkerAct
   function officeIsFull(): boolean {
     const m = store.machine;
     if (!officeFull(m)) return false;
-    toast(`🚫 The office is at its limit of ${m.limit} worker${m.limit === 1 ? '' : 's'} — send one home before hiring another`, 'warn');
+    toast(`🚫 직원 한도 ${m.limit}명에 도달했습니다. 새 직원을 고용하려면 먼저 한 명을 퇴근시키세요`, 'warn');
     return true;
   }
 
@@ -97,10 +97,10 @@ export function installWorkerActions(ctx: Ctx, core: CoreState, parts: WorkerAct
     if (!w) {
       if (officeIsFull()) return;
       openPrompt({
-        title: `✨ New task at ${desk.label}`,
-        subtitle: 'A fresh worker will sit down and start on this right away.',
+        title: `✨ ${desk.label}에 새 작업 맡기기`,
+        subtitle: "새 직원이 자리에 앉아 이 작업을 바로 시작합니다.",
         warning: pressureNote(store.machine),
-        submitLabel: 'Hire & start',
+        submitLabel: "직원 고용 및 작업 시작",
         providerOption: true,
         worktreeOption: !!store.project?.branch,
         repoOptions: repoChoices(),
@@ -109,18 +109,18 @@ export function installWorkerActions(ctx: Ctx, core: CoreState, parts: WorkerAct
     } else if (w.lost) {
       fixLostWorktree(w);
     } else if (isAsleep(w.status)) {
-      toast(`${w.name} is asleep — press R to resume first`, 'warn');
+      toast(`${w.name}이(가) 잠든 상태입니다. 먼저 R을 눌러 재개하세요`, 'warn');
     } else if (w.kind === 'shell') {
       openPrompt({
-        title: `🐚 Run in ${w.name}`,
+        title: `🐚 ${w.name}에서 명령 실행`,
         placeholder: 'npm run dev',
-        submitLabel: 'Run ▶',
+        submitLabel: "실행 ▶",
         onSubmit: (text) => net.send({ t: 'worker.prompt', workerId: w.id, prompt: text }),
       });
     } else {
       openPrompt({
-        title: `💬 Prompt ${w.name}`,
-        subtitle: w.status === 'working' ? `${w.name} is busy — your message will be queued in their input box.` : undefined,
+        title: `💬 ${w.name}에게 작업 지시`,
+        subtitle: w.status === 'working' ? `${w.name}이(가) 작업 중입니다. 메시지는 입력 대기열에 추가됩니다.` : undefined,
         onSubmit: (text) => net.send({ t: 'worker.prompt', workerId: w.id, prompt: text }),
       });
     }
@@ -131,11 +131,11 @@ export function installWorkerActions(ctx: Ctx, core: CoreState, parts: WorkerAct
     const desk = plan().byId.get(deskId)!;
     if (officeIsFull()) return;
     openPrompt({
-      title: `✨ Hire a worker at ${desk.label}`,
-      subtitle: 'You can start with an empty prompt and send work later.',
+      title: `✨ ${desk.label}에 직원 고용`,
+      subtitle: "지시 내용을 비워 두고 고용한 다음 나중에 작업을 맡겨도 됩니다.",
       warning: pressureNote(store.machine),
-      placeholder: 'Optional first task…',
-      submitLabel: 'Hire & start',
+      placeholder: "첫 작업을 적어주세요 (선택 사항)…",
+      submitLabel: "직원 고용 및 작업 시작",
       allowEmpty: true,
       providerOption: true,
       worktreeOption: !!store.project?.branch,
@@ -148,13 +148,13 @@ export function installWorkerActions(ctx: Ctx, core: CoreState, parts: WorkerAct
   function killWorker(id: string) {
     const w = store.workers.get(id);
     if (!w) return;
-    const where = plan().byId.get(w.deskId)?.label ?? 'the desk';
-    const session = w.kind === 'shell' ? 'shared shell' : `${providerLabel(w.provider, store.project)} session`;
+    const where = plan().byId.get(w.deskId)?.label ?? "책상";
+    const session = w.kind === 'shell' ? "공용 Shell" : `${providerLabel(w.provider, store.project)} 세션`;
     if (w.meeting) {
       // The meeting's worktree is the whole table's: it's tidied away once they've all gone.
       const m = store.meeting.current;
       const on = m?.id === w.meeting && m.status === 'running';
-      confirmDialog(`Send ${w.name} home?`, on ? `${w.name} is in the meeting on “${m.title}”, which stops without it.` : `${w.name} leaves the meeting room.`, 'Send home', () => net.send({ t: 'worker.kill', workerId: id }));
+      confirmDialog(`${w.name}을(를) 퇴근시킬까요?`, on ? `${w.name}은(는) '${m.title}' 회의에 참여 중입니다. 퇴근시키면 회의도 중단됩니다.` : `${w.name}이(가) 회의실에서 나갑니다.`, "퇴근시키기", () => net.send({ t: 'worker.kill', workerId: id }));
       return;
     }
     if (w.worktree) {
@@ -164,16 +164,16 @@ export function installWorkerActions(ctx: Ctx, core: CoreState, parts: WorkerAct
         name: w.name,
         where,
         worktree: w.worktree,
-        repos: w.repos?.length ? [w.worktree.path.split('/').pop() ?? 'its own', ...w.repos.map((r) => r.name)] : undefined,
+        repos: w.repos?.length ? [w.worktree.path.split('/').pop() ?? "전용", ...w.repos.map((r) => r.name)] : undefined,
         ask: () => net.send({ t: 'worker.worktree', workerId: id }),
         onConfirm: (cleanup) => net.send({ t: 'worker.kill', workerId: id, cleanup }),
       });
       return;
     }
     const body = plan().byId.get(w.deskId)?.station
-      ? `This stops its ${session} for everyone, and it forgets what it was asked. The next prompt at the ${where} starts a fresh one.`
-      : `This stops the ${session} at ${where} for everyone and frees the desk.`;
-    confirmDialog(`Send ${w.name} home?`, body, 'Send home', () => net.send({ t: 'worker.kill', workerId: id }));
+      ? `${session}을(를) 종료하고 기존 작업 지시를 잊습니다. 다음에 ${where}에서 지시하면 새 세션을 시작합니다.`
+      : `${where}의 ${session}을(를) 종료하고 책상을 비웁니다.`;
+    confirmDialog(`${w.name}을(를) 퇴근시킬까요?`, body, "퇴근시키기", () => net.send({ t: 'worker.kill', workerId: id }));
   }
 
   /** E at a board agent: type it a request. It's hired with it when nobody is there yet. */
@@ -185,23 +185,23 @@ export function installWorkerActions(ctx: Ctx, core: CoreState, parts: WorkerAct
     const info = STATION_INFO[kind];
     // A prompt typed into a question it's asking would answer it.
     if (w?.status === 'needs_input') {
-      toast(`The ${name} is waiting on an answer — here's its terminal`, 'warn');
+      toast(`${name}이(가) 응답을 기다립니다. 터미널을 열었습니다`, 'warn');
       return openWorkerTerminal(w.id);
     }
     // Nobody there yet: asking hires the agent.
     if (!w && officeIsFull()) return;
     const subtitle = !w
-      ? `${info.does}, in a terminal of my own: press O at the kiosk to watch.`
+      ? `${info.does} · 전용 터미널에서 실행합니다. 게시판 앞에서 O를 누르면 볼 수 있습니다.`
       : isAsleep(w.status)
-        ? `The ${name} is asleep: this wakes it up, and it carries on where it left off.`
+        ? `${name}이(가) 잠든 상태입니다. 깨우면 이전 작업을 이어갑니다.`
         : isBusy(w.status)
-          ? `The ${name} is busy. Your prompt waits in its input box until it's done.`
+          ? `${name}이(가) 작업 중입니다. 현재 작업이 끝나면 입력한 지시를 처리합니다.`
           : undefined;
     openPrompt({
-      title: `${info.icon} Ask the ${name}`,
+      title: `${info.icon} ${name}에게 요청`,
       subtitle,
-      placeholder: `e.g. ${info.example}`,
-      submitLabel: 'Send ✨',
+      placeholder: `예: ${info.example}`,
+      submitLabel: "작업 보내기 ✨",
       warning: w ? undefined : pressureNote(store.machine),
       onSubmit: (text) => net.send({ t: 'station.prompt', deskId, prompt: text }),
     });
@@ -209,7 +209,7 @@ export function installWorkerActions(ctx: Ctx, core: CoreState, parts: WorkerAct
 
   function resumeWorker(w: WorkerInfo) {
     if (w.lost) return fixLostWorktree(w);
-    if (!w.sessionId && w.kind !== 'shell') toast(`${w.name} has no saved Claude session — starting a fresh one`, 'warn');
+    if (!w.sessionId && w.kind !== 'shell') toast(`${w.name}의 저장된 Claude 세션이 없어 새로 시작합니다`, 'warn');
     net.send({ t: 'worker.resume', workerId: w.id });
   }
 
@@ -229,7 +229,7 @@ export function installWorkerActions(ctx: Ctx, core: CoreState, parts: WorkerAct
       others: others.map((o) => o.name),
       openTerminal: isAsleep(w.status) ? undefined : () => openTerminal(net, w.id, () => openWorkerChanges(w.id)),
       rebuild: (all) => {
-        toast(all ? `Rebuilding ${others.length + 1} worktrees…` : `Rebuilding ${w.name}'s worktree…`);
+        toast(all ? `worktree ${others.length + 1}개를 다시 만드는 중…` : `${w.name}의 worktree를 다시 만드는 중…`);
         net.send({ t: 'worker.rebuild', workerId: w.id, all });
       },
       sendHome: () => killWorker(w.id),
@@ -250,11 +250,11 @@ export function installWorkerActions(ctx: Ctx, core: CoreState, parts: WorkerAct
       else window.open(w.pr.url, '_blank', 'noopener');
       return;
     }
-    if (!w.worktree) return toast(`${w.name} works in the main checkout — only workers with their own worktree can open a PR`, 'warn');
+    if (!w.worktree) return toast(`${w.name}은(는) 공용 프로젝트 폴더에서 작업합니다. 전용 worktree가 있는 직원만 PR을 생성할 수 있습니다`, 'warn');
     if (w.lost) return fixLostWorktree(w);
     if (w.prOpening) return;
-    if (!prReady(w)) return toast(`${w.name} is still ${STATUS_LABEL[w.status]} — wait until it's done`, 'warn');
-    toast(`Pushing ${w.worktree.branch} and opening a pull request…`);
+    if (!prReady(w)) return toast(`${w.name}의 현재 상태는 '${STATUS_LABEL[w.status]}'입니다. 완료될 때까지 기다려주세요`, 'warn');
+    toast(`${w.worktree.branch}을(를) push하고 PR을 생성하는 중…`);
     net.send({ t: 'worker.pr', workerId: w.id });
   }
 
@@ -268,8 +268,8 @@ export function installWorkerActions(ctx: Ctx, core: CoreState, parts: WorkerAct
       const now = store.workers.get(w.id);
       if (!now || now.prOpening) return;
       if (now.lost) return fixLostWorktree(now);
-      if (!prReady(now)) return toast(`${now.name} is still ${STATUS_LABEL[now.status]} — wait until it's done`, 'warn');
-      toast(`Pushing ${now.worktree?.branch ?? 'its branch'} in each of ${now.name}'s repositories and opening pull requests…`);
+      if (!prReady(now)) return toast(`${now.name}의 현재 상태는 '${STATUS_LABEL[now.status]}'입니다. 완료될 때까지 기다려주세요`, 'warn');
+      toast(`${now.name}의 각 저장소에 ${now.worktree?.branch ?? "작업 브랜치"}을(를) push하고 PR을 생성하는 중…`);
       net.send({ t: 'worker.pr', workerId: now.id });
     };
     if (!workerRepos(w).some((r) => r.pr)) return open();
@@ -291,7 +291,7 @@ export function installWorkerActions(ctx: Ctx, core: CoreState, parts: WorkerAct
     closeAllModals();
     standAt(desk);
     const w = store.workerAtDesk(deskId);
-    toast(w ? `You're at ${desk.label}, ${w.name}'s desk` : `You're at ${desk.label}`);
+    toast(w ? `${desk.label} · ${w.name}의 책상 앞` : `현재 위치: ${desk.label}`);
   }
 
   /** Behind the worker, looking over their shoulder at the laptop (or in front of a board agent's kiosk). */
@@ -345,10 +345,10 @@ export function installWorkerActions(ctx: Ctx, core: CoreState, parts: WorkerAct
 
   function deskHint(deskId: string): Hint {
     const w = store.workerAtDesk(deskId);
-    if (!w && plan().byId.get(deskId)?.room) return { k: 'room', parts: [h('span.title', {}, `🤝 ${plan().byId.get(deskId)!.label} · free`), key('E', 'Call a meeting')] };
+    if (!w && plan().byId.get(deskId)?.room) return { k: 'room', parts: [h('span.title', {}, `🤝 ${plan().byId.get(deskId)!.label} · 비어 있음`), key('E', "회의 열기")] };
     // The sign over it, if it has one, and L to hang one (or change it).
     const sign = store.floorPlan.labels[deskId]?.text;
-    const labelKey = canLabel(deskId) ? key('L', sign ? 'Sign' : 'Label') : '';
+    const labelKey = canLabel(deskId) ? key('L', sign ? "표지판" : "표지판") : '';
     const deskName = `${sign ? `🪧 ${sign} · ` : ''}${plan().byId.get(deskId)!.label}`;
     if (!w) {
       const paused = hiringPaused();
@@ -357,13 +357,13 @@ export function installWorkerActions(ctx: Ctx, core: CoreState, parts: WorkerAct
       return {
         k: `${paused}|${full}|${m.workers}|${m.limit}|${!!m.pressure}|${sign}`,
         parts: [
-          h('span.title', {}, `${deskName} · empty`),
+          h('span.title', {}, `${deskName} · 비어 있음`),
           ...(full
-            ? [h('span.cost', {}, `🚫 Office full · ${m.workers} of ${m.limit} workers`)]
+            ? [h('span.cost', {}, `🚫 인원 한도 도달 · 직원 ${m.workers}/${m.limit}명`)]
             : [
-                m.pressure ? h('span.cost', { title: `This machine is under pressure: ${m.pressure}` }, '⚠️ Machine under pressure') : '',
-                ...(paused ? [h('span.cost', {}, '💸 Budget spent — hiring resumes tomorrow')] : [key('E', 'Hire a worker'), key('P', 'Hire with a task')]),
-                key('B', 'Shell'),
+                m.pressure ? h('span.cost', { title: `이 컴퓨터의 자원이 부족합니다: ${m.pressure}` }, "⚠️ 컴퓨터 자원 부족") : '',
+                ...(paused ? [h('span.cost', {}, "💸 오늘 예산을 모두 사용했습니다. 내일부터 다시 고용할 수 있습니다")] : [key('E', "직원 고용"), key('P', "작업을 맡기며 고용")]),
+                key('B', "Shell"),
               ]),
           labelKey,
         ],
@@ -373,10 +373,10 @@ export function installWorkerActions(ctx: Ctx, core: CoreState, parts: WorkerAct
       return {
         k: `lost|${w.id}|${w.lost.branch}|${sign}`,
         parts: [
-          h('span.title', {}, `${sign ? `🪧 ${sign} · ` : ''}${w.name} · 🌿 worktree deleted`),
-          aside('deleted outside agent-office'),
-          key('E', 'Fix it'),
-          key('X', 'Send home'),
+          h('span.title', {}, `${sign ? `🪧 ${sign} · ` : ''}${w.name} · 🌿 worktree 삭제됨`),
+          aside("Agent Office 외부에서 삭제됨"),
+          key('E', "복구하기"),
+          key('X', "퇴근시키기"),
           labelKey,
         ],
       };
@@ -391,11 +391,11 @@ export function installWorkerActions(ctx: Ctx, core: CoreState, parts: WorkerAct
         h('span.title', {}, `${sign ? `🪧 ${sign} · ` : ''}${w.name} · ${STATUS_LABEL[w.status]}`),
         doing ? aside(doing) : '',
         spent ? h('span.cost', { title: usageTitle(w.usage!, workerProvider) }, spent) : '',
-        key('E', 'Open terminal'),
-        key('C', 'Changes'),
-        isAsleep(w.status) ? key('R', shell ? 'Restart' : 'Resume') : key('P', shell ? 'Run command' : 'Prompt'),
-        w.repos?.length ? reposKey(w) : w.pr ? key('O', `PR #${w.pr.number}`) : w.prOpening ? aside('⏳ Opening PR…') : prReady(w) ? key('O', 'Open PR') : '',
-        key('X', 'Send home'),
+        key('E', "터미널 열기"),
+        key('C', "변경 사항"),
+        isAsleep(w.status) ? key('R', shell ? "다시 시작" : "재개") : key('P', shell ? "명령 실행" : "작업 지시"),
+        w.repos?.length ? reposKey(w) : w.pr ? key('O', `PR #${w.pr.number}`) : w.prOpening ? aside("⏳ PR 생성 중…") : prReady(w) ? key('O', "PR 생성") : '',
+        key('X', "퇴근시키기"),
         labelKey,
       ],
     };
@@ -405,9 +405,9 @@ export function installWorkerActions(ctx: Ctx, core: CoreState, parts: WorkerAct
   function reposKey(w: WorkerInfo) {
     const repos = workerRepos(w);
     const prs = repos.filter((r) => r.pr).length;
-    if (w.prOpening) return aside('⏳ Opening PRs…');
-    if (prs) return key('O', `${prs} of ${repos.length} PRs`);
-    return prReady(w) ? key('O', `Open PRs (${repos.length} repos)`) : '';
+    if (w.prOpening) return aside("⏳ PR 생성 중…");
+    if (prs) return key('O', `PR ${prs}/${repos.length}`);
+    return prReady(w) ? key('O', `PR 생성 (저장소 ${repos.length}개)`) : '';
   }
 
   function stationHint(deskId: string): Hint {
@@ -423,7 +423,7 @@ export function installWorkerActions(ctx: Ctx, core: CoreState, parts: WorkerAct
         parts: [
           h('span.title', {}, `${info.icon} ${STATION_AGENT[kind].name}`),
           aside(info.offer.replace(/^Ask me /, '')),
-          full ? h('span.cost', {}, `🚫 Office full · ${m.workers} of ${m.limit} workers`) : key('E', 'Prompt'),
+          full ? h('span.cost', {}, `🚫 인원 한도 도달 · 직원 ${m.workers}/${m.limit}명`) : key('E', "작업 지시"),
         ],
       };
     }
@@ -436,9 +436,9 @@ export function installWorkerActions(ctx: Ctx, core: CoreState, parts: WorkerAct
         h('span.title', {}, `${info.icon} ${w.name} · ${STATUS_LABEL[w.status]}`),
         doing ? aside(doing) : '',
         spent ? h('span.cost', { title: usageTitle(w.usage!, provider) }, spent) : '',
-        key('E', isAsleep(w.status) ? 'Wake with a prompt' : 'Prompt'),
-        key('O', 'Terminal'),
-        key('X', 'Send home'),
+        key('E', isAsleep(w.status) ? "작업을 맡기며 재개" : "작업 지시"),
+        key('O', "터미널"),
+        key('X', "퇴근시키기"),
       ],
     };
   }
@@ -478,7 +478,7 @@ export function installWorkerActions(ctx: Ctx, core: CoreState, parts: WorkerAct
     const desk = freeDesk();
     const awake = [...store.workers.values()].filter((w) => w.kind === 'agent' && !isAsleep(w.status));
     if (!desk && !awake.length) {
-      toast('Every desk and bean bag is taken — send a worker home first', 'warn');
+      toast("빈 책상이나 자리가 없습니다. 먼저 직원을 퇴근시키세요", 'warn');
       return;
     }
     openAsk({

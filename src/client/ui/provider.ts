@@ -8,11 +8,11 @@ import { h } from './dom';
 export const PROVIDER_LABEL = Object.fromEntries(AGENT_PROVIDERS.map((p) => [p, PROVIDER_META[p].label])) as Record<AgentProvider, string>;
 
 export const EFFORT_LABEL: Record<AgentEffort, string> = {
-  low: 'Low',
-  medium: 'Medium',
-  high: 'High',
-  xhigh: 'Extra high',
-  max: 'Max',
+  low: "낮음",
+  medium: "보통",
+  high: "높음",
+  xhigh: "매우 높음",
+  max: "최대",
 };
 
 /** Claude Code's models go by their names, and so does a custom --agent's, which is read the same way. */
@@ -158,20 +158,20 @@ function loadCatalogue(provider: AgentProvider): Promise<void> | undefined {
  * takes, and how its model is asked for, is its row in the provider table (shared/providers.ts), so
  * a provider added there gets its fields here.
  */
-export function agentFields(project: ProjectInfo | null, id: string, initial: AgentChoice, label = 'Provider'): AgentFields {
+export function agentFields(project: ProjectInfo | null, id: string, initial: AgentChoice, label = "에이전트"): AgentFields {
   const options = supportedProviders(project);
   const fallback = resolvedProvider(project?.defaultProvider, project);
-  const select = h('select.provider-select', { id, 'aria-label': 'Worker provider' }) as HTMLSelectElement;
+  const select = h('select.provider-select', { id, 'aria-label': "직원 에이전트" }) as HTMLSelectElement;
   for (const provider of options) select.append(h('option', { value: provider }, PROVIDER_LABEL[provider]));
   const note = h('small.provider-note');
   // A model is picked from a list or typed in, by provider: the two controls take turns.
-  const modelLabel = h('label', {}, 'Model') as HTMLLabelElement;
+  const modelLabel = h('label', {}, "모델") as HTMLLabelElement;
   const modelSelect = h('select', { id: `${id}-model` }) as HTMLSelectElement;
   const modelInput = h('input', { type: 'text', id: `${id}-model-id`, list: `${id}-models`, autocomplete: 'off', spellcheck: 'false' }) as HTMLInputElement;
   const suggestions = h('datalist', { id: `${id}-models` });
-  const effortLabel = h('label', { for: `${id}-effort` }, 'Effort');
+  const effortLabel = h('label', { for: `${id}-effort` }, "추론 수준");
   const effortSelect = h('select', { id: `${id}-effort` }) as HTMLSelectElement;
-  effortSelect.append(h('option', { value: '' }, 'Default'));
+  effortSelect.append(h('option', { value: '' }, "기본값"));
   for (const e of AGENT_EFFORTS) effortSelect.append(h('option', { value: e }, EFFORT_LABEL[e]));
   const hint = h('small.provider-model-hint');
   const fields = h('div.provider-model', {}, modelLabel, modelSelect, modelInput, suggestions, effortLabel, effortSelect, hint);
@@ -192,7 +192,7 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
   const pick = (id: string) => {
     const models = known();
     chosen = id;
-    modelSelect.replaceChildren(h('option', { value: '' }, meta().models?.unset ?? 'Default'), ...models.map((m) => h('option', { value: m.id }, m.name ?? m.id)));
+    modelSelect.replaceChildren(h('option', { value: '' }, meta().models?.unset ?? "기본값"), ...models.map((m) => h('option', { value: m.id }, m.name ?? m.id)));
     if (id && !models.some((m) => m.id === id)) modelSelect.append(h('option', { value: id }, id));
     modelSelect.value = id;
     if (modelInput.value.trim() !== id) modelInput.value = id;
@@ -204,7 +204,7 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
     for (const option of effortSelect.options) option.disabled = !!option.value && !!efforts && !efforts.includes(option.value as AgentEffort);
     if (effortSelect.selectedOptions[0]?.disabled) effortSelect.value = '';
     effortSelect.disabled = efforts?.length === 0;
-    effortSelect.title = efforts?.length === 0 ? 'This model has no reasoning effort to pick' : '';
+    effortSelect.title = efforts?.length === 0 ? "이 모델은 추론 수준을 선택할 수 없습니다" : '';
   };
   /** Shows the fields the provider takes. */
   const paint = () => {
@@ -216,16 +216,16 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
     modelSelect.classList.toggle('hidden', !field || typed());
     modelInput.classList.toggle('hidden', !field || !typed());
     modelLabel.htmlFor = typed() ? modelInput.id : modelSelect.id;
-    for (const control of [modelSelect, modelInput]) control.setAttribute('aria-label', `${m.label} model`);
+    for (const control of [modelSelect, modelInput]) control.setAttribute('aria-label', `${m.label} 모델`);
     modelInput.placeholder = field?.unset ?? '';
     modelInput.maxLength = field?.max ?? 256;
-    effortLabel.textContent = m.effortLabel ?? 'Effort';
+    effortLabel.textContent = m.effortLabel ?? "추론 수준";
     effortLabel.classList.toggle('hidden', !m.takesEffort);
     effortSelect.classList.toggle('hidden', !m.takesEffort);
-    effortSelect.setAttribute('aria-label', m.effortLabel ? `${m.label} ${m.effortLabel.toLowerCase()} level` : `${m.label} reasoning effort`);
+    effortSelect.setAttribute('aria-label', m.effortLabel ? `${m.label} ${m.effortLabel.toLowerCase()} 수준` : `${m.label} 추론 수준`);
     if (!field) hint.textContent = m.unpicked ?? '';
-    else if (field.catalog && catalogue?.request) hint.textContent = `Loading ${m.label} models…`;
-    else if (field.catalog && catalogue?.failed) hint.textContent = `${m.label}’s models couldn’t be listed: leave it empty for its default, or type a model id.`;
+    else if (field.catalog && catalogue?.request) hint.textContent = `${m.label} 모델 목록을 불러오는 중…`;
+    else if (field.catalog && catalogue?.failed) hint.textContent = `${m.label} 모델 목록을 불러오지 못했습니다. 비워 두면 기본 모델을 사용합니다. 모델 ID를 직접 입력해도 됩니다.`;
     else hint.textContent = field.hint;
     fields.classList.toggle('hidden', !field && !m.takesEffort && !hint.textContent);
     paintEffort();
@@ -278,7 +278,7 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
     choice: () => ({ provider: value(), ...(model() ? { model: model() } : {}), ...(effort() ? { effort: effort() } : {}) }),
     valid: () => {
       const okay = !chosen || !!meta().validModel?.(chosen);
-      modelInput.setCustomValidity(okay ? '' : (meta().models?.invalid ?? 'That isn’t a model id this provider takes.'));
+      modelInput.setCustomValidity(okay ? '' : (meta().models?.invalid ?? "이 에이전트에서 사용할 수 없는 모델 ID입니다."));
       if (!okay) modelInput.reportValidity();
       return okay;
     },
@@ -289,7 +289,7 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
  * Which worker to start: the office's default (⚙️ Settings), shown as a line, with an ✏️ Edit button
  * that opens the provider, model and effort fields to pick another for this one.
  */
-export function providerPicker(project: ProjectInfo | null, id: string, label = 'Worker'): ProviderPicker {
+export function providerPicker(project: ProjectInfo | null, id: string, label = "직원"): ProviderPicker {
   let editing = false;
   const fields = agentFields(project, id, officeChoice(project));
   fields.element.classList.add('hidden');
@@ -299,10 +299,10 @@ export function providerPicker(project: ProjectInfo | null, id: string, label = 
   const paint = () => {
     const def = officeChoice(project);
     current.textContent = choiceLabel(def);
-    current.title = store.prompts.agent ? 'The office’s default worker, set in ⚙️ Settings' : 'The office’s default worker (its --agent); an admin can pick another in ⚙️ Settings';
+    current.title = store.prompts.agent ? "⚙️ 설정에서 지정한 기본 에이전트" : "앱 실행 시 지정한 기본 에이전트 (--agent). 관리자가 ⚙️ 설정에서 변경할 수 있습니다";
     current.classList.toggle('hidden', editing);
-    edit.textContent = editing ? '↺ Use the default' : '✏️ Edit';
-    edit.title = editing ? `Back to ${choiceLabel(def)}` : 'Pick another provider, model or effort for this one';
+    edit.textContent = editing ? "↺ 기본값 사용" : "✏️ 수정";
+    edit.title = editing ? `${choiceLabel(def)}(으)로 돌아가기` : "이 작업에 사용할 에이전트, 모델, 추론 수준 변경";
     edit.setAttribute('aria-expanded', String(editing));
     fields.element.classList.toggle('hidden', !editing);
   };

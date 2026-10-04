@@ -33,7 +33,7 @@ import { renderTitle } from './shared/title';
 // Sent here because this browser can't draw the 3D office (see noWebGL in core/scene.ts).
 if (new URLSearchParams(location.search).get('why') === 'webgl') {
   history.replaceState(null, '', location.pathname);
-  toast("This browser can't draw the 3D office (WebGL is off or missing), so here's the 2D view", 'warn');
+  toast("이 브라우저에서 WebGL을 사용할 수 없어 2D 화면으로 전환했습니다", 'warn');
 }
 
 // Your name and color from the 3D office, if this browser has been in it. Nobody sees a character
@@ -80,7 +80,7 @@ net.onMessage((msg) => {
     case 'upgrade':
       if (msg.state.phase === 'restarting') {
         net.expectRestart();
-        toast('⬆️ The office is restarting on its new version. Back in a minute.');
+        toast("⬆️ 새 버전으로 다시 시작하는 중입니다. 잠시 기다려주세요.");
       }
       break;
   }
@@ -99,20 +99,20 @@ const floorLabel = (f: FloorInfo) => `${f.name}${f.cloning ? ` (${cloneLabel(f.c
 
 function renderFloors() {
   const options = store.floors.map((f) => h('option', { value: f.id, disabled: !!f.cloning }, floorLabel(f)));
-  if (!store.floors.length) options.push(h('option', { value: '' }, 'No floors yet'));
+  if (!store.floors.length) options.push(h('option', { value: '' }, "아직 추가된 프로젝트가 없습니다"));
   floorSelect.replaceChildren(...options);
   floorSelect.value = store.floor ?? '';
   floorSelect.disabled = store.floors.length < 2;
   const p = store.project;
   const f = store.currentFloor();
-  $('floor-meta').textContent = p ? [p.branch && `⎇ ${p.branch}`, f?.repo ?? p.dir, f && `👥 ${f.people} here`].filter(Boolean).join(' · ') : store.floors.length ? '' : 'Add a project from the elevator in the 3D office.';
+  $('floor-meta').textContent = p ? [p.branch && `⎇ ${p.branch}`, f?.repo ?? p.dir, f && `👥 참여자 ${f.people}명`].filter(Boolean).join(' · ') : store.floors.length ? '' : "3D 사무실의 엘리베이터에서 프로젝트를 추가하세요.";
   // Someone waiting on another floor: a way straight there.
   const elsewhere = store.floors.filter((o) => o.id !== store.floor && o.waiting > 0 && !o.cloning);
   const box = $('elsewhere');
   box.classList.toggle('hidden', !elsewhere.length);
   box.replaceChildren(
     ...elsewhere.map((o) =>
-      h('button.btn.lite-go', { type: 'button', onclick: () => net.send({ t: 'floor.go', floor: o.id }) }, `🙋 ${o.waiting} waiting on ${o.name}`, h('span', { 'aria-hidden': 'true' }, '→')),
+      h('button.btn.lite-go', { type: 'button', onclick: () => net.send({ t: 'floor.go', floor: o.id }) }, `🙋 ${o.waiting}이(가) ${o.name}의 응답을 기다리는 중`, h('span', { 'aria-hidden': 'true' }, '→')),
     ),
   );
   renderTitle();
@@ -132,7 +132,7 @@ function renderWorkers() {
   const list = byUrgency(store.workers.values());
   const ul = $('workers');
   ul.replaceChildren(...list.map(workerCard));
-  if (!list.length) ul.append(h('li.lite-empty', {}, store.project ? 'Nobody is working on this floor. ✨ New task hires someone.' : 'No workers here.'));
+  if (!list.length) ul.append(h('li.lite-empty', {}, store.project ? "이 프로젝트에는 작업 중인 직원이 없습니다. ✨ 새 작업으로 직원을 고용하세요." : "이 프로젝트에 직원이 없습니다."));
   $('waiting-now').textContent = waitingLabel(waitingInOrder(list));
   renderTitle();
 }
@@ -145,11 +145,11 @@ function workerCard(w: WorkerInfo): HTMLElement {
   const task = w.task?.name ?? w.title ?? (w.prompt ? clip(w.prompt, 90) : undefined);
   // What it's asking, doing or did, in a line.
   const now = w.lost
-    ? '🌿 Its worktree was deleted outside agent-office: open it to fix it'
+    ? "🌿 Agent Office 외부에서 worktree가 삭제되었습니다. 열어서 복구하세요"
     : w.status === 'needs_input'
-      ? `🙋 ${w.activity ?? 'Waiting on an answer'}`
+      ? `🙋 ${w.activity ?? "응답을 기다리는 중"}`
       : asleep
-        ? '💤 Asleep: open it to wake it up'
+        ? "💤 잠든 상태 · 열어서 재개"
         : w.status === 'done'
           ? w.task?.summary && `✅ ${w.task.summary}`
           : (w.task?.summary ?? w.activity);
@@ -162,10 +162,10 @@ function workerCard(w: WorkerInfo): HTMLElement {
   ].filter(Boolean);
   return h(
     'li.lite-worker',
-    { class: `${w.status}${waiting ? ' waiting' : ''}` },
+    { class: `${w.status}${waiting ? " 응답 대기" : ''}` },
     h(
       'button.lite-card',
-      { type: 'button', onclick: () => openWorker(w.id), 'aria-label': `${w.name}, ${STATUS_LABEL[w.status] ?? w.status}: open its terminal` },
+      { type: 'button', onclick: () => openWorker(w.id), 'aria-label': `${w.name}, ${STATUS_LABEL[w.status] ?? w.status} · 터미널 열기` },
       h('span.dot', { style: `background:${w.color}` }),
       h(
         'span.lite-info',
@@ -178,7 +178,7 @@ function workerCard(w: WorkerInfo): HTMLElement {
       h('span.lite-state', {}, h('span.pill', { class: w.status }, STATUS_LABEL[w.status] ?? w.status), waiting && w.waitingSince ? h('small', {}, timeAgo(w.waitingSince)) : null),
     ),
     // One that's asking something is answered in its terminal, where the question is.
-    asleep || w.lost || w.status === 'needs_input' ? null : h('button.btn.lite-say', { type: 'button', title: `Send ${w.name} a prompt`, 'aria-label': `Send ${w.name} a prompt`, onclick: () => promptWorker(w.id) }, '✍️'),
+    asleep || w.lost || w.status === 'needs_input' ? null : h('button.btn.lite-say', { type: 'button', title: `${w.name}에게 작업 지시`, 'aria-label': `${w.name}에게 작업 지시`, onclick: () => promptWorker(w.id) }, '✍️'),
   );
 }
 
@@ -208,7 +208,7 @@ function openWorker(id: string) {
   if (!w) return;
   if (w.lost) return fixLostWorktree(w);
   if (isAsleep(w.status)) {
-    if (!w.sessionId && w.kind !== 'shell') toast(`${w.name} has no saved session — starting a fresh one`, 'warn');
+    if (!w.sessionId && w.kind !== 'shell') toast(`${w.name}의 저장된 세션이 없어 새로 시작합니다`, 'warn');
     net.send({ t: 'worker.resume', workerId: id });
   }
   openTerminal(net, id, () => openChanges(net, id, () => openWorker(id)), undefined, { keypad: true });
@@ -227,16 +227,16 @@ function fixLostWorktree(w: WorkerInfo) {
     others: others.map((o) => o.name),
     openTerminal: isAsleep(w.status) ? undefined : () => openTerminal(net, w.id, () => openChanges(net, w.id, () => openWorker(w.id)), undefined, { keypad: true }),
     rebuild: (all) => {
-      toast(all ? `Rebuilding ${others.length + 1} worktrees…` : `Rebuilding ${w.name}'s worktree…`);
+      toast(all ? `worktree ${others.length + 1}개를 다시 만드는 중…` : `${w.name}의 worktree를 다시 만드는 중…`);
       net.send({ t: 'worker.rebuild', workerId: w.id, all });
     },
     sendHome: () =>
       sendHomeDialog({
         workerId: w.id,
         name: w.name,
-        where: DESK_BY_ID.get(w.deskId)?.label ?? 'its desk',
+        where: DESK_BY_ID.get(w.deskId)?.label ?? "해당 책상",
         worktree,
-        repos: w.repos?.length ? [worktree.path.split(/[\\/]/).pop() ?? 'its own', ...w.repos.map((r) => r.name)] : undefined,
+        repos: w.repos?.length ? [worktree.path.split(/[\\/]/).pop() ?? "전용", ...w.repos.map((r) => r.name)] : undefined,
         ask: () => net.send({ t: 'worker.worktree', workerId: w.id }),
         onConfirm: (cleanup) => net.send({ t: 'worker.kill', workerId: w.id, cleanup }),
       }),
@@ -247,10 +247,10 @@ function promptWorker(id: string) {
   const w = store.workers.get(id);
   if (!w) return;
   openPrompt({
-    title: `✍️ Prompt ${w.name}`,
-    subtitle: w.status === 'working' ? `${w.name} is busy, so this waits in its input box until it's done.` : undefined,
-    placeholder: 'What should it do next?',
-    submitLabel: 'Send',
+    title: `✍️ ${w.name}에게 작업 지시`,
+    subtitle: w.status === 'working' ? `${w.name}이(가) 작업 중입니다. 현재 작업이 끝나면 이 지시를 처리합니다.` : undefined,
+    placeholder: "다음에 맡길 작업을 적어주세요",
+    submitLabel: "보내기",
     onSubmit: (text) => net.send({ t: 'worker.prompt', workerId: id, prompt: text }),
   });
 }
@@ -262,11 +262,11 @@ function hire(deskId: string, prompt: string, worktree: boolean, provider?: Agen
 
 /** With `issue`, the worker the prompt goes to takes that GitHub issue. */
 function sendToWorker(title: string, text: { context?: string; initial?: string } = {}, issue?: number) {
-  if (!store.project) return toast('Pick a floor first', 'warn');
+  if (!store.project) return toast("먼저 프로젝트를 선택하세요", 'warn');
   // The back office's desks too, as far as the floor's built out (see WING).
   const desk = nextFreeSeat((id) => !!store.workerAtDesk(id), store.floorPlan.wing)?.id;
   const awake = [...store.workers.values()].filter((w) => w.kind === 'agent' && !isAsleep(w.status));
-  if (!desk && !awake.length) return toast('Every desk and bean bag is taken — send a worker home first', 'warn');
+  if (!desk && !awake.length) return toast("빈 책상이나 자리가 없습니다. 먼저 직원을 퇴근시키세요", 'warn');
   openAsk({
     title,
     ...text,
@@ -320,7 +320,7 @@ function showMeeting(preset?: MeetingPreset) {
 $('btn-issues').addEventListener('click', () => openBoard('issues', net, boardActions()));
 $('btn-pulls').addEventListener('click', () => openBoard('pulls', net, boardActions()));
 $('btn-queue').addEventListener('click', () => openQueue(net, { openTerminal: openWorker }));
-$('btn-new').addEventListener('click', () => sendToWorker('✨ New task'));
+$('btn-new').addEventListener('click', () => sendToWorker("✨ 새 작업"));
 
 function renderNav() {
   const count = (id: string, n: number) => ($(id).querySelector('.n')!.textContent = n ? String(n) : '');
@@ -352,7 +352,7 @@ onDoingChange(() => sendDoing());
 
 // ---- Notifications ------------------------------------------------------------------------------
 // The browser only asks from a tap, so there's a button for it while it hasn't been asked.
-const bell = h('button.btn', { type: 'button', title: 'Get a notification when a worker needs input or is done', 'aria-label': 'Turn on notifications' }, '🔔');
+const bell = h('button.btn', { type: 'button', title: "직원이 응답을 요청하거나 작업을 완료하면 알림 받기", 'aria-label': "알림 허용" }, '🔔');
 bell.addEventListener('click', async () => {
   await askNotifyPermission();
   bell.remove();
@@ -362,13 +362,13 @@ if (notifyPermission() === 'default' && settings.notify) $('to-3d').before(bell)
 // ---- In ----------------------------------------------------------------------------------------
 /** Your name, the first time this browser comes in on the shared password. */
 function askName(done: (name: string) => void) {
-  const input = h('input', { type: 'text', maxlength: 24, placeholder: 'Your name', 'aria-label': 'Your name', autocomplete: 'nickname' }) as HTMLInputElement;
+  const input = h('input', { type: 'text', maxlength: 24, placeholder: "표시 이름", 'aria-label': "표시 이름", autocomplete: 'nickname' }) as HTMLInputElement;
   const form = h(
     'form.modal.lite-name',
     {},
-    h('header', {}, h('h2', {}, '👋 Who is it?')),
-    h('div.body', {}, h('p', {}, 'Your teammates see this name on what you type and send.'), input),
-    h('footer', {}, h('button.btn.primary', { type: 'submit' }, 'Come on in')),
+    h('header', {}, h('h2', {}, "👋 사용할 이름을 알려주세요")),
+    h('div.body', {}, h('p', {}, "입력하거나 보낸 메시지에 이 이름이 표시됩니다."), input),
+    h('footer', {}, h('button.btn.primary', { type: 'submit' }, "입장하기")),
   );
   const modal = openModal(form, { escCloses: false, backdropCloses: false });
   form.addEventListener('submit', (e) => {

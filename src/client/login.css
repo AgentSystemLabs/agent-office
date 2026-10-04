@@ -4,13 +4,14 @@
 html, body { margin: 0; height: 100%; }
 body {
   background: radial-gradient(circle at 20% 20%, #ffd6a5 0, transparent 40%), radial-gradient(circle at 80% 70%, #caffbf 0, transparent 45%), var(--bg);
-  font-family: 'Nunito', ui-rounded, 'SF Pro Rounded', system-ui, sans-serif;
+  font-family: 'Nunito', ui-rounded, 'SF Pro Rounded', system-ui, 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif;
   color: var(--ink); display: grid; place-items: center; padding: 16px;
 }
 .card { width: min(380px, 100%); background: var(--card); border: 3px solid var(--border); border-radius: 22px; padding: 28px; box-shadow: 0 8px 0 var(--border); text-align: center; }
 .logo { display: grid; place-items: center; }
 h1 { margin: 8px 0 4px; font-size: 28px; }
 .sub { margin: 0 0 20px; color: var(--muted); }
+html[lang="ko"] :is(.sub, .note, .warn) { word-break: keep-all; overflow-wrap: anywhere; }
 label { display: block; text-align: left; font-weight: 700; font-size: 14px; }
 input { width: 100%; margin-top: 6px; padding: 12px 14px; font-size: 16px; border: 3px solid var(--border); border-radius: 12px; background: #fff; color: var(--ink); outline: none; }
 input:focus { border-color: var(--accent); }

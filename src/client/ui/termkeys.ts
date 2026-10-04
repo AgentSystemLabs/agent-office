@@ -25,7 +25,7 @@ export function naturalKey(e: TermKey, mac = IS_MAC): string | undefined {
     case 'Backspace':
       if (mods === 'C') return '\x17';
       return mods === cmd ? '\x15' : undefined;
-    case 'Delete':
+    case "삭제":
       return mods === cmd ? '\x0b' : undefined;
     case 'ArrowLeft':
       return mods === cmd ? '\x01' : undefined;

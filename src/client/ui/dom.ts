@@ -1,3 +1,5 @@
+import { localizeError } from './error-ko';
+
 type Attrs = Record<string, string | number | boolean | EventListener | undefined | null>;
 type Child = Node | string | number | null | undefined | false;
 
@@ -122,7 +124,7 @@ export function openModal(content: HTMLElement, opts: { escCloses?: boolean; onC
 /** The ✕ for a window that didn't bring its own: at the end of its header, or else on its top right corner. */
 function addCloseButton(content: HTMLElement, close: () => void) {
   if (content.querySelector('.close')) return;
-  const x = h('button.btn.close', { type: 'button', 'aria-label': 'Close', title: 'Close (Esc)', onclick: close }, '✕');
+  const x = h('button.btn.close', { type: 'button', 'aria-label': "닫기", title: "닫기 (Esc)", onclick: close }, '✕');
   const header = content.querySelector(':scope > header');
   if (header) return header.append(x);
   x.classList.add('corner');
@@ -134,7 +136,7 @@ export function closeAllModals() {
 }
 
 export function toast(text: string, level: 'info' | 'warn' | 'error' = 'info'): HTMLElement {
-  const el = h('div.toast', { class: level }, text);
+  const el = h('div.toast', { class: level }, localizeError(text));
   document.getElementById('toasts')!.append(el);
   setTimeout(() => {
     el.style.transition = 'opacity .3s';
@@ -147,10 +149,10 @@ export function toast(text: string, level: 'info' | 'warn' | 'error' = 'info'): 
 export function timeAgo(iso: string | number): string {
   const t = typeof iso === 'number' ? iso : Date.parse(iso);
   const s = Math.max(0, (Date.now() - t) / 1000);
-  if (s < 60) return 'just now';
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
-  return `${Math.floor(s / 86400)}d ago`;
+  if (s < 60) return '방금';
+  if (s < 3600) return `${Math.floor(s / 60)}분 전`;
+  if (s < 86400) return `${Math.floor(s / 3600)}시간 전`;
+  return `${Math.floor(s / 86400)}일 전`;
 }
 
 /** `text` cut to at most `max` characters, with an ellipsis when it was longer. */
@@ -159,11 +161,11 @@ export function clip(text: string, max: number): string {
 }
 
 export const STATUS_LABEL: Record<string, string> = {
-  starting: 'starting',
-  idle: 'ready',
-  working: 'working',
-  needs_input: 'needs input',
-  done: 'done',
-  exited: 'exited',
-  offline: 'asleep',
+  starting: '시작 중',
+  idle: '준비됨',
+  working: '작업 중',
+  needs_input: '응답 필요',
+  done: '완료',
+  exited: '종료됨',
+  offline: '잠든 상태',
 };

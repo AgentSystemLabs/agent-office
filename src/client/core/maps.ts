@@ -130,7 +130,7 @@ export function installMaps(ctx: Ctx, core: CoreState, parts: MapsParts) {
     const badge = $('floors-waiting');
     badge.textContent = elsewhere ? String(elsewhere) : '';
     badge.classList.toggle('hidden', !elsewhere);
-    $('project').title = elsewhere ? `${elsewhere} worker${elsewhere === 1 ? '' : 's'} on other floors waiting on someone — click to go there` : 'Floors: go to another project';
+    $('project').title = elsewhere ? `${elsewhere} worker${elsewhere === 1 ? '' : 's'} on other floors waiting on someone — click to go there` : "프로젝트 목록: 다른 프로젝트로 이동";
   }
 
   return { paintFloor, applyMap, offTheRoof, noticeWaiting };

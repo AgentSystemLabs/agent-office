@@ -24,7 +24,7 @@ export class Banner {
     hooks: BannerHooks,
   ) {
     this.go = h('button.needs-you-go', { type: 'button', onclick: () => this.shown && hooks.go(this.shown.id) });
-    const x = h('button.needs-you-x', { type: 'button', 'aria-label': 'Hide', title: 'Hide until another worker needs you', onclick: () => hooks.hide() }, '✕');
+    const x = h('button.needs-you-x', { type: 'button', 'aria-label': "숨기기", title: 'Hide until another worker needs you', onclick: () => hooks.hide() }, '✕');
     this.el = h('div.needs-you.hidden', { role: 'status', 'aria-live': 'polite' }, this.go, x);
     this.edge = h('div.needs-you-flash', { 'aria-hidden': 'true' });
     this.edge.addEventListener('animationend', () => this.edge.classList.remove('on'));

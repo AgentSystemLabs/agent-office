@@ -16,7 +16,7 @@ function kick(d: Drink): string {
 
 /** The rooftop bar's menu: pick a drink and the bartender pours it. */
 export function openBar(opts: BarOptions) {
-  const close = h('button.btn.close', { 'aria-label': 'Close' }, '✕');
+  const close = h('button.btn.close', { 'aria-label': "닫기" }, '✕');
   const list = h(
     'ul.svc-list',
     {},

@@ -56,7 +56,7 @@ export function installVoice(ctx: Ctx, deps: VoiceDeps) {
   function currentShares(): [string, MediaStream][] {
     const out: [string, MediaStream][] = [];
     const local = voice.localScreen;
-    if (local) out.push(['You', local]);
+    if (local) out.push(["내 설정", local]);
     for (const [id, s] of voice.remoteScreens()) {
       const peer = store.peers.get(id);
       // A screen shared on another floor is on that floor's TV.
@@ -69,13 +69,13 @@ export function installVoice(ctx: Ctx, deps: VoiceDeps) {
   function refreshShares() {
     const shares = currentShares();
     // Remote shares win the TV; your own share is what others see anyway.
-    const pick = shares.find(([who]) => who !== 'You') ?? shares[0];
+    const pick = shares.find(([who]) => who !== "내 설정") ?? shares[0];
     const stream = pick?.[1] ?? null;
     deps.tv.show(stream);
     const box = $('shares');
     box.replaceChildren(
       ...shares
-        .filter(([who]) => who !== 'You')
+        .filter(([who]) => who !== "내 설정")
         .map(([who, s]) => {
           const v = h('video', { autoplay: true, playsinline: true, muted: true }) as HTMLVideoElement;
           v.srcObject = s;
@@ -94,9 +94,9 @@ export function installVoice(ctx: Ctx, deps: VoiceDeps) {
     }
     const video = h('video', { autoplay: true, playsinline: true, muted: true }) as HTMLVideoElement;
     // What's on the TV: someone else's screen before your own.
-    const [who, stream] = streams.find(([name]) => name !== 'You') ?? streams[0];
+    const [who, stream] = streams.find(([name]) => name !== "내 설정") ?? streams[0];
     video.srcObject = stream;
-    const close = h('button.btn.close', { 'aria-label': 'Close' }, '✕');
+    const close = h('button.btn.close', { 'aria-label': "닫기" }, '✕');
     const el = h('div.modal.viewer', { role: 'dialog', 'aria-label': 'Screen share' }, h('header', {}, h('h2', {}, `🖥️ ${who}'s screen`), close), video);
     const modal = openModal(el, { doing: `🖥️ watching ${who}'s screen`, onClose: () => (video.srcObject = null) });
     close.addEventListener('click', () => modal.close());

@@ -33,7 +33,7 @@ export function installHintBar(ctx: Ctx, core: CoreState, parts: Pick<Parts, 'po
     const throne = parts.place.onThrone() && !carrying && !withBall;
     if (throne) {
       if (ctx.world().herald && target?.kind !== 'herald') hint.parts.push(key('K', ctx.plan().herald!.name));
-      if (target?.kind !== 'seat') hint.parts.push(key('W A S D', 'Get up'));
+      if (target?.kind !== 'seat') hint.parts.push(key('W A S D', "일어나기"));
     }
     const k = `${withBall ? 'ball!' : `${target?.kind}${target?.deskId ?? ''}`}|${carrying?.issue ?? ''}|${throne}|${hint.k}`;
     if (k === core.hintKey) return;
@@ -56,7 +56,7 @@ export function installHintBar(ctx: Ctx, core: CoreState, parts: Pick<Parts, 'po
     el.classList.toggle('hidden', !show);
     el.classList.toggle('on', !!target);
     el.classList.toggle('free', free);
-    el.querySelector('.look-hint')!.textContent = relookOnKey ? 'Press a key or click to look around' : 'Click to look around';
+    el.querySelector('.look-hint')!.textContent = relookOnKey ? "키를 누르거나 클릭해서 둘러보기" : "클릭해서 둘러보기";
   }
 
   return { renderHint, renderCrosshair };

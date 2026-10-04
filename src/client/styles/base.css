@@ -16,13 +16,14 @@
   --info: #5bc0eb;
   --shadow: 0 4px 0 var(--ink);
   --radius: 16px;
-  --font: 'Nunito', ui-rounded, 'SF Pro Rounded', system-ui, -apple-system, sans-serif;
+  --font: 'Nunito', ui-rounded, 'SF Pro Rounded', system-ui, 'Malgun Gothic', 'Apple SD Gothic Neo', -apple-system, sans-serif;
 }
 
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; overflow: hidden; background: #bfe3ff; }
 body { font-family: var(--font); color: var(--ink); -webkit-font-smoothing: antialiased; }
 button { font-family: inherit; }
+html[lang="ko"] :is(.setting-note, .menu-foot, .modal p, .help-grid) { word-break: keep-all; overflow-wrap: anywhere; }
 .hidden { display: none !important; }
 
 .panel {

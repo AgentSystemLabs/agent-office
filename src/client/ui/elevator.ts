@@ -76,17 +76,17 @@ export function openElevator(opts: ElevatorOptions): void {
 
   const floorsEl = h('div.floors');
   const addEl = h('div.add');
-  const input = h('input', { type: 'text', placeholder: 'Search your repositories, or type owner/name', 'aria-label': 'Repository', autocomplete: 'off', spellcheck: 'false' }) as HTMLInputElement;
-  const listEl = h('div.repo-list', { role: 'listbox', 'aria-label': 'Repositories' });
+  const input = h('input', { type: 'text', placeholder: "저장소를 검색하거나 소유자/저장소명을 입력하세요", 'aria-label': "저장소", autocomplete: 'off', spellcheck: 'false' }) as HTMLInputElement;
+  const listEl = h('div.repo-list', { role: 'listbox', 'aria-label': "저장소 목록" });
   const statusEl = h('div');
-  const addBtn = h('button.btn.primary', { type: 'button' }, '🛗 Add floor');
-  const refreshBtn = h('button.btn', { type: 'button', title: 'Ask GitHub for the list again' }, '↻');
-  const close = h('button.btn.close', { type: 'button', 'aria-label': 'Close', title: 'Close (Esc)' }, '✕');
+  const addBtn = h('button.btn.primary', { type: 'button' }, "🛗 프로젝트 추가");
+  const refreshBtn = h('button.btn', { type: 'button', title: "GitHub 저장소 목록 새로고침" }, '↻');
+  const close = h('button.btn.close', { type: 'button', 'aria-label': "닫기", title: "닫기 (Esc)" }, '✕');
 
   // Where clones go. Admins can move it right here: the first project is when it matters.
-  const dirInput = h('input', { type: 'text', placeholder: '~/Workspace', 'aria-label': 'Workspace folder', spellcheck: 'false', autocomplete: 'off' }) as HTMLInputElement;
-  const dirSave = h('button.btn.primary', { type: 'button' }, 'Save');
-  const dirCancel = h('button.btn', { type: 'button' }, 'Cancel');
+  const dirInput = h('input', { type: 'text', placeholder: '~/Workspace', 'aria-label': "프로젝트 저장 폴더", spellcheck: 'false', autocomplete: 'off' }) as HTMLInputElement;
+  const dirSave = h('button.btn.primary', { type: 'button' }, "저장");
+  const dirCancel = h('button.btn', { type: 'button' }, "취소");
   const dirEl = h('div.webhook.dir-pick.hidden', {}, dirInput, dirSave, dirCancel);
   const editDir = (on: boolean) => {
     dirEl.classList.toggle('hidden', !on);
@@ -123,21 +123,21 @@ export function openElevator(opts: ElevatorOptions): void {
     const here = mine && !opts.downstairs();
     const p = floorPalette(f.palette);
     const stats: (HTMLElement | string)[] = [];
-    if (f.cloning) stats.push(h('span', { title: f.clone?.detail ?? 'Being cloned' }, cloneLabel(f.clone)));
+    if (f.cloning) stats.push(h('span', { title: f.clone?.detail ?? "저장소 복제 중" }, cloneLabel(f.clone)));
     else {
-      if (f.busy) stats.push(h('span', { title: 'Working' }, `👷 ${f.busy}`));
-      if (f.waiting) stats.push(h('span.waiting', { title: 'Waiting on someone' }, `🙋 ${f.waiting}`));
-      stats.push(h('span', { title: 'Workers at desks' }, `💻 ${f.workers}`));
-      if (f.people) stats.push(h('span', { title: 'People on this floor' }, `🧑 ${f.people}`));
+      if (f.busy) stats.push(h('span', { title: "작업 중" }, `👷 ${f.busy}`));
+      if (f.waiting) stats.push(h('span.waiting', { title: "응답 대기 중" }, `🙋 ${f.waiting}`));
+      stats.push(h('span', { title: "책상에서 일하는 직원" }, `💻 ${f.workers}`));
+      if (f.people) stats.push(h('span', { title: "이 층에 있는 참여자" }, `🧑 ${f.people}`));
     }
     const btn = h(
       'button.floor-btn',
-      { type: 'button', class: here ? 'here' : '', disabled: f.cloning || here, title: here ? "You're on this floor" : f.cloning ? 'Still being cloned' : `Ride ${mine ? 'back up ' : ''}to ${f.name}` },
+      { type: 'button', class: here ? 'here' : '', disabled: f.cloning || here, title: here ? "현재 이 층에 있습니다" : f.cloning ? "저장소를 아직 복제하고 있습니다" : `${f.name}(으)로 ${mine ? "다시 " : ''}이동` },
       h('span.floor-no', { style: `background:${p.trim}` }, String(i + 1)),
       h(
         'span.floor-text',
         {},
-        h('span.floor-name', {}, f.name, here ? h('span.here-tag', {}, 'you are here') : mine ? h('span.here-tag', {}, 'your floor') : null),
+        h('span.floor-name', {}, f.name, here ? h('span.here-tag', {}, "현재 위치") : mine ? h('span.here-tag', {}, "내 프로젝트") : null),
         h('span.floor-sub', {}, [f.repo ?? f.dir, f.cloning ? f.clone?.detail : ''].filter(Boolean).join(' · ')),
         f.cloning ? cloneBar(f.clone) : null,
       ),
@@ -156,23 +156,23 @@ export function openElevator(opts: ElevatorOptions): void {
     const btn = floorButton(f, i);
     if (f.cloning) {
       if (!store.me.admin && !(adding && sameRepo(f.repo, adding))) return btn;
-      const stop = h('button.btn.floor-off', { type: 'button', title: `Stop cloning ${f.repo ?? f.name}`, 'aria-label': `Stop cloning ${f.name}` }, '⏹️');
-      stop.addEventListener('click', () => confirmDialog(`Stop cloning ${f.repo ?? f.name}?`, "What's come down so far is thrown away. You can add it again any time.", '⏹️ Stop cloning', () => net.send({ t: 'floor.cancel', floor: f.id })));
+      const stop = h('button.btn.floor-off', { type: 'button', title: `${f.repo ?? f.name} 복제 중지`, 'aria-label': `${f.name} 복제 중지` }, '⏹️');
+      stop.addEventListener('click', () => confirmDialog(`${f.repo ?? f.name} 복제를 중지할까요?`, "지금까지 받은 파일은 삭제됩니다. 나중에 다시 추가할 수 있습니다.", "⏹️ 복제 중지", () => net.send({ t: 'floor.cancel', floor: f.id })));
       return h('div.floor-row', {}, btn, stop);
     }
     if (!store.me.admin) return btn;
-    const off = h('button.btn.floor-off', { type: 'button', title: `Take ${f.name} off the building`, 'aria-label': `Remove ${f.name}` }, '🗑');
+    const off = h('button.btn.floor-off', { type: 'button', title: `프로젝트 목록에서 ${f.name} 제거`, 'aria-label': `${f.name} 제거` }, '🗑');
     off.addEventListener('click', () => confirmRemove(f));
     return h('div.floor-row', {}, btn, off);
   };
 
   const confirmRemove = (f: FloorInfo) => {
     const next = store.floors.find((o) => o.id !== f.id && !o.cloning);
-    const workers = f.workers ? `Its ${f.workers} worker${f.workers === 1 ? '' : 's'} stop${f.workers === 1 ? 's' : ''}. ` : '';
-    const people = f.people ? `Everyone on it rides the elevator to ${next ? next.name : 'the lobby'}. ` : '';
+    const workers = f.workers ? `이 프로젝트의 직원 ${f.workers}명이 작업을 멈춥니다. ` : '';
+    const people = f.people ? `이 층의 참여자는 모두 ${next ? next.name : "로비"}(으)로 이동합니다. ` : '';
     // The office was started in it: its accounts, password and chat live in that .agent-office too, and stay.
-    const own = f.local ? ' The office keeps its own settings there too, so it carries on as before, just without this floor.' : '';
-    confirmDialog(`Take ${f.name} off the building?`, `${workers}${people}Nothing is deleted: its checkout stays in ${f.dir}, .agent-office folder and all.${own}`, '🗑 Remove floor', () => net.send({ t: 'floor.remove', floor: f.id }));
+    const own = f.local ? " Agent Office 설정도 해당 폴더에 보관됩니다. 이 프로젝트만 목록에서 빠지고 앱은 계속 사용할 수 있습니다." : '';
+    confirmDialog(`프로젝트 목록에서 ${f.name}을(를) 제거할까요?`, `${workers}${people}파일은 삭제되지 않습니다. .agent-office 폴더를 포함한 프로젝트 파일은 ${f.dir}에 그대로 남습니다.${own}`, "🗑 프로젝트 제거", () => net.send({ t: 'floor.remove', floor: f.id }));
   };
 
   /** The roof, over every floor: the rooftop bar. */
@@ -181,10 +181,10 @@ export function openElevator(opts: ElevatorOptions): void {
     const people = [...store.peers.values()].filter((p) => p.floor === ROOF).length;
     const btn = h(
       'button.floor-btn',
-      { type: 'button', class: here ? 'here' : '', disabled: here, title: here ? "You're up on the roof" : `Ride up to the ${ROOF_NAME.toLowerCase()}` },
+      { type: 'button', class: here ? 'here' : '', disabled: here, title: here ? "현재 옥상에 있습니다" : `${ROOF_NAME.toLowerCase()}(으)로 올라가기` },
       h('span.floor-no', { style: 'background:#2b2d42' }, '🍸'),
-      h('span.floor-text', {}, h('span.floor-name', {}, ROOF_NAME, here ? h('span.here-tag', {}, 'you are here') : null), h('span.floor-sub', {}, 'The roof: a DJ playing drum and bass, a bar, and the city all around')),
-      h('span.floor-stats', {}, people ? h('span', { title: 'People up there' }, `🧑 ${people}`) : ''),
+      h('span.floor-text', {}, h('span.floor-name', {}, ROOF_NAME, here ? h('span.here-tag', {}, "현재 위치") : null), h('span.floor-sub', {}, "옥상에는 DJ와 바가 있고, 도시 풍경을 둘러볼 수 있습니다")),
+      h('span.floor-stats', {}, people ? h('span', { title: "옥상에 있는 참여자" }, `🧑 ${people}`) : ''),
     );
     btn.addEventListener('click', () => {
       if (here) return;
@@ -198,12 +198,12 @@ export function openElevator(opts: ElevatorOptions): void {
   const garageButton = () => {
     const here = opts.downstairs();
     const bottom = store.floors.find((f) => !f.cloning);
-    const under = store.floor === ROOF ? `Under ${bottom?.name ?? 'the building'}, level with the street` : 'Under the building, level with the street: the cars, and the way out';
+    const under = store.floor === ROOF ? `${bottom?.name ?? "건물"} 아래, 거리와 같은 높이` : "건물 아래 거리 쪽에는 자동차와 출구가 있습니다";
     const btn = h(
       'button.floor-btn',
-      { type: 'button', class: here ? 'here' : '', disabled: here, title: here ? "You're down at the street" : 'Ride down to the garage' },
+      { type: 'button', class: here ? 'here' : '', disabled: here, title: here ? "현재 거리 쪽에 있습니다" : "차고로 내려가기" },
       h('span.floor-no', { style: 'background:#2b2d42' }, '🏎️'),
-      h('span.floor-text', {}, h('span.floor-name', {}, 'Garage', here ? h('span.here-tag', {}, 'you are here') : null), h('span.floor-sub', {}, under)),
+      h('span.floor-text', {}, h('span.floor-name', {}, "차고", here ? h('span.here-tag', {}, "현재 위치") : null), h('span.floor-sub', {}, under)),
       h('span.floor-stats', {}),
     );
     btn.addEventListener('click', () => {
@@ -220,7 +220,7 @@ export function openElevator(opts: ElevatorOptions): void {
     // Top floor first, the way an elevator's buttons stack, with the roof over them, floor 1 and then the garage at the bottom.
     floorsEl.replaceChildren(
       ...(built ? [roofButton()] : []),
-      ...(floors.length ? floors.map(floorRow).reverse() : [h('p.empty', {}, 'No floors yet.')]),
+      ...(floors.length ? floors.map(floorRow).reverse() : [h('p.empty', {}, "아직 추가된 프로젝트가 없습니다.")]),
       ...(built ? [garageButton()] : []),
     );
   };
@@ -231,9 +231,9 @@ export function openElevator(opts: ElevatorOptions): void {
       'div.repo',
       { role: 'option', class: selected && sameRepo(selected, r.name) ? 'sel' : '', 'aria-selected': String(!!selected && sameRepo(selected, r.name)), title: r.description ?? r.name },
       h('span.nm', {}, r.name),
-      r.private ? h('span', { title: 'Private' }, '🔒') : null,
+      r.private ? h('span', { title: "비공개" }, '🔒') : null,
       h('span.desc', {}, r.description ?? ''),
-      floor ? h('span.pill', {}, floor.id === store.floor ? 'you are here' : `floor ${store.floors.indexOf(floor) + 1}`) : r.pushedAt ? h('span.when', {}, timeAgo(r.pushedAt)) : null,
+      floor ? h('span.pill', {}, floor.id === store.floor ? "현재 위치" : `${store.floors.indexOf(floor) + 1}층`) : r.pushedAt ? h('span.when', {}, timeAgo(r.pushedAt)) : null,
     );
     row.addEventListener('click', () => {
       if (adding) return;
@@ -256,7 +256,7 @@ export function openElevator(opts: ElevatorOptions): void {
 
   const renderAdd = () => {
     if (!showAdd) {
-      const open = h('button.btn', { type: 'button' }, '➕ Add a project');
+      const open = h('button.btn', { type: 'button' }, "➕ 프로젝트 추가");
       open.addEventListener('click', () => {
         showAdd = true;
         needRepos();
@@ -274,33 +274,33 @@ export function openElevator(opts: ElevatorOptions): void {
     const matches = r.list.filter((x) => !q || x.name.toLowerCase().includes(q) || (x.description ?? '').toLowerCase().includes(q));
     const rows: HTMLElement[] = [];
     // owner/name that isn't in the list (someone else's public repository): offer it anyway.
-    if (typed && !r.list.some((x) => sameRepo(x.name, typed))) rows.push(repoRow({ name: typed, private: false, description: 'Not in your list — the office will try to clone it' }));
+    if (typed && !r.list.some((x) => sameRepo(x.name, typed))) rows.push(repoRow({ name: typed, private: false, description: "목록에는 없지만 해당 저장소를 복제해 봅니다" }));
     rows.push(...matches.slice(0, SHOWN).map(repoRow));
-    if (!rows.length) rows.push(h('p.empty', { style: 'padding:10px' }, r.loading ? 'Asking GitHub for your repositories…' : r.error ? '' : q ? 'Nothing matches. Type owner/name to clone any repository.' : 'No repositories.'));
-    if (matches.length > SHOWN) rows.push(h('p.empty', { style: 'padding:8px 10px' }, `…and ${matches.length - SHOWN} more — type to narrow it down`));
+    if (!rows.length) rows.push(h('p.empty', { style: 'padding:10px' }, r.loading ? "GitHub 저장소 목록을 불러오는 중…" : r.error ? '' : q ? "검색 결과가 없습니다. 소유자/저장소명을 직접 입력할 수도 있습니다." : "저장소가 없습니다."));
+    if (matches.length > SHOWN) rows.push(h('p.empty', { style: 'padding:8px 10px' }, `외 ${matches.length - SHOWN}개 · 검색어를 입력해 범위를 좁혀보세요`));
     listEl.replaceChildren(...rows);
     const pick = choice();
     const dest = pick ? `${store.projectsDir.dir}/${pick}` : `${store.projectsDir.dir}/<owner>/<repo>`;
-    const change = store.me.admin ? h('button.btn.dir-change', { type: 'button', title: 'Clone new projects into another folder on the office’s machine' }, '📁 Change folder') : null;
+    const change = store.me.admin ? h('button.btn.dir-change', { type: 'button', title: "새 프로젝트를 저장할 폴더 변경" }, "📁 저장 폴더 변경") : null;
     change?.addEventListener('click', () => editDir(true));
     // While it clones: how far it's got (the office asks GitHub about it first).
     const on = addingFloor();
     const lines = adding
       ? [
-          h('p.note.busy', {}, on ? `⏳ Cloning ${on.repo ?? adding} into ${store.projectsDir.dir}/${on.repo ?? adding}` : `⏳ Asking GitHub about ${adding}…`),
+          h('p.note.busy', {}, on ? `⏳ ${on.repo ?? adding}을(를) ${store.projectsDir.dir}/${on.repo ?? adding}에 복제하는 중` : `⏳ GitHub에서 ${adding} 정보를 확인하는 중…`),
           on ? cloneBar(on.clone) : null,
           on ? h('p.note', {}, [cloneStep(on.clone), on.clone?.detail].filter(Boolean).join(' · ')) : null,
-          h('p.note', {}, 'You can close this and carry on: everyone hears when the new floor opens.'),
+          h('p.note', {}, "창을 닫고 다른 작업을 해도 됩니다. 프로젝트가 준비되면 알려드립니다."),
         ]
-      : [h('p.note', {}, `Cloned into ${dest} with this machine's gh login. Everything on the new floor works in that checkout.`, change)];
+      : [h('p.note', {}, `이 컴퓨터의 gh 로그인으로 ${dest}에 복제합니다. 이 프로젝트의 작업은 해당 폴더에서 진행됩니다.`, change)];
     statusEl.replaceChildren(...lines.filter((l): l is HTMLElement => !!l), ...[r.error, error].filter(Boolean).map((e) => h('p.err', {}, e)));
     addBtn.disabled = !!adding || !pick || store.floors.some((f) => sameRepo(f.repo, pick));
-    addBtn.textContent = adding ? '⏳ Cloning…' : pick ? `🛗 Add ${pick}` : '🛗 Add floor';
+    addBtn.textContent = adding ? "⏳ 복제 중…" : pick ? `🛗 ${pick} 추가` : "🛗 프로젝트 추가";
     input.disabled = !!adding;
     if (!built) {
       built = true;
       addEl.replaceChildren(
-        h('h3', {}, setup && !store.floors.length ? 'Pick your first project' : '➕ Add a project'),
+        h('h3', {}, setup && !store.floors.length ? "첫 프로젝트를 선택하세요" : "➕ 프로젝트 추가"),
         h('div.repo-search', {}, input, refreshBtn),
         listEl,
         statusEl,
@@ -324,7 +324,7 @@ export function openElevator(opts: ElevatorOptions): void {
     startTimer = window.setTimeout(() => {
       if (adding !== repo || seen) return;
       adding = null;
-      error = `The office didn't start cloning ${repo} — try again`;
+      error = `${repo} 복제를 시작하지 못했습니다. 다시 시도해 주세요`;
       renderAdd();
     }, START_MS);
   };
@@ -338,7 +338,7 @@ export function openElevator(opts: ElevatorOptions): void {
       opts.ride(floor);
       return;
     }
-    error = why ?? 'The floor could not be added';
+    error = why ?? "프로젝트를 추가하지 못했습니다";
     renderAdd();
   };
 
@@ -356,7 +356,7 @@ export function openElevator(opts: ElevatorOptions): void {
     if (!adding) return;
     const f = addingFloor();
     if (f?.cloning) seen = true;
-    else if (seen) settle(f?.id, `Cloning ${adding} stopped before it finished — add it again`);
+    else if (seen) settle(f?.id, `${adding} 복제가 중단되었습니다. 다시 추가해 주세요`);
   };
   addedWaiters.add(onAdded);
 
@@ -389,20 +389,20 @@ export function openElevator(opts: ElevatorOptions): void {
         'p.intro',
         {},
         store.floors.length
-          ? 'Every project is a floor of this building. Pick a floor to ride to, or add another project.'
-          : "Every project is a floor of this building, and it doesn't have any yet. Pick one of your repositories: the office clones it and it becomes the first floor.",
+          ? "프로젝트마다 하나의 층을 사용합니다. 이동할 프로젝트를 선택하거나 새 프로젝트를 추가하세요."
+          : "프로젝트마다 하나의 층을 사용합니다. 먼저 작업할 GitHub 저장소를 선택하세요. 저장소를 복제하면 첫 프로젝트가 열립니다.",
       )
     : null;
   const el = h(
     'div.modal.elevator',
-    { role: 'dialog', 'aria-label': 'Elevator' },
-    h('header', {}, h('h2', {}, setup ? '🏢 Welcome to Agent Office' : '🛗 Elevator'), close),
+    { role: 'dialog', 'aria-label': "엘리베이터" },
+    h('header', {}, h('h2', {}, setup ? "🏢 Agent Office에 오신 것을 환영합니다" : "🛗 엘리베이터"), close),
     h('div.body', {}, intro, floorsEl, addEl),
-    h('footer', {}, h('span.grow', {}, setup ? 'Your office, one floor per project · Esc to look around first' : 'Pick a floor · Esc to stay here'), addBtn),
+    h('footer', {}, h('span.grow', {}, setup ? "프로젝트마다 하나의 사무실 · Esc를 누르면 먼저 둘러볼 수 있습니다" : "이동할 프로젝트 선택 · Esc를 누르면 현재 위치에 머뭅니다"), addBtn),
   );
   const unsubs = [store.on('floors', () => (checkAdding(), renderFloors(), renderAdd())), store.on('repos', renderAdd), store.on('projectsDir', () => (editDir(false), renderAdd())), store.on('floor', renderFloors), store.on('peers', renderFloors), store.on('me', () => (renderFloors(), renderAdd()))];
   const modal = openModal(el, {
-    doing: '🛗 at the elevator',
+    doing: "🛗 엘리베이터 앞",
     // A stray click shouldn't lose the first-run panel; ✕ and Esc still close it.
     backdropCloses: !setup,
     onClose: () => {

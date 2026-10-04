@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="ko">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
@@ -11,26 +11,26 @@
   <body class="lite">
     <!-- The 2D view (lite.ts): the office without the 3D, for a phone or a computer the 3D is too much for. -->
     <header class="lite-bar">
-      <label class="lite-floor" title="The floor you're on: pick another to see its workers">
-        <span class="lite-floor-label">Floor</span>
-        <select id="floor" aria-label="Floor"></select>
+      <label class="lite-floor" title="현재 프로젝트 · 다른 프로젝트를 선택해 직원 보기">
+        <span class="lite-floor-label">프로젝트</span>
+        <select id="floor" aria-label="프로젝트"></select>
       </label>
-      <a id="to-3d" class="btn" href="/?3d=1" title="The 3D office, where you walk around">🏢 3D</a>
+      <a id="to-3d" class="btn" href="/?3d=1" title="직접 돌아다닐 수 있는 3D 사무실">🏢 3D</a>
     </header>
     <main class="lite-main">
       <p id="floor-meta" class="lite-meta"></p>
       <div id="elsewhere" class="lite-elsewhere hidden"></div>
-      <h2 class="lite-h">Workers <span id="waiting-now" class="lite-waiting"></span></h2>
+      <h2 class="lite-h">직원 <span id="waiting-now" class="lite-waiting"></span></h2>
       <ul id="workers" class="lite-workers"></ul>
     </main>
-    <nav class="lite-nav" aria-label="Office">
-      <button id="btn-issues" class="btn" type="button">📌 Issues <span class="n"></span></button>
+    <nav class="lite-nav" aria-label="사무실">
+      <button id="btn-issues" class="btn" type="button">📌 이슈 <span class="n"></span></button>
       <button id="btn-pulls" class="btn" type="button">🔀 PRs <span class="n"></span></button>
-      <button id="btn-queue" class="btn" type="button">📋 Queue <span class="n"></span></button>
-      <button id="btn-new" class="btn primary" type="button">✨ New task</button>
+      <button id="btn-queue" class="btn" type="button">📋 대기열 <span class="n"></span></button>
+      <button id="btn-new" class="btn primary" type="button">✨ 새 작업</button>
     </nav>
     <div id="toasts"></div>
-    <div id="conn" class="conn hidden">Reconnecting…</div>
+    <div id="conn" class="conn hidden">다시 연결하는 중…</div>
     <div id="modal-root"></div>
     <script type="module" src="./lite.ts"></script>
   </body>

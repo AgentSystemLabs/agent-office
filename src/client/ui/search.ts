@@ -38,20 +38,20 @@ function highlight(text: string, needle: string): (string | HTMLElement)[] {
 export function openSearch(openTerminal: (workerId: string, find: TerminalFind) => void) {
   const input = h('input', {
     type: 'text',
-    placeholder: 'Search the chat and every terminal…',
+    placeholder: "채팅과 모든 터미널에서 검색…",
     maxlength: SEARCH_MAX,
     autocomplete: 'off',
     spellcheck: 'false',
-    'aria-label': 'Search the chat and every terminal',
+    'aria-label': "채팅과 모든 터미널 검색",
   });
   input.value = lastQuery;
   const status = h('p.note.search-status');
   const results = h('div.search-results');
-  const close = h('button.btn.close', { 'aria-label': 'Close' }, '✕');
+  const close = h('button.btn.close', { 'aria-label': "닫기" }, '✕');
   const el = h(
     'div.modal.search',
-    { role: 'dialog', 'aria-label': 'Search' },
-    h('header', {}, h('h2', {}, '🔎 Search'), close),
+    { role: 'dialog', 'aria-label': "검색" },
+    h('header', {}, h('h2', {}, "🔎 검색"), close),
     h('div.body', {}, input, status, results),
   );
 
@@ -70,7 +70,7 @@ export function openSearch(openTerminal: (workerId: string, find: TerminalFind) 
       error = '';
       return render();
     }
-    status.textContent = 'Searching…';
+    status.textContent = "검색 중…";
     try {
       const r = await search(q);
       if (mine !== seq) return;
@@ -97,7 +97,7 @@ export function openSearch(openTerminal: (workerId: string, find: TerminalFind) 
     );
 
   const termRow = (hit: TerminalHit, needle: string) => {
-    const li = h('li.search-hit.term', { tabindex: 0, role: 'button', title: 'Open the terminal at this line' }, h('code', {}, ...highlight(hit.text, needle)));
+    const li = h('li.search-hit.term', { tabindex: 0, role: 'button', title: "이 줄의 위치로 터미널 열기" }, h('code', {}, ...highlight(hit.text, needle)));
     li.addEventListener('click', () => jump(hit, needle));
     li.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' || e.key === ' ') {
@@ -110,12 +110,12 @@ export function openSearch(openTerminal: (workerId: string, find: TerminalFind) 
 
   const render = () => {
     if (error) {
-      status.textContent = `Couldn't search: ${error}`;
+      status.textContent = `검색하지 못했습니다: ${error}`;
       results.replaceChildren();
       return;
     }
     if (!found) {
-      status.textContent = `Finds words in the office chat and in every worker's terminal, including what they showed before the office restarted.`;
+      status.textContent = `사무실 채팅과 모든 직원의 터미널에서 검색합니다. 앱 재시작 전의 기록도 포함합니다.`;
       results.replaceChildren();
       return;
     }
@@ -130,10 +130,10 @@ export function openSearch(openTerminal: (workerId: string, find: TerminalFind) 
     }
     const count = found.chat.length + [...byWorker.values()].reduce((n, l) => n + l.length, 0);
     status.textContent = !count
-      ? `Nothing in the chat or any terminal matches “${found.q.trim()}”.`
-      : `${count} ${count === 1 ? 'line' : 'lines'}, newest first${found.more ? ' (only the newest are shown; add words to narrow it down)' : ''}.`;
+      ? `채팅과 터미널에서 '${found.q.trim()}'을(를) 찾지 못했습니다.`
+      : `검색 결과 ${count}개 · 최신순${found.more ? " (최근 결과만 표시됩니다. 검색어를 추가해 범위를 좁히세요)" : ''}.`;
     const groups: HTMLElement[] = [];
-    if (found.chat.length) groups.push(h('section.search-group', {}, h('h4', {}, '💬 Chat'), h('ul', {}, ...found.chat.map((c) => chatRow(c, needle)))));
+    if (found.chat.length) groups.push(h('section.search-group', {}, h('h4', {}, "💬 채팅"), h('ul', {}, ...found.chat.map((c) => chatRow(c, needle)))));
     for (const [workerId, hits] of byWorker) {
       const w = store.workers.get(workerId)!;
       groups.push(
@@ -174,7 +174,7 @@ export function openSearch(openTerminal: (workerId: string, find: TerminalFind) 
     (next ?? (e.key === 'ArrowUp' ? input : at)).focus();
   });
 
-  const modal = openModal(el, { doing: '🔎 searching the office', onClose: () => clearTimeout(timer) });
+  const modal = openModal(el, { doing: "🔎 사무실 기록 검색 중", onClose: () => clearTimeout(timer) });
   close.addEventListener('click', () => modal.close());
   render();
   void run();

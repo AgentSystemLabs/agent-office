@@ -67,7 +67,7 @@ export function installHerald(ctx: Ctx, parts: Pick<Parts, 'place' | 'you' | 'ac
       const hd = plan().herald;
       const full = !parts.actions.firstFreeSeat();
       const m = store.machine;
-      const why = full ? 'every seat is taken' : officeFull(m) ? `🚫 Office full · ${m.workers} of ${m.limit} workers` : hiringPaused() ? '💸 Budget spent — hiring resumes tomorrow' : '';
+      const why = full ? 'every seat is taken' : officeFull(m) ? `🚫 인원 한도 도달 · 직원 ${m.workers}/${m.limit}명` : hiringPaused() ? "💸 오늘 예산을 모두 사용했습니다. 내일부터 다시 고용할 수 있습니다" : '';
       return { k: `${hd?.name}|${why}`, parts: [hintTitle(`${plan().icon} ${hd?.name ?? 'Herald'}`), why ? h('span.cost', {}, why) : aside(hd?.says ?? ''), why ? '' : key('E', 'Send out a new worker')] };
     },
     use: onE(() => hireFromHerald()),

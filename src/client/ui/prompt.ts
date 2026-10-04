@@ -42,41 +42,41 @@ export function worktreePref(): boolean {
 export function repoPicker(options: { id: string; name: string }[] | undefined, wtBox: HTMLInputElement): { element: HTMLElement | null; value(): string[] } {
   const picks = (options ?? []).map((r) => {
     const box = h('input', { type: 'checkbox', value: r.id, onchange: () => box.checked && (wtBox.checked = true) }) as HTMLInputElement;
-    return { id: r.id, box, el: h('label.repo-pick', { title: `A worktree of ${r.name} too, on the same branch, with a pull request of its own` }, box, r.name) };
+    return { id: r.id, box, el: h('label.repo-pick', { title: `${r.name}에도 같은 이름의 브랜치와 worktree를 만들고 별도의 PR을 생성합니다` }, box, r.name) };
   });
   if (!picks.length) return { element: null, value: () => [] };
   wtBox.addEventListener('change', () => {
     if (!wtBox.checked) for (const p of picks) p.box.checked = false;
   });
   return {
-    element: h('div.repo-picks', { role: 'group', 'aria-label': 'Other projects to work in' }, h('span', {}, '🗂️ Also work in'), ...picks.map((p) => p.el)),
+    element: h('div.repo-picks', { role: 'group', 'aria-label': "함께 작업할 다른 프로젝트" }, h('span', {}, "🗂️ 함께 작업할 프로젝트"), ...picks.map((p) => p.el)),
     value: () => picks.filter((p) => p.box.checked).map((p) => p.id),
   };
 }
 
 export function openPrompt(opts: PromptOptions) {
-  const ta = h('textarea', { rows: 7, placeholder: opts.placeholder ?? 'What should the worker work on?', 'aria-label': 'Prompt' }) as HTMLTextAreaElement;
+  const ta = h('textarea', { rows: 7, placeholder: opts.placeholder ?? "직원에게 맡길 작업을 적어주세요", 'aria-label': "작업 지시" }) as HTMLTextAreaElement;
   ta.value = opts.initial ?? '';
   const wtBox = h('input', { type: 'checkbox', id: 'wt-toggle' }) as HTMLInputElement;
   wtBox.checked = worktreePref();
   const wtRow = opts.worktreeOption
     ? h(
         'label',
-        { for: 'wt-toggle', style: 'display:flex;gap:8px;align-items:center;margin:10px 0 0;font-weight:700;cursor:pointer', title: 'Isolate this worker on its own branch so parallel workers never collide' },
+        { for: 'wt-toggle', style: 'display:flex;gap:8px;align-items:center;margin:10px 0 0;font-weight:700;cursor:pointer', title: "별도 브랜치에서 작업해 다른 직원의 변경과 충돌하지 않게 합니다" },
         wtBox,
-        '🌿 Work in its own git worktree & branch',
+        "🌿 별도의 Git worktree와 브랜치에서 작업",
     )
     : null;
   const repos = repoPicker(opts.worktreeOption ? opts.repoOptions : undefined, wtBox);
   const provider: ProviderPicker | null = opts.providerOption ? providerPicker(store.project, 'prompt-provider') : null;
-  const submit = h('button.btn.primary', { type: 'submit' }, opts.submitLabel ?? 'Send ✨');
-  const cancel = h('button.btn', { type: 'button' }, 'Cancel');
+  const submit = h('button.btn.primary', { type: 'submit' }, opts.submitLabel ?? "작업 보내기 ✨");
+  const cancel = h('button.btn', { type: 'button' }, "취소");
   const form = h(
     'form.modal',
     { role: 'dialog', 'aria-label': opts.title },
     h('header', {}, h('h2', {}, opts.title)),
     h('div.body', {}, opts.warning ? h('p.setting-note.bad', { style: 'margin:0 0 10px', role: 'alert' }, opts.warning) : null, opts.subtitle ? h('p', { style: 'margin:0 0 10px;font-weight:700;color:var(--muted)' }, opts.subtitle) : null, dictateField(ta), provider?.element ?? null, wtRow, repos.element),
-    h('footer', {}, h('span.grow', {}, 'Enter to send · Shift+Enter for a new line'), cancel, submit),
+    h('footer', {}, h('span.grow', {}, "Enter로 보내기 · Shift+Enter로 줄바꿈"), cancel, submit),
   ) as HTMLFormElement;
   form.noValidate = true;
 
@@ -118,7 +118,7 @@ export function openPrompt(opts: PromptOptions) {
 
 export function confirmDialog(title: string, body: string, confirmLabel: string, onConfirm: () => void) {
   const yes = h('button.btn.danger', { type: 'button' }, confirmLabel);
-  const no = h('button.btn', { type: 'button' }, 'Never mind');
+  const no = h('button.btn', { type: 'button' }, "취소");
   const el = h('div.modal', { role: 'alertdialog', 'aria-label': title }, h('header', {}, h('h2', {}, title)), h('div.body', {}, h('p', { style: 'margin:0;font-weight:700' }, body)), h('footer', {}, no, yes));
   const modal = openModal(el);
   no.addEventListener('click', () => modal.close());
@@ -158,15 +158,15 @@ function inspectWorktree(workerId: string, ask: () => void): Promise<WorktreeSta
     setTimeout(() => {
       if (worktreeChecks.get(workerId) !== resolve) return;
       worktreeChecks.delete(workerId);
-      resolve({ exists: true, dirty: 0, ahead: 0, unpushed: 0, error: 'the office did not answer' });
+      resolve({ exists: true, dirty: 0, ahead: 0, unpushed: 0, error: "서버에서 응답이 없습니다" });
     }, 8000);
   });
 }
 
 const CLEANUP_LABEL: Record<WorktreeCleanup, string> = {
-  all: 'Send home & delete both',
-  worktree: 'Send home & delete worktree',
-  keep: 'Send home',
+  all: "퇴근 및 worktree·브랜치 삭제",
+  worktree: "퇴근 및 worktree 삭제",
+  keep: "퇴근시키기",
 };
 
 /**
@@ -178,14 +178,14 @@ export function sendHomeDialog(opts: SendHomeOptions) {
   const across = opts.repos && opts.repos.length > 1 ? opts.repos : undefined;
   const choices: [WorktreeCleanup, string, string][] = across
     ? [
-        ['all', 'Delete the worktrees and their branch', `Removes its worktrees of ${across.join(', ')}, and ${branch} in each.`],
-        ['worktree', 'Delete the worktrees, keep the branch', `${branch} stays in each for a pull request or a later checkout.`],
-        ['keep', 'Keep them all', 'Leaves everything as it is; agent-office prune in each project tidies up later.'],
+        ['all', "worktree와 브랜치 삭제", `${across.join(', ')}의 worktree와 각 프로젝트의 ${branch}을(를) 삭제합니다.`],
+        ['worktree', "worktree 삭제, 브랜치 보존", `각 프로젝트에 ${branch}을(를) 남겨 PR을 만들거나 나중에 다시 작업할 수 있습니다.`],
+        ['keep', "모두 보존", "모두 그대로 보존합니다. 나중에 각 프로젝트에서 agent-office prune으로 정리할 수 있습니다."],
       ]
     : [
-        ['all', 'Delete the worktree and its branch', `Removes ${path} and ${branch}.`],
-        ['worktree', 'Delete the worktree, keep the branch', `${branch} stays for a pull request or a later checkout.`],
-        ['keep', 'Keep both', 'Leaves everything as it is; agent-office prune tidies up later.'],
+        ['all', "worktree와 브랜치 삭제", `${path}과(와) ${branch}을(를) 삭제합니다.`],
+        ['worktree', "worktree 삭제, 브랜치 보존", `${branch}을(를) 남겨 PR을 만들거나 나중에 다시 작업할 수 있습니다.`],
+        ['keep', "둘 다 보존", "모두 그대로 보존합니다. 나중에 agent-office prune으로 정리할 수 있습니다."],
       ];
   const radios = new Map<WorktreeCleanup, HTMLInputElement>();
   let touched = false;
@@ -212,16 +212,16 @@ export function sendHomeDialog(opts: SendHomeOptions) {
       return h('label.choice', {}, r, h('span', {}, title, h('small', {}, sub)));
     }),
   );
-  const status = h('p.wt-status', {}, `Checking what ${branch} holds…`);
-  const no = h('button.btn', { type: 'button' }, 'Never mind');
+  const status = h('p.wt-status', {}, `${branch}의 변경 사항을 확인하는 중…`);
+  const no = h('button.btn', { type: 'button' }, "취소");
   const form = h(
     'form.modal',
-    { role: 'dialog', 'aria-label': `Send ${opts.name} home?` },
-    h('header', {}, h('h2', {}, `Send ${opts.name} home?`)),
+    { role: 'dialog', 'aria-label': `${opts.name}을(를) 퇴근시킬까요?` },
+    h('header', {}, h('h2', {}, `${opts.name}을(를) 퇴근시킬까요?`)),
     h(
       'div.body',
       {},
-      h('p', { style: 'margin:0 0 12px;font-weight:700' }, `This stops the session at ${opts.where} for everyone and frees the desk. ${opts.name} worked ${across ? `in worktrees of ${across.join(', ')}, each` : 'in its own worktree'} on 🌿 ${branch}:`),
+      h('p', { style: 'margin:0 0 12px;font-weight:700' }, `${opts.where}의 세션을 종료하고 책상을 비웁니다. ${opts.name}은(는) 🌿 ${branch}에서 ${across ? `각 ${across.join(', ')}의 worktree에서` : "전용 worktree에서"} 작업했습니다:`),
       list,
       status,
     ),
@@ -242,7 +242,7 @@ export function sendHomeDialog(opts: SendHomeOptions) {
     const each = s.repos?.length ? s.repos.map((r) => describeState(r.state, branch, `${r.name}: `)) : [describeState(s, branch)];
     const lines = each.flatMap((d) => d.lines);
     const risky = each.some((d) => d.risky);
-    if (s.repos?.length && s.error && !lines.length) lines.push(`Couldn't check the worktrees: ${s.error}.`);
+    if (s.repos?.length && s.error && !lines.length) lines.push(`worktree를 확인하지 못했습니다: ${s.error}.`);
     status.replaceChildren(...lines.flatMap((l, i) => (i ? [h('br'), l] : [l])));
     status.classList.toggle('warn', risky || (!!s.error && !s.repos?.length));
     if (!touched) pick(risky ? 'keep' : 'all');
@@ -273,16 +273,16 @@ export function lostWorktreeDialog(opts: LostWorktreeOptions) {
   const { name, others } = opts;
   const { branch } = opts.worktree;
   const folder = opts.workspace ?? opts.worktree.path;
-  const title = `🌿 ${name}'s worktree was deleted`;
+  const title = `🌿 ${name}의 worktree가 삭제되었습니다`;
   const what = {
-    here: `Its branch 🌿 ${branch} is still here. Rebuilding checks it out again in the same place, and ${name} carries on its conversation; only uncommitted changes went with the folder.`,
-    origin: `Its branch 🌿 ${branch} was deleted too, but it had been pushed: rebuilding checks origin's copy out again in the same place, and ${name} carries on its conversation.`,
-    gone: `Its branch 🌿 ${branch} was deleted too and was never pushed, so the work on it is gone. Rebuilding makes the branch again from where it started, and ${name} carries on its conversation.`,
+    here: `🌿 ${branch} 브랜치는 남아 있습니다. 다시 만들면 같은 위치에서 브랜치를 복원하고 ${name}의 대화를 이어갑니다. 폴더 삭제와 함께 사라진 내용은 커밋하지 않은 변경뿐입니다.`,
+    origin: `🌿 ${branch} 브랜치도 삭제됐지만 원격에 push되어 있습니다. 다시 만들면 origin에서 같은 위치로 복원하고 ${name}의 대화를 이어갑니다.`,
+    gone: `🌿 ${branch} 브랜치도 삭제됐고 push 기록이 없어 작업 내용이 사라졌습니다. 다시 만들면 시작 지점에서 브랜치를 새로 생성하고 ${name}의 대화를 이어갑니다.`,
   }[opts.lost.branch];
-  const one = h('button.btn.primary', { type: 'button' }, 'Rebuild worktree');
-  const all = others.length ? h('button.btn', { type: 'button' }, `Rebuild all ${others.length + 1}`) : null;
-  const home = h('button.btn.danger', { type: 'button' }, 'Send home…');
-  const look = opts.openTerminal ? h('button.btn', { type: 'button' }, 'Open terminal') : null;
+  const one = h('button.btn.primary', { type: 'button' }, "worktree 다시 만들기");
+  const all = others.length ? h('button.btn', { type: 'button' }, `${others.length + 1}개 모두 다시 만들기`) : null;
+  const home = h('button.btn.danger', { type: 'button' }, "퇴근시키기…");
+  const look = opts.openTerminal ? h('button.btn', { type: 'button' }, "터미널 열기") : null;
   const el = h(
     'div.modal.lost-worktree',
     { role: 'alertdialog', 'aria-label': title },
@@ -290,9 +290,9 @@ export function lostWorktreeDialog(opts: LostWorktreeOptions) {
     h(
       'div.body',
       {},
-      h('p', { style: 'margin:0 0 10px;font-weight:700' }, `${folder} was deleted outside agent-office, so ${name} ${opts.openTerminal ? 'is running in a folder that no longer exists' : "can't start there"}.`),
+      h('p', { style: 'margin:0 0 10px;font-weight:700' }, `Agent Office 외부에서 ${folder}이(가) 삭제되어 ${name}이(가) ${opts.openTerminal ? "이미 삭제된 폴더에서 실행 중입니다" : "해당 위치에서 시작할 수 없습니다"}.`),
       h('p.wt-status', { style: 'margin:0' }, what),
-      others.length ? h('p.wt-status.warn', {}, `${plural(others.length, 'other worker')} on this floor lost ${others.length === 1 ? 'its worktree' : 'their worktrees'} too: ${others.join(', ')}.`) : null,
+      others.length ? h('p.wt-status.warn', {}, `이 프로젝트의 ${plural(others.length, "다른 직원")}도 ${others.length === 1 ? "worktree" : "worktree"}을(를) 잃었습니다: ${others.join(', ')}.`) : null,
     ),
     h('footer', {}, home, h('span.grow'), look, all, one),
   );
@@ -310,19 +310,19 @@ export function lostWorktreeDialog(opts: LostWorktreeOptions) {
 
 /** What deleting one worktree (and its branch) would lose, in a line or two for the send-home dialog. */
 function describeState(s: WorktreeState, branch: string, prefix = ''): { lines: string[]; risky: boolean } {
-  if (s.error) return { lines: [`${prefix}Couldn't check the worktree: ${s.error}.`], risky: true };
+  if (s.error) return { lines: [`${prefix}worktree를 확인하지 못했습니다: ${s.error}.`], risky: true };
   const lines: string[] = [];
   let risky = false;
-  if (!s.exists) lines.push(`${prefix}The worktree folder is already gone.`);
+  if (!s.exists) lines.push(`${prefix}worktree 폴더가 이미 삭제되었습니다.`);
   if (s.dirty) {
-    lines.push(`⚠️ ${prefix}${plural(s.dirty, 'uncommitted change')} in the worktree — deleting it loses them.`);
+    lines.push(`⚠️ worktree에 커밋하지 않은 변경 ${prefix}개가 있습니다. 삭제하면 해당 변경을 잃습니다.`);
     risky = true;
   }
   if (s.unpushed) {
-    lines.push(`⚠️ ${prefix}${plural(s.unpushed, 'commit')} on ${branch} that no remote has — deleting the branch loses them.`);
+    lines.push(`⚠️ ${branch}에 원격으로 보내지 않은 커밋 ${prefix}개가 있습니다. 브랜치를 삭제하면 잃습니다.`);
     risky = true;
-  } else if (s.ahead) lines.push(`${prefix}${plural(s.ahead, 'commit')} on ${branch}, all pushed or merged.`);
-  if (!lines.length) lines.push(`${prefix}Nothing on the branch yet and a clean worktree: safe to delete.`);
+  } else if (s.ahead) lines.push(`${branch}의 커밋 ${prefix}개는 모두 push 또는 병합되었습니다.`);
+  if (!lines.length) lines.push(`${prefix}브랜치에 새 커밋이 없고 worktree도 깨끗하므로 삭제할 수 있습니다.`);
   return { lines, risky };
 }
 
