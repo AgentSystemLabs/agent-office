@@ -8,5 +8,6 @@ export function installArcade(ctx: Ctx): Arcade {
   ctx.ticks.add('play', ({ dt }) => arcade.update(ctx.camera, dt));
   // With the camera up at the monitor, the game has the screen: no hands drawn over it.
   ctx.view.add({ covers: () => arcade.zoomed });
+  if (typeof window !== 'undefined') (window as any).arcade = arcade;
   return arcade;
 }
