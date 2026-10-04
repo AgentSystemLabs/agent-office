@@ -1,8 +1,8 @@
-import { JUKEBOX } from "../../../shared/layout";
-import { STREAM } from "../../../shared/jukebox";
-import type { AudioCore } from "../../sound/core";
-import { biquad, rms } from "../../sound/dsp";
-import { TunePlayer } from "../../sound/music";
+import { JUKEBOX } from '../../../shared/layout';
+import { STREAM } from '../../../shared/jukebox';
+import type { AudioCore } from '../../sound/core';
+import { biquad, rms } from '../../sound/dsp';
+import { TunePlayer } from '../../sound/music';
 
 // ---- The jukebox ------------------------------------------------------------------------------
 
@@ -45,15 +45,12 @@ export class Jukebox {
   connect(ctx: AudioContext) {
     // The jukebox skips the master (it has its own volume) and keeps playing while the tab is hidden.
     this.musicIn = this.a.panner(JUKEBOX, MUSIC_REF, MUSIC_ROLLOFF);
-    this.musicTone = biquad(ctx, "lowpass", 16000, 0.5);
+    this.musicTone = biquad(ctx, 'lowpass', 16000, 0.5);
     this.musicBus = ctx.createGain();
     this.musicBus.gain.value = 0;
     this.musicMeter = ctx.createAnalyser();
     this.musicMeter.fftSize = 2048;
-    this.musicIn
-      .connect(this.musicTone)
-      .connect(this.musicBus)
-      .connect(ctx.destination);
+    this.musicIn.connect(this.musicTone).connect(this.musicBus).connect(ctx.destination);
     this.musicBus.connect(this.musicMeter);
   }
 
@@ -74,15 +71,8 @@ export class Jukebox {
     this.jukebox = play;
     // The same play, sent again after a reconnect or timed better once the clocks are compared: carry on
     // (a tune lines itself up again as it goes; an audio file jumps to the right spot).
-    if (
-      was &&
-      play &&
-      was.startedAt === play.startedAt &&
-      was.track === play.track &&
-      was.url === play.url
-    ) {
-      if (this.stream && Math.abs(was.since - play.since) > 250)
-        this.seekStream(this.stream);
+    if (was && play && was.startedAt === play.startedAt && was.track === play.track && was.url === play.url) {
+      if (this.stream && Math.abs(was.since - play.since) > 250) this.seekStream(this.stream);
       return;
     }
     this.applyJukebox(true);
@@ -98,25 +88,18 @@ export class Jukebox {
   /** 1 on each beat of the tune, falling to 0 before the next, for the jukebox's lights. */
   beat(): number {
     if (this.tune) return this.tune.beat(this.musicAt());
-    if (this.stream && !this.stream.paused)
-      return 0.35 + 0.25 * Math.sin(performance.now() / 320);
+    if (this.stream && !this.stream.paused) return 0.35 + 0.25 * Math.sin(performance.now() / 320);
     return 0;
   }
 
   /** How far into the jukebox's track it is now, in seconds. */
   private musicAt(): number {
-    return this.jukebox
-      ? Math.max(0, (performance.now() - this.jukebox.since) / 1000)
-      : 0;
+    return this.jukebox ? Math.max(0, (performance.now() - this.jukebox.since) / 1000) : 0;
   }
 
   applyMusicVolume() {
     if (!this.a.ctx) return;
-    this.musicBus.gain.setTargetAtTime(
-      this.musicGain(),
-      this.a.ctx.currentTime,
-      0.04,
-    );
+    this.musicBus.gain.setTargetAtTime(this.musicGain(), this.a.ctx.currentTime, 0.04);
     this.hearStream();
   }
 
@@ -132,7 +115,7 @@ export class Jukebox {
     this.tune = null;
     if (this.stream) {
       this.stream.pause();
-      this.stream.removeAttribute("src");
+      this.stream.removeAttribute('src');
       this.stream.load();
       this.stream = null;
     }
@@ -141,7 +124,7 @@ export class Jukebox {
     if (!j) return;
     if (j.track === STREAM && j.url) return this.startStream(j.url);
     const tune = (this.tune = new TunePlayer(ctx, this.musicIn, j.track));
-    this.a.count("tune");
+    this.a.count('tune');
     // On a timer rather than every frame, so it carries on in a background tab.
     const tick = () => tune.tick(this.musicAt());
     tick();
@@ -150,24 +133,22 @@ export class Jukebox {
 
   private startStream(url: string) {
     const a = new Audio();
-    a.preload = "auto";
+    a.preload = 'auto';
     a.loop = true;
     a.src = url;
-    a.addEventListener("loadedmetadata", () => this.seekStream(a));
-    a.addEventListener("error", () => {
-      if (this.stream === a)
-        this.onError("📻 The jukebox can't play that stream in your browser");
+    a.addEventListener('loadedmetadata', () => this.seekStream(a));
+    a.addEventListener('error', () => {
+      if (this.stream === a) this.onError("📻 The jukebox can't play that stream in your browser");
     });
     this.stream = a;
     this.hearStream();
     void a.play().catch(() => {});
-    this.a.count("stream");
+    this.a.count('stream');
   }
 
   /** An audio file (not live radio) picks up where everyone else is. */
   private seekStream(a: HTMLAudioElement) {
-    if (Number.isFinite(a.duration) && a.duration > 0)
-      a.currentTime = this.musicAt() % a.duration;
+    if (Number.isFinite(a.duration) && a.duration > 0) a.currentTime = this.musicAt() % a.duration;
   }
 
   /** Muffles the jukebox the further you are from it. */
@@ -185,15 +166,12 @@ export class Jukebox {
   private hearStream() {
     if (!this.stream) return;
     const d = Math.max(MUSIC_REF, this.jukeboxDistance());
-    this.stream.volume = Math.min(
-      1,
-      this.musicGain() *
-        (MUSIC_REF / (MUSIC_REF + MUSIC_ROLLOFF * (d - MUSIC_REF))),
-    );
+    this.stream.volume = Math.min(1, this.musicGain() * (MUSIC_REF / (MUSIC_REF + MUSIC_ROLLOFF * (d - MUSIC_REF))));
   }
 
   private jukeboxDistance(): number {
     const l = this.a.listener;
     return Math.hypot(l.x - JUKEBOX.x, l.y - JUKEBOX.y, l.z - JUKEBOX.z);
   }
+
 }

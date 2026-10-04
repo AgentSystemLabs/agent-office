@@ -1,14 +1,14 @@
-import { trackTitle } from "../../../shared/jukebox";
-import type { Ctx } from "../../core/context";
-import { aside, hintTitle, key, onE } from "../../core/hint";
-import { store } from "../../state";
-import { clip } from "../../ui/dom";
-import { SURAHS, surahOf } from "./quran";
-import { openJukebox } from "./ui";
-import type { SettingsPane } from "../../ui/settings";
+import { trackTitle } from '../../../shared/jukebox';
+import type { Ctx } from '../../core/context';
+import { aside, hintTitle, key, onE } from '../../core/hint';
+import { store } from '../../state';
+import { clip } from '../../ui/dom';
+import { SURAHS, surahOf } from './quran';
+import { openJukebox } from './ui';
+import type { SettingsPane } from '../../ui/settings';
 
 // The kinds of thing you can use that this defines (see InteractKinds in world/types.ts).
-declare module "../../world/types" {
+declare module '../../world/types' {
   interface InteractKinds {
     jukebox: true;
   }
@@ -25,34 +25,26 @@ export function installJukebox(ctx: Ctx, deps: JukeboxDeps) {
   // It's the office's: on a map of its own there's none to hear.
   function playJukebox() {
     const j = store.jukebox;
-    ctx.sound.setJukebox(
-      j.on && ctx.inOffice()
-        ? { track: j.track, url: j.url, startedAt: j.startedAt, since: j.since }
-        : null,
-    );
+    ctx.sound.setJukebox(j.on && ctx.inOffice() ? { track: j.track, url: j.url, startedAt: j.startedAt, since: j.since } : null);
     ctx.office.jukebox.show(j.on, trackTitle(j));
   }
-  store.on("jukebox", playJukebox);
-  ctx.interactions.define("jukebox", {
+  store.on('jukebox', playJukebox);
+  ctx.interactions.define('jukebox', {
     reach: 4,
     hint: () => {
       const j = store.jukebox;
       const sn = surahOf(j.url);
-      const what = j.on ? (sn ? SURAHS[sn - 1] : trackTitle(j)) : "";
+      const what = j.on ? (sn ? SURAHS[sn - 1] : trackTitle(j)) : '';
       return {
         k: `${j.on}|${what}`,
-        parts: [
-          hintTitle("📖 Quran"),
-          aside(j.on ? `♪ ${clip(what, 40)}` : "off"),
-          key("E", j.on ? "Change the surah" : "Play a surah"),
-        ],
+        parts: [hintTitle('📖 Quran'), aside(j.on ? `♪ ${clip(what, 40)}` : 'off'), key('E', j.on ? 'Change the surah' : 'Play a surah')],
       };
     },
     use: onE(() => showJukebox()),
   });
 
   function showJukebox() {
-    openJukebox(ctx.net, () => deps.showSettings("sound"));
+    openJukebox(ctx.net, () => deps.showSettings('sound'));
   }
 
   return { playJukebox };
