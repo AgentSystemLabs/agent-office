@@ -1577,6 +1577,17 @@ function bones(): THREE.Group {
 export class Worker {
   readonly root = new THREE.Group();
   private body = new THREE.Group();
+  private carriedLaptop: THREE.Object3D | null = null;
+
+  /** Carry a helper’s live terminal with its body as it walks. */
+  carryLaptop(laptop: THREE.Object3D) {
+    this.carriedLaptop = laptop;
+    laptop.position.set(0, 0.48, 0.48);
+    laptop.rotation.y = Math.PI;
+    laptop.scale.setScalar(0.85);
+    this.body.add(laptop);
+  }
+
   private bulb: THREE.MeshToonMaterial;
   private bulbMesh: THREE.Mesh;
   private armL: THREE.Object3D;
@@ -2133,7 +2144,7 @@ export class Worker {
     const act: Act =
       hopping || (this.bouncing && this.status === 'done') ? 'up'
       : this.status === 'needs_input' ? 'waiting'
-      : this.status === 'working' ? (this.action ?? 'type')
+      : this.status === 'working' ? (this.carriedLaptop ? 'type' : (this.action ?? 'type'))
       : 'rest';
     const s = this.pose(act, dt, t);
     // A zombie at rest stands with its arms out in front of it, groping, listing to one side and swaying.
@@ -2173,6 +2184,12 @@ export class Worker {
     this.body.rotation.y = this.turnY + twirl;
     this.body.rotation.z = isAsleep(this.status) ? Math.sin(t * 1.5) * 0.08 : s.roll;
     this.props(dt, t);
+    if (this.carriedLaptop) {
+      this.armL.position.set(-0.3, 0.55, 0.18);
+      this.armR.position.set(0.3, 0.55, 0.18);
+      this.armL.rotation.set(-1.15, 0, -0.12);
+      this.armR.rotation.set(-1.15, 0, 0.12);
+    }
     this.blink(dt, s.lid);
     this.bulbMesh.scale.setScalar(this.status === 'needs_input' ? 1 + Math.abs(Math.sin(t * 8)) * 0.5 : 1);
     if (this.bubble) this.bubble.position.y = (this.bubbleIsCard ? 1.74 : 1.95) + (hopping ? this.body.position.y : 0) + Math.sin(t * 3) * 0.03;
