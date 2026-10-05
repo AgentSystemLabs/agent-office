@@ -8,6 +8,13 @@ export function kindIcon(w: Pick<WorkerInfo, 'kind'>): string {
   return w.kind === 'shell' ? '🐚' : '🤖';
 }
 
+/** A plain hex color only: worker colors come from the avatar palette, but nothing at the call
+ * sites constrains them, so anything else falls back instead of becoming raw CSS. */
+const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
+export function dotColor(w: Pick<WorkerInfo, 'color'>): string {
+  return HEX_COLOR.test(w.color) ? w.color : '#888888';
+}
+
 /** The line under a contact's name: what it's doing now, or where its work stands. */
 export function contactSub(w: Pick<WorkerInfo, 'activity' | 'pr' | 'lost'>): string | undefined {
   if (w.lost) return '🌿 worktree deleted — tap to fix it';

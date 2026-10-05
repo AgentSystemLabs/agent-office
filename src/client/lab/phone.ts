@@ -37,10 +37,15 @@ if (params.has('sms') || params.has('call')) {
   pick('.sp-contact')?.click();
   pick(params.has('call') ? '.sp-call' : '.sp-sms')?.click();
 }
+// Recents with one placed call, on the Recents tab (shows the clear-history control).
+if (params.has('recent')) {
+  store.smartphone.recents = [{ kind: 'call', workerId: 'w3', name: 'Mochi', at: Date.now() - 60_000 }];
+  document.querySelectorAll<HTMLElement>('.sp-tab')[1]?.click();
+}
 
 setTimeout(
   () => {
-    ((window as unknown as { __ready: unknown }).__ready = { phone: params.has('sms') ? 'thread' : params.has('call') ? 'calling' : 'contacts' });
+    ((window as unknown as { __ready: unknown }).__ready = { phone: params.has('sms') ? 'thread' : params.has('call') ? 'calling' : params.has('recent') ? 'recents' : 'contacts' });
   },
   params.has('call') ? 1500 : 400,
 );

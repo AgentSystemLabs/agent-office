@@ -1,12 +1,12 @@
 import './ui.css';
 import type { WorkerInfo } from '../../../shared/protocol';
-import { appendSms, logRecent, saveThreads, threadKey } from '../../../shared/smartphone';
+import { appendSms, logRecent, MAX_SMS_TEXT, saveThreads, threadKey } from '../../../shared/smartphone';
 import { isAsleep } from '../../../shared/status';
 import { byUrgency } from '../../nextup';
 import { store } from '../../state';
 import { clip, h, openModal, STATUS_LABEL, timeAgo, toast } from '../../ui/dom';
 import { dictateField } from '../../ui/dictate';
-import { contactSub, kindIcon, statusNote } from './logic';
+import { contactSub, dotColor, kindIcon, statusNote } from './logic';
 
 export interface SmartphoneDeps {
   net: { send(msg: { t: 'worker.prompt'; workerId: string; prompt: string }): void };
@@ -51,26 +51,46 @@ export function openSmartphone(deps: SmartphoneDeps) {
 
   function draw() {
     clearTimers();
+    drawTabs();
+    drawBody();
+  }
+
+  function drawTabs() {
     const contacts = byUrgency(store.workers.values());
     const recents = store.smartphone.recents;
     back.classList.toggle('hidden', view.t === 'contacts' || view.t === 'recents');
     tabs.replaceChildren(
-      tab('Contacts', contacts.length, view.t === 'contacts' || view.t === 'actions' || view.t === 'calling' || view.t === 'thread', () => {
+      tab('Contacts', contacts.length, view.t !== 'recents', () => {
+        if (hangUp()) return;
         view = { t: 'contacts' };
         deps.sound.dialBlip();
         draw();
       }),
       tab('Recents', recents.length, view.t === 'recents', () => {
+        if (hangUp()) return;
         view = { t: 'recents' };
         deps.sound.dialBlip();
         draw();
       }),
     );
-    if (view.t === 'contacts') renderContacts(contacts);
+  }
+
+  function drawBody() {
+    live = null;
+    if (view.t === 'contacts') renderContacts(byUrgency(store.workers.values()));
     else if (view.t === 'recents') renderRecents();
     else if (view.t === 'actions') renderActions(view.id);
     else if (view.t === 'calling') renderCalling(view.id);
     else renderThread(view.id);
+  }
+
+  /** Hanging up from anywhere: back to the contact's actions, never a silent cancel. */
+  function hangUp(): boolean {
+    if (view.t !== 'calling') return false;
+    view = { t: 'actions', id: view.id };
+    deps.sound.dialBlip();
+    draw();
+    return true;
   }
 
   const tab = (label: string, n: number, on: boolean, go: () => void) => h('button.sp-tab', { type: 'button', class: on ? 'on' : '', 'aria-pressed': String(on), onclick: go }, label, n ? h('span.sp-count', {}, String(n)) : null);
@@ -98,7 +118,7 @@ export function openSmartphone(deps: SmartphoneDeps) {
               draw();
             },
           },
-          h('span.sp-dot', { style: `background:${w.color}` }),
+          h('span.sp-dot', { style: `background:${dotColor(w)}` }),
           h('div.sp-main', {}, h('div.sp-name', {}, `${kindIcon(w)} ${w.name}`, w.pr && w.activity ? h('span.sp-pr', {}, `🔀 #${w.pr.number}`) : null), sub ? h('div.sp-sub', {}, clip(sub, 48)) : null),
           pill(w),
         );
@@ -107,31 +127,47 @@ export function openSmartphone(deps: SmartphoneDeps) {
   }
 
   function renderRecents() {
-    const recents = store.smartphone.recents;
-    if (!recents.length) {
+    const st = store.smartphone;
+    // Names are resolved live (a renamed worker shows its new name), and rows whose worker went
+    // home are dropped instead of lingering until the cap evicts them.
+    const alive = st.recents.filter((r) => worker(r.workerId));
+    if (alive.length !== st.recents.length) st.recents = alive;
+    if (!alive.length) {
       body.replaceChildren(h('p.sp-empty', {}, 'No calls or texts yet — tap a contact to ring them.'));
       return;
     }
     body.replaceChildren(
-      ...recents.map((r) =>
-        h(
+      ...alive.map((r) => {
+        const w = worker(r.workerId)!;
+        return h(
           'button.sp-contact',
           {
             type: 'button',
             onclick: () => {
-              if (!worker(r.workerId)) {
-                toast(`${r.name} went home`, 'warn');
-                return;
-              }
-              view = { t: 'actions', id: r.workerId };
+              view = { t: 'actions', id: w.id };
               deps.sound.dialBlip();
               draw();
             },
           },
           h('span.sp-dot', {}, r.kind === 'call' ? '📞' : '💬'),
-          h('div.sp-main', {}, h('div.sp-name', {}, r.name), h('div.sp-sub', {}, r.kind === 'call' ? 'outgoing call' : 'text message')),
+          h('div.sp-main', {}, h('div.sp-name', {}, w.name), h('div.sp-sub', {}, r.kind === 'call' ? 'outgoing call' : 'text message')),
           h('span.sp-when', { title: new Date(r.at).toLocaleString() }, timeAgo(r.at)),
-        ),
+        );
+      }),
+      h(
+        'button.btn.sp-clear',
+        {
+          type: 'button',
+          title: 'Forget every kept text (texts are kept in this browser only)',
+          onclick: () => {
+            const s = store.smartphone;
+            s.threads = {};
+            saveThreads(s.threads);
+            store.emit('smartphone');
+            toast('🗑 Message history cleared');
+          },
+        },
+        '🗑 Clear message history',
       ),
     );
   }
@@ -144,7 +180,7 @@ export function openSmartphone(deps: SmartphoneDeps) {
     }
     const sub = contactSub(w);
     body.replaceChildren(
-      h('div.sp-who', {}, h('span.sp-bigdot', { style: `background:${w.color}` }), h('div.sp-main', {}, h('div.sp-name', {}, `${kindIcon(w)} ${w.name}`), sub ? h('div.sp-sub', {}, clip(sub, 60)) : null), pill(w)),
+      h('div.sp-who', {}, h('span.sp-bigdot', { style: `background:${dotColor(w)}` }), h('div.sp-main', {}, h('div.sp-name', {}, `${kindIcon(w)} ${w.name}`), sub ? h('div.sp-sub', {}, clip(sub, 60)) : null), pill(w)),
       h(
         'div.sp-actions',
         {},
@@ -188,19 +224,26 @@ export function openSmartphone(deps: SmartphoneDeps) {
           view = { t: 'contacts' };
           return draw();
         }
-        if (now.lost && now.worktree) {
+        if (now.lost) {
+          // No worktree to rebuild (a workspace gone with it): say so where the phone still is.
+          if (!now.worktree) {
+            toast(`${now.name}'s workspace is gone and there is nothing to rebuild — send it home from its desk`, 'warn');
+            view = { t: 'contacts' };
+            return draw();
+          }
           modal.close();
           deps.fixLostWorktree(now);
           return;
         }
-        const st = store.smartphone;
-        st.recents = logRecent(st.recents, { kind: 'call', workerId: now.id, name: now.name, at: Date.now() });
-        store.emit('smartphone');
         if (!deps.goToWorker(now.id)) {
           toast(`Couldn't get to ${now.name}'s desk`, 'warn');
           view = { t: 'contacts' };
           return draw();
         }
+        // Logged only once the call is really placed: no phantoms for failed ones.
+        const st = store.smartphone;
+        st.recents = logRecent(st.recents, { kind: 'call', workerId: now.id, name: now.name, at: Date.now() });
+        store.emit('smartphone');
         deps.openWorkerTerminal(now.id);
       }, CONNECT_MS),
     );
@@ -215,7 +258,7 @@ export function openSmartphone(deps: SmartphoneDeps) {
     const phase = h('div.sp-phase', {}, 'Dialing…');
     timers.push(setTimeout(() => phase.replaceChildren('Ringing…'), 800));
     body.replaceChildren(
-      h('div.sp-calling', {}, h('span.sp-bigdot', { style: `background:${w.color}` }), h('div.sp-name', {}, w.name), phase, h('div.sp-sub', {}, `${STATUS_LABEL[w.status] ?? w.status} · connects into their terminal`)),
+      h('div.sp-calling', {}, h('span.sp-bigdot', { style: `background:${dotColor(w)}` }), h('div.sp-name', {}, w.name), phase, h('div.sp-sub', {}, `${STATUS_LABEL[w.status] ?? w.status} · connects into their terminal`)),
       h(
         'div.sp-actions',
         {},
@@ -224,9 +267,7 @@ export function openSmartphone(deps: SmartphoneDeps) {
           {
             type: 'button',
             onclick: () => {
-              view = { t: 'actions', id };
-              deps.sound.dialBlip();
-              draw();
+              hangUp();
             },
           },
           '📵 End',
@@ -241,10 +282,34 @@ export function openSmartphone(deps: SmartphoneDeps) {
       view = { t: 'contacts' };
       return draw();
     }
+    if (w.lost) {
+      // Like prompting at the desk: a lost worker gets fixed, not texted.
+      body.replaceChildren(
+        h('div.sp-who', {}, h('span.sp-dot', { style: `background:${dotColor(w)}` }), h('div.sp-main', {}, h('div.sp-name', {}, `💬 ${w.name}`))),
+        h('p.sp-empty', {}, '🌿 Its worktree is gone — put it back before texting.'),
+        h(
+          'div.sp-actions',
+          {},
+          h(
+            'button.btn.primary',
+            {
+              type: 'button',
+              onclick: () => {
+                modal.close();
+                deps.fixLostWorktree(w);
+              },
+            },
+            '🌿 Fix it',
+          ),
+        ),
+      );
+      return;
+    }
     const key = threadKey(store.floor, id);
     const thread = store.smartphone.threads[key] ?? [];
     const asleep = isAsleep(w.status);
-    const input = h('input', { type: 'text', placeholder: asleep ? `${w.name} is asleep — call to wake it` : `Text ${w.name}…`, 'aria-label': 'Message', autocomplete: 'off' }) as HTMLInputElement;
+    const hint = h('div.sp-hint', {}, statusNote(w));
+    const input = h('input', { type: 'text', maxlength: MAX_SMS_TEXT, placeholder: asleep ? `${w.name} is asleep — call to wake it` : `Text ${w.name}…`, 'aria-label': 'Message', autocomplete: 'off' }) as HTMLInputElement;
     input.toggleAttribute('disabled', asleep);
     const sendBtn = h('button.btn.primary', { type: 'submit' }, 'Send');
     sendBtn.toggleAttribute('disabled', asleep);
@@ -252,8 +317,16 @@ export function openSmartphone(deps: SmartphoneDeps) {
     form.addEventListener('submit', (e) => {
       e.preventDefault();
       const text = input.value.trim();
+      if (!text) return;
       const now = worker(id);
-      if (!text || !now || isAsleep(now.status)) return;
+      if (!now) {
+        view = { t: 'contacts' };
+        return draw();
+      }
+      if (isAsleep(now.status)) {
+        toast(`${now.name} is asleep — wake it (R at its desk, or call) before texting`, 'warn');
+        return;
+      }
       deps.net.send({ t: 'worker.prompt', workerId: now.id, prompt: text });
       const st = store.smartphone;
       st.threads[key] = appendSms(st.threads[key], text);
@@ -271,26 +344,49 @@ export function openSmartphone(deps: SmartphoneDeps) {
       {},
       ...thread.map((m) => (m.dir === 'out' ? h('div.sp-bubble sp-out', {}, m.text) : h('div.sp-bubble sp-note', {}, m.text))),
     );
-    body.replaceChildren(h('div.sp-who', {}, h('span.sp-dot', { style: `background:${w.color}` }), h('div.sp-main', {}, h('div.sp-name', {}, `💬 ${w.name}`))), msgs, h('div.sp-hint', {}, statusNote(w)), form);
+    body.replaceChildren(h('div.sp-who', {}, h('span.sp-dot', { style: `background:${dotColor(w)}` }), h('div.sp-main', {}, h('div.sp-name', {}, `💬 ${w.name}`))), msgs, hint, form);
+    live = { id, hint, input, send: sendBtn };
     msgs.scrollTop = msgs.scrollHeight;
     setTimeout(() => input.focus(), 30);
   }
 
   back.addEventListener('click', () => {
+    if (hangUp()) return;
     if (view.t === 'actions' || view.t === 'thread') view = view.t === 'thread' && worker(view.id) ? { t: 'actions', id: view.id } : { t: 'contacts' };
     else view = { t: 'contacts' };
     deps.sound.dialBlip();
     draw();
   });
 
+  /** The thread's live bits: the hint and composer follow the worker without a redraw, so the input keeps focus. */
+  let live: { id: string; hint: HTMLElement; input: HTMLInputElement; send: HTMLElement } | null = null;
+
+  function liveThread() {
+    const cur = live;
+    const w = cur && worker(cur.id);
+    if (!cur || !w) return draw();
+    cur.hint.replaceChildren(statusNote(w));
+    const asleep = isAsleep(w.status);
+    cur.input.toggleAttribute('disabled', asleep);
+    cur.input.placeholder = asleep ? `${w.name} is asleep — call to wake it` : `Text ${w.name}…`;
+    cur.send.toggleAttribute('disabled', asleep);
+  }
+
   // The workers change under the phone (a hire, a status flip): redraw the lists, but never a view
-  // with focus or timers in it (the thread's composer, the call being placed).
-  const onStore = () => {
-    if (view.t === 'thread' || view.t === 'calling') return;
+  // with focus or timers in it (the thread's composer follows along live, or the call being placed).
+  const onWorkers = () => {
+    if (view.t === 'calling') return;
+    if (view.t === 'thread') return liveThread();
     draw();
   };
-  const offWorkers = store.on('workers', onStore);
-  const offPhone = store.on('smartphone', onStore);
+  // A text sent (or history cleared) only renames tab counts outside Recents; Recents redraws.
+  const onPhone = () => {
+    if (view.t === 'thread' || view.t === 'calling') return;
+    if (view.t === 'recents') return draw();
+    drawTabs();
+  };
+  const offWorkers = store.on('workers', onWorkers);
+  const offPhone = store.on('smartphone', onPhone);
   const modal = openModal(el, {
     doing: '📱 checking contacts',
     onClose: () => {

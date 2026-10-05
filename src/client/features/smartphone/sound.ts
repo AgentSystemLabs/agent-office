@@ -5,13 +5,20 @@ import { biquad } from '../../sound/dsp';
 // call, a swoosh for an SMS going out, and a blip for tapping through the phone. UI-local, like the
 // worker dings: they come out of the alerts bus, not from anywhere in the room.
 
-/** An old landline's two-tone ring (440 + 480 Hz), rung twice, for placing a call. */
-export function phoneRing(a: AudioCore) {
+/** The audio context unlocked and counted, or null before the browser allows audio. */
+function ready(a: AudioCore, name: string): AudioContext | null {
   a.unlock();
   const ctx = a.ctx;
-  if (!ctx) return;
+  if (!ctx) return null;
   if (ctx.state === 'suspended') void ctx.resume();
-  a.count('phone-ring');
+  a.count(name);
+  return ctx;
+}
+
+/** An old landline's two-tone ring (440 + 480 Hz), rung twice, for placing a call. */
+export function phoneRing(a: AudioCore) {
+  const ctx = ready(a, 'phone-ring');
+  if (!ctx) return;
   for (const at of [0, 0.9]) {
     const t0 = ctx.currentTime + at;
     for (const f of [440, 480]) {
@@ -32,11 +39,8 @@ export function phoneRing(a: AudioCore) {
 
 /** An SMS going out: a short whoosh upward. */
 export function smsSwoosh(a: AudioCore) {
-  a.unlock();
-  const ctx = a.ctx;
+  const ctx = ready(a, 'sms-swoosh');
   if (!ctx) return;
-  if (ctx.state === 'suspended') void ctx.resume();
-  a.count('sms-swoosh');
   const t0 = ctx.currentTime + 0.01;
   const noise = a.noise(a.buf.white);
   const bp = biquad(ctx, 'bandpass', 900, 1.4);
@@ -53,11 +57,8 @@ export function smsSwoosh(a: AudioCore) {
 
 /** Tapping through the phone: one soft key blip. */
 export function dialBlip(a: AudioCore) {
-  a.unlock();
-  const ctx = a.ctx;
+  const ctx = ready(a, 'dial-blip');
   if (!ctx) return;
-  if (ctx.state === 'suspended') void ctx.resume();
-  a.count('dial-blip');
   const t0 = ctx.currentTime + 0.01;
   const o = ctx.createOscillator();
   const g = ctx.createGain();

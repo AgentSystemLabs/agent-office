@@ -20,6 +20,10 @@ export interface RecentEntry {
 /** How many messages a thread keeps per worker, and how many lines Recents keeps. */
 export const MAX_THREAD = 100;
 export const MAX_RECENTS = 20;
+/** How many threads are kept in the browser: keys (floor/worker) accumulate, so the count is capped. */
+export const MAX_KEYS = 50;
+/** The longest SMS kept or sent: the server truncates `worker.prompt` past this (`ws/handlers/workers.ts`). */
+export const MAX_SMS_TEXT = 20000;
 
 const THREAD_KEY = 'agent-office.smartphone.threads';
 
@@ -38,26 +42,44 @@ export function logRecent(recents: RecentEntry[], entry: RecentEntry): RecentEnt
   return [entry, ...recents.filter((r) => r.workerId !== entry.workerId || r.kind !== entry.kind)].slice(0, MAX_RECENTS);
 }
 
+/** Whether a kept value is a well-formed thread line (stale or crafted storage is dropped, never rendered). */
+function isSmsMsg(m: unknown): m is SmsMsg {
+  if (typeof m !== 'object' || m === null) return false;
+  const o = m as Record<string, unknown>;
+  return (o.dir === 'out' || o.dir === 'note') && typeof o.text === 'string' && typeof o.at === 'number';
+}
+
 /** The threads the browser kept, or none (private mode, or nothing sent yet). */
 export function loadThreads(): Record<string, SmsMsg[]> {
   try {
     if (typeof localStorage === 'undefined') return {};
     const raw = localStorage.getItem(THREAD_KEY);
     if (!raw) return {};
-    const parsed = JSON.parse(raw) as Record<string, SmsMsg[]>;
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
     const out: Record<string, SmsMsg[]> = {};
-    for (const [k, v] of Object.entries(parsed)) if (Array.isArray(v)) out[k] = v.slice(-MAX_THREAD);
+    for (const [k, v] of Object.entries(parsed)) {
+      if (!Array.isArray(v)) continue;
+      const kept = v.filter(isSmsMsg).map((m) => ({ ...m, text: m.text.slice(0, MAX_SMS_TEXT) }));
+      if (kept.length) out[k] = kept.slice(-MAX_THREAD);
+    }
     return out;
   } catch {
     return {};
   }
 }
 
-/** Keeps the threads in the browser. Never throws (private mode just doesn't keep them). */
+/** Keeps the threads in the browser: plaintext, like the terminal scrollback the office keeps. Never throws (private mode just doesn't keep them). */
 export function saveThreads(threads: Record<string, SmsMsg[]>): void {
   try {
     if (typeof localStorage === 'undefined') return;
-    localStorage.setItem(THREAD_KEY, JSON.stringify(threads));
+    const keys = Object.keys(threads).filter((k) => (threads[k]?.length ?? 0) > 0);
+    let kept = threads;
+    if (keys.length > MAX_KEYS) {
+      // Evict the threads quietest the longest.
+      const latest = (k: string) => threads[k]?.reduce((m, x) => Math.max(m, x.at), 0) ?? 0;
+      kept = Object.fromEntries(keys.sort((a, b) => latest(b) - latest(a)).slice(0, MAX_KEYS).map((k) => [k, threads[k]]));
+    }
+    localStorage.setItem(THREAD_KEY, JSON.stringify(kept));
   } catch {
     // storage blocked or full: the threads still last the session
   }

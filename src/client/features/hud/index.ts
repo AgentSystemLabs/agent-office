@@ -52,7 +52,7 @@ export function installHud(ctx: Ctx, core: CoreState, parts: HudParts) {
       { id: 'issues', icon: '📌', label: 'Issues', section: 'Open', count: () => store.issues.items.filter((i) => i.state === 'OPEN').length, run: () => openBoard('issues', net, actions.boardActions()) },
       { id: 'pulls', icon: '🔀', label: 'Pull requests', section: 'Open', count: () => store.pulls.items.filter((p) => p.state === 'OPEN').length, run: () => openBoard('pulls', net, actions.boardActions()) },
       { id: 'queue', icon: '📋', label: 'Task queue', section: 'Open', count: () => store.queue.tasks.filter((t) => t.status !== 'done').length, title: () => 'Issues and tasks waiting for a worker', run: waiting.showQueue },
-      { id: 'smartphone', icon: '📱', label: 'Smartphone', section: 'Open', key: 'J', count: () => waitingInOrder(store.workers.values()).length, title: () => 'Call a worker or send one an SMS', run: () => parts.smartphone.showSmartphone() },
+      { id: 'smartphone', icon: '📱', label: 'Smartphone', section: 'Open', key: 'J', count: () => waitingNow().length, title: () => 'Call a worker or send one an SMS', run: () => parts.smartphone.showSmartphone() },
       { id: 'services', icon: '🌐', label: 'Services', section: 'Open', count: () => store.services.items.length, title: () => 'Web servers the workers are running', run: () => openServices() },
       { id: 'whiteboard', icon: '📝', label: 'Whiteboard', section: 'Open', title: () => 'Draw together, live', run: () => openWhiteboard(net) },
       // Up on the top bar while a meeting is on: what's being worked through in the meeting room.

@@ -37,3 +37,4 @@
 .sp-hint { font-size: 12px; color: var(--muted); text-align: center; }
 .sp-compose { display: flex; gap: 6px; }
 .sp-compose input { flex: 1; min-width: 0; }
+.sp-clear { align-self: center; font-size: 12px; margin-top: 4px; }
