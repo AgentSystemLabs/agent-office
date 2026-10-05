@@ -3,22 +3,17 @@
  * humming fridge, workers typing while they work, footsteps, the coffee machine, birds outside the
  * windows by day and crickets at night, rain and thunder, the odd rustle or phone, the gong, the dog
  * barking, and the dings when a worker needs you. And the lounge jukebox, whose tunes are in music.ts,
- * and up on the roof, the wind, the city far below and the DJ's drum and bass (dnb.ts). And the ring of
- * chairs on the office floor: its tune (chairstune.ts), the PA that calls the game (pa.ts), and the
- * clatter, the slide whistle and the last chord of it.
+ * and up on the roof, the wind, the city far below and the DJ's drum and bass (dnb.ts).
  *
  * Everything goes through one master gain that Settings turns down or mutes. Voice chat doesn't, and
  * the jukebox has a volume of its own.
  */
 import { CABINET, DESKS, DJ_BOOTH, FLOOR, GONG, JUKEBOX, WINDOWS as OPENINGS, inWing } from '../shared/layout';
 import type { GongWhy } from '../shared/protocol';
-import { RING } from '../shared/chairs';
 import { STREAM, stationUrl, type JukeboxSpot } from '../shared/jukebox';
 import { TunePlayer } from './music';
 import { DjPlayer } from './dnb';
 import { ROOM_AUDIO_REF, ROOM_AUDIO_ROLLOFF, roomDistanceGain } from './spatial-audio';
-import { ChairTune, chairFrame, type ChairFrame } from './chairstune';
-import { chime as paChime, speak } from './pa';
 
 type Pos = { x: number; y: number; z: number };
 
@@ -31,13 +26,6 @@ export interface JukeboxPlay {
   since: number;
 }
 
-/** Musical chairs, as the office last said it: the tune from `since`, or nothing playing. */
-export interface ChairsPlay {
-  /** When the music of this round started, on performance.now()'s clock (see ChairsState.phaseAt). */
-  since: number;
-}
-
-/** Where you hear from: your head, facing where the camera looks. */
 /** Where you hear from: your head, facing where the camera looks. */
 export interface Listener extends Pos {
   fx: number;
@@ -155,15 +143,6 @@ export class OfficeSound {
   /** How far into the DJ's set it is (see djTime), while you're up there. */
   private djClock: (() => number) | null = null;
   private djTimer = 0;
-  // Musical chairs, down on the office floor: the tune from over the ring (at your music volume), the
-  // PA that calls the game (on the alerts bus, so it's heard with the music turned down), and the
-  // knocks, the whistle and the fanfare that go with it (with the office's other sounds).
-  private chairsIn!: PannerNode;
-  private chairFx!: PannerNode;
-  private paIn!: PannerNode;
-  private chairs: ChairTune | null = null;
-  private chairsPlay: ChairsPlay | null = null;
-  private chairsTimer = 0;
   /** A stream that won't play here. */
   onMusicError?: (text: string) => void;
   /** How many of each sound have played, for quick checks from the console. */
@@ -255,15 +234,6 @@ export class OfficeSound {
     // Loud enough to hear from anywhere on the roof, and loudest on the dance floor.
     this.djIn = this.panner({ x: DJ_BOOTH.x, y: 2.2, z: DJ_BOOTH.z }, 7, 0.8);
     this.djIn.connect(this.musicBus);
-    // The ring of chairs is a party in the middle of the room: its tune carries right across it, and
-    // the PA over it further still, so an announcement is heard by everyone on the floor.
-    const over = { x: RING.x, y: 1.8, z: RING.z };
-    this.chairsIn = this.panner(over, 9, 0.5);
-    this.chairsIn.connect(this.musicBus);
-    this.chairFx = this.panner(over, 6, 0.7);
-    this.chairFx.connect(this.ambience);
-    this.paIn = this.panner(over, 10, 0.4);
-    this.paIn.connect(this.alerts);
     this.applyVolume();
     this.applyMusicVolume();
     this.applyJukebox();
@@ -273,7 +243,6 @@ export class OfficeSound {
     this.startWind();
     this.applyOutdoors();
     this.applyDj();
-    this.applyChairs();
     const now = ctx.currentTime;
     this.nextBird = now + rand(5, 15);
     this.nextCricket = now + rand(2, 6);
@@ -1816,190 +1785,6 @@ export class OfficeSound {
     const l = this.listener;
     const m = this.jukeboxAt;
     return Math.hypot(l.x - m.x, l.y - m.y, l.z - m.z);
-  }
-
-  // ---- Musical chairs ---------------------------------------------------------------------------
-
-  /**
-   * The tune of the musical chairs game on this floor, from `play.since`; null stops it. The office
-   * says when a round of music began (see ChairsState.phaseAt), so every page starts the tune at the
-   * same moment and it stops in the same instant when the round ends.
-   */
-  setChairs(play: ChairsPlay | null) {
-    this.chairsPlay = play;
-    this.applyChairs(true);
-  }
-
-  /** What the tune's doing right now, for the ring's lights and the workers dancing round it. */
-  chairsFrame(): ChairFrame {
-    return chairFrame(this.chairs ? this.chairsAt() : 0);
-  }
-
-  private chairsAt(): number {
-    return this.chairsPlay ? Math.max(0, (performance.now() - this.chairsPlay.since) / 1000) : 0;
-  }
-
-  private applyChairs(changed = false) {
-    const ctx = this.ctx;
-    if (!ctx || (!changed && (this.chairs || !this.chairsPlay))) return;
-    this.chairs?.stop();
-    this.chairs = null;
-    clearInterval(this.chairsTimer);
-    if (!this.chairsPlay) return;
-    const tune = (this.chairs = new ChairTune(ctx, this.chairsIn));
-    this.count('chairs');
-    // On a timer rather than every frame, so it carries on in a background tab.
-    const tick = () => tune.tick(this.chairsAt());
-    tick();
-    this.chairsTimer = window.setInterval(tick, 150);
-  }
-
-  /** The music being yanked off the record as it stops: the tune's own dying screech, then silence. */
-  chairStop() {
-    this.chairs?.yank();
-    this.chairs?.stop();
-    this.chairs = null;
-    this.chairsPlay = null;
-    clearInterval(this.chairsTimer);
-    this.count('chairStop');
-  }
-
-  /**
-   * The office PA reads a line out over the room, with its two-note chime first: the announcement that
-   * starts the game, and everything said over it after. It goes out from over the ring, and is heard
-   * with the music turned down, like the gong. Says how long it took, in seconds.
-   */
-  announce(text: string): number {
-    this.unlock();
-    const ctx = this.ctx;
-    if (!ctx) return 0;
-    if (ctx.state === 'suspended') void ctx.resume();
-    this.count('announce');
-    const t0 = ctx.currentTime + 0.05;
-    paChime(ctx, this.paIn, t0);
-    return speak(ctx, this.paIn, text, t0 + 0.45);
-  }
-
-  /** The chairs being dragged out and set in a ring: wooden knocks, quicker together, then a spin round. */
-  chairClatter(count: number) {
-    const ctx = this.ctx;
-    if (!ctx) return;
-    this.count('chairClatter');
-    const out = this.chairFx;
-    const t0 = ctx.currentTime + 0.02;
-    for (let i = 0; i < count; i++) {
-      // Knocked on the floor and dragged along it, the last few as they settle into the ring.
-      const w = t0 + (i / count) ** 0.6 * 0.8;
-      const f = rand(700, 1500);
-      const knock = this.noise(this.buf.white);
-      const g = ctx.createGain();
-      g.gain.setValueAtTime(0.0001, w);
-      g.gain.exponentialRampToValueAtTime(0.12, w + 0.002);
-      g.gain.exponentialRampToValueAtTime(0.0001, w + 0.06);
-      knock.connect(biquad(ctx, 'bandpass', f, 2.5)).connect(g).connect(out);
-      knock.start(w, rand(0, 1));
-      knock.stop(w + 0.08);
-      // The leg it stands on, ringing under the knock.
-      const o = ctx.createOscillator();
-      o.type = 'triangle';
-      o.frequency.value = f * 0.4;
-      const og = ctx.createGain();
-      og.gain.setValueAtTime(0.0001, w);
-      og.gain.exponentialRampToValueAtTime(0.05, w + 0.003);
-      og.gain.exponentialRampToValueAtTime(0.0001, w + 0.12);
-      o.connect(og).connect(out);
-      o.start(w);
-      o.stop(w + 0.14);
-    }
-  }
-
-  /** The worker that got left out: a slide whistle going down, and a trombone to finish it off. */
-  chairLoser() {
-    const ctx = this.ctx;
-    if (!ctx) return;
-    this.count('chairLoser');
-    const out = this.chairFx;
-    const t0 = ctx.currentTime + 0.05;
-    // The whistle: a long fall, wobbling on the way down.
-    const o = ctx.createOscillator();
-    o.type = 'sine';
-    o.frequency.setValueAtTime(rand(1300, 1500), t0);
-    o.frequency.exponentialRampToValueAtTime(190, t0 + 0.75);
-    const wob = ctx.createOscillator();
-    wob.frequency.value = 9;
-    const depth = ctx.createGain();
-    depth.gain.value = 45;
-    wob.connect(depth).connect(o.frequency);
-    const wg = ctx.createGain();
-    wg.gain.setValueAtTime(0.0001, t0);
-    wg.gain.exponentialRampToValueAtTime(0.1, t0 + 0.05);
-    wg.gain.setTargetAtTime(0.06, t0 + 0.3, 0.2);
-    wg.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.8);
-    o.connect(biquad(ctx, 'bandpass', 1200, 3)).connect(wg).connect(out);
-    o.start(t0);
-    o.stop(t0 + 0.85);
-    wob.start(t0);
-    wob.stop(t0 + 0.85);
-    // Four wahs of trombone, each a little lower than the last.
-    [0.9, 0.95, 1, 1.05].forEach((mul, i) => {
-      const w = t0 + 0.85 + i * 0.19;
-      const len = i === 3 ? 0.45 : 0.15;
-      const tone = biquad(ctx, 'lowpass', 700, 4);
-      tone.frequency.setValueAtTime(500, w);
-      tone.frequency.linearRampToValueAtTime(1500, w + len * 0.7);
-      tone.frequency.linearRampToValueAtTime(500, w + len);
-      const g = ctx.createGain();
-      g.gain.setValueAtTime(0.0001, w);
-      g.gain.exponentialRampToValueAtTime(0.12, w + 0.03);
-      g.gain.setTargetAtTime(0.0001, w + len * 0.7, 0.05);
-      for (const det of [-7, 0, 8]) {
-        const s = ctx.createOscillator();
-        s.type = 'sawtooth';
-        s.detune.value = det;
-        s.frequency.value = 150 * mul;
-        s.connect(tone);
-        s.start(w);
-        s.stop(w + len + 0.1);
-      }
-      tone.connect(g).connect(out);
-    });
-  }
-
-  /** The last worker on the last chair: a brass fanfare and everybody cheering. */
-  chairWin() {
-    const ctx = this.ctx;
-    if (!ctx) return;
-    this.count('chairWin');
-    const out = this.chairFx;
-    const t0 = ctx.currentTime + 0.05;
-    [523, 659, 784, 1047].forEach((f, i) => {
-      const w = t0 + i * 0.11;
-      const tone = biquad(ctx, 'lowpass', 2600, 1);
-      const g = ctx.createGain();
-      g.gain.setValueAtTime(0.0001, w);
-      g.gain.exponentialRampToValueAtTime(0.12, w + 0.02);
-      g.gain.setTargetAtTime(0.0001, w + 0.12, 0.16);
-      for (const det of [-6, 6]) {
-        const o = ctx.createOscillator();
-        o.type = 'sawtooth';
-        o.detune.value = det;
-        o.frequency.value = f;
-        o.connect(tone);
-        o.start(w);
-        o.stop(w + 0.7);
-      }
-      tone.connect(g).connect(out);
-    });
-    // The cheer: a swell of voices, a long way off, behind the horn.
-    const cheer = this.noise(this.buf.white, true);
-    const band = biquad(ctx, 'bandpass', 1100, 1.1);
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(0.0001, t0 + 0.1);
-    g.gain.linearRampToValueAtTime(0.05, t0 + 0.5);
-    g.gain.exponentialRampToValueAtTime(0.0001, t0 + 2.6);
-    cheer.connect(band).connect(g).connect(out);
-    cheer.start(t0 + 0.1);
-    cheer.stop(t0 + 2.7);
   }
 
   // ---- Plumbing --------------------------------------------------------------------------------
