@@ -2574,11 +2574,11 @@ function helperFor(w: WorkerInfo) {
 }
 
 /**
- * The U in a worker's desk hint: a helper over to it, when there is one to bring. Only for a worker
- * in a worktree of its own, since that is the only place a helper can read without disturbing anyone.
+ * The U in a worker's desk hint: a helper over to it, when there is one to bring. Available
+ * at a regular desk; helpers and workers with missing worktrees cannot receive another helper.
  */
 function helperKey(w: WorkerInfo) {
-  if (w.kind !== 'agent' || w.helper || !w.worktree || w.lost) return '';
+  if (w.helper || w.lost) return '';
   if (store.helpers.some((h) => h.hostId === w.id)) return aside('🆘 a helper is on its way');
   return key('U', 'Bring a helper');
 }
@@ -2590,7 +2590,7 @@ function helperKey(w: WorkerInfo) {
 function helperTarget(): WorkerInfo | undefined {
   const it = target?.kind === 'desk' ? target.deskId : undefined;
   const w = it ? store.workerAtDesk(it) : undefined;
-  return w && w.kind === 'agent' && !w.helper && w.worktree && !w.lost ? w : undefined;
+  return w && !w.helper && !w.lost ? w : undefined;
 }
 
 const HELPER_DOING: Record<HelperPhase, string> = {
@@ -5062,7 +5062,7 @@ const hud = mountHud(
       run: () => {
         const w = helperTarget();
         if (w) helperFor(w);
-        else toast('Stand at a worker in a worktree of its own to bring a helper over', 'warn');
+        else toast('Stand at a worker’s desk to bring a helper over', 'warn');
       },
     },
     // Up on the top bar while a meeting is on: what's being worked through in the meeting room.
