@@ -138,6 +138,7 @@ export interface FloorWorkers {
   station(deskId: string, by: string, text: string, owner?: string): Awaitable<{ info: WorkerInfo; hired: boolean } | string>;
   resume(id: string, prompt?: string): Awaitable<string | undefined>;
   prompt(id: string, text: string, by?: string): Awaitable<string | undefined>;
+  deliverHelperReport(id: string, by?: string): Awaitable<string | undefined>;
   kill(id: string, cleanup?: WorktreeCleanup): Promise<{ note?: string; error?: string }>;
 
   /** The terminal. `attach` replays the last screen, which is how a joining browser catches up. */

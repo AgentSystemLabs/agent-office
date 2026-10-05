@@ -1,3 +1,4 @@
+import { renderHelperReport } from './helperreport';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
@@ -124,6 +125,7 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void,
   }, '⎋ Esc');
   const changesBtn = h('button.btn', { type: 'button', title: 'What this worker changed: files, diff, commit, open a PR (C at the desk)' }, '🌿 Changes');
   const closeBtn = h('button.btn.close', { title: 'Leave terminal (Esc or Ctrl+]) · ⎋ Esc or Ctrl+[ sends Esc to the terminal', 'aria-label': 'Close' }, '✕');
+  const helperReport = h('section.helper-report', { 'aria-label': 'Helper report' });
   const host = h('div.term-host', { 'data-drop': '📎 Drop screenshots or files here to put them in the terminal' });
   const keys = h('div.term-keys', { role: 'group', 'aria-label': 'Keys' });
   const say = h('input', { type: 'text', placeholder: 'Reply, or tell it what to do next…', 'aria-label': 'Prompt', enterkeyhint: 'send', autocomplete: 'off' }) as HTMLInputElement;
@@ -131,7 +133,7 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void,
   const sayForm = h('form.term-say', {}, say, sayBtn);
   const keypad = opts.keypad ? h('div.term-keypad', {}, keys, sayForm) : null;
   // The keypad has an Esc of its own.
-  const el = h('div.modal.term', { role: 'dialog', 'aria-label': `${info.name} terminal` }, h('header', {}, dot, title, pill, cost, viewers, typed, modelsBtn, keypad ? null : escBtn, onChanges ? changesBtn : null, closeBtn), host, keypad);
+  const el = h('div.modal.term', { role: 'dialog', 'aria-label': `${info.name} terminal` }, h('header', {}, dot, title, pill, cost, viewers, typed, modelsBtn, keypad ? null : escBtn, onChanges ? changesBtn : null, closeBtn), helperReport, host, keypad);
 
   const term = new Terminal({
     fontFamily: 'ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
@@ -236,6 +238,7 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void,
       return;
     }
     title.textContent = [w.kind === 'agent' ? providerLabel(w.provider, store.project) : null, w.name, w.title, w.worktree && `🌿 ${w.worktree.branch}`, w.repos?.length && `🗂️ ${[w.worktree?.path.split(/[\\/]/).pop(), ...w.repos.map((r) => r.name)].join(' + ')}`].filter(Boolean).join(' · ');
+    renderHelperReport(helperReport, w, () => net.send({ t: 'worker.prompt', workerId, prompt: '', helperReport: true }));
     pill.className = `pill ${w.status}`;
     pill.textContent = STATUS_LABEL[w.status] ?? w.status;
     const workerProvider = w.kind === 'agent' ? resolvedProvider(w.provider, store.project) : undefined;

@@ -2610,7 +2610,7 @@ function helperCard(w: WorkerInfo): WorkerTask | undefined {
   const badge = modelBadge(w.provider, w.model, w.effort);
   const name = `🆘 Helping ${w.helper.hostName}${badge ? ` · ${badge}` : ''}`;
   const doing = w.status === 'needs_input' ? 'waiting for your input — open its terminal' : w.status === 'offline' || w.status === 'exited' ? 'agent is not running — open its terminal' : h ? HELPER_DOING[h.phase] : 'waiting for its walking path';
-  return { name, summary: h?.phase === 'leaving' ? '✅ Report sent; going home' : `${doing} · press E to read its terminal` };
+  return { name, summary: h?.phase === 'leaving' ? '✅ Findings ready; open the host terminal' : `${doing} · press E to read its terminal` };
 }
 
 /** Direct hire from an empty desk, with an optional first prompt and provider choice. */

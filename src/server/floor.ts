@@ -427,8 +427,8 @@ export class Floor {
     if (host.kind === 'shell') {
       this.ctx.emit(this, { t: 'chat', from: worker.id, name: worker.name, color: worker.color, text: `Help for ${host.name}:\n${finding}`, at: Date.now() });
     } else {
-      const err = this.workers.prompt(host.id, report || finding, worker.name);
-      if (err) this.ctx.toast(this, `🆘 ${worker.name} couldn't reach ${host.name}: ${err}`, 'warn');
+      this.workers.stageHelperReport(host.id, worker.name, report || finding);
+      this.ctx.toast(this, `🆘 ${worker.name}'s findings for ${host.name} are ready — open the worker's terminal to deliver them`);
     }
     this.helpers.reported(worker.id);
   }

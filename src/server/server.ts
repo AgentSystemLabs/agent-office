@@ -2020,7 +2020,7 @@ const handleMessage = async (c: Client, msg: ClientMsg) => {
       }
       case 'worker.prompt': {
         const w = worker(msg.workerId);
-        const err = w ? await w.floor.workers.prompt(w.wid, str(msg.prompt, 20000), who) : 'No such worker';
+        const err = w ? msg.helperReport === true ? await w.floor.workers.deliverHelperReport(w.wid, who) : await w.floor.workers.prompt(w.wid, str(msg.prompt, 20000), who) : 'No such worker';
         warn(c, err);
         const issue = w?.info.kind === 'agent' ? issueNumber(msg.issue) : undefined;
         if (w && !err && issue) {
