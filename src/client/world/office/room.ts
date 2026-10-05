@@ -6,7 +6,7 @@ import { mesh, roundedBox, textPlane, toon, toonUnique } from '../toon';
 import type { Collider, Interactable } from '../types';
 import type { Fixture } from './fixture';
 import { PALETTE } from './materials';
-import { coffeeTable, floorPlant, loungeCouch, pendant, plant, pouf, wallBoard } from './props';
+import { coffeeTable, chessBoard, chessChair, chessTable, floorPlant, loungeCouch, pendant, plant, pouf, wallBoard } from './props';
 import { seatable } from './seats';
 
 // The room itself, past its walls and its seats: the rugs, what the sky lights and darkens, the boards
@@ -152,6 +152,26 @@ export const lounge: Fixture = (site) => {
     // Its top on the pouf's, the button in the middle of it.
     site.colliders.push({ minX: x - 0.5, maxX: x + 0.5, minZ: z - 0.5, maxZ: z + 0.5, top: 0.42 });
     seatable(seat, id, 1.4, site.interactables);
+  }
+
+  // The chess corner behind the couch (room side): a little table with two modern chairs facing
+  // each other across it, and a board on the table (its White side toward chair 1, in the west).
+  const chessDesk = chessTable();
+  chessDesk.position.set(8.1, 0, 0);
+  site.group.add(chessDesk);
+  site.colliders.push({ minX: 7.55, maxX: 8.65, minZ: -0.4, maxZ: 0.4, top: 0.75 });
+  const board = chessBoard();
+  board.position.set(8.1, 0.75, 0);
+  board.rotation.y = -Math.PI / 2;
+  site.group.add(board);
+  for (const [id, color] of [['chess-chair-1', '#e76f51'], ['chess-chair-2', '#2a9d8f']] as const) {
+    const seat = SEATING_BY_ID.get(id)!;
+    const chair = chessChair(color);
+    chair.position.set(seat.x, 0, seat.z);
+    chair.rotation.y = seat.rotY;
+    site.group.add(chair);
+    site.colliders.push({ minX: seat.x - 0.3, maxX: seat.x + 0.3, minZ: seat.z - 0.3, maxZ: seat.z + 0.3, top: 0.5 });
+    seatable(chair, id, 1.6, site.interactables);
   }
   return {};
 };

@@ -446,6 +446,8 @@ export interface SeatDef {
   tv?: boolean;
   /** It faces the boss's monitor: E there, sitting down, plays Minesweeper on it. */
   game?: boolean;
+  /** At the chess table behind the lounge couch: E there, sitting down, plays chess against an idle agent. */
+  chess?: boolean;
   /** Up on the rooftop bar, not in the office. */
   roof?: boolean;
   /** At the bar: E there, sitting down, orders a drink. */
@@ -459,6 +461,9 @@ export interface SeatDef {
 export const SEATING: SeatDef[] = [
   // The lounge couch, its back to the room, facing the TV.
   { id: 'couch', label: '🛋️ Couch', x: 10.5, y: 0, z: 0, rotY: Math.PI / 2, places: [-1.2, 0, 1.2], hips: 0.5, depth: -0.05, out: 0.9, tv: true },
+  // The chess corner behind the couch (room side): two chairs facing each other across a little table.
+  { id: 'chess-chair-1', label: '♟️ Chess chair', x: 7.3, y: 0, z: 0, rotY: Math.PI / 2, places: [0], hips: 0.5, depth: 0, out: -0.7, chess: true },
+  { id: 'chess-chair-2', label: '♟️ Chess chair', x: 8.95, y: 0, z: 0, rotY: -Math.PI / 2, places: [0], hips: 0.5, depth: 0, out: -0.7, chess: true },
   // Beanbags either side of the lounge, turned to the TV.
   { id: 'lounge-beanbag-1', label: '🫘 Beanbag', x: 12.5, y: 0, z: 3.5, rotY: Math.atan2(TV.x - 12.5, TV.z - 3.5), places: [0], hips: 0.42, depth: -0.1, out: 1.2 },
   { id: 'lounge-beanbag-2', label: '🫘 Beanbag', x: 14.5, y: 0, z: -3.4, rotY: Math.atan2(TV.x - 14.5, TV.z + 3.4), places: [0], hips: 0.42, depth: -0.1, out: 1.2 },

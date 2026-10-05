@@ -12,7 +12,7 @@ import { builtFloors } from './floors';
 import type { Parts } from './parts';
 import { streetOf } from './worlds';
 
-export type MapsParts = Pick<Parts, 'stage' | 'worlds' | 'place' | 'travel' | 'arrival' | 'views' | 'walking' | 'peers' | 'telescope' | 'smoking' | 'hoops' | 'arcade' | 'cabinet' | 'dog' | 'jukebox' | 'boards'>;
+export type MapsParts = Pick<Parts, 'stage' | 'worlds' | 'place' | 'travel' | 'arrival' | 'views' | 'walking' | 'peers' | 'telescope' | 'smoking' | 'hoops' | 'arcade' | 'chess' | 'cabinet' | 'dog' | 'jukebox' | 'boards'>;
 
 /** Registers the floor's paint (store 'floors'), the map (store 'map') and the floors' waiting count (the 'floors' message). */
 export function installMaps(ctx: Ctx, core: CoreState, parts: MapsParts) {
@@ -62,6 +62,7 @@ export function installMaps(ctx: Ctx, core: CoreState, parts: MapsParts) {
     hands.holdBall(false);
     for (const r of parts.peers.remotes.values()) r.person.holdBall(false);
     parts.arcade.stop();
+    parts.chess.stop();
     parts.cabinet.stop();
     worlds.world().group.visible = false;
     worlds.enter(next);

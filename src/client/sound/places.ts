@@ -16,3 +16,5 @@ export const WINDOWS: Pos[] = OPENINGS.filter((o) => o.y0 < 2).map((o) =>
 export const GONG_AT: Pos = { x: GONG.x, y: GONG.height - 1.36, z: GONG.z };
 /** The arcade cabinet's speaker, under its screen. */
 export const CABINET_AT: Pos = { x: CABINET.x - 0.2, y: 1.2, z: CABINET.z };
+/** The chess table behind the lounge couch, at board height. */
+export const CHESS_AT: Pos = { x: 8.1, y: 1, z: 0 };

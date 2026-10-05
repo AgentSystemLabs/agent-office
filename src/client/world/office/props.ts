@@ -123,6 +123,94 @@ export function coffeeTable(): THREE.Object3D {
   return piece('lounge', 'coffee_table', paintLounge);
 }
 
+// The chess corner behind the couch is code-built (toon/roundedBox like the pendants and wall
+// boards above), its board in modern contrasting colors: deep teal and sea foam in an ink frame.
+
+/** A modern side table for the chess board: a white square top on a dark pedestal, its top 0.75 up. */
+export function chessTable(): THREE.Group {
+  const g = new THREE.Group();
+  g.add(mesh(roundedBox(1.1, 0.06, 1.1, 0.05), toon('#f8fafc'), 0, 0.72, 0));
+  g.add(mesh(new THREE.CylinderGeometry(0.06, 0.08, 0.66, 12), toon('#1e293b'), 0, 0.39, 0));
+  g.add(mesh(new THREE.CylinderGeometry(0.3, 0.34, 0.05, 20), toon('#1e293b'), 0, 0.025, 0));
+  return g;
+}
+
+/**
+ * A modern molded chair in `color`, facing +z (its backrest behind it at -z), its origin on the
+ * floor under its middle. The seat's top is 0.49 up, where a chess sitter's hips (SEATING, 0.5) go.
+ */
+export function chessChair(color: string): THREE.Group {
+  const g = new THREE.Group();
+  const shell = toon(color);
+  g.add(mesh(roundedBox(0.55, 0.08, 0.5, 0.09), shell, 0, 0.45, 0));
+  const back = mesh(roundedBox(0.5, 0.55, 0.08, 0.09), shell, 0, 0.78, -0.24);
+  back.rotation.x = 0.12;
+  g.add(back);
+  const legs = toon('#1e293b');
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) g.add(mesh(new THREE.CylinderGeometry(0.025, 0.02, 0.42, 8), legs, sx * 0.22, 0.21, sz * 0.19));
+  return g;
+}
+
+const CHESS_SQ = 0.09;
+const CHESS_LIGHT = '#e8f1ee';
+const CHESS_DARK = '#0f766e';
+
+/** A decorative pawn in `color`: a little turned body with a ball head, `CHESS_SQ`-scale. */
+function chessPawn(color: string): THREE.Group {
+  const g = new THREE.Group();
+  const mat = toon(color);
+  g.add(mesh(new THREE.CylinderGeometry(0.016, 0.03, 0.07, 10), mat, 0, 0.035, 0));
+  g.add(mesh(new THREE.SphereGeometry(0.021, 10, 8), mat, 0, 0.085, 0));
+  return g;
+}
+
+/** A decorative king in `color`: a body with a cross on top, `CHESS_SQ`-scale. */
+function chessKing(color: string): THREE.Group {
+  const g = new THREE.Group();
+  const mat = toon(color);
+  g.add(mesh(new THREE.CylinderGeometry(0.02, 0.034, 0.1, 10), mat, 0, 0.05, 0));
+  g.add(mesh(new THREE.SphereGeometry(0.02, 10, 8), mat, 0, 0.11, 0));
+  g.add(mesh(new THREE.BoxGeometry(0.036, 0.012, 0.012), mat, 0, 0.14, 0));
+  g.add(mesh(new THREE.BoxGeometry(0.012, 0.036, 0.012), mat, 0, 0.14, 0));
+  return g;
+}
+
+/** Where the square of file `f` and rank `r` (both 0–7, rank 0 White's home) sits on the board. */
+function chessSquare(f: number, r: number): [number, number] {
+  return [(f - 3.5) * CHESS_SQ, (3.5 - r) * CHESS_SQ];
+}
+
+/**
+ * A modern chessboard prop: an ink frame with deep-teal and sea-foam squares, 0.8 across, its
+ * origin under its middle, with a few decorative pieces mid-game on it (the real game is the
+ * chess window). Rank 0 (White's home) runs along its +z edge.
+ */
+export function chessBoard(): THREE.Group {
+  const g = new THREE.Group();
+  g.add(mesh(roundedBox(0.8, 0.04, 0.8, 0.03), toon('#1e293b'), 0, 0.02, 0));
+  for (let f = 0; f < 8; f++) {
+    for (let r = 0; r < 8; r++) {
+      const [x, z] = chessSquare(f, r);
+      g.add(mesh(new THREE.BoxGeometry(CHESS_SQ, 0.045, CHESS_SQ), toon((f + r) % 2 ? CHESS_LIGHT : CHESS_DARK), x, 0.022, z, false));
+    }
+  }
+  // A game in progress: kings castled apart with a few pawns between them.
+  const at = (piece: THREE.Group, f: number, r: number) => {
+    const [x, z] = chessSquare(f, r);
+    piece.position.set(x, 0.045, z);
+    g.add(piece);
+  };
+  at(chessKing('#f8fafc'), 6, 0);
+  at(chessPawn('#f8fafc'), 4, 3);
+  at(chessPawn('#f8fafc'), 5, 3);
+  at(chessPawn('#f8fafc'), 3, 2);
+  at(chessKing('#1e293b'), 2, 7);
+  at(chessPawn('#1e293b'), 4, 4);
+  at(chessPawn('#1e293b'), 3, 5);
+  at(chessPawn('#1e293b'), 5, 5);
+  return g;
+}
+
 /** A pendant lamp, its shade at 0, on a cord `cord` meters long. */
 export function pendant(cord = 0.48): THREE.Group {
   const lamp = new THREE.Group();
