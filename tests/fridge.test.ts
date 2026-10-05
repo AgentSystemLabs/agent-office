@@ -72,6 +72,46 @@ test('E opens the doors: they swing out into the room, and shut again', () => {
   assert.ok(near(size(fridge).z, shut.z), 'and it is the size it was');
 });
 
+test('a can comes off the front shelf while the door is open, and the shelf counts down', () => {
+  withCanvas();
+  const fridge = buildFridge(OFFICE);
+  const stocked = fridge.cans;
+  assert.ok(stocked > 0, `the shelf starts stocked, with ${stocked} cans`);
+
+  // The cans are behind a shut door, so there's nothing to reach through it for.
+  assert.equal(fridge.takeCan(), false, 'no can with the door shut');
+  assert.equal(fridge.cans, stocked, 'and the shelf is untouched');
+
+  fridge.toggle(true);
+  // Taking the first can takes one off the shelf, and it stays off: one can, one drink.
+  assert.equal(fridge.takeCan(), true);
+  assert.equal(fridge.cans, stocked - 1, 'the shelf is one shorter');
+  // Shut the door again and the shelf is still short one: a can taken is a can gone.
+  fridge.toggle(true);
+  assert.equal(fridge.cans, stocked - 1, 'closing the door does not put the can back');
+  fridge.toggle(true);
+
+  // The last can is the last one: an empty shelf says so rather than handing out a can of nothing.
+  for (let i = 0; i < stocked - 1; i++) assert.equal(fridge.takeCan(), true, `can ${i + 2} of ${stocked}`);
+  assert.equal(fridge.takeCan(), false, 'the shelf is bare');
+  assert.equal(fridge.cans, 0);
+});
+
+test('emptying the front row leaves the rest of the fridge exactly where it was', () => {
+  withCanvas();
+  const fridge = buildFridge(OFFICE);
+  fridge.toggle(true);
+  const full = box(fridge);
+  const stocked = fridge.cans;
+  for (let i = 0; i < stocked; i++) fridge.takeCan();
+  assert.equal(fridge.cans, 0, 'the whole front row has gone');
+  // The shell, the ice creams, the bottles behind and the doors don't move when a can is taken:
+  // the fridge is the size it was, so nothing has been taken out of the fridge itself.
+  const bare = box(fridge);
+  for (const axis of ['x', 'y', 'z'] as const) assert.ok(Math.abs(full.max[axis] - bare.max[axis]) < 1e-6, `${axis} max unchanged`);
+  for (const axis of ['x', 'y', 'z'] as const) assert.ok(Math.abs(full.min[axis] - bare.min[axis]) < 1e-6, `${axis} min unchanged`);
+});
+
 test('a swing takes a moment; an instant one is there at once, for less motion and for the lab', () => {
   withCanvas();
   const swing = buildFridge(OFFICE);

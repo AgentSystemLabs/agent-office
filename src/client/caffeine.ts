@@ -20,10 +20,13 @@ export class Caffeine {
   /** When the current buzz wears off. */
   private until = 0;
   private jitterUntil = 0;
-  /** Cups in a row, each drunk before the one before it wore off. */
+  /** Cups in a row (cans of Diet Coke count as one), each drunk before the one before it wore off. */
   cups = 0;
 
-  /** Drinks a cup, which tops the buzz back up to a full minute. Returns whether it brought on the jitters. */
+  /**
+   * Drinks a cup — or a can of Diet Coke off the fridge's shelf, which has the same caffeine in it —
+   * which tops the buzz back up to a full minute. Returns whether it brought on the jitters.
+   */
   drink(now: number): boolean {
     this.cups = this.buzzed(now) ? this.cups + 1 : 1;
     this.until = now + BUZZ_SECONDS;

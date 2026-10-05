@@ -99,6 +99,28 @@ export function coffeeMug(scale = 1): THREE.Group {
   return mug;
 }
 
+/**
+ * A can of Diet Coke off the fridge's shelf, standing on y = 0: the red sleeve, the white wave round
+ * it, the bare aluminium ends and the tab on top. The same can the fridge is stocked with (see
+ * world/fridge.ts), built in toon materials so it can be held in a hand without a painted label.
+ */
+export function sodaCan(scale = 1): THREE.Group {
+  const S = scale;
+  const r = 0.033 * S;
+  const h = 0.115 * S;
+  const can = new THREE.Group();
+  const sleeve = toon('#c8102e');
+  const alu = toon('#c9ccd1');
+  can.add(mesh(new THREE.CylinderGeometry(r, r, h, 18), sleeve, 0, h / 2, 0, false));
+  for (const y of [0.004 * S, h - 0.004 * S]) can.add(mesh(new THREE.CylinderGeometry(r * 1.015, r * 1.015, 0.008 * S, 18), alu, 0, y, 0, false));
+  // The white wave the label is mostly known for, round the middle of the sleeve: an open cylinder
+  // standing a little proud of the can, so it reads as print on the sleeve rather than a hoop round it.
+  can.add(mesh(new THREE.CylinderGeometry(r * 1.015, r * 1.015, h * 0.34, 18, 1, true), toon('#ffffff'), 0, h * 0.5, 0, false));
+  // The tab on top, where it was opened.
+  can.add(mesh(new THREE.CylinderGeometry(r * 0.36, r * 0.36, 0.004 * S, 10), alu, 0, h + 0.002 * S, 0, false));
+  return can;
+}
+
 /** Clear glass, faintly blue; no cartoon outline, so the drink inside shows through it. */
 const GLASS = new THREE.MeshBasicMaterial({ color: '#e8f6ff', transparent: true, opacity: 0.38, depthWrite: false });
 GLASS.userData.outlineParameters = { visible: false };
@@ -345,6 +367,9 @@ export class Person {
   private wantsMug = false;
   /** A drink from the rooftop bar, in the mug's place. */
   private glass: { id: string; group: THREE.Group } | null = null;
+  /** A can of Diet Coke off the kitchen fridge's shelf, in the mug's place too. */
+  private can: THREE.Group;
+  private wantsCan = false;
   /** An issue card off the board, held out in front in both hands. */
   private card: HeldCard;
   private cardHolder = new THREE.Group();
@@ -465,6 +490,12 @@ export class Person {
     cup.position.set(0.02, -0.08, 0.1);
     cup.rotation.y = -Math.PI / 2;
     this.mug.add(cup);
+    // The can stands where the mug does, a little shorter than it, so it reads in the hand.
+    this.can = sodaCan(1.4);
+    this.can.position.set(0.02, -0.08, 0.1);
+    this.can.rotation.y = -Math.PI / 2;
+    this.can.visible = false;
+    this.mug.add(this.can);
     this.mug.position.set(0, -0.38, 0);
     this.mug.visible = false;
     this.armR.add(this.mug);
@@ -701,11 +732,18 @@ export class Person {
     this.speech = null;
   }
 
-  /** A mug of coffee in the left hand, or not. */
+  /** A mug of coffee in the left hand, or not. The can from the fridge is in its place, not with it. */
   holdMug(on: boolean) {
     this.wantsMug = on;
-    this.cup.visible = !this.glass;
-    this.mug.visible = (on || !!this.glass) && !this.card.held && !this.book && !this.ball && this.oche?.game !== 'axe';
+    this.cup.visible = !this.glass && !this.wantsCan;
+    this.can.visible = this.wantsCan && !this.glass;
+    this.mug.visible = (on || this.wantsCan || !!this.glass) && !this.card.held && !this.book && !this.ball && this.oche?.game !== 'axe';
+  }
+
+  /** A can of Diet Coke from the kitchen fridge, in the mug's place, or not. */
+  holdCan(on: boolean) {
+    this.wantsCan = on;
+    this.holdMug(this.wantsMug);
   }
 
   /** A drink from the rooftop bar in the left hand (in place of a mug), or none (null). */

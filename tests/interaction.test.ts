@@ -59,6 +59,17 @@ test('carried issue actions still consume E at their valid destinations', () => 
   }
 });
 
+test('the fridge takes E for the door, and C for a can only while there are cans on the shelf', () => {
+  const fridge = interaction('fridge');
+  assert.equal(interactionAvailable(fridge, 'E', state()), true, 'E is always for the door');
+  // The door shut is the caller's business (main.ts says so in the toast); C needs something to take.
+  assert.equal(interactionAvailable(fridge, 'C', state()), false, 'no cans counted, nothing to take');
+  assert.equal(interactionAvailable(fridge, 'C', state({ cans: 0 })), false, 'a bare shelf has nothing on it');
+  assert.equal(interactionAvailable(fridge, 'C', state({ cans: 3 })), true, 'C is for a can while the shelf is stocked');
+  // The fridge is still only E and C: no other key is borrowed for it.
+  for (const key of ['P', 'R', 'X', 'B', 'O', 'L'] as DeskKey[]) assert.equal(interactionAvailable(fridge, key, state({ cans: 3 })), false, key);
+});
+
 test('L hangs a sign over any desk, empty or not, but not over a bean bag or a meeting chair', () => {
   const worker = { id: 'worker-1', status: 'working' } as InteractionState['worker'];
   assert.equal(interactionAvailable(interaction('desk', { deskId: 'desk-1' }), 'L', state()), true);

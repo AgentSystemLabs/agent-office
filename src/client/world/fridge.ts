@@ -9,7 +9,9 @@ import type { Interactable } from './office';
 //
 // It's the stock that does the selling: shelves of Diet Coke (cans and bottles) and a variety of ice
 // creams. E opens the door in front of you, and the freezer over it; both swing on eased hinges, or
-// snap in one go when the system asks for less motion.
+// snap in one go when the system asks for less motion. With the door open, takeCan hands a can off
+// the front row (see main.ts: drinking one does for your energy what the coffee machine does), and
+// the shelf is that much shorter for as long as the office is up.
 
 /** The fridge outside, in metres, in its own space: x across, y up, z forward (+z is the doors). */
 const W = 1.1;
@@ -56,6 +58,14 @@ export interface Fridge {
   toggle(instant?: boolean): boolean;
   /** Swings the doors toward where they're going; call it with the frame time. */
   update(dt: number): void;
+  /**
+   * Takes a can off the front shelf, the one nearest the door, so the shelf is short one until the
+   * next time the office is reloaded. Only while the door is open — the cans are behind it — and
+   * only when the shelf isn't bare. Returns whether one was taken.
+   */
+  takeCan(): boolean;
+  /** How many cans are still on the front shelf. */
+  readonly cans: number;
 }
 
 /**
@@ -78,8 +88,10 @@ export function buildFridge(at: { x: number; z: number; rotY?: number }): Fridge
   iceCreams(still);
   // The Diet Coke's labels are painted canvases, so their own meshes are kept out of the merge.
   const painted = new THREE.Group();
-  drinks(still, painted);
-  group.add(mergeByColor(still), painted);
+  // The front row of cans, one to a group, so a can can be taken off the shelf and left off it.
+  const row = new THREE.Group();
+  drinks(still, painted, row);
+  group.add(mergeByColor(still), painted, row);
 
   // The doors on their hinges: E opens them, and they stay as you left them.
   const front = door({ y0: CAVITY_BOTTOM - 0.04, y1: FREEZER_Y - 0.04, notes: true });
@@ -98,6 +110,14 @@ export function buildFridge(at: { x: number; z: number; rotY?: number }): Fridge
   const interactable: Interactable = { kind: 'fridge', x: at.x + Math.sin(at.rotY ?? 0) * 0.9, z: at.z + Math.cos(at.rotY ?? 0) * 0.9, radius: 1.7 };
   group.userData.interact = interactable;
 
+  // The front row, nearest the door, one end at a time: the can at the hinge end goes first.
+  let taken = 0;
+  const take = () => {
+    if (!open || taken >= row.children.length) return false;
+    row.children[taken++].visible = false;
+    return true;
+  };
+
   return {
     group,
     interactable,
@@ -111,6 +131,10 @@ export function buildFridge(at: { x: number; z: number; rotY?: number }): Fridge
         swing();
       }
       return open;
+    },
+    takeCan: take,
+    get cans() {
+      return row.children.length - taken;
     },
     update(dt) {
       const target = open ? 1 : 0;
@@ -239,24 +263,33 @@ function door({ y0, y1, notes = false, badge = false }: { y0: number; y1: number
 
 // ---- What's in it ---------------------------------------------------------------------------------
 
+/** The can's own size: how tall it stands and how round it is, as the shelf holds it and the hands do. */
+const CAN_H = 0.115;
+const CAN_R = 0.033;
+
 /** Every drink: two rows of cans on the bottom shelf, the bottles standing on the one over it. */
-function drinks(still: THREE.Group, painted: THREE.Group) {
-  const canH = 0.115;
-  const canSide = new THREE.CylinderGeometry(0.033, 0.033, canH, 18, 1, true);
-  const canEnd = new THREE.CylinderGeometry(0.0335, 0.0335, 0.009, 18);
+function drinks(still: THREE.Group, painted: THREE.Group, front: THREE.Group) {
+  const canSide = new THREE.CylinderGeometry(CAN_R, CAN_R, CAN_H, 18, 1, true);
+  const canEnd = new THREE.CylinderGeometry(CAN_R * 1.015, CAN_R * 1.015, 0.009, 18);
   const canMat = labelMaterial(paintCan, 256, 128);
-  for (const [row, z] of [0.02, -0.14].entries()) {
-    const n = row === 0 ? 5 : 4;
-    for (let i = 0; i < n; i++) {
-      const x = (i - (n - 1) / 2) * 0.095;
-      const base = SHELVES[0] + 0.012;
-      const c = mesh(canSide, canMat, x, base + canH / 2, z);
-      c.rotation.y = (i * 1.7 + row) % Math.PI;
-      painted.add(c);
-      // The bare aluminium ends: cylinders, so the can's turn doesn't show on them.
-      for (const at of [canH + 0.004, -0.004]) still.add(mesh(canEnd, toon(CHROME), x, base + at, z, false));
-    }
-  }
+  /** One can at `x`, standing on the bottom shelf at `z` and turned `turn`; the bare aluminium ends
+   *  are separate cylinders, so the can's turn never shows on them. */
+  const can = (x: number, z: number, turn: number) => {
+    const g = new THREE.Group();
+    const base = SHELVES[0] + 0.012;
+    const side = mesh(canSide, canMat, 0, CAN_H / 2, 0);
+    side.rotation.y = turn;
+    g.add(side);
+    const ends = new THREE.Group();
+    for (const at of [CAN_H + 0.004, -0.004]) ends.add(mesh(canEnd, toon(CHROME), 0, at, 0, false));
+    g.add(mergeByColor(ends));
+    g.position.set(x, base, z);
+    return g;
+  };
+  // The front row, nearest the door, one can to a group so one can can be taken off the shelf.
+  for (const [i, x] of [-0.19, -0.095, 0, 0.095, 0.19].entries()) front.add(can(x, 0.02, (i * 1.7) % Math.PI));
+  // The back row behind it, and the bottles on the shelf over.
+  for (const [i, x] of [-0.1425, -0.0475, 0.0475, 0.1425].entries()) painted.add(can(x, -0.14, (i * 1.7 + 1) % Math.PI));
   const bottleMat = labelMaterial(paintBottle, 256, 64);
   for (const [i, x] of [-0.24, 0, 0.24].entries()) {
     const b = bottleBody();

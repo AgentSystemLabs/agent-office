@@ -1,13 +1,13 @@
 /**
  * How you're doing: how much energy you've got left in you and how wound up you are. Both drift
  * away slowly while you're in the office — energy over ENERGY_SECONDS, and the stress building over
- * STRESS_SECONDS — and what you drink is what puts them back: a cup from the kitchen's coffee
- * machine (or a cask of ale on the castle) puts energy back, a drink from the rooftop bar takes the
- * stress off, each drink saying how much of each it does in shared/rooftop.ts. Running low, your
- * legs get heavy; wound up past half, your hands and the view shake. Run one right out and you keel
- * over where you stand (see faint.ts), and come round outside the building with both meters full.
- * They're yours alone, like your coffee buzz (caffeine.ts) and how drunk you are (booze.ts).
- * Times are seconds, on whichever clock the caller passes in as `now`.
+ * STRESS_SECONDS — and what you drink is what puts them back: a cup from the kitchen's coffee machine
+ * or a can of Diet Coke off the fridge's shelf (or a cask of ale on the castle) puts energy back, a
+ * drink from the rooftop bar takes the stress off, each drink saying how much of each it does in
+ * shared/rooftop.ts. Running low, your legs get heavy; wound up past half, your hands and the view
+ * shake. Run one right out and you keel over where you stand (see faint.ts), and come round outside
+ * the building with both meters full. They're yours alone, like your coffee buzz (caffeine.ts) and
+ * how drunk you are (booze.ts). Times are seconds, on whichever clock the caller passes in as `now`.
  */
 
 /** What a drink does for you: energy put back, and stress taken off. */
@@ -20,6 +20,16 @@ export interface Remedy {
 
 /** A cup from a coffee machine: it is the thing that puts your energy back. */
 export const CUP: Remedy = { energy: 0.35, calm: 0.05 };
+
+/**
+ * A can of Diet Coke off the fridge's shelf: it does for your energy exactly what the machine's cup
+ * does, so a can is as good a way to see the bar back up as a coffee. (The buzz is the same too:
+ * see caffeine.ts, which counts a can as one of its cups.)
+ */
+export const CAN: Remedy = { energy: 0.35, calm: 0.05 };
+
+/** How long a can stays in your hand, from the fridge, before there's nothing left in it. */
+export const CAN_SECONDS = 30;
 
 /** How long a full bar of energy lasts if you never touch coffee: ten minutes. */
 export const ENERGY_SECONDS = 10 * 60;

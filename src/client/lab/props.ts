@@ -13,6 +13,7 @@
 import * as THREE from 'three';
 import { DESKS } from '../../shared/layout';
 import { buildCabinet } from '../world/cabinet';
+import { sodaCan } from '../world/character';
 import { supercar } from '../world/cars';
 import { buildFridge } from '../world/fridge';
 import { buildGong } from '../world/gong';
@@ -55,6 +56,15 @@ const SHOW: Record<string, () => Shown> = {
     f.toggle(true);
     return { object: f.group, update: (dt) => f.update(dt) };
   },
+  'fridge-empty': () => {
+    // The fridge with its doors open and the whole front row of cans taken, to see the shelf a can
+    // was lifted off and that the rest of the stock is still where it was.
+    const f = buildFridge({ x: 0, z: 0 });
+    f.toggle(true);
+    for (let i = 0; i < f.cans; i++) f.takeCan();
+    return { object: f.group, update: (dt) => f.update(dt) };
+  },
+  can: () => ({ object: sodaCan(3) }),
   modern: () => {
     // The modern office's furniture (see holiday.ts): a screen between two benches, the server rack
     // and the water cooler, the rack's LEDs flickering as they do in the office.
