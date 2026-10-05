@@ -311,7 +311,9 @@ export class Building {
     if (this.defs.some((d) => sameRepo(d.repo, repo))) return `${repo} already has a floor`;
     if (this.cloning.has(key)) return `${repo} is already being cloned`;
     const [owner, name] = repo.split('/');
-    const dest = path.join(this.projectsDir, owner, name);
+    // Straight into the workspace folder, one folder per project; the owner joins the name when that's taken.
+    let dest = path.join(this.projectsDir, name);
+    if (existsSync(dest)) dest = path.join(this.projectsDir, `${owner}-${name}`);
     if (this.defs.some((d) => path.resolve(d.dir) === dest)) return `${dest} is already a floor`;
     const def = this.newDef(name, repo, dest, by);
     const pending: Pending = { def, owner: account, empty };
