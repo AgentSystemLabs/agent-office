@@ -55,7 +55,6 @@ import { isThemePick } from '../shared/theme.js';
 import { PROMPTS, PROMPT_MAX, isPromptId } from '../shared/prompts.js';
 import { ROOF, isDrink } from '../shared/rooftop.js';
 import { isBarGame, tossOk, type BarGame } from '../shared/bargames.js';
-import { NO_CHAIRS } from '../shared/chairs.js';
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -906,9 +905,6 @@ export async function startServer(cfg: Config) {
     whiteboard: { elements: local?.whiteboard.scene() ?? [], people: local ? drawing(local) : [] },
     meeting: floor?.meetings.state() ?? { current: null, past: [] },
     cabinet: { ...cabinetState(floor), frame: (floor && cabinetPlayer(floor)?.frame) ?? null },
-    // Musical chairs is a game the office plays in its own memory, like the dog: a floor running on
-    // someone else's machine arrives without one, which is true rather than a gap someone has to be told.
-    chairs: local?.chairs.state() ?? NO_CHAIRS,
     };
   };
   /** The rooftop bar: nobody works up there, so it has none of a floor's things. */
@@ -2165,22 +2161,6 @@ const handleMessage = async (c: Client, msg: ClientMsg) => {
         for (const o of clients.values()) if (o.peer.floor === ROOF) sendTo(o, { t: 'horn', by: who });
         break;
       }
-      case 'chairs.start': {
-        // The game is the office's own, so it is only played on a floor running here.
-        const floor = asLocal(here());
-        if (!floor) break;
-        const r = floor.chairs.start(who);
-        if ('error' in r) return warn(c, r.error);
-        toastFloor(floor, `🪑 ${who} called musical chairs!`);
-        break;
-      }
-      case 'chairs.stop': {
-        const floor = asLocal(here());
-        if (!floor || !floor.chairs.playing()) break;
-        floor.chairs.stop();
-        toastFloor(floor, '🪑 That’s the end of musical chairs');
-        break;
-      }
       case 'gh.close': {
         const floor = here();
         const n = num(msg.number);
@@ -2667,6 +2647,13 @@ case 'jukebox.place': {
         if (!floor || !floor.tv.stop(who)) break;
         tvChanged(floor);
         toastFloor(floor, `📺 ${who} turned the TV off`);
+        break;
+      }
+      case 'tv.theatre': {
+        const floor = here();
+        if (!floor || !(await floor.tv.theatre(msg.on === true, who))) break;
+        tvChanged(floor);
+        toastFloor(floor, msg.on ? `🎬 ${who} put the room in the dark for the film` : `💡 ${who} turned the room's lights back on`);
         break;
       }
       case 'ping':

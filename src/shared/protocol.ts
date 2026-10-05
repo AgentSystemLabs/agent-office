@@ -3,7 +3,6 @@
 import type { Look } from './avatar.js';
 import type { BarGame } from './bargames.js';
 import type { CabinetFrame, CabinetState, CabinetView } from './cabinet.js';
-import type { ChairsState } from './chairs.js';
 import type { DecorPlacement, Decoration } from './decor.js';
 import type { DogState } from './dog.js';
 import type { FloorPlan } from './floorplan.js';
@@ -835,8 +834,6 @@ export interface FloorView {
   cars: CarState[];
   /** Workers sent home and locked up in the dungeon, on a map that has one. */
   jail: JailState;
-  /** The musical chairs game on this floor, and which part of it it's in (see shared/chairs.ts). */
-  chairs: ChairsState;
 }
 
 export type AccountRole = 'admin' | 'member';
@@ -1246,10 +1243,6 @@ export type ClientMsg =
   | { t: 'gong' }
   /** Blow the DJ's air horn on the roof; everyone up there hears it. */
   | { t: 'horn' }
-  /** Start musical chairs for every worker on this floor: the office calls the rounds (see shared/chairs.ts). */
-  | { t: 'chairs.start' }
-  /** Call the game off; the chairs go back against the wall. */
-  | { t: 'chairs.stop' }
   /** Close an issue, or a pull request without merging it; the answer comes back as gh.closed. */
   | { t: 'gh.close'; kind: 'issue' | 'pull'; number: number; comment?: string; reason?: GhCloseReason; deleteBranch?: boolean }
   /** Put labels on an issue or PR and take others off, as the server's gh account; answered with gh.labeled. */
@@ -1344,6 +1337,11 @@ export type ClientMsg =
   | { t: 'tv.seek'; position: number }
   /** Take the big TV off; its link stays for next time. */
   | { t: 'tv.stop' }
+  /**
+   * The switch by the big TV: `on` puts the room's light down so the picture is the brightest thing
+   * in it, `off` brings the light back. The room's, so it counts for everyone on the floor.
+   */
+  | { t: 'tv.theatre'; on: boolean }
   /**
    * Step up to the arcade cabinet on your floor to carry on with `game` (one the office started for
    * you), or to start a new game, even while you're at it; the office answers with `cabinet`, naming
@@ -1477,8 +1475,6 @@ export type ServerMsg =
   | { t: 'gong'; why: GongWhy; by?: string; pr?: number }
   /** Someone on the roof blew the DJ's air horn (sent to everyone up there, them too). */
   | { t: 'horn'; by: string }
-  /** The musical chairs game changed: it's gathering, a round of music, the rush, or over. */
-  | { t: 'chairs'; state: ChairsState }
   /** Sent to whoever asked to close it. */
   | { t: 'gh.closed'; kind: 'issue' | 'pull'; number: number; error?: string }
   /** Sent to whoever changed them: the labels it has now, or why they didn't change. */

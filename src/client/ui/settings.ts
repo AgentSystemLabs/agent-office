@@ -14,7 +14,7 @@ const VIEWS: [ViewMode, string, string][] = [
   ['third', '🎥 Third person', 'Follow your character from behind. Drag to orbit the camera, scroll to zoom, and click things to use them.'],
 ];
 
-const THEME_LABEL: Record<ThemePick, string> = { auto: '📅 By the calendar', halloween: '🎃 Halloween', christmas: '🎄 Christmas', modern: '🏙️ Modern office', off: 'Off' };
+const THEME_LABEL: Record<ThemePick, string> = { auto: '📅 By the calendar', halloween: '🎃 Halloween', christmas: '🎄 Christmas', modern: '🌐 Futuristic office', off: '🏢 Original office' };
 
 const WEBHOOK_NAME: Record<WebhookKind, string> = { slack: 'Slack', discord: 'Discord', other: 'a webhook' };
 
@@ -229,8 +229,8 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
         : active === 'christmas'
           ? 'Christmas: the workers are elves, your hands are in mittens, the dog’s Rudolph, and it’s snowing outside.'
           : active === 'modern'
-            ? 'Modern office: frosted-glass screens between the desks, cool LED strips round the ceiling, and a blinking server rack and water cooler in the room.'
-            : 'No decorations up right now.';
+            ? 'Futuristic office: graphite surfaces, illuminated work pods, blue linear lights, acoustic panels and dark glass frames. Switch to Original office to restore the warm wood and colorful furniture.'
+            : 'Original office: warm wood floors, colorful chairs and the original lighting, with no seasonal decorations.';
     const how = pick === 'auto' ? ' By the calendar it’s Halloween through October and Christmas through December.' : '';
     themeNote.textContent = `${now}${how} It’s the same for everyone in the building${by ? `, set by ${by}${at ? ` ${timeAgo(at)}` : ''}` : ''}.`;
   };

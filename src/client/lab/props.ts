@@ -11,13 +11,10 @@
 // Once it has drawn, window.__ready holds each prop's size, triangles, draw calls and material names.
 
 import * as THREE from 'three';
-import { RING } from '../../shared/chairs';
 import { DESKS } from '../../shared/layout';
 import { buildCabinet } from '../world/cabinet';
 import { supercar } from '../world/cars';
 import { buildFridge } from '../world/fridge';
-import { chairFrame } from '../chairstune';
-import { buildChairRing } from '../world/chairs';
 import { buildGong } from '../world/gong';
 import { modernFurniture } from '../world/holiday';
 import { buildJukebox } from '../world/jukebox';
@@ -141,17 +138,6 @@ const SHOW: Record<string, () => Shown> = {
   },
   lambo: () => ({ object: supercar('lambo', '#ffd166').root }),
   ferrari: () => ({ object: supercar('ferrari', '#ef476f').root }),
-  chairs: () => {
-    // The musical chairs ring, as a game with five in it looks: the chairs in the ring, the mat, the
-    // board over it and the ball above. `n=<chairs>` says how many are out (default five).
-    const ring = buildChairRing({ clatter: () => {}, announce: () => {}, loser: () => {}, win: () => {}, step: () => {}, burst: () => {} });
-    ring.arrange(Number(q.get('n') ?? 5));
-    ring.say('Music off! Grab a chair!');
-    // Let them land before the lab measures the prop, so it's shown as a game in progress.
-    for (let i = 0; i < 60; i++) ring.update(1 / 60, chairFrame(i / 60), true);
-    ring.group.position.set(-RING.x, 0, -RING.z);
-    return { object: ring.group, update: (dt, t) => ring.update(dt, chairFrame(t), true) };
-  },
 };
 
 const q = new URLSearchParams(location.search);

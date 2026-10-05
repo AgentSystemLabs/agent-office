@@ -313,3 +313,20 @@ test('the viewer and the typist travel with the call', async () => {
   assert.equal(host.sent[1].by, 'Ada', 'the typist is named');
   assert.equal(host.sent[2].clientId, 'client-7', 'and detach says which viewer left');
 });
+
+
+test('the hosted theatre switch returns booleans and follows the TV state mirror', async () => {
+  const host = fakeHost();
+  const floor = make(host);
+  assert.equal(floor.tv.state().theatre, false, 'a floor without a TV event starts with the lights up');
+  const turnDown = floor.tv.theatre(true, 'Alice');
+  assert.equal(host.sent[0].t, 'tv.theatre');
+  assert.equal(host.sent[0].on, true);
+  floor.deliver({ t: 'result', floorId: 'f1', seq: host.sent[0].seq as number, value: true });
+  assert.equal(await turnDown, true);
+  const unchanged = floor.tv.theatre(true, 'Alice');
+  floor.deliver({ t: 'result', floorId: 'f1', seq: host.sent[1].seq as number, value: false });
+  assert.equal(await unchanged, false, 'a no-op must not announce another theatre change');
+  floor.deliver({ t: 'event', floorId: 'f1', seq: 1, msg: { t: 'tv', state: { on: false, playing: false, position: 0, at: 0, theatre: true } } });
+  assert.equal(floor.tv.state().theatre, true);
+});
