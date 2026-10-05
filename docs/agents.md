@@ -61,3 +61,5 @@ Helpers can assist agent and shell workers, in their own worktree or the shared 
 Helpers display their current status and activity above their heads, including when their agent needs input or is offline. Open the helper’s terminal to inspect its actual output.
 
 Helper findings appear in the host worker’s terminal window. They are held outside the agent queue until you choose **Interrupt and deliver report** (or **Deliver report** when idle). The office sends Esc, waits for the current turn to stop, then submits the report once. If stopping fails, it keeps the findings for retry. Submitted does not mean read. Shell reports remain in office chat.
+
+Sending a worker home also stops and removes its helper before cleaning up the worker’s checkout. Sending only the helper home leaves the host worker and its worktree intact.

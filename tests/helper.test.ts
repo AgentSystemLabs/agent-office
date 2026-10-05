@@ -197,3 +197,37 @@ test('a terminal interruption error releases the delivery button for retry', asy
   assert.match(await WorkerManager.prototype.deliverHelperReport.call(manager as any, 'host') as string, /Could not interrupt/);
   assert.equal(info.helperReport?.state, 'failed');
 });
+
+function removalHarness() {
+  const removed: string[] = [];
+  const stopped: string[] = [];
+  const workers = new Map<string, any>();
+  const manager: any = {
+    workers, namer: { forget() {} }, scrollback: { remove() {} }, drops: { remove() {} },
+    events: { remove(id: string) { removed.push(id); } }, persist() {},
+    current: async (wt: unknown) => wt,
+    trees: { remove: async () => { stopped.push('worktree'); } },
+  };
+  manager.kill = WorkerManager.prototype.kill.bind(manager);
+  const add = (id: string, hostId?: string) => workers.set(id, {
+    info: { id, name: id, worktree: { path: '/shared', branch: 'office/task' }, ...(hostId ? { helper: { hostId } } : {}) },
+    pty: { kill() { stopped.push(id); } },
+  });
+  return { manager, workers, removed, stopped, add };
+}
+
+test('sending a host home stops its helper before cleaning the shared worktree', async () => {
+  const h = removalHarness();
+  h.add('host'); h.add('helper', 'host'); h.add('other-helper', 'other-host');
+  await h.manager.kill('host', 'worktree');
+  assert.deepEqual(h.stopped, ['helper', 'host', 'worktree']);
+  assert.deepEqual(h.removed, ['helper', 'host']);
+  assert.equal(h.workers.has('other-helper'), true);
+});
+
+test('sending only a helper home never cleans its host worktree', async () => {
+  const h = removalHarness(); h.add('host'); h.add('helper', 'host');
+  await h.manager.kill('helper', 'all');
+  assert.deepEqual(h.stopped, ['helper']);
+  assert.equal(h.workers.has('host'), true);
+});
