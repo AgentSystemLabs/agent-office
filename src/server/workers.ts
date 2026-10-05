@@ -706,6 +706,11 @@ export class WorkerManager {
     const w = this.workers.get(id);
     if (!w) return {};
     this.workers.delete(id);
+    // Stop readers before removing the checkout they share with this host. Match the worker ID,
+    // not its desk: another worker may already be taking that seat.
+    for (const helper of [...this.workers.values()]) {
+      if (helper.info.helper?.hostId === id) await this.kill(helper.info.id);
+    }
     this.namer.forget(id);
     clearTimeout(w.scanTimer);
     const proc = w.pty;
@@ -724,7 +729,7 @@ export class WorkerManager {
     this.events.remove(id, w.info);
     this.persist();
     // A meeting's worktree is everyone at the table's: the meeting tidies it away once they've all gone.
-    if (!w.info.worktree || w.info.meeting) return {};
+    if (!w.info.worktree || w.info.meeting || w.info.helper) return {};
     // On the branch its work is on, should it have switched since it last came to rest.
     const wt = await this.current(w.info.worktree);
     const name = w.info.name;
