@@ -36,6 +36,8 @@ connection; nothing here listens for anything.
   --code <code>        pair for the first time, with the code from \`agent-office hosts pair\`
   --name <name>        what the office calls this machine, e.g. "Alice's laptop" (first pairing only)
   --seats <n>          how many workers this machine will seat across its floors (default 0)
+  --projects <dir>     where this machine keeps its checkouts (default ~/work, env AGENT_OFFICE_PROJECTS).
+                       Told to the office so it can suggest a path when pointing a floor here
   --config <path>      where to keep the token (default ~/.agent-office-floor-host.json)
   -h, --help           this
 
@@ -73,6 +75,10 @@ export async function floorHostCommand(argv: string[]): Promise<number> {
   let name: string | undefined;
   let configFile = path.join(homedir(), '.agent-office-floor-host.json');
   let seats = 0;
+  // Where this machine keeps its checkouts. Reported to the office as a hint so that `hosts add-floor`
+  // can suggest a path here without anyone having to know this machine's layout. Never used to open
+  // anything on the office's behalf: the floor it names is still only opened if it is really there.
+  let projects = process.env.AGENT_OFFICE_PROJECTS || path.join(homedir(), 'work');
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '-h' || a === '--help') {
@@ -94,6 +100,9 @@ export async function floorHostCommand(argv: string[]): Promise<number> {
     } else if (a === '--config') {
       if (!argv[i + 1]) return fatal('--config needs a value');
       configFile = path.resolve(argv[++i]);
+    } else if (a === '--projects') {
+      if (!argv[i + 1]) return fatal('--projects needs a value');
+      projects = path.resolve(argv[++i]);
     } else return fatal(`unknown option ${a}`);
   }
 
@@ -104,7 +113,7 @@ export async function floorHostCommand(argv: string[]): Promise<number> {
   if (!token && !code) return fatal('no token kept yet — pair first with --code, from `agent-office hosts pair` on the office');
 
   const url = office.replace(/^http/, 'ws').replace(/\/+$/, '') + '/floor-host';
-  return connect(url, { token, code, name, configFile, seats, owner: process.env.USER || process.env.USERNAME });
+  return connect(url, { token, code, name, configFile, seats, projects, owner: process.env.USER || process.env.USERNAME });
 }
 
 function fatal(msg: string): number {
@@ -114,7 +123,7 @@ function fatal(msg: string): number {
 
 async function connect(
   url: string,
-  opts: { token?: string; code?: string; name?: string; owner?: string; configFile: string; seats: number },
+  opts: { token?: string; code?: string; name?: string; owner?: string; configFile: string; seats: number; projects: string },
 ): Promise<number> {
   return new Promise<number>((resolve) => {
     const ws = new WebSocket(url);
@@ -145,6 +154,7 @@ async function connect(
         code: opts.code,
         name: opts.name,
         owner: opts.owner,
+        projectsDir: opts.projects,
       });
     });
 
@@ -217,6 +227,9 @@ async function connect(
         return done(1);
       }
       host = new HostFloors(hostParts(settings, send, hooks.url, opts.seats));
+      // Told to the office in every `ready`, so `agent-office hosts add-floor` on the office can
+      // suggest `<this>/owner/repo` for a floor it is about to point at this machine.
+      host.projectsDir = opts.projects;
       await host.open(present);
     }
 

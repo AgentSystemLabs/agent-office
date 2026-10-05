@@ -16,9 +16,10 @@ function clock(s: number): string {
 /**
  * The TV window: what's on it, play and pause, a scrubber everyone follows, the box to paste a
  * link into, and your own speakers — the picture itself is on the TV (see client/tvscreen.ts).
- * `share` offers the screen share the TV still shows in front of a link.
+ * `share` offers the screen share the TV still shows in front of a link. `dance` is the dance
+ * floor in front of the TV (see world/disco.ts): this window is where it's put out or brought back.
  */
-export function openTv(net: Net, tvScreen: TvScreen, share: () => void) {
+export function openTv(net: Net, tvScreen: TvScreen, share: () => void, dance: { on(): boolean; set(on: boolean): void }) {
   const close = h('button.btn.close', { 'aria-label': 'Close' }, '✕');
   const now = h('div.tv-now');
   const scrub = h('input', { type: 'range', min: '0', max: '60', step: '0.5', value: '0', 'aria-label': 'Where the video is' }) as HTMLInputElement;
@@ -33,6 +34,39 @@ export function openTv(net: Net, tvScreen: TvScreen, share: () => void) {
   const sound = h('div.volume', {}, mute, level, pct);
   // The room, not your own: the switch on the wall by the TV, which everyone on the floor shares.
   const theatre = h('button.btn', { type: 'button' });
+
+  // The dance floor with disco lights in front of the TV (see world/disco.ts). Each browser keeps
+  // its own choice; this window is where it's put away or brought back.
+  const danceRow = h('div.seg', { role: 'radiogroup', 'aria-label': 'Dance floor' });
+  const danceNote = h('p.setting-note', {}, 'A lit dance floor and disco lights on the floor right in front of the TV. It’s yours to put away or bring back, and each person keeps their own choice (⚙️ Settings has the same switch).');
+  const paintDance = () => {
+    danceRow.replaceChildren(
+      ...(
+        [
+          [true, '🪩 On'],
+          [false, 'Off'],
+        ] as const
+      ).map(([on, label]) =>
+        h(
+          'button.btn',
+          {
+            type: 'button',
+            role: 'radio',
+            'aria-checked': String(dance.on() === on),
+            class: dance.on() === on ? 'on' : '',
+            onclick: () => {
+              if (dance.on() === on) return;
+              dance.set(on);
+              paintDance();
+            },
+          },
+          label,
+        ),
+      ),
+    );
+  };
+  paintDance();
+
   const el = h(
     'div.modal.tv',
     { role: 'dialog', 'aria-label': 'Office TV' },
@@ -49,6 +83,9 @@ export function openTv(net: Net, tvScreen: TvScreen, share: () => void) {
       h('label', { style: 'margin-top:16px' }, 'Put something on'),
       h('div.webhook', {}, url, putOn),
       h('p.setting-note', {}, 'Everyone on this floor sees it at the same moment; the sound is yours alone (⚙️ Settings has it too). YouTube, a direct .mp4, or any site that lets itself be framed.'),
+      h('label', { style: 'margin-top:16px' }, 'Dance floor'),
+      danceRow,
+      danceNote,
     ),
     h('footer', {}, h('span.grow', {}, 'It plays on the TV itself, for everyone on this floor.'), h('button.btn', { type: 'button', onclick: share }, '🖥️ Share screen')),
   );

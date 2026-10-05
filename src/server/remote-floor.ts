@@ -1,16 +1,20 @@
-import type { AgentEffort, AgentProvider, FloorInfo, GhComment, GhLabel, MeetingRequest, MeetingState, QueueState, TerminalHit, WorkerInfo, WorkerKind, WorktreeCleanup, WorktreeState } from '../shared/protocol.js';
+import type { AgentEffort, AgentProvider, ForgeKind, FloorInfo, GhComment, GhIssue, GhLabel, GhPull, GhState, JailState, MeetingRequest, MeetingState, ProjectInfo, QueueState, TerminalHit, WorkerInfo, WorkerKind, WorktreeCleanup, WorktreeState } from '../shared/protocol.js';
 import type { BallState } from '../shared/hoop.js';
 import type { CarPose, CarSeat, CarState } from '../shared/garage.js';
 import type { Decoration } from '../shared/decor.js';
-import type { JukeboxState } from '../shared/jukebox.js';
-import type { TvState } from '../shared/tv.js';
-import type { DeskLabel } from '../shared/floorplan.js';
+import type { JukeboxSpot, JukeboxState } from '../shared/jukebox.js';
+import { tvTitle, TV_OFF, type TvState } from '../shared/tv.js';
+import type { DeskLabel, FloorPlan } from '../shared/floorplan.js';
+import { EMPTY_PLAN } from '../shared/floorplan.js';
 import type { Landed } from './leave-on-merge.js';
 import type { ForgeAs } from './signins.js';
 import type { OpenedPr, RepoSource } from './workers.js';
-import type { FloorActions, FloorChanges, FloorCourt, FloorDecor, FloorForge, FloorGarage, FloorMeetings, FloorPlan, FloorQueue, FloorRoom, FloorTv, FloorWorkers } from './floor-actions.js';
+import type { FloorActions, FloorChanges, FloorCourt, FloorDecor, FloorForge, FloorGarage, FloorMeetings, FloorPlan as FloorPlanActions, FloorQueue, FloorRoom, FloorTv, FloorWorkers } from './floor-actions.js';
 import type { HostRegistry, HostSocket } from './floor-hosts.js';
 import type { FromFloor, ToOffice } from '../shared/floorhost.js';
+
+/** What a board looks like before the host has said anything about it. */
+const EMPTY_GH: GhState<never> = { items: [], fetchedAt: 0, loading: false };
 
 /** How long a call waits for the host before it is treated as gone. Deliberately generous: the answer
  * to most of these touches a disk on the far end, and a slow machine is not a broken one. */
@@ -71,7 +75,7 @@ export class RemoteFloor implements FloorActions {
    * from here, and a worker the host has not described yet is simply not listed.
    */
   private known = new Map<string, WorkerInfo>();
-  /** Set once when the socket carrying this floor goes: no later frame revives it. */
+  /** Set on disconnect; only a fresh ready announcement makes the floor callable again. */
   private gone = false;
   /** The worker ids the host says are on this floor. Names, not descriptions (see `known`). */
   private roster = new Set<string>();
@@ -87,8 +91,8 @@ export class RemoteFloor implements FloorActions {
     private registry: HostRegistry,
     /** The floor's identity, as the host announced it. Named so refusals and the elevator can use it. */
     readonly def: { id: string; name: string; dir: string; repo?: string; palette: number; addedBy: string; addedAt: number },
-    private branch: string | undefined,
-    private providers: AgentProvider[],
+    /** What the host's `ready` frame said, kept here so the office can describe the floor it is in. */
+    private announced: { branch?: string; providers: AgentProvider[]; forge: ForgeKind } = { providers: [], forge: 'github' },
   ) {
     // The office keeps this for identity, and must never use it: it is a path on the host.
     this.dir = '';
@@ -96,9 +100,45 @@ export class RemoteFloor implements FloorActions {
     this.onGone = () => this.dropPending();
   }
 
+  /**
+   * What the floor is, for whoever rides into it: the name the building gave it, and the branch and
+   * agent CLIs the host itself reported in `ready`.
+   *
+   * `dir` is empty on purpose. The office must never hold a path on the host that it could be tempted
+   * to read, so a hosted floor says where it is by naming the machine instead — which is also the only
+   * part of the answer a person standing in the room actually wants. Everything the host did not
+   * report is left unset rather than guessed: a floor that claims a branch or an agent it has not got
+   * is worse than one that admits it does not know.
+   */
+  get project(): ProjectInfo {
+    return {
+      name: this.def.repo ?? this.def.name,
+      dir: '',
+      branch: this.announced.branch,
+      agentCmd: '',
+      defaultProvider: this.announced.providers[0] ?? 'claude',
+      agentProviders: this.announced.providers,
+    };
+  }
+
   /** The machine's name, as it is now. */
   private get machine(): string {
     return this.registry.nameOf(this.hostId) ?? this.fallbackName;
+  }
+
+  /** The issues board, as the host last streamed it. */
+  private get issues(): GhState<GhIssue> {
+    return this.last<GhState<GhIssue>>('gh.issues', EMPTY_GH as GhState<GhIssue>);
+  }
+
+  /** The pulls board, as the host last streamed it. */
+  private get pulls(): GhState<GhPull> {
+    return this.last<GhState<GhPull>>('gh.pulls', EMPTY_GH as GhState<GhPull>);
+  }
+
+  /** Which forge the host said this floor reads from, as of its last `ready`. */
+  get hostForge(): ForgeKind {
+    return this.announced.forge;
   }
 
   private readonly fallbackName: string;
@@ -133,14 +173,23 @@ export class RemoteFloor implements FloorActions {
    */
   deliver(msg: FromFloor) {
     if (msg.t === 'ready') {
+      if (msg.floor.floorId !== this.id) return;
+      this.gone = false;
       // Ids only, so this is a roster and not a description. A worker the host has not described yet
       // is not listed: better an incomplete list than one invented from an id.
       this.roster = new Set((msg.floor.workers ?? []).map((w) => w.id));
+      for (const id of this.known.keys()) if (!this.roster.has(id)) this.known.delete(id);
+      // The same frame is where the host says which branch it is on and which agents it has, which is
+      // what `project` and `officeDefault` answer from. Recorded here rather than in the constructor,
+      // because the office registers a hosted floor from the building long before its machine pairs.
+      this.announced = { branch: msg.floor.branch, providers: msg.floor.providers ?? [], forge: msg.floor.forge };
       return;
     }
     // An unaddressed refusal (no floor) is about the connection, not a call, so it never settles one.
     const refusal = msg.t === 'refused' && 'reason' in msg ? msg : undefined;
-    const seq = refusal ? refusal.seq : msg.t === 'result' ? msg.seq : (msg as { seq?: number }).seq;
+    if (!('floorId' in msg) || msg.floorId !== this.id) return;
+    // Event sequence numbers belong to the host's stream, not our RPC counter.
+    const seq = refusal ? refusal.seq : msg.t === 'result' ? msg.seq : undefined;
     if (typeof seq === 'number') {
       const pending = this.pending.get(seq);
       if (pending) {
@@ -159,14 +208,18 @@ export class RemoteFloor implements FloorActions {
     // Whatever the floor would have emitted locally, remembered under the event's own name so the
     // reads can find it. Worker updates are kept apart from the mirror: they describe a worker rather
     // than a floor's furniture, and the office asks for them by id.
-    const payload = msg.msg as { t?: string; worker?: WorkerInfo; workerId?: string; state?: unknown } | undefined;
+    const payload = msg.msg as { t?: string; worker?: WorkerInfo; workerId?: string; state?: unknown; items?: unknown; plan?: unknown; ball?: unknown; cars?: unknown } | undefined;
     if (!payload?.t) return;
-    if (payload.t === 'worker.update' && payload.worker) this.known.set(payload.worker.id, payload.worker);
-    else if (payload.t === 'worker.remove' && payload.workerId) this.known.delete(payload.workerId);
-    else {
+    if (payload.t === 'worker.update' && payload.worker) {
+      this.known.set(payload.worker.id, payload.worker);
+      this.roster.add(payload.worker.id);
+    } else if (payload.t === 'worker.remove' && payload.workerId) {
+      this.known.delete(payload.workerId);
+      this.roster.delete(payload.workerId);
+    } else {
       // What a read answers with is the payload, not the frame around it: a `queue` event carries
       // `{ t: 'queue', state }`, and `queue.state()` must return the state.
-      this.mirror.set(payload.t, payload.state !== undefined ? payload.state : payload);
+      this.mirror.set(payload.t, payload.state ?? payload.items ?? payload.plan ?? payload.ball ?? payload.cars ?? payload);
     }
   }
 
@@ -208,7 +261,7 @@ export class RemoteFloor implements FloorActions {
       // A hosted floor's checkout is on the other machine. Empty here on purpose: the office must not
       // hold a path it could be tempted to read.
       dir: '',
-      branch: this.branch,
+      branch: this.announced.branch,
       palette: this.def.palette,
       addedBy: this.def.addedBy,
       addedAt: this.def.addedAt,
@@ -234,16 +287,39 @@ export class RemoteFloor implements FloorActions {
       ownerOf: (id) => remote.known.get(id)?.createdBy,
       deskOccupied: (deskId) => [...remote.known.values()].some((w) => w.deskId === deskId),
 
+      // Somebody left the floor (or the office). They never attached to a terminal here — `attach` is
+      // a call to the host, which is what put them on it — so there is nothing to detach. Saying so
+      // rather than shipping a frame the host would answer with a refusal for an id it never knew.
+      detachAll: () => {},
+
+      // Empty, and for the same reason: the terminal is on the far machine, so what is on it is
+      // whatever `attach` last sent. A joining browser asks for that, and gets the host's own screen.
+      fullScreens: () => [],
+
+      // The host resumes its own workers when it opens a floor, which it did before anyone could have
+      // ridden in here — so there is nothing for the office to wake.
+      wakeAll: () => {},
+
+      // What a hire starts on when nobody picked: the first agent this machine actually has. Asking the
+      // host would be the only other way to know it, and the host applies this one anyway when it is
+      // left undefined (workers.ts), so naming it here only keeps the office from guessing harder.
+      get officeDefault() {
+        return { provider: remote.announced.providers[0] ?? ('claude' as AgentProvider) };
+      },
+
       spawn: async (deskId, by, prompt, worktree, kind, provider, model, effort, meeting, owner, repos) =>
         (await remote.call('worker.spawn', {
           deskId, by, prompt, worktree, kind, provider, model, effort,
-          meeting, owner, repos, providers: remote.providers,
+          meeting, owner, repos, providers: remote.announced.providers,
         })) as WorkerInfo | string,
 
       station: async (deskId, by, text, owner) => (await remote.call('station.prompt', { deskId, by, text, owner })) as { info: WorkerInfo; hired: boolean } | string,
       resume: async (id, prompt) => String((await remote.call('worker.resume', { workerId: id, prompt })) ?? ''),
       prompt: async (id, text, by) => String((await remote.call('worker.prompt', { workerId: id, text, by })) ?? ''),
-      kill: async (id, cleanup) => (await remote.call('worker.kill', { workerId: id, cleanup })) as { note?: string; error?: string },
+      kill: async (id, cleanup) => {
+        const result = await remote.call('worker.kill', { workerId: id, cleanup });
+        return typeof result === 'string' ? { error: result } : (result ?? {}) as { note?: string; error?: string };
+      },
 
       // The viewer and the typist travel with the call: the host registers who is watching a terminal
       // and who typed into it, and an anonymous viewer there is a viewer nobody can see.
@@ -276,7 +352,15 @@ export class RemoteFloor implements FloorActions {
   get forge(): FloorForge {
     const remote = this;
     return {
-      kind: 'github',
+      // The boards come off the `gh.issues` and `gh.pulls` events the floor emits, which reach here
+      // through `deliver` and the mirror like every other read. The kind is the host's own, from the
+      // `ready` frame, rather than assumed: a floor on Bitbucket is not a floor on GitHub.
+      get kind() {
+        return remote.hostForge;
+      },
+      // `items` and `state` are two views of one mirror read, so they cannot disagree.
+      issues: { get items() { return remote.issues.items; }, get state() { return remote.issues; } },
+      pulls: { get items() { return remote.pulls.items; }, get state() { return remote.pulls; } },
       refresh: () => void remote.call('gh.refresh'),
       claim: async (issue) => String((await remote.call('gh.claim', { issue })) ?? ''),
       merge: async (n, method, deleteBranch, auto, as) => (await remote.call('gh.merge', { n, method, deleteBranch, auto, env: as?.env })) as string | undefined,
@@ -293,6 +377,9 @@ export class RemoteFloor implements FloorActions {
       // frames and the office forwards them to whoever has the window open.
       watch: (workerId, clientId) => void remote.call('changes.watch', { workerId, clientId }),
       unwatch: (workerId, clientId) => void remote.call('changes.unwatch', { workerId, clientId }),
+      // As with `detachAll`: the office opened these windows with `watch`, which is a call to the
+      // host, so they are the host's to close and they close when the client goes away there.
+      unwatchAll: () => {},
       diff: async (workerId, filePath, repo) => (await remote.call('changes.diff', { workerId, filePath, repo })) as { diff: string; truncated: boolean } | string,
       commit: async (workerId, message, who, env, repo) => (await remote.call('changes.commit', { workerId, message, who, env, repo })) as string | undefined,
       discard: async (workerId, filePath, who, repo) => (await remote.call('changes.discard', { workerId, filePath, who, repo })) as string | undefined,
@@ -300,7 +387,7 @@ export class RemoteFloor implements FloorActions {
     };
   }
 
-  get plan(): FloorPlan {
+  get plan(): FloorPlanActions {
     const remote = this;
     return {
       label: async (deskId, text, color, by) => (await remote.call('desk.label', { deskId, text, color, by })) as { label?: DeskLabel; old?: DeskLabel } | string,
@@ -309,6 +396,10 @@ export class RemoteFloor implements FloorActions {
       get wing() {
         return remote.last<{ wing?: number }>('plan', {}).wing ?? 0;
       },
+      // The whole plan, for whoever walks in. The host streams the same `plan` event that `wing` is
+      // read from, so this is the same value the office has been holding — it just hands it over
+      // whole rather than picking one number out of it.
+      state: () => remote.last<FloorPlan>('plan', EMPTY_PLAN),
     };
   }
 
@@ -326,6 +417,7 @@ export class RemoteFloor implements FloorActions {
     const remote = this;
     return {
       play: async (input, by) => (await remote.call('jukebox.play', { input, by })) as { changed: boolean } | { error: string },
+      place: async (spot) => (await remote.call('jukebox.place', { spot })) as JukeboxSpot | string,
       skip: async (by) => void (await remote.call('jukebox.skip', { by })),
       stop: async (by) => Boolean((await remote.call('jukebox.stop', { by })) ?? false),
       title: () => remote.last<{ title?: string }>('jukebox', {}).title ?? '',
@@ -339,6 +431,9 @@ export class RemoteFloor implements FloorActions {
     return {
       take: async (id) => Boolean((await remote.call('ball.take', { clientId: id })) ?? false),
       throw: async (id, v) => Boolean((await remote.call('ball.throw', { clientId: id, ...v })) ?? false),
+      // The ball is on the host with everyone else on that floor, so a ride out of here is its
+      // business, not the office's. It answers whether the ball actually had to drop.
+      left: async (id) => Boolean((await remote.call('ball.left', { clientId: id })) ?? false),
       state: () => remote.last<BallState>('ball', {}),
     };
   }
@@ -362,8 +457,10 @@ export class RemoteFloor implements FloorActions {
       seek: async (position, by) => Boolean(await remote.call('tv.seek', { position, by })),
       stop: async (by) => Boolean(await remote.call('tv.stop', { by })),
       theatre: async (on, by) => Boolean(await remote.call('tv.theatre', { on, by })),
-      // Read from the `tv` event the host emits as its state changes.
-      state: () => remote.last<TvState>('tv', { on: false, playing: false, position: 0, at: 0, theatre: false }),
+      // Read from the `tv` event the host emits as its state changes — the same state a local floor
+      // derives its title from, so there is nothing to ask the host for.
+      title: () => tvTitle(remote.last<TvState>('tv', TV_OFF).url),
+      state: () => remote.last<TvState>('tv', TV_OFF),
     };
   }
 
@@ -372,7 +469,19 @@ export class RemoteFloor implements FloorActions {
     return {
       start: async (req: MeetingRequest, by, owner) => String((await remote.call('meeting.start', { req, by, owner })) ?? ''),
       stop: async (by) => String((await remote.call('meeting.stop', { by })) ?? ''),
+      // A meeting is refused by kind on a hosted floor — the room's people are in the office, not here
+      // — so this asks the host only so the refusal is the host's own words rather than a guess.
+      clear: async (by) => String((await remote.call('meeting.clear', { by })) ?? ''),
       state: () => remote.last<MeetingState>('meeting', { current: null, past: [] }),
+    };
+  }
+
+  get jail(): { state(): JailState } {
+    const remote = this;
+    return {
+      // Nobody here is sent to the dungeon: a worker goes home from its own machine, and the jail is a
+      // file on that disk. So there are no prisoners, and the view says so rather than inventing any.
+      state: () => remote.last<JailState>('jail', { prisoners: [], bones: 0 }),
     };
   }
 
@@ -391,11 +500,11 @@ export class RemoteFloor implements FloorActions {
   }
 
   /**
-   * The three features that live in files on the host, and so cannot be proxied without the office
-   * reading a checkout it must never touch. Each refuses by name, so the gap is visible rather than
-   * silent. See the class comment for why these are not RPCs yet.
+   * The whiteboard, the dog and the docs are files in this floor's own data directory, so they are not
+   * on the surface at all and there is nothing here to call. This is how the office says so out loud,
+   * by name: a gap the user can read beats a feature that silently does nothing.
    */
-  refuse(feature: 'the whiteboard' | 'the dog' | 'the docs'): string {
+  refuses(feature: 'the whiteboard' | 'the dog' | 'the docs'): string {
     return `${feature} is on ${this.machine}, which hosts this floor`;
   }
 }

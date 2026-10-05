@@ -19,10 +19,12 @@ import { buildGreen, buildTee, type Green, type Tee } from './golf';
 import { buildStack, type Stack } from './stack';
 import { buildTower, wingWindows } from './tower';
 import { buildHoop, type HoopView } from './hoop';
+import { buildDanceFloor, type DanceFloorView } from './disco';
 import { buildKitchen } from './kitchen';
 import type { Fridge } from './fridge';
 import { buildDeskSigns, type DeskSigns } from './desksigns';
 import { greenPlant, hangingPothos, plantStand, sillPothos, tablePlant, trailingPothos, windowBox } from './plants';
+import { officeFinishes } from './officefinishes';
 import { HOOP } from '../../shared/hoop';
 
 export interface Collider {
@@ -124,6 +126,8 @@ export interface Office {
   fridge: Fridge;
   /** The rolling whiteboard everyone draws on together. */
   whiteboard: WhiteboardStand;
+  /** The optional dance floor with disco lights in front of the lounge TV (see world/disco.ts). */
+  danceFloor: DanceFloorView;
   /** The golf tee on the balcony, and the hole across the street it's hit at. */
   tee: Tee;
   green: Green;
@@ -141,6 +145,8 @@ export interface Office {
   setProjectName(name: string): void;
   /** Paints the walls, their trim and the floor in a floor's colors, so each project looks like itself. */
   setLook(p: FloorPalette): void;
+  /** Switch finishes live without replacing worker anchors. */
+  setInterior(modern: boolean): void;
   /**
    * You're on floor `index` of a building `count` floors tall (0 is the bottom one): the rest of the
    * building goes up over you and down under you, the street that many storeys down, and only the
@@ -221,7 +227,17 @@ function onWall(side: Side, u: number): { x: number; z: number; rotY: number } {
 }
 
 /** Chunky planks in a floor's colors. */
-function paintPlanks(c: HTMLCanvasElement, p: FloorPalette) {
+function paintPlanks(c: HTMLCanvasElement, p: FloorPalette, modern = false) {
+  if (modern) {
+    const g = c.getContext('2d')!;
+    g.fillStyle = p.seam;
+    g.fillRect(0, 0, 512, 512);
+    for (let row = 0; row < 4; row++) for (let col = 0; col < 4; col++) {
+      g.fillStyle = (row + col) % 2 === 0 ? p.floor : p.floorAlt;
+      g.fillRect(col * 128 + 1, row * 128 + 1, 126, 126);
+    }
+    return;
+  }
   const g = c.getContext('2d')!;
   g.fillStyle = p.floor;
   g.fillRect(0, 0, 512, 512);
@@ -1639,6 +1655,11 @@ export function buildOffice(): Office {
   interactables.push(cabinet.interactable);
   fixture('east', CABINET.z, CABINET.height / 2, CABINET.width + 0.1, CABINET.height);
 
+  // The optional dance floor with disco lights, out in front of the TV (see world/disco.ts and the
+  // TV window's Dance floor option): flush with the floor, so it needs no collider.
+  const danceFloor = buildDanceFloor();
+  group.add(danceFloor.group);
+
   // The bookshelf of the project's docs, on the south wall between the middle window and the balcony doors.
   const shelf = buildBookshelf();
   group.add(shelf.group);
@@ -1722,6 +1743,7 @@ export function buildOffice(): Office {
   colliders.push({ minX: 15.42, maxX: 15.98, minZ: 3.12, maxZ: 3.68, top: 1.55 });
 
   // Ceiling lamps (cartoon pendants), hung on long cords down from the high ceiling.
+  const pendants: THREE.Group[] = [];
   const lampY = 4.05;
   for (const [x, z] of [
     [-10.5, -4],
@@ -1731,6 +1753,7 @@ export function buildOffice(): Office {
     [13, 0],
   ]) {
     const lamp = pendant(WALL_HEIGHT - lampY);
+    pendants.push(lamp);
     lamp.position.set(x, lampY, z);
     group.add(lamp);
     night.halos.push({ at: new THREE.Vector3(x, lampY - 0.12, z), size: 1.3, color: '#ffe08a' });
@@ -1801,14 +1824,28 @@ export function buildOffice(): Office {
   fixture('south', LOFT.maxX - 3, LOFT.y + 1.9, 2.6, 0.6);
 
   const setProjectName = (name: string) => elevator.setSign(`🛗 ${name}`);
+  let modern = false;
+  let floorLook = FLOOR_PALETTES[0];
+  const finish = officeFinishes(group, desks, pendants, [looks.wall, looks.trim]);
   const setLook = (p: FloorPalette) => {
-    looks.wall.color.set(p.wall);
-    looks.trim.color.set(p.trim);
+    floorLook = p;
+    const colors = modern && p.name === 'Maple'
+      ? { ...p, wall: '#303e50', trim: '#277dab', floor: '#3a485b', floorAlt: '#354255', seam: '#202c3c' }
+      : p;
+    looks.wall.color.set(colors.wall);
+    looks.trim.color.set(colors.trim);
     for (const t of looks.planks) {
-      paintPlanks(t.image as HTMLCanvasElement, p);
+      paintPlanks(t.image as HTMLCanvasElement, colors, modern);
       t.needsUpdate = true;
     }
   };
+  const setInterior = (value: boolean) => {
+    modern = value;
+    finish(modern);
+    stack.setInterior(modern);
+    setLook(floorLook);
+  };
+  setInterior(false);
 
   const setLevel = (index: number, count: number, wings: readonly number[] = []) => {
     const drop = index * STOREY;
@@ -1854,9 +1891,10 @@ export function buildOffice(): Office {
     green.update(t);
     scenic.update(t);
     hoop.update(dt);
+    danceFloor.update(t);
   };
 
-  return { group, colliders, interactables, desks, setBeanbags, boardMeshes, tvScreen, theatre, bossScreen, machineScreen, meetingBoard: meeting.board, meetingSign: meeting.sign, fixtures: () => fixtures, wallColliders, elevator, garageLift, cars, scenic, gong, jukebox, cabinet, fridge: kitchen.fridge, whiteboard, tee, green, hoop, stack, wing, setWing, signs, setProjectName, setLook, setLevel, night, plants, update };
+  return { group, colliders, interactables, desks, setBeanbags, boardMeshes, tvScreen, theatre, bossScreen, machineScreen, meetingBoard: meeting.board, meetingSign: meeting.sign, fixtures: () => fixtures, wallColliders, elevator, garageLift, cars, scenic, gong, jukebox, cabinet, fridge: kitchen.fridge, whiteboard, danceFloor, tee, green, hoop, stack, wing, setWing, signs, setProjectName, setLook, setInterior, setLevel, night, plants, update };
 }
 
 /** A chair at the meeting table, with its laptop on the table in front of it. */

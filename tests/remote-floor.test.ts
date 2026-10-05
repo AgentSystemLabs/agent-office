@@ -31,7 +31,59 @@ function fakeHost() {
 }
 
 const make = (host = fakeHost()) =>
-  new RemoteFloor('f1', 'a machine', 'h1', host.registry, { id: 'f1', name: 'API', dir: '/on/the/host', palette: 0, addedBy: 'alice', addedAt: 1 }, 'main', ['claude']);
+  new RemoteFloor('f1', 'a machine', 'h1', host.registry, { id: 'f1', name: 'API', dir: '/on/the/host', palette: 0, addedBy: 'alice', addedAt: 1 });
+
+test('a hosted demo without a repository exposes the providers reported by its host', async () => {
+  const host = fakeHost();
+  const floor = make(host);
+  floor.deliver({ t: 'ready', floor: { floorId: 'f1', name: 'API', seats: 2, accepting: false, workers: [], forge: 'github', providers: ['claude', 'codex'] } });
+  assert.equal(floor.project.name, 'API');
+  assert.equal(floor.project.dir, '');
+  assert.equal(floor.project.agentProviders.includes('codex'), true, 'spawn validation can find the selected provider without a repo');
+  const spawned = floor.workers.spawn('desk-1', 'Sam', 'demo', false, 'agent', 'codex');
+  assert.equal(host.sent[0].provider, 'codex');
+  floor.deliver({ t: 'result', floorId: 'f1', seq: host.sent[0].seq as number, value: { id: 'demo-worker' } });
+  assert.deepEqual(await spawned, { id: 'demo-worker' });
+});
+
+test('a state event with the same sequence as a call does not settle the call', async () => {
+  const host = fakeHost();
+  const floor = make(host);
+  const pending = floor.queue.add('task', 'Alice');
+  const seq = host.sent[0].seq as number;
+  const state = { tasks: [], maxWorkers: 3 };
+  floor.deliver({ t: 'event', floorId: 'f1', seq, msg: { t: 'queue', state } });
+  assert.deepEqual(floor.queue.state(), state);
+  floor.deliver({ t: 'result', floorId: 'f1', seq, value: 'actual reply' });
+  assert.equal(await pending, 'actual reply');
+});
+
+test('browser-shaped room updates fill the mirror', () => {
+  const floor = make();
+  floor.deliver({ t: 'event', floorId: 'f1', seq: 0, msg: { t: 'plan', plan: { wing: 2, labels: {} } } });
+  floor.deliver({ t: 'event', floorId: 'f1', seq: 0, msg: { t: 'decor', items: [{ id: 'picture' }] } });
+  floor.deliver({ t: 'event', floorId: 'f1', seq: 0, msg: { t: 'ball', ball: { holder: 'alice' } } });
+  assert.equal(floor.plan.wing, 2);
+  assert.equal(floor.decor.list()[0].id, 'picture');
+  assert.equal(floor.court.state().holder, 'alice');
+});
+
+test('a new ready restores a disconnected floor and calls use the new connection', async () => {
+  const host = fakeHost();
+  const floor = make(host);
+  const pending = floor.queue.add('before disconnect', 'Alice');
+  host.setReachable(false);
+  floor.onGone('f1');
+  assert.equal(await pending, 'Alice’s laptop is asleep');
+  assert.equal(floor.reachable, false);
+  host.setReachable(true);
+  floor.deliver({ t: 'ready', floor: { floorId: 'f1', name: 'API', seats: 4, accepting: false, workers: [], forge: 'github' } });
+  assert.equal(floor.reachable, true);
+  const resumed = floor.queue.add('after reconnect', 'Alice');
+  assert.equal(host.sent.length, 2);
+  floor.deliver({ t: 'result', floorId: 'f1', seq: host.sent[1].seq as number, value: undefined });
+  assert.equal(await resumed, '');
+});
 
 test('a floor whose machine has not paired yet has a placeholder name, not an empty one', () => {
   // The building knows a floor's host id before the machine has ever connected, so the proxy is built
@@ -127,11 +179,18 @@ test('a write nobody reads the answer to still ships', () => {
 
 test('the three host-local features refuse by name rather than silently', () => {
   // The whiteboard, the dog and the docs are files in the floor's own data directory. Serving them
-  // would mean the office reading a checkout it must never touch, so they refuse and say where the
-  // thing actually is. A gap that names itself beats a button that does nothing.
+  // would mean the office reading a checkout it must never touch, so they are not on the surface at
+  // all and `refuses` is how the office says so out loud — naming the machine. A gap that names
+  // itself beats a button that does nothing.
   const floor = make();
   for (const feature of ['the whiteboard', 'the dog', 'the docs'] as const) {
-    assert.equal(floor.refuse(feature), `${feature} is on Alice’s laptop, which hosts this floor`);
+    assert.equal(floor.refuses(feature), `${feature} is on Alice’s laptop, which hosts this floor`);
+  }
+  // And they really are unreachable rather than merely unimplemented: nothing on the surface can
+  // return one, which is the guarantee the office relies on to never ask for them.
+  const surface = floor as unknown as Record<string, unknown>;
+  for (const member of ['whiteboard', 'dog', 'docs']) {
+    assert.equal(surface[member], undefined, `a hosted floor must not be asked for its ${member}`);
   }
 });
 
@@ -253,4 +312,21 @@ test('the viewer and the typist travel with the call', async () => {
   assert.deepEqual(host.sent[0], { t: 'worker.attach', floorId: 'f1', seq: 1, workerId: 'w1', clientId: 'client-7', name: 'Ada' });
   assert.equal(host.sent[1].by, 'Ada', 'the typist is named');
   assert.equal(host.sent[2].clientId, 'client-7', 'and detach says which viewer left');
+});
+
+
+test('the hosted theatre switch returns booleans and follows the TV state mirror', async () => {
+  const host = fakeHost();
+  const floor = make(host);
+  assert.equal(floor.tv.state().theatre, false, 'a floor without a TV event starts with the lights up');
+  const turnDown = floor.tv.theatre(true, 'Alice');
+  assert.equal(host.sent[0].t, 'tv.theatre');
+  assert.equal(host.sent[0].on, true);
+  floor.deliver({ t: 'result', floorId: 'f1', seq: host.sent[0].seq as number, value: true });
+  assert.equal(await turnDown, true);
+  const unchanged = floor.tv.theatre(true, 'Alice');
+  floor.deliver({ t: 'result', floorId: 'f1', seq: host.sent[1].seq as number, value: false });
+  assert.equal(await unchanged, false, 'a no-op must not announce another theatre change');
+  floor.deliver({ t: 'event', floorId: 'f1', seq: 1, msg: { t: 'tv', state: { on: false, playing: false, position: 0, at: 0, theatre: true } } });
+  assert.equal(floor.tv.state().theatre, true);
 });

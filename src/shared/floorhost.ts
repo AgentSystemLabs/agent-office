@@ -18,6 +18,8 @@
  * See docs/remote-agents-plan.md.
  */
 
+import type { AgentProvider } from './protocol.js';
+
 /** Bumped when a frame's shape changes incompatibly. Sent in `hello`, refused on a mismatch. */
 export const FLOORHOST_PROTOCOL = 1;
 
@@ -47,6 +49,27 @@ export interface FloorReady {
   gitIdentity?: string;
   /** The models this host can actually run, so the office never offers one it would refuse. */
   models?: string[];
+  /**
+   * The branch this host's checkout is on, and the agent CLIs it has installed.
+   *
+   * Both are facts only that machine has, and both are needed the moment someone walks onto the floor
+   * from the office: the branch names the floor they rode into, and the providers are the choices the
+   * hire dialog offers. Without them the office would have to guess, and a floor that guesses where it
+   * is — or what it can run — is worse than one that says nothing. The office fills them in from here
+   * rather than holding its own copy, because this is the machine that owns the disk.
+   */
+  branch?: string;
+  providers?: AgentProvider[];
+  /**
+   * Where this machine keeps its checkouts, so the office can say where a floor would live on it.
+   *
+   * A hosted floor's `dir` is a path on this machine and the office cannot invent one — but the
+   * convention is the one the office already uses when it clones (`<projects>/owner/repo`), so a
+   * machine that says where its projects go makes `agent-office hosts add-floor` answerable without
+   * anyone having to know the far machine's layout. It is a hint for the CLI, never a path the office
+   * reads: it is stored beside the machine's name, not used to open anything.
+   */
+  projectsDir?: string;
 }
 
 /**
@@ -57,6 +80,7 @@ export interface FloorReady {
 export const HOST_CALLS = ['worker.search', 'queue.dropIssue', 'gh.claim'] as const;
 
 export const FLOOR_CASES = [
+  'ball.left',
   'ball.take',
   'ball.throw',
   'car.enter',
@@ -80,9 +104,11 @@ export const FLOOR_CASES = [
   'gh.labels',
   'gh.merge',
   'gh.refresh',
+  'jukebox.place',
   'jukebox.play',
   'jukebox.skip',
   'jukebox.stop',
+  'meeting.clear',
   'meeting.start',
   'meeting.stop',
   'queue.add',
@@ -158,11 +184,11 @@ export type FromFloor =
    * for the first time presents the `code` from the office instead, so nobody has to carry a token
    * between machines. The office answers with `welcome`.
    */
-  | { t: 'hello'; hostId: FloorHostId; protocol: number; token?: string; code?: string; name?: string; owner?: string }
+  | { t: 'hello'; hostId: FloorHostId; protocol: number; token?: string; code?: string; name?: string; owner?: string; projectsDir?: string }
   | { t: 'ready'; floor: FloorReady }
   | { t: 'leave'; floorId: string; why?: string }
   /** Whatever `ctx.emit` would have sent. `droppable` says what the office may shed under pressure. */
-  | { t: 'event'; floorId: string; seq: number; droppable?: boolean; msg: unknown }
+  | { t: 'event'; floorId: string; seq: number; droppable?: boolean; clients?: string[]; msg: unknown }
   /** A worker's terminal output, for whoever has that terminal open. */
   | { t: 'term.data'; floorId: string; workerId: string; data: string }
   | { t: 'report'; floorId: string; workerId: string; pr?: { number: number; url: string }; cost?: number; tokens?: number }

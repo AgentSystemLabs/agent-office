@@ -1,0 +1,26 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>TV drunk lab</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="../style.css" />
+    <style>
+      /* The lab's own furniture, around the real #stream-layer and the real .tv-frame. */
+      html, body { margin: 0; height: 100%; background: #6a6a72; }
+      #wrap { position: absolute; left: 40px; top: 80px; width: 1000px; height: 562px; }
+      /* A card behind the TV, so the darkened corners and any spill past the bezel are visible. */
+      #bezel { position: absolute; inset: -26px; background: #17171d; border-radius: 6px; }
+    </style>
+  </head>
+  <body>
+    <div id="wrap">
+      <div id="bezel"></div>
+      <!-- The real layer and frame tvscreen.ts builds, projected as it projects them. -->
+      <div id="stream-layer" class="sited">
+        <div class="tv-frame"></div>
+      </div>
+    </div>
+    <script type="module" src="./tvdrunk.ts"></script>
+  </body>
+</html>

@@ -19,7 +19,9 @@
     "build:server": "tsc -p tsconfig.server.json",
     "typecheck": "tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.client.json --noEmit",
     "start": "node bin/agent-office.js",
-    "prepare": "npm run build"
+    "prepare": "npm run build",
+    "e2e:floor-host": "node --import tsx scripts/e2e-floor-host.mjs",
+    "e2e:floor-ride": "node --import tsx scripts/e2e-floor-ride.mjs"
   },
   "engines": {
     "node": ">=20"

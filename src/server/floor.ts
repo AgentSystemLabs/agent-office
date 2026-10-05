@@ -397,6 +397,15 @@ export class Floor {
     if (Date.now() - Math.max(this.forge.issues.fetchedAt, this.forge.pulls.fetchedAt) > REFRESH_MS) void this.forge.refresh();
   }
 
+  /**
+   * A floor on this disk can do all three of the things a hosted floor cannot: the whiteboard, the
+   * dog and the docs are all files in `dataDir`, right here. So there is nothing to refuse, and saying
+   * so is what lets the office ask any floor the same question without knowing which it has.
+   */
+  refuses(_feature: 'the whiteboard' | 'the dog' | 'the docs'): undefined {
+    return undefined;
+  }
+
   private active(): boolean {
     return this.ctx.people(this) > 0 || this.ctx.lent(this) || this.workers.list().some((w) => isBusy(w.status)) || this.queue.state().tasks.some((t) => t.status !== 'done') || this.meetings.state().current?.status === 'running';
   }

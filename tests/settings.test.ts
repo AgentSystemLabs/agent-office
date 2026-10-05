@@ -44,3 +44,22 @@ test('the TV’s volume comes back from settings, as something it could be', () 
   assert.equal(back.tvMuted, true);
   assert.equal(back.music, mine.music, 'the settings beside it are untouched');
 });
+
+test('the dance floor by the TV is on to begin with, and remembered', () => {
+  fakeStorage(undefined);
+  assert.equal(loadSettings().danceFloor, true, 'it comes out by default');
+
+  fakeStorage({ danceFloor: false });
+  assert.equal(loadSettings().danceFloor, false, 'turning it off sticks');
+
+  // Anything a hand-edited (or older) settings file could say: left at the default.
+  fakeStorage({ danceFloor: 'yes' });
+  assert.equal(loadSettings().danceFloor, true);
+  fakeStorage({ danceFloor: 0 });
+  assert.equal(loadSettings().danceFloor, true);
+
+  const store = fakeStorage(undefined);
+  saveSettings({ ...loadSettings(), danceFloor: false });
+  assert.ok(store.has('agent-office.settings'));
+  assert.equal(loadSettings().danceFloor, false);
+});
