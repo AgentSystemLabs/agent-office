@@ -389,3 +389,5 @@ Every change to the app that lands on `main` is published as a GitHub release by
 [MIT](LICENSE)
 
 Helpers can assist agent and shell workers, in their own worktree or the shared project checkout. Shell workers receive the findings in office chat; reports are never typed into bash as commands.
+
+Helpers display their current status and activity above their heads, including when their agent needs input or is offline. Open the helper’s terminal to inspect its actual output.
