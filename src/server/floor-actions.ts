@@ -136,6 +136,18 @@ export interface FloorWorkers {
   ): Awaitable<WorkerInfo | string>;
   /** A board agent on a station desk: told what it is there for before its first request. */
   station(deskId: string, by: string, text: string, owner?: string): Awaitable<{ info: WorkerInfo; hired: boolean } | string>;
+  /**
+   * Walks a helper over to a worker (see server/helpers.ts): it works in that worker's checkout, so
+   * it is seated at no desk of its own and owns nothing. Returns the refusal to show, or the helper.
+   */
+  sendHelper(
+    hostId: string,
+    by: string,
+    provider?: AgentProvider,
+    model?: string,
+    effort?: AgentEffort,
+    owner?: string,
+  ): Awaitable<WorkerInfo | string>;
   resume(id: string, prompt?: string): Awaitable<string | undefined>;
   prompt(id: string, text: string, by?: string): Awaitable<string | undefined>;
   kill(id: string, cleanup?: WorktreeCleanup): Promise<{ note?: string; error?: string }>;

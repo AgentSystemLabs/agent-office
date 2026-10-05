@@ -314,6 +314,8 @@ export class RemoteFloor implements FloorActions {
         })) as WorkerInfo | string,
 
       station: async (deskId, by, text, owner) => (await remote.call('station.prompt', { deskId, by, text, owner })) as { info: WorkerInfo; hired: boolean } | string,
+      // A helper is a worker like any other, so it ships to the host the same way a hire does.
+      sendHelper: async (hostId, by, provider, model, effort, owner) => (await remote.call('worker.helper', { hostId, by, provider, model, effort, owner })) as WorkerInfo | string,
       resume: async (id, prompt) => String((await remote.call('worker.resume', { workerId: id, prompt })) ?? ''),
       prompt: async (id, text, by) => String((await remote.call('worker.prompt', { workerId: id, text, by })) ?? ''),
       kill: async (id, cleanup) => {

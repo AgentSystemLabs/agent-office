@@ -29,7 +29,7 @@ const pull = (number: number, state: string, headRefName: string, headRefOid?: s
   headRefName, headRefOid, baseRefName: 'main', createdAt: '', updatedAt: '', additions: 0, deletions: 0, checks: 'none', body: '', closes: [],
 });
 
-test('parses list, hire, home, tell and mcp', () => {
+test('parses list, hire, home, tell, helper and mcp', () => {
   assert.deepEqual(parseArgs([]), { cmd: 'help' });
   assert.deepEqual(parseArgs(['home', '--help']), { cmd: 'help' });
   assert.deepEqual(parseArgs(['mcp']), { cmd: 'mcp' });
@@ -39,6 +39,9 @@ test('parses list, hire, home, tell and mcp', () => {
   assert.deepEqual(parseArgs(['home', '--merged', '--cleanup=keep']), { cmd: 'home', workers: [], merged: true, cleanup: 'keep', json: false });
   assert.deepEqual(parseArgs(['send-home', '--merged']), { cmd: 'home', workers: [], merged: true, json: false });
   assert.deepEqual(parseArgs(['tell', 'Mochi', '--prompt', '- rebase on main']), { cmd: 'tell', worker: 'Mochi', prompt: '- rebase on main' });
+  // A helper is named by the worker it is for, and takes a provider only if you want a different one.
+  assert.deepEqual(parseArgs(['helper', 'Mochi']), { cmd: 'helper', worker: 'Mochi' });
+  assert.deepEqual(parseArgs(['helper', 'b0b', '--provider', 'codex', '--model=o3']), { cmd: 'helper', worker: 'b0b', provider: 'codex', model: 'o3' });
   assert.deepEqual(parseArgs(['hire', '--provider', 'codex', '--effort=high', '--issue', '#12', '--no-worktree', '--desk', 'desk-4']), {
     cmd: 'hire', json: false, provider: 'codex', effort: 'high', issue: 12, worktree: false, desk: 'desk-4',
   });
@@ -74,6 +77,7 @@ test('builds requests for each call, with the worker and its token', () => {
   assert.equal(home.body, '{"merged":true}');
   assert.ok(home.timeout > list.timeout, 'sending home waits on git');
   assert.equal(buildRequest('tell', OFFICE, {}).url, 'http://127.0.0.1:4455/office/workers/tell?worker=w1');
+  assert.equal(buildRequest('helper', OFFICE, { worker: 'Mochi' }).url, 'http://127.0.0.1:4455/office/workers/helper?worker=w1');
   assert.equal(buildRequest('hire', OFFICE, {}).url, 'http://127.0.0.1:4455/office/workers?worker=w1');
 });
 
@@ -142,7 +146,10 @@ test('answers MCP: the handshake, its tools, and a call', async () => {
   assert.equal((await handleMcp({ jsonrpc: '2.0', id: 2, method: 'initialize', params: { protocolVersion: '1999-01-01' } }, io))?.result.protocolVersion, '2025-11-25');
   assert.equal(await handleMcp({ jsonrpc: '2.0', method: 'notifications/initialized' }, io), undefined);
   const tools = await handleMcp({ jsonrpc: '2.0', id: 3, method: 'tools/list' }, io);
-  assert.deepEqual(tools?.result.tools.map((t: { name: string }) => t.name), ['list_workers', 'hire_worker', 'send_home', 'tell_worker']);
+  assert.deepEqual(tools?.result.tools.map((t: { name: string }) => t.name), ['list_workers', 'hire_worker', 'send_home', 'tell_worker', 'get_helper']);
+  // A helper goes to a worker, so the call needs only who it is for and, at most, which agent it is.
+  const helped = await handleMcp({ jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name: 'get_helper', arguments: { worker: 'Byte' } } }, io);
+  assert.match(helped?.result.content[0].text, /Brought .* over to help Byte/);
   const call = await handleMcp({ jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'send_home', arguments: { merged: true } } }, io);
   assert.deepEqual(call?.result, { content: [{ type: 'text', text: '✓ Bolt went home — Deleted it' }] });
   // Nobody it named went: the call failed, as far as the model is concerned.

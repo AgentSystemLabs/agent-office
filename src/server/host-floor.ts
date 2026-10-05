@@ -282,6 +282,10 @@ export class HostFloors {
         return await floor.workers.openPr(s('workerId'), s('by'));
       case 'station.prompt':
         return await floor.workers.station(s('deskId'), s('by'), s('text'), s('owner') || undefined);
+      // A helper to walk over to a worker here. The host owns the walk as well as the hire, since the
+      // route is between this floor's own desks, and the office only hears that it happened.
+      case 'worker.helper':
+        return await floor.workers.sendHelper(s('hostId'), s('by'), m.provider as never, s('model') || undefined, m.effort as never, s('owner') || undefined);
       case 'worker.search':
         return (await floor.workers.search(s('needle'), num('perWorker') || 0)) as never;
 

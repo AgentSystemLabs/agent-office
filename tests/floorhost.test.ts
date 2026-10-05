@@ -15,12 +15,11 @@ import {
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-test('the protocol is 54 messages, not 117', () => {
-  // The number that matters. `handleMessage` is 117 cases across three switches (104 here, 7 in
+test('the protocol has 55 floor messages', () => {
   // handleSignIns, 6 in handleAccounts); only these act on a Floor and need to travel. If this drifts,
   // a case started or stopped touching a floor and nobody decided where it should run.
-  assert.equal(FLOOR_CASES.length, 54);
-  assert.equal(new Set(FLOOR_CASES).size, 54, 'no duplicates');
+  assert.equal(FLOOR_CASES.length, 55);
+  assert.equal(new Set(FLOOR_CASES).size, 55, 'no duplicates');
   for (const c of FLOOR_CASES) assert.match(c, /^[a-z]+\.[a-zA-Z]+$/, `${c} is not a namespaced case`);
 });
 

@@ -12,7 +12,8 @@ import type { AgentChoice, AgentEffort, AgentProvider, ForgeKind, Run, TerminalH
 import { FAILS_TO_DESPAIR, outputFailed, toolAction } from '../shared/actions.js';
 import { FLAG_BOLD, FLAG_DIM, FLAG_INVERSE, RGB_FLAG, isAgentEffort, isClaudeModel } from '../shared/protocol.js';
 import { WORKSPACE_FILES, WORKTREES_DIR, Worktrees, describeWork, workspaceOf, type WorktreeCleanup, type WorktreeRef, type WorktreeState } from './worktrees.js';
-import { DESK_BY_ID, STATION_AGENT, deskBuilt } from '../shared/layout.js';
+import { DESK_BY_ID, STATION_AGENT, deskBuilt, type DeskDef } from '../shared/layout.js';
+import { FINDING_LINES, helperDesk, helperId, isHelperId, plainText } from '../shared/helper.js';
 import { QUEUE_AGENT_DISALLOWED_TOOLS, stationBrief } from './stations.js';
 import { officePrompt, type PromptSource } from './prompts.js';
 import { isBusy } from '../shared/status.js';
@@ -397,11 +398,60 @@ export class WorkerManager {
   }
 
   /**
+   * The standing desk a helper at `hostId`'s works from: its host's desk moved beside it, with no
+   * chair and no places, so everything that looks a seat up (launch(), the client) finds one and
+   * nothing tries to sit anyone in it (see shared/helper.ts).
+   */
+  private helperDesk(hostId: string): DeskDef | undefined {
+    const host = this.get(hostId);
+    const desk = host && DESK_BY_ID.get(host.deskId);
+    return host && desk ? helperDesk(desk, `🆘 helping ${host.name}`) : undefined;
+  }
+
+  /** The worker a helper is helping, if that is what this one is. */
+  hostOf(id: string): WorkerInfo | undefined {
+    const helper = this.get(id);
+    return helper?.helper ? this.get(helper.helper.hostId) : undefined;
+  }
+
+  /**
+   * Hires a helper to walk over to the worker at `hostId` (see server/helpers.ts). It works in that
+   * worker's own checkout, so it needs a brief of its own and then nothing: no worktree of its own,
+   * no queue task and no say over the work. It is seated at a standing desk beside the host's, built
+   * from the host's, so everything that looks a seat up finds one and nothing sits anyone in it.
+   */
+  sendHelper(hostId: string, by: string, provider?: AgentProvider, model?: string, effort?: AgentEffort, owner?: string): WorkerInfo | string {
+    const host = this.get(hostId);
+    if (!host) return 'No such worker';
+    if (host.kind !== 'agent') return `${host.name} is a shell, not an agent`;
+    // A helper helps a worker, not another helper: that would make a chain nobody asked for.
+    if (isHelperId(host.deskId)) return `${host.name} is itself a helper`;
+    // It reads the host's checkout, so there has to be one: a worker in the floor's own checkout would
+    // have the helper reading the same files the whole floor shares.
+    if (!host.worktree) return `${host.name} isn't in a worktree of its own: a helper needs one to read`;
+    const desk = DESK_BY_ID.get(host.deskId);
+    if (!desk) return 'Unknown desk';
+    const brief = officePrompt(this.prompts, 'helper.brief', { host: host.name, task: host.task?.name || host.prompt || 'the task on its card', branch: host.worktree.branch });
+    return this.spawn(helperId(host.deskId), by, brief, false, 'agent', provider, model, effort, undefined, owner, [], undefined, { hostId: host.id, hostName: host.name, worktree: host.worktree });
+  }
+
+  /**
+   * What a helper worked out, for sending on to the worker it is helping: the tail of its own
+   * terminal, which is the last thing it said. Plain text, since it goes into a prompt.
+   */
+  finding(id: string): string {
+    const w = this.workers.get(id);
+    if (!w) return '';
+    const text = w.term && w.ser ? terminalTail(w.term, w.ser, FINDING_LINES) : this.scrollback.load(id);
+    return plainText(text ?? '');
+  }
+
+  /**
    * Hires a worker at a desk. `meeting` seats one at the meeting room's table instead, for that meeting
    * (see meetings.ts), in the meeting's own worktree, which everyone at the table shares. `repos` are
    * other floors' repositories a worker in its own worktree works in too (see makeWorkspace).
    */
-  spawn(deskId: string, by: string, prompt?: string, worktree = false, kind: WorkerKind = 'agent', provider?: AgentProvider, model?: string, effort?: AgentEffort, meeting?: { id: string; worktree?: WorkerInfo['worktree'] }, owner?: string, repos: RepoSource[] = [], via?: 'herald'): WorkerInfo | string {
+  spawn(deskId: string, by: string, prompt?: string, worktree = false, kind: WorkerKind = 'agent', provider?: AgentProvider, model?: string, effort?: AgentEffort, meeting?: { id: string; worktree?: WorkerInfo['worktree'] }, owner?: string, repos: RepoSource[] = [], via?: 'herald', helper?: { hostId: string; hostName: string; worktree?: WorkerInfo['worktree'] }): WorkerInfo | string {
     // Nobody picked (a board agent, say): the office's default worker, model and effort included.
     if (kind === 'agent' && provider === undefined) ({ provider, model, effort } = this.officeDefault);
     const selectedProvider = kind === 'agent' ? provider : undefined;
@@ -409,10 +459,13 @@ export class WorkerManager {
     if (modelError) return modelError;
     const effortError = validateWorkerEffort(kind, selectedProvider, effort);
     if (effortError) return effortError;
-    const seat = DESK_BY_ID.get(deskId);
+    // A helper's id isn't a seat's: the Floor puts a standing desk at it (see server/helpers.ts).
+    const seat = helper ? this.helperDesk(helper.hostId) : DESK_BY_ID.get(deskId);
     if (!seat) return 'Unknown desk';
     if (!deskBuilt(seat, this.wing())) return `${seat.label} isn't built yet: expand the back office first`;
-    if (this.deskOccupied(deskId)) return seat.station ? `The ${STATION_AGENT[seat.station].name} is already there` : `That ${seat.beanbag ? 'bean bag' : 'desk'} is taken`;
+    // A helper stands at a desk somebody is already sitting at, so only the host's desk being taken
+    // is a problem, and only for anything that isn't a helper.
+    if (this.deskOccupied(deskId) && !(helper && isHelperId(deskId))) return seat.station ? `The ${STATION_AGENT[seat.station].name} is already there` : `That ${seat.beanbag ? 'bean bag' : 'desk'} is taken`;
     if (kind === 'shell' && seat.station) return 'A board agent is always an agent, not a shell';
     if (seat.station && !prompt?.trim()) return 'Tell the board agent what to do';
     if (!seat.room !== !meeting) return seat.room ? 'Only a meeting seats workers at the meeting table: call one in the meeting room' : 'A meeting seats its workers at the meeting table';
@@ -421,18 +474,25 @@ export class WorkerManager {
     if (repos.length > MAX_REPOS) return `A worker can take on at most ${MAX_REPOS} other repositories`;
     if (kind === 'shell' && provider !== undefined) return 'Shell workers do not have an agent provider';
     if (kind === 'agent' && selectedProvider === 'custom' && this.defaultProvider !== 'custom') return 'Custom is not the configured agent provider';
+    // A helper is an agent, always: it reads and reports, and it never edits anything.
+    if (helper && kind !== 'agent') return 'A helper is an agent, not a shell';
+    if (helper && meeting) return 'A helper works at a desk, not at the meeting table';
+    if (helper && repos.length) return 'A helper works in the checkout it is helping in';
     if (kind === 'agent') {
       const paused = this.ledger.hiringPaused;
       if (paused) return paused;
     }
     if (owner && selectedProvider === 'claude' && this.runAs && !this.runAs.claudeReady(owner)) return this.runAs.why('claude');
+    // A helper is a real agent and takes a worker's slot, so a full office is still a full office.
     const full = this.capacity?.full();
     if (full) return full;
     const used = new Set([...this.workers.values()].map((w) => w.info.name.replace(/ 🐚$/, '')));
     const agent = seat.station && STATION_AGENT[seat.station];
     const name = agent ? agent.name : (NAMES.find((n) => !used.has(n)) ?? `Worker ${this.workers.size + 1}`);
     const id = randomBytes(6).toString('hex');
-    let wt: WorkerInfo['worktree'] = meeting?.worktree;
+    // A helper works in its host's checkout, on its host's branch: it never cuts a worktree of its
+    // own, because it doesn't own the work. A meeting's workers share the meeting's, the same way.
+    let wt: WorkerInfo['worktree'] = meeting?.worktree ?? helper?.worktree;
     let others: WorkerRepo[] | undefined;
     if (worktree) {
       const slug = `${name.toLowerCase()}-${id.slice(0, 4)}`;
@@ -470,6 +530,7 @@ export class WorkerManager {
       viewerIds: [],
       activity: prompt ? truncate(prompt, 80) : undefined,
       meeting: meeting?.id,
+      ...(helper ? { helper: { hostId: helper.hostId, hostName: helper.hostName } } : {}),
     };
     const w = newWorker(info, newTracker());
     w.owner = owner;
