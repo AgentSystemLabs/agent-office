@@ -25,9 +25,9 @@ export interface Kitchen {
 
 /** Every material in kitchen.glb by name: the old code-built kitchen's colors, and the office's wood for the top. */
 const COLORS: Record<string, string> = {
-  Cabinet: '#8ecae6',
-  Wood: '#c98b5a',
-  Chrome: '#adb5bd',
+  Cabinet: '#25364a',
+  Wood: '#32445a',
+  Chrome: '#718da6',
   Dark: '#343a40',
   White: '#ffffff',
   Fridge: '#f8f9fa',

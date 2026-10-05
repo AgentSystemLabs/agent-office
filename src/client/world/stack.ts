@@ -106,13 +106,13 @@ function tileTexture(): THREE.CanvasTexture {
   const c = document.createElement('canvas');
   c.width = c.height = 128;
   const g = c.getContext('2d')!;
-  g.fillStyle = '#fbf7ef';
+  g.fillStyle = '#354255';
   g.fillRect(0, 0, 128, 128);
-  g.fillStyle = '#e3dccf';
+  g.fillStyle = '#1c2b3c';
   g.fillRect(0, 0, 128, 5);
   g.fillRect(0, 0, 5, 128);
   // A few speckles, like the mineral fibre in real tiles.
-  g.fillStyle = '#efe8dc';
+  g.fillStyle = '#3a485b';
   for (let i = 0; i < 40; i++) g.fillRect(8 + ((i * 53) % 116), 8 + ((i * 97) % 116), 3, 2);
   const t = new THREE.CanvasTexture(c);
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
@@ -242,14 +242,14 @@ export function buildStack(colliders: Collider[], planks: THREE.Material): Stack
   const group = new THREE.Group();
   const B = { minX: FLOOR.minX - WALL_T, maxX: FLOOR.maxX + WALL_T, minZ: FLOOR.minZ - WALL_T, maxZ: FLOOR.maxZ + WALL_T };
   const concrete = toon('#d3d6dd');
-  const band = toon('#e8a87c');
+  const band = toon('#277dab');
   // Big flat surfaces get no cartoon outline, as the floor never has.
   planks.userData.outlineParameters = { visible: false };
   const tiles = toon('#ffffff').clone();
   tiles.userData.outlineParameters = { visible: false };
   tiles.map = tileTexture();
   // Lit from below by the room's lamps, not left in the shade the sun would give it.
-  tiles.emissive = new THREE.Color('#6a655d');
+  tiles.emissive = new THREE.Color('#111c2a');
   tiles.emissiveMap = tiles.map;
   const ceilingMat = tiles;
   const brass = toon('#f2c14e', { emissive: '#3a2a00' });

@@ -23,6 +23,7 @@ import { buildKitchen } from './kitchen';
 import type { Fridge } from './fridge';
 import { buildDeskSigns, type DeskSigns } from './desksigns';
 import { greenPlant, hangingPothos, plantStand, sillPothos, tablePlant, trailingPothos, windowBox } from './plants';
+import { buildModernInterior } from './modern';
 import { HOOP } from '../../shared/hoop';
 
 export interface Collider {
@@ -173,18 +174,18 @@ const PALETTE = {
   floorAlt: FLOOR_PALETTES[0].floorAlt,
   wall: FLOOR_PALETTES[0].wall,
   wallTrim: FLOOR_PALETTES[0].trim,
-  desk: '#f7f3ea',
-  deskLeg: '#3d405b',
-  wood: '#c98b5a',
-  cork: '#d8a86a',
-  chairs: ['#ff8a5b', '#5bc0eb', '#9bc53d', '#b388eb', '#ffb400', '#f7aef8'],
-  rugs: ['#bde0fe', '#ffd6a5', '#caffbf', '#ffc6ff'],
+  desk: '#252f42',
+  deskLeg: '#101824',
+  wood: '#32445a',
+  cork: '#172537',
+  chairs: ['#253e54', '#28495c', '#303d56', '#253e54', '#28495c', '#303d56'],
+  rugs: ['#172335', '#19293b', '#19293b', '#172335'],
   plant: '#5fb760',
   plantDark: '#3f8f45',
-  pot: '#e76f51',
-  ink: '#2b2d42',
+  pot: '#2c3c50',
+  ink: '#101824',
   /** The building's outside paint. */
-  exterior: '#e07a5f',
+  exterior: '#26384c',
 };
 
 /** Window glass: faintly blue and see-through. */
@@ -220,20 +221,16 @@ function onWall(side: Side, u: number): { x: number; z: number; rotY: number } {
   }
 }
 
-/** Chunky planks in a floor's colors. */
+/** Large precision-cut floor tiles, repainted with each project's palette. */
 function paintPlanks(c: HTMLCanvasElement, p: FloorPalette) {
   const g = c.getContext('2d')!;
-  g.fillStyle = p.floor;
-  g.fillRect(0, 0, 512, 512);
-  for (let row = 0; row < 8; row++) {
-    const offset = (row % 2) * 128;
-    for (let col = -1; col < 3; col++) {
-      const x = col * 256 + offset;
-      g.fillStyle = (row + col) % 3 === 0 ? p.floorAlt : p.floor;
-      g.fillRect(x + 2, row * 64 + 2, 252, 60);
+  g.fillStyle = p.seam;
+  g.fillRect(0, 0, c.width, c.height);
+  for (let row = 0; row < 4; row++) {
+    for (let col = 0; col < 4; col++) {
+      g.fillStyle = (row + col) % 2 === 0 ? p.floor : p.floorAlt;
+      g.fillRect(col * 128 + 1, row * 128 + 1, 126, 126);
     }
-    g.fillStyle = p.seam;
-    g.fillRect(0, row * 64, 512, 3);
   }
 }
 
@@ -329,7 +326,7 @@ export function deskBooks(i: number): THREE.Object3D {
 // moved round one by one. Sofa is the old couch's blue, Wood and Frame the old coffee table's top and pedestal,
 // and WoodDark the sofa's feet (the desk furniture's darker wood). A pillow's or a pouf's Cloth is each copy's
 // own color, so it has none here: a copy that forgets its color comes out magenta.
-const LOUNGE_COLORS = { Sofa: '#5b8def', WoodDark: '#8a5a3b', Wood: PALETTE.wood, Frame: PALETTE.deskLeg };
+const LOUNGE_COLORS = { Sofa: '#28495c', WoodDark: '#152333', Wood: PALETTE.wood, Frame: PALETTE.deskLeg };
 const paintLounge = palette(LOUNGE_COLORS);
 
 /** A pillow or a pouf, its Cloth in `color`. */
@@ -373,11 +370,11 @@ export function coffeeTable(): THREE.Object3D {
 /** A pendant lamp, its shade at 0, on a cord `cord` meters long. */
 function pendant(cord = 0.48): THREE.Group {
   const lamp = new THREE.Group();
-  const c = cord / 0.8;
-  lamp.add(mesh(new THREE.CylinderGeometry(0.01, 0.01, c, 4), toon(PALETTE.ink), 0, c / 2, 0, false));
-  lamp.add(mesh(new THREE.ConeGeometry(0.5, 0.45, 16, 1, true), toon('#ffd166'), 0, 0, 0, false));
-  lamp.add(mesh(new THREE.SphereGeometry(0.16, 10, 8), toon('#fff7d6', { emissive: '#ffe08a' }), 0, -0.15, 0, false));
-  lamp.scale.setScalar(0.8);
+  for (const x of [-1.6, 1.6]) {
+    lamp.add(mesh(new THREE.CylinderGeometry(0.012, 0.012, cord, 4), toon(PALETTE.ink), x, cord / 2, 0, false));
+  }
+  lamp.add(mesh(roundedBox(4, 0.12, 0.28, 0.06), toon(PALETTE.ink), 0, 0, 0, false));
+  lamp.add(mesh(roundedBox(3.85, 0.025, 0.21, 0.04), toon('#b9edff', { emissive: '#388ec4' }), 0, -0.073, 0, false));
   return lamp;
 }
 
@@ -1161,6 +1158,10 @@ function chair(color: string): THREE.Group {
   const back = mesh(roundedBox(0.62, 0.1, 0.6, 0.12), mat, 0, 0.86, 0.27);
   back.rotation.x = Math.PI / 2 - 0.12;
   g.add(back);
+  for (const sx of [-1, 1]) {
+    g.add(mesh(roundedBox(0.07, 0.04, 0.34, 0.02), toon(PALETTE.deskLeg), sx * 0.35, 0.7, 0.04));
+    g.add(mesh(box(0.035, 0.2, 0.035), toon(PALETTE.deskLeg), sx * 0.35, 0.6, 0.13));
+  }
   g.add(mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.42, 8), toon(PALETTE.deskLeg), 0, 0.26, 0));
   for (let i = 0; i < 5; i++) {
     const a = (i / 5) * Math.PI * 2;
@@ -1181,14 +1182,16 @@ export function buildDesk(def: DeskDef, index: number, trimMat: THREE.Material):
   group.rotation.y = def.rotY;
   const { width, depth, height } = DESK_SIZE;
   group.add(mesh(roundedBox(width - 0.06, 0.08, depth - 0.04, 0.08), toon(PALETTE.desk), 0, height - 0.04, 0));
-  const legMat = toon('#8d99ae');
+  const legMat = toon(PALETTE.deskLeg);
   for (const sx of [-1, 1]) {
-    for (const sz of [-1, 1]) {
-      group.add(mesh(new THREE.CylinderGeometry(0.035, 0.035, height - 0.08, 8), legMat, sx * (width / 2 - 0.14), (height - 0.08) / 2, sz * (depth / 2 - 0.12)));
-    }
+    group.add(mesh(box(0.09, height - 0.08, depth - 0.16), legMat, sx * (width / 2 - 0.16), (height - 0.08) / 2, 0));
+    group.add(mesh(roundedBox(0.16, 0.05, depth - 0.08, 0.025), legMat, sx * (width / 2 - 0.16), 0.025, 0));
   }
-  // Modesty panel facing away from the worker
-  group.add(mesh(box(width - 0.3, 0.32, 0.03), trimMat, 0, height - 0.26, -depth / 2 + 0.06));
+  group.add(mesh(box(width - 0.32, 0.12, 0.06), legMat, 0, height - 0.24, 0));
+  // Acoustic divider at the back; its footprint stays within the existing desk collider.
+  group.add(mesh(roundedBox(width - 0.14, 0.3, 0.055, 0.025), trimMat, 0, height + 0.15, -depth / 2 + 0.06));
+  group.add(mesh(box(width - 0.14, 0.018, 0.065), toon('#78d8ff', { emissive: '#226da2' }), 0, height + 0.31, -depth / 2 + 0.06, false));
+  group.add(mesh(roundedBox(1.1, 0.008, 0.56, 0.04), toon('#121c2a'), 0, height + 0.005, 0.1, false));
   // Little desk decorations. Which desk gets which stays as it is: the holiday present goes in whichever
   // back corner it leaves free (DESK_SPOTS in holiday.ts).
   const deco = index % 3;
@@ -1535,8 +1538,8 @@ export function buildOffice(): Office {
     // Out from the wall, the way the board faces.
     const nx = Math.sin(b.rotY);
     const nz = Math.cos(b.rotY);
-    // The queue is a whiteboard in an aluminium frame; the others hang in wood.
-    const { group: bg, face } = wallBoard(b.width, b.height, key === 'queue' ? '#aab4be' : PALETTE.wood);
+    // Blue aluminium frames unify the operational boards.
+    const { group: bg, face } = wallBoard(b.width, b.height, '#277dab');
     bg.position.set(b.x + nx * 0.08, b.y, b.z + nz * 0.08);
     bg.rotation.y = b.rotY;
     group.add(bg);
@@ -1600,15 +1603,15 @@ export function buildOffice(): Office {
   const tableGreen = tablePlant();
   tableGreen.position.set(13, 0.46, 0);
   group.add(tableGreen);
-  // The lounge rug: warm woven jute with a paler border, under the couch and its table.
-  group.add(mesh(roundedBox(7, 0.02, 7, 1.2), toon('#c9a27a'), 13.4, 0.011, 0, false));
-  group.add(mesh(roundedBox(6.3, 0.022, 6.3, 1.1), toon('#e7d3ae'), 13.4, 0.012, 0, false));
+  // A graphite lounge rug with a blue border under the couch and its table.
+  group.add(mesh(roundedBox(7, 0.02, 7, 1.2), toon('#277dab'), 13.4, 0.011, 0, false));
+  group.add(mesh(roundedBox(6.3, 0.022, 6.3, 1.1), toon('#172537'), 13.4, 0.012, 0, false));
 
   // A pouf either side of the lounge (the seats still called beanbags), turned to the TV like whoever sits on it.
   for (const [i, [color, x, z]] of (
     [
-      ['#06d6a0', 12.5, 3.5],
-      ['#ffd166', 14.5, -3.4],
+      ['#28495c', 12.5, 3.5],
+      ['#303d56', 14.5, -3.4],
     ] as const
   ).entries()) {
     const id = `lounge-beanbag-${i + 1}`;
@@ -1719,7 +1722,7 @@ export function buildOffice(): Office {
   group.add(floorLamp(night, 15.7, 3.4));
   colliders.push({ minX: 15.42, maxX: 15.98, minZ: 3.12, maxZ: 3.68, top: 1.55 });
 
-  // Ceiling lamps (cartoon pendants), hung on long cords down from the high ceiling.
+  // Suspended linear lighting over the work pods and lounge.
   const lampY = 4.05;
   for (const [x, z] of [
     [-10.5, -4],
@@ -1731,8 +1734,14 @@ export function buildOffice(): Office {
     const lamp = pendant(WALL_HEIGHT - lampY);
     lamp.position.set(x, lampY, z);
     group.add(lamp);
-    night.halos.push({ at: new THREE.Vector3(x, lampY - 0.12, z), size: 1.3, color: '#ffe08a' });
+    night.halos.push({ at: new THREE.Vector3(x, lampY - 0.12, z), size: 1.3, color: '#8edaff' });
   }
+  group.add(buildModernInterior());
+  // Reserve architectural finishes so user pictures cannot cover their lights or signs.
+  for (const x of [-10, -1.8, 6.4]) fixture('north', x, 5.5, 6.9, 1.4);
+  fixture('north', -5.8, 6.35, 9, 0.6);
+  fixture('east', 0, 4.62, 7.2, 0.55);
+  fixture('south', -14.5, 3.1, 4, 0.6);
 
   // The back office through the north wall past the gong, walled up until the floor's built out.
   const wing = buildWing(group, colliders, interactables, desks, looks, trimMat, floorMat, stack.ceiling, night);
@@ -1871,7 +1880,7 @@ function buildMeetingSeat(def: DeskDef, index: number): DeskView {
   seatAnchor.rotation.y = Math.PI;
   seatAnchor.scale.setScalar(0.82);
   group.add(seatAnchor);
-  const ch = chair(['#2b2d42', '#ef476f', '#118ab2', '#06d6a0', '#ffd166'][index % 5]);
+  const ch = chair(PALETTE.chairs[index % PALETTE.chairs.length]);
   ch.position.set(0, 0, 0.85);
   group.add(ch);
   // A merge's dance party: up on its chair rather than the table, where the laptops are close together.
@@ -1893,7 +1902,7 @@ function buildMeetingRoom(group: THREE.Group, colliders: Collider[], interactabl
   const R = MEETING_ROOM;
   const H = R.height;
   const T = 0.1;
-  const frameMat = toon('#ffffff');
+  const frameMat = toon('#172537');
   const walls = new THREE.Group();
   const bar = (w: number, h: number, d: number, x: number, y: number, z: number) => walls.add(mesh(box(w, h, d), frameMat, x, y, z, false));
   /** A run of glass along x (north wall) or z (west wall), from a to b, in panes about `pane` wide. */
@@ -2049,7 +2058,7 @@ function buildLoft(group: THREE.Group, colliders: Collider[], interactables: Int
   const T = 0.12; // glass wall thickness
   const wallMat = looks.wall;
   const trimMat = looks.trim;
-  const frameMat = toon('#ffffff');
+  const frameMat = toon('#172537');
   const woodMat = toon(PALETTE.wood);
 
   // Floor slab, planked like downstairs, with a trim fascia you see from below.
@@ -2153,7 +2162,7 @@ function buildLoft(group: THREE.Group, colliders: Collider[], interactables: Int
   const screen = mesh(new THREE.PlaneGeometry(0.8, 0.45), new THREE.MeshBasicMaterial({ color: '#4cc9f0' }), 0, 1.18, -0.165, false);
   desk.add(screen);
   desk.add(mesh(new THREE.CylinderGeometry(0.06, 0.05, 0.12, 10), toon('#ffd166'), 0.9, 0.89, 0.15));
-  const plate = textPlane('👑 BOSS', { bg: '#ffd166', size: 48 });
+  const plate = textPlane('DIRECTOR', { bg: '#152333', color: '#a5e4ff', size: 48 });
   plate.scale.multiplyScalar(0.55);
   plate.position.set(0, 0.5, -0.55);
   plate.rotation.y = Math.PI;
@@ -2177,17 +2186,17 @@ function buildLoft(group: THREE.Group, colliders: Collider[], interactables: Int
   colliders.push({ minX: deskX - 1.3, maxX: deskX + 1.3, minZ: deskZ - 0.6, maxZ: deskZ + 0.6, bottom: floorY, top: floorY + 0.8 });
 
   const couch = new THREE.Group();
-  const couchMat = toon('#ef476f');
+  const couchMat = toon('#28495c');
   couch.add(mesh(roundedBox(1, 0.45, 2.4, 0.2), couchMat, 0, 0.3, 0));
   couch.add(mesh(roundedBox(0.35, 0.9, 2.4, 0.15), couchMat, 0.45, 0.55, 0));
   for (const sz of [-1, 1]) couch.add(mesh(roundedBox(1, 0.7, 0.3, 0.15), couchMat, 0, 0.45, sz * 1.1));
-  couch.add(mesh(roundedBox(0.2, 0.45, 0.5, 0.1), toon('#ffd166'), 0.2, 0.75, 0.4));
+  couch.add(mesh(roundedBox(0.2, 0.45, 0.5, 0.1), toon('#277dab'), 0.2, 0.75, 0.4));
   couch.position.set(maxX - 0.65, floorY, cz);
   group.add(couch);
   colliders.push({ minX: maxX - 1.15, maxX, minZ: cz - 1.2, maxZ: cz + 1.2, bottom: floorY, top: floorY + 0.55 });
   seatable(couch, 'loft-couch', 1.8, interactables);
 
-  const rug = mesh(roundedBox(4.6, 0.02, 3.2, 0.6), toon('#caffbf'), deskX - 0.3, floorY + 0.015, cz + 0.1, false);
+  const rug = mesh(roundedBox(4.6, 0.02, 3.2, 0.6), toon('#172537'), deskX - 0.3, floorY + 0.015, cz + 0.1, false);
   group.add(rug);
 
   const scope = new THREE.Group();

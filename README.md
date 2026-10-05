@@ -317,6 +317,18 @@ deploy/dokploy.sh ssh 'node /opt/agent-office/bin/agent-office.js accounts invit
 
 **Removing someone.** Revoke their account in **🔑 Accounts** (or `agent-office accounts revoke <name>`), and on a server also remove them in **👥 Invite teammates** (on AWS, `deploy/aws.sh uninvite <name>`; on Railway, `deploy/railway.sh uninvite <name>`; on Fly.io, `deploy/fly.sh uninvite <name>`; on Dokploy, `deploy/dokploy.sh uninvite <name>`) to take away their SSH keys and drop open tunnels (other teammates just reconnect). If the shared password is still on, change it with `deploy/aws.sh reset-password` (or `deploy/railway.sh reset-password`, `deploy/fly.sh reset-password` or `deploy/dokploy.sh reset-password`).
 
+## Futuristic office interior
+
+The default office has a graphite-and-blue interior: illuminated desk dividers, linear pendants,
+acoustic ceiling rafts, tiled floors, black-framed glass meeting rooms and a framed media lounge.
+The first project palette is **Graphite**; the other project palettes still give floors their own colors.
+Worker seats, boards, terminals and the existing room interactions use the same locations.
+
+For an interactive visual preview without signing in, run `npm run dev` and open
+`http://localhost:5173/lab/office.html` (add `?view=meeting` for the meeting-room view).
+Drag to orbit and scroll to zoom. This preview is served by Vite during development.
+See [Maps](docs/maps.md#the-futuristic-office) for the implementation entry points.
+
 ## Controls
 
 | Key | Action |

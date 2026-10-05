@@ -6,6 +6,22 @@ The office is one map the building can be. Under **⚙️ Settings → 🏢 Buil
 
 The office has plenty of its own that a map doesn't (the elevator, the balcony, the rooftop bar, the lounge, the dog, pictures on the walls). On another map you go to another project from the floor list in the top-left corner (or **☰ → Floors**), and each project's hall is dressed in its own colors.
 
+## The futuristic office
+
+The built-in office uses a futuristic graphite-and-blue interior, with illuminated work pods,
+linear lighting, acoustic ceiling rafts, glass privacy bands and a media-wall frame. It keeps the
+existing seat IDs and interaction positions. The first floor palette is Graphite; other floors
+continue to use their assigned project palettes.
+
+This office is built in code, rather than a custom map JSON. Change its architecture in
+`src/client/world/modern.ts`, furniture in `src/client/world/office.ts`, ceiling finishes in
+`src/client/world/stack.ts`, kitchen materials in `src/client/world/kitchen.ts`, and project
+colors in `src/shared/floors.ts`.
+
+Run `npm run dev` and visit `http://localhost:5173/lab/office.html` to orbit through a preview
+without logging in. `?view=meeting` starts at the glass meeting room. The lab is a development
+preview; it does not start workers or simulate multiplayer interactions.
+
 ## The castle
 
 A long stone hall with a timber roof, pillars and pointed arches down both sides, stained glass high in the walls and fire everywhere.
