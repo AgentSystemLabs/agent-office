@@ -2409,6 +2409,7 @@ store.on('workers', renderUsage);
  */
 function dressUp() {
   const theme = store.theme.active;
+  office.setInterior(theme === 'modern');
   holiday.set(theme);
   sky.setTheme(theme);
   dog.setCostume(theme);
