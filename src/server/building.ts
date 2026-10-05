@@ -313,7 +313,16 @@ export class Building {
     const [owner, name] = repo.split('/');
     // Straight into the workspace folder, one folder per project; the owner joins the name when that's taken.
     let dest = path.join(this.projectsDir, name);
-    if (existsSync(dest)) dest = path.join(this.projectsDir, `${owner}-${name}`);
+    if (existsSync(dest)) {
+      // A leftover of this same repository is reused (the clone sorts it out); anything else keeps its folder.
+      let origin = '';
+      try {
+        origin = execFileSync('git', ['-C', dest, 'config', '--get', 'remote.origin.url'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+      } catch {
+        // not a checkout
+      }
+      if (!sameRepo(normalizeRepo(origin), repo)) dest = path.join(this.projectsDir, `${owner}-${name}`);
+    }
     if (this.defs.some((d) => path.resolve(d.dir) === dest)) return `${dest} is already a floor`;
     const def = this.newDef(name, repo, dest, by);
     const pending: Pending = { def, owner: account, empty };
