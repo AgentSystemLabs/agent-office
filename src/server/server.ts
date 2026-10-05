@@ -896,6 +896,7 @@ export async function startServer(cfg: Config) {
     decor: floor?.decor.list() ?? [],
     plan: floor?.plan.state() ?? EMPTY_PLAN,
     services: servicesState(floor),
+    helpers: local?.helpers.states() ?? [],
     dog: local?.dog.view() ?? null,
     ball: floor?.court.state() ?? {},
     cars: floor?.garage.state() ?? [],

@@ -804,6 +804,7 @@ export interface JailState {
 }
 
 export interface FloorView {
+  helpers?: HelperState[];
   /** The floor you're on; null while the building has none. */
   floor: string | null;
   project: ProjectInfo | null;

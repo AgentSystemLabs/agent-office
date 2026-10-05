@@ -335,6 +335,8 @@ jukebox: JukeboxState & { since: number } = { on: false, track: JUKEBOX_TUNES[0]
     this.drawing = v.whiteboard.people;
     this.cabinet = { player: v.cabinet.player, scores: v.cabinet.scores };
     this.cabinetFrame = v.cabinet.frame;
+    this.helpers = v.helpers ?? [];
+    this.helperStart = performance.now();
     this.setDog(v.dog);
     this.setJukebox(v.jukebox);
     this.tv = v.tv ?? TV_OFF;
