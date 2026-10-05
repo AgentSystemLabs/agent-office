@@ -100,3 +100,17 @@ test('requesting a helper publishes its walk and refuses a duplicate at the desk
   assert.match(Floor.prototype.sendHelper.call(floor, 'host', 'Alice') as string, /already has a helper/);
   assert.equal(hires, 1);
 });
+
+import * as THREE from 'three';
+import { HelperWalk } from '../src/client/world/helper.js';
+import type { HelperState } from '../src/shared/helper.js';
+
+test('helper motion continues through serialized updates and reading phase changes', () => {
+  const walk = new HelperWalk(new THREE.Group(), () => 0);
+  const state: HelperState = { hostId: 'host', workerId: 'helper', path: [[0, 0], [10, 0]], speed: 1, face: 0, phase: 'walking' };
+  walk.sync([state], performance.now() - 5000);
+  const before = walk.positions(new Map())[0].x;
+  walk.sync([{ ...JSON.parse(JSON.stringify(state)), phase: 'reading' }], performance.now());
+  const after = walk.positions(new Map())[0].x;
+  assert.ok(before >= 5 && after >= before, 'phase updates must not restart the walk at the door');
+});

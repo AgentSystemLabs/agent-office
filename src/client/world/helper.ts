@@ -46,8 +46,8 @@ export class HelperWalk {
     for (const state of helpers) {
       // A path that hasn't changed keeps walking from where it got to; a new one starts over.
       const old = this.walks.get(state.workerId);
-      if (!old || old.state.path !== state.path || old.state.phase !== state.phase) {
-        this.walks.set(state.workerId, { state, start: state.phase === 'walking' ? start : nowMs() });
+      if (!old || old.state.path.length !== state.path.length || old.state.path.some((p, i) => p[0] !== state.path[i][0] || p[1] !== state.path[i][1])) {
+        this.walks.set(state.workerId, { state, start });
       } else {
         old.state = state;
       }
