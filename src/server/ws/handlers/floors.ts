@@ -1,9 +1,22 @@
 // The building's floors: riding the elevator between them and up to the roof, and adding and taking
 // off floors.
+import { execFile } from 'node:child_process';
 import type { FloorClientMsg } from '../../../shared/protocol.js';
 import { ROOF } from '../../../shared/rooftop.js';
 import { arrivalSpot, str } from '../../office/input.js';
 import type { HandlerMap, ViewPieces } from './types.js';
+
+/** `gh repo create`: a private repository with a README, answered with its owner/name (or why not). */
+function createRepo(name: string): Promise<{ repo: string } | { error: string }> {
+  return new Promise((done) => {
+    if (!/^([\w.-]+\/)?[\w.-]{1,100}$/.test(name)) return done({ error: 'A repository name is letters, numbers, dots, dashes and underscores' });
+    execFile('gh', ['repo', 'create', name, '--private', '--add-readme'], { timeout: 60_000 }, (err, out, errOut) => {
+      if (err) return done({ error: `Couldn't create ${name} on GitHub: ${(errOut || err.message).trim().split('\n')[0]}` });
+      const m = /github\.com\/([\w.-]+\/[\w.-]+)/.exec(out);
+      done(m ? { repo: m[1].replace(/\.git$/, '') } : { error: `Created ${name}, but gh didn't say where` });
+    });
+  });
+}
 
 export const projectView: ViewPieces['project'] = (_ctx, floor) => floor?.project ?? null;
 
@@ -26,8 +39,14 @@ export const floorHandlers = {
   },
   'floor.add'(ctx, c, msg) {
     const who = c.peer.name;
-    const repo = str(msg.repo, 200);
-    void ctx.building
+    const asked = str(msg.repo, 200);
+    void (msg.create ? createRepo(asked) : Promise.resolve({ repo: asked })).then((made) => {
+      if ('error' in made) return ctx.sendTo(c, { t: 'floor.added', repo: asked, error: made.error });
+      if (msg.create) ctx.toastAll(`🛗 ${who} created ${made.repo} on GitHub`);
+      addFloor(made.repo);
+    });
+    const addFloor = (repo: string) =>
+      void ctx.building
       .add(
         repo,
         who,
@@ -39,12 +58,12 @@ export const floorHandlers = {
       )
       .then((r) => {
         ctx.floorsChanged();
-        if (typeof r === 'string') return ctx.sendTo(c, { t: 'floor.added', repo, error: r });
+        if (typeof r === 'string') return ctx.sendTo(c, { t: 'floor.added', repo: asked, error: r });
         const floor = ctx.openFloor(r);
-        if (!floor) return ctx.sendTo(c, { t: 'floor.added', repo, error: `Cloned ${r.repo}, but couldn't open its floor — see the office's log` });
+        if (!floor) return ctx.sendTo(c, { t: 'floor.added', repo: asked, error: `Cloned ${r.repo}, but couldn't open its floor — see the office's log` });
         console.log(`  ${who} added a floor for ${r.repo} (${r.dir})`);
         ctx.toastAll(`🛗 New floor: ${r.name}, added by ${who}`);
-        ctx.sendTo(c, { t: 'floor.added', repo, floor: floor.id });
+        ctx.sendTo(c, { t: 'floor.added', repo: asked, floor: floor.id });
       });
   },
   'floor.cancel'(ctx, c, msg) {

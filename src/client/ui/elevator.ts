@@ -297,6 +297,7 @@ export function openElevator(opts: ElevatorOptions): void {
     addBtn.disabled = !!adding || !pick || store.floors.some((f) => sameRepo(f.repo, pick));
     addBtn.textContent = adding ? '⏳ Cloning…' : pick ? `🛗 Add ${pick}` : '🛗 Add floor';
     input.disabled = !!adding;
+    syncCreate();
     if (!built) {
       built = true;
       addEl.replaceChildren(
@@ -304,21 +305,34 @@ export function openElevator(opts: ElevatorOptions): void {
         h('div.repo-search', {}, input, refreshBtn),
         listEl,
         statusEl,
+        createBtn,
         dirEl,
       );
     }
   };
 
+  const createBtn = h('button.btn', { type: 'button', title: 'Make a new private repository on GitHub with this name, and a floor for it' }, '✨ New repo + floor') as HTMLButtonElement;
+  createBtn.addEventListener('click', () => {
+    const name = filter.trim();
+    if (name && !adding) add(name, true);
+  });
+  const syncCreate = () => {
+    const name = filter.trim();
+    const valid = /^([\w.-]+\/)?[\w.-]{1,100}$/.test(name);
+    createBtn.disabled = !!adding || !valid;
+    createBtn.textContent = valid ? `✨ Create ${name} on GitHub` : '✨ Type a name to create a new repo';
+  };
+
   /** The floor being added, once the office is cloning it (and after, when it's there). */
   const addingFloor = () => (adding ? store.floors.find((f) => sameRepo(f.repo, adding!)) : undefined);
 
-  const add = (repo: string) => {
+  const add = (repo: string, create = false) => {
     if (adding) return;
     adding = repo;
     seen = false;
     error = '';
     renderAdd();
-    net.send({ t: 'floor.add', repo });
+    net.send({ t: 'floor.add', repo, ...(create ? { create: true } : {}) });
     // The office went away before it started (a restart): don't wait forever.
     clearTimeout(startTimer);
     startTimer = window.setTimeout(() => {
