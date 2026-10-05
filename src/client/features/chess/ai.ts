@@ -1,7 +1,7 @@
 // The idle agents' moves: a greedy 1-ply that takes what's free, keeps its own pieces, likes the
 // middle and never misses a mate in one. Enough for a lunch-break game in the lounge.
 
-import { ChessGame, file, rank, type Move } from './engine';
+import { ChessGame, file, rank, type Move, type PieceType } from './engine';
 import { store } from '../../state';
 
 const VALUE = { p: 100, n: 320, b: 330, r: 500, q: 900, k: 0 } as const;
@@ -18,26 +18,29 @@ function shuffle<T>(xs: T[], rng: () => number): T[] {
 
 /** How the board looks for `me` once it has moved: material, the middle, and whether it's over. */
 function score(g: ChessGame, me: 'w' | 'b'): number {
+  const mat = material(g, me);
   const status = g.status();
   if (status.over) {
     if (status.reason === 'checkmate') return status.winner === me ? MATE + g.history.length : -MATE;
     // Winning and settling for a draw is throwing the game away.
-    return material(g, me) > 200 ? -50_000 : 0;
+    return mat > 200 ? -50_000 : 0;
   }
-  let n = 0;
+  // Material counted once above; here only the pull toward the middle.
+  let n = mat;
   for (let sq = 0; sq < 64; sq++) {
     const p = g.pieces[sq];
     if (!p) continue;
-    const v = VALUE[p.t] + center(p.t, sq);
+    const v = center(p.t, sq);
     n += p.c === me ? v : -v;
   }
-  // A check is worth a nudge: most checks here come with something behind them.
-  if (status.check) n += status.winner === undefined && g.turn !== me ? 30 : 0;
+  // A check is worth a nudge: most checks here come with something behind them. (Off the end of
+  // the game the opponent is the side to move; `winner` is only set on checkmate, above.)
+  if (status.check && g.turn !== me) n += 30;
   return n;
 }
 
 /** A nudge toward the middle for the little pieces, so games don't all hug the edges. */
-function center(t: string, sq: number): number {
+function center(t: PieceType, sq: number): number {
   if (t !== 'p' && t !== 'n') return 0;
   const d = Math.abs(3.5 - file(sq)) + Math.abs(3.5 - rank(sq));
   return (t === 'p' ? 6 : 10) * (7 - d);

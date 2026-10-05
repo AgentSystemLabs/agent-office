@@ -31,7 +31,16 @@ const KINGS: readonly (readonly [number, number])[] = [
 ];
 const DIAGONALS: readonly (readonly [number, number])[] = [[1, 1], [1, -1], [-1, 1], [-1, -1]];
 const STRAIGHTS: readonly (readonly [number, number])[] = [[1, 0], [0, 1], [-1, 0], [0, -1]];
+const QUEEN_DIRS: readonly (readonly [number, number])[] = [...DIAGONALS, ...STRAIGHTS];
 const PROMOS: readonly Exclude<PieceType, 'p' | 'k'>[] = ['q', 'r', 'b', 'n'];
+
+/** Each home corner names its side's castling right: leaving it, or taken on it, takes it away. */
+const RIGHTS_HOME: Readonly<Record<number, { right: 'K' | 'Q' | 'k' | 'q'; c: Color }>> = {
+  7: { right: 'K', c: 'w' },
+  0: { right: 'Q', c: 'w' },
+  63: { right: 'k', c: 'b' },
+  56: { right: 'q', c: 'b' },
+};
 
 /** Whether `sq` is attacked by `by` on `b`. */
 function attacked(b: readonly (Piece | null)[], sq: number, by: Color): boolean {
@@ -123,9 +132,9 @@ export class ChessGame {
     this.counts = new Map([[this.key(), 1]]);
   }
 
-  /** A copy to try moves on (what the AI thinks with). */
+  /** A copy to try moves on (what the AI thinks with): filled directly, no reset to throw away. */
   clone(): ChessGame {
-    const g = new ChessGame();
+    const g = Object.create(ChessGame.prototype) as ChessGame;
     g.pieces = this.pieces.map((p) => (p ? { ...p } : null));
     g.turn = this.turn;
     g.castle = { ...this.castle };
@@ -165,12 +174,8 @@ export class ChessGame {
     return this.pseudo(sq).filter((m) => {
       const b = this.pieces.map((p) => (p ? { ...p } : null));
       applyOn(b, m, this.ep);
-      return !attacked(b, this.kingOf(b, this.turn), other(this.turn));
+      return !attacked(b, this.kingSquare(b, this.turn), other(this.turn));
     });
-  }
-
-  private kingOf(b: readonly (Piece | null)[], c: Color): number {
-    return this.kingSquare(b, c);
   }
 
   /** The moves of the piece on `sq` before checking what they leave the king in. */
@@ -225,23 +230,28 @@ export class ChessGame {
       }
     } else if (p.t === 'b') slide(DIAGONALS);
     else if (p.t === 'r') slide(STRAIGHTS);
-    else if (p.t === 'q') slide([...DIAGONALS, ...STRAIGHTS]);
+    else if (p.t === 'q') slide(QUEEN_DIRS);
     else {
       for (const [df, dr] of KINGS) {
         if (!onBoard(f + df, r + dr)) continue;
         const q = this.pieces[at(f + df, r + dr)];
         if (!q || q.c !== p.c) out.push({ from: sq, to: at(f + df, r + dr) });
       }
-      // Castling: the rights, empty squares between, and the king neither in check nor crossing it.
+      // Castling: the rights, a rook still on its corner, empty squares between, and the king
+      // neither in check nor crossing it.
       const home = p.c === 'w' ? 0 : 7;
       const foe: Color = other(p.c);
       if (r === home && f === 4) {
         const kingside = p.c === 'w' ? this.castle.K : this.castle.k;
         const queenside = p.c === 'w' ? this.castle.Q : this.castle.q;
         const empty = (s: number) => !this.pieces[s];
-        if (kingside && empty(at(5, home)) && empty(at(6, home)) && !this.kingInCheckOn(this.pieces, p.c, [at(4, home), at(5, home), at(6, home)], foe))
+        const rookAt = (f: number) => {
+          const q = this.pieces[at(f, home)];
+          return !!q && q.c === p.c && q.t === 'r';
+        };
+        if (kingside && rookAt(7) && empty(at(5, home)) && empty(at(6, home)) && !this.kingInCheckOn(this.pieces, p.c, [at(4, home), at(5, home), at(6, home)], foe))
           out.push({ from: sq, to: at(6, home) });
-        if (queenside && empty(at(3, home)) && empty(at(2, home)) && empty(at(1, home)) && !this.kingInCheckOn(this.pieces, p.c, [at(4, home), at(3, home), at(2, home)], foe))
+        if (queenside && rookAt(0) && empty(at(3, home)) && empty(at(2, home)) && empty(at(1, home)) && !this.kingInCheckOn(this.pieces, p.c, [at(4, home), at(3, home), at(2, home)], foe))
           out.push({ from: sq, to: at(2, home) });
       }
     }
@@ -254,9 +264,11 @@ export class ChessGame {
 
   /** Plays a legal move, returning its SAN for the move list. Throws when it isn't legal. */
   play(move: Move): string {
-    const found = this.allMoves().find((m) => m.from === move.from && m.to === move.to && (m.promo ?? 'q') === (move.promo ?? 'q'));
+    // One legal list for finding the move and naming it; one for the position it leaves.
+    const legal = this.allMoves();
+    const found = legal.find((m) => m.from === move.from && m.to === move.to && (m.promo ?? 'q') === (move.promo ?? 'q'));
     if (!found) throw new Error(`illegal move ${squareName(move.from)}${squareName(move.to)}`);
-    const san = this.sanFor(found);
+    const san = this.sanFor(found, legal);
     const by = this.turn;
     const captured = this.capturedByMove(found);
     const piece = this.pieces[found.from]!;
@@ -270,7 +282,7 @@ export class ChessGame {
     if (by === 'b') this.full++;
     this.turn = other(by);
     this.history.push({ move: found, san, captured, by });
-    const status = this.status();
+    const status = this.status(this.allMoves());
     const done = status.over && status.reason === 'checkmate' ? '#' : status.check ? '+' : '';
     const marked = `${san}${done}`;
     this.history[this.history.length - 1].san = marked;
@@ -289,24 +301,17 @@ export class ChessGame {
   }
 
   private rightsAfter(m: Move, piece: Piece, captured: Piece | null): void {
-    // Each home corner names its side's right: leaving it, or taken on it, takes the right away.
-    const home: Record<number, { right: 'K' | 'Q' | 'k' | 'q'; c: Color }> = {
-      7: { right: 'K', c: 'w' },
-      0: { right: 'Q', c: 'w' },
-      63: { right: 'k', c: 'b' },
-      56: { right: 'q', c: 'b' },
-    };
     if (piece.t === 'k') {
       if (piece.c === 'w') this.castle.K = this.castle.Q = false;
       else this.castle.k = this.castle.q = false;
     }
-    const from = home[m.from];
+    const from = RIGHTS_HOME[m.from];
     if (from && piece.t === 'r' && piece.c === from.c) this.castle[from.right] = false;
-    const to = home[m.to];
+    const to = RIGHTS_HOME[m.to];
     if (to && captured?.t === 'r' && captured.c === to.c) this.castle[to.right] = false;
   }
 
-  private sanFor(m: Move): string {
+  private sanFor(m: Move, legal?: Move[]): string {
     const piece = this.pieces[m.from]!;
     // Castling has its own name.
     if (piece.t === 'k' && Math.abs(file(m.to) - file(m.from)) === 2) return file(m.to) > file(m.from) ? 'O-O' : 'O-O-O';
@@ -319,7 +324,7 @@ export class ChessGame {
     }
     const letter = piece.t === 'n' ? 'N' : piece.t.toUpperCase();
     // Two of them could go there: name the file, the rank, or both to tell them apart.
-    const others = this.allMoves().filter((o) => o.to === m.to && o.from !== m.from && this.pieces[o.from]?.t === piece.t);
+    const others = (legal ?? this.allMoves()).filter((o) => o.to === m.to && o.from !== m.from && this.pieces[o.from]?.t === piece.t);
     let between = '';
     if (others.length) {
       const sameFile = others.some((o) => file(o.from) === file(m.from));
@@ -331,9 +336,9 @@ export class ChessGame {
     return `${letter}${between}${takes}${dest}`;
   }
 
-  status(): GameStatus {
+  status(legal?: Move[]): GameStatus {
     const check = this.inCheck();
-    const moves = this.allMoves();
+    const moves = legal ?? this.allMoves();
     if (!moves.length) {
       if (check) return { over: true, winner: other(this.turn), reason: 'checkmate', check };
       return { over: true, reason: 'stalemate', check };
@@ -361,7 +366,25 @@ export class ChessGame {
   key(): string {
     const board = this.pieces.map((p) => (p ? `${p.c}${p.t}` : '..')).join('');
     const rights = `${this.castle.K ? 'K' : ''}${this.castle.Q ? 'Q' : ''}${this.castle.k ? 'k' : ''}${this.castle.q ? 'q' : ''}` || '-';
-    return `${board}${this.turn}${rights}${this.ep}`;
+    return `${board}${this.turn}${rights}${this.epKey()}`;
+  }
+
+  /**
+   * The en-passant square for repetition purposes: only a square some pawn of the side to move
+   * could actually take matters (otherwise identical positions would hash differently and a real
+   * threefold would be missed).
+   */
+  private epKey(): string {
+    if (this.ep < 0) return '-';
+    const f = file(this.ep);
+    const r = rank(this.ep);
+    const pr = r + (this.turn === 'w' ? -1 : 1);
+    for (const df of [-1, 1]) {
+      if (!onBoard(f + df, pr)) continue;
+      const p = this.pieces[at(f + df, pr)];
+      if (p && p.c === this.turn && p.t === 'p') return String(this.ep);
+    }
+    return '-';
   }
 }
 

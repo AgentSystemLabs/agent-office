@@ -103,6 +103,28 @@ test('an illegal move throws', () => {
   assert.throws(() => g.play({ from: at(4, 1), to: at(4, 4) }), /illegal/);
 });
 
+test('the repetition key counts en passant only when a pawn could take it', () => {
+  // 1. e4 leaves an en-passant square no black pawn can reach: same key as without it.
+  const g = played(['e2e4']);
+  const cleared = g.clone();
+  cleared.ep = -1;
+  assert.equal(g.key(), cleared.key());
+  // ...a6 e5 d5: White can take the d-pawn en passant, so the square matters.
+  const h = played(['e2e4', 'a7a6', 'e4e5', 'd7d5']);
+  const hCleared = h.clone();
+  hCleared.ep = -1;
+  assert.notEqual(h.key(), hCleared.key());
+});
+
+test('no rook on the corner means no castle, even with the right to', () => {
+  const g = new ChessGame();
+  g.pieces[at(5, 0)] = null;
+  g.pieces[at(6, 0)] = null;
+  assert.ok(g.movesFrom(at(4, 0)).some((m) => squareName(m.to) === 'g1'), 'rook home: castle offered');
+  g.pieces[at(7, 0)] = null;
+  assert.ok(!g.movesFrom(at(4, 0)).some((m) => squareName(m.to) === 'g1'), 'rook gone: no castle out of thin air');
+});
+
 test('the agent never misses mate in one', () => {
   const g = played(['f2f3', 'e7e5', 'g2g4']);
   const m = chooseMove(g, () => 0);
@@ -129,6 +151,21 @@ test('only idle agents are offered as opponents, by name', () => {
     assert.deepEqual(idleOpponents(), [
       { id: 'w4', name: 'Ada' },
       { id: 'w2', name: 'Mochi' },
+    ]);
+  } finally {
+    store.workers.clear();
+  }
+});
+
+test('agents sharing a name stay distinguishable by id', () => {
+  store.workers.clear();
+  const base = { kind: 'agent', status: 'idle', deskId: 'desk-1', color: '#fff', acked: true, createdBy: 't', createdAt: 0, cols: 80, rows: 24, viewers: [], viewerIds: [] } as const;
+  store.workers.set('w1', { ...base, id: 'w1', name: 'Sam' });
+  store.workers.set('w2', { ...base, id: 'w2', deskId: 'desk-2', name: 'Sam' });
+  try {
+    assert.deepEqual(idleOpponents(), [
+      { id: 'w1', name: 'Sam' },
+      { id: 'w2', name: 'Sam' },
     ]);
   } finally {
     store.workers.clear();
