@@ -37,6 +37,7 @@ import type { installNeedsYou } from '../features/needsyou';
 import type { installPeers } from '../features/peers';
 import type { installRooftop } from '../features/rooftop';
 import type { installSeating } from '../features/seating';
+import type { installSmartphone } from '../features/smartphone';
 import type { installSmoke } from '../features/smoke';
 import type { installTelescope } from '../features/telescope';
 import type { installTv } from '../features/tv';
@@ -114,6 +115,7 @@ export interface Parts {
   waiting: Made<typeof installWaiting>;
   needsYou: Made<typeof installNeedsYou>;
   meeting: Made<typeof installMeeting>;
+  smartphone: Made<typeof installSmartphone>;
   bookshelf: Made<typeof installBookshelf>;
   bar: Made<typeof installBar>;
   coffee: Made<typeof installCoffee>;

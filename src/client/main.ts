@@ -54,6 +54,7 @@ import { installPalette } from './features/palette';
 import { installPeers } from './features/peers';
 import { installRooftop } from './features/rooftop';
 import { installSeating } from './features/seating';
+import { installSmartphone } from './features/smartphone';
 import { installSmoke } from './features/smoke';
 import { installLamplight } from './features/lamplight';
 import { installTelescope } from './features/telescope';
@@ -147,6 +148,7 @@ parts.waiting = installWaiting(ctx, core, parts);
 parts.needsYou = installNeedsYou(ctx, parts);
 installPalette(ctx, parts);
 parts.meeting = installMeeting(ctx, parts);
+parts.smartphone = installSmartphone(ctx, parts);
 parts.bookshelf = installBookshelf(ctx);
 installHerald(ctx, parts);
 

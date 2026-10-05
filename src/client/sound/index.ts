@@ -29,6 +29,7 @@ import { golf, type GolfSound } from '../features/golf/sound';
 import { gong } from '../features/gong/sound';
 import { Jukebox, type JukeboxPlay } from '../features/jukebox/sound';
 import { needsYou } from '../features/needsyou/sound';
+import { dialBlip, phoneRing, smsSwoosh } from '../features/smartphone/sound';
 import type { Pos } from './places';
 import { Footsteps, pageTurn, paper } from './steps';
 import { toss, type TossSound } from '../features/bargames/sound';
@@ -271,6 +272,21 @@ export class OfficeSound {
   /** The alarm for a worker that needs you, or (`again`) the soft reminder while it still does. */
   needsYou(again = false) {
     needsYou(this.a, again);
+  }
+
+  /** The smartphone's double ring for a call you place. */
+  phoneRing() {
+    phoneRing(this.a);
+  }
+
+  /** An SMS going out. */
+  smsSwoosh() {
+    smsSwoosh(this.a);
+  }
+
+  /** Tapping through the phone. */
+  dialBlip() {
+    dialBlip(this.a);
   }
 
   // ---- The rooftop bar (features/bar) -------------------------------------------------------------

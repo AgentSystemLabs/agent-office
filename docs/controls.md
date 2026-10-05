@@ -26,6 +26,7 @@ Back to the [README](../README.md).
 | Ctrl + K (⌘K on a Mac) | Command palette: find a worker, issue, PR, service, board, teammate or action; Enter opens it, Shift+Enter walks you there first |
 | V | Join voice; in voice, hold to talk (you're muted when you let go) |
 | M | Mute / unmute in voice |
+| J | Smartphone: call a worker (you go to their desk with its terminal open) or send one an SMS (a prompt it answers in its terminal) |
 | Ctrl + Space | Dictate, in a worker's terminal or a prompt box: hold it and talk, and what you said is typed in when you let go. A quick tap leaves it listening until the next tap. The **🎤** does the same |
 | Tab | The ☰ menu: every window, and what shows on screen |
 | Esc | Close any window (a terminal too) and get back to looking around |
