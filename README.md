@@ -396,4 +396,6 @@ Helper findings appear in the host worker’s terminal window. They are held out
 
 At a regular worker’s desk, press U or click **U — Bring a helper** to open the helper dialog. This works for shell and agent workers with or without a separate worktree.
 
+Helpers carry a laptop showing their own terminal. Aim at the helper or its laptop and press **E**, or click **Open helper terminal** in the hint. You can also open the helper by name in the Workers list. **Needs you** means its agent is waiting: answer the question or approve/reject the permission request inside that helper’s terminal. Close it with Esc or ✕ to return to the office.
+
 Sending a worker home also stops and removes its helper before cleaning up the worker’s checkout. Sending only the helper home leaves the host worker and its worktree intact.

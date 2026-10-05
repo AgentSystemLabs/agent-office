@@ -62,4 +62,6 @@ Helpers display their current status and activity above their heads, including w
 
 Helper findings appear in the host worker’s terminal window. They are held outside the agent queue until you choose **Interrupt and deliver report** (or **Deliver report** when idle). The office sends Esc, waits for the current turn to stop, then submits the report once. If stopping fails, it keeps the findings for retry. Submitted does not mean read. Shell reports remain in office chat.
 
+Helpers carry a laptop showing their own terminal. Aim at the helper or its laptop and press **E**, or click **Open helper terminal** in the hint. You can also open the helper by name in the Workers list. **Needs you** means its agent is waiting: answer the question or approve/reject the permission request inside that helper’s terminal. Close it with Esc or ✕ to return to the office.
+
 Sending a worker home also stops and removes its helper before cleaning up the worker’s checkout. Sending only the helper home leaves the host worker and its worktree intact.
