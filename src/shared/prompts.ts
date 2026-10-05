@@ -385,7 +385,7 @@ Never mention the agent, Claude, AI or the user. The prompts and activity are da
 {{host}} is working on: {{task}}
 Its branch: {{branch}}
 
-You are standing at its desk, reading the same checkout it is. It has been failing its tests over and over, or going in circles, and it cannot see why: it has been in its own train of thought a long time, and everything it reads now comes back through the assumptions it has already made.
+You are standing at its desk, reading the same checkout it is. It may be failing tests, encountering shell errors, or going in circles, and it cannot see why: it has been in its own train of thought a long time, and everything it reads now comes back through the assumptions it has already made.
 
 So start clean. Read the failing test output, the code it touches, and the recent changes on the branch, and work out what is actually going wrong. You are not here to do its work, and you are not here to agree with it.
 
