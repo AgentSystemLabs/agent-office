@@ -32,8 +32,8 @@ export function interactionAvailable(it: Interactable | null, key: DeskKey, stat
     if (key === 'B') return !state.worker;
     if (key === 'P' || key === 'E') return true;
     if (key === 'R') return !!state.worker && isAsleep(state.worker.status);
-    // A helper needs a worker to help, in a worktree of its own, that isn't already got one.
-    if (key === 'U') return !!state.worker && state.worker.kind === 'agent' && !state.worker.helper && !!state.worker.worktree && !state.worker.lost;
+    // Helpers can assist regular agent and shell workers in either checkout.
+    if (key === 'U') return !!state.worker && !state.worker.helper && !state.worker.lost;
     return !!state.worker && (key === 'C' || key === 'X' || key === 'O');
   }
 
