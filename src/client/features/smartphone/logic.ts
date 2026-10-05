@@ -39,7 +39,10 @@ export function statusNote(w: Pick<WorkerInfo, 'name' | 'status'>): string {
       return '📩 delivered — done, call to follow up';
     case 'idle':
       return '📩 delivered — ready when you are';
-    default:
+    case 'exited':
+    case 'offline':
       return `💤 ${w.name} is asleep — wake it (R at its desk, or call) before texting`;
+    default:
+      return `📩 ${w.name} · ${w.status}`;
   }
 }
