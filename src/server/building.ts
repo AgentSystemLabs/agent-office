@@ -68,7 +68,7 @@ const MAX_REPOS = 1000;
 /**
  * The floors of the building, saved in <office>/.agent-office/floors.json: which projects there are,
  * where their checkouts live, and how each floor is painted. New floors are cloned with the office
- * machine's `gh` login into <projects>/<owner>/<repo>; the projects folder can be picked in ⚙️ Settings
+ * machine's `gh` login into <projects>/<repo>; the projects folder can be picked in ⚙️ Settings
  * (kept in projects-folder.json).
  */
 export class Building {

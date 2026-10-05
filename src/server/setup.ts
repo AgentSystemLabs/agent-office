@@ -36,7 +36,7 @@ while the office is stopped; while it runs, use its elevator and ⚙️ Settings
 
 Options:
       --home <dir>        The office to set up (default ~/agent-office, env AGENT_OFFICE_HOME)
-      --projects <dir>    Clone new projects into <dir>/<owner>/<repo> from now on
+      --projects <dir>    Clone new projects into <dir>/<repo> from now on
       --project <repo>    Clone this repository (owner/name or a GitHub URL) as a floor.
                           Repeat it for more than one
   -h, --help              Show this help
@@ -128,7 +128,7 @@ export async function setupCommand(argv: string[]): Promise<number> {
         console.error(`agent-office setup: --projects: ${err}`);
         return 1;
       }
-      console.log(`  📁 New projects are cloned into ${building.projectsDirState().dir}/<owner>/<repo>`);
+      console.log(`  📁 New projects are cloned into ${building.projectsDirState().dir}/<repo>`);
     }
     for (const repo of repos) if (!(await addFloor(building, repo, 'agent-office setup'))) code = 1;
     return code;
@@ -158,14 +158,14 @@ async function walkthrough(building: Building, dataDir: string, askFolder: boole
 async function pickFolder(building: Building) {
   const now = building.projectsDirState();
   const suggestion = now.custom ? now.dir : tildify(suggestedFolder(building.projectsDir));
-  console.log(`\n  📁 Where should the office clone your projects? Each one goes in <folder>/<owner>/<repo>.`);
+  console.log(`\n  📁 Where should the office clone your projects? Each one goes in <folder>/<repo>.`);
   for (;;) {
     const answer = (await ask(`     Folder [${suggestion}]: `)) || suggestion;
     const err = building.setProjectsDir(answer, whoAmI());
     if (!err) break;
     console.log(`     ✗ ${err}`);
   }
-  console.log(`     ✓ ${building.projectsDirState().dir}/<owner>/<repo> (admins can change it in ⚙️ Settings)`);
+  console.log(`     ✓ ${building.projectsDirState().dir}/<repo> (admins can change it in ⚙️ Settings)`);
 }
 
 /** Where to suggest cloning projects: a code folder that's already in the home folder, else `fallback`. */

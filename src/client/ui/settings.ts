@@ -415,7 +415,7 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
     dirRow.classList.toggle('hidden', !admin);
     dirActions.classList.toggle('hidden', !admin || !custom);
     dirNote.textContent =
-      `New projects from the elevator are cloned into ${dir}/<owner>/<repo> on the office’s machine.` +
+      `New projects from the elevator are cloned into ${dir}/<repo> on the office’s machine.` +
       (custom && by && at ? ` Set by ${by} ${timeAgo(at)}.` : '') +
       (admin ? ' A checkout of the same repository that’s already there is used as it is. Floors you already have stay where they are.' : ' An admin can move it.');
   };

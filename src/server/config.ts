@@ -11,7 +11,7 @@ export interface Config {
   /** The office's own folder: the building's data lives in its .agent-office. */
   dir: string;
   dataDir: string;
-  /** Where new floors are cloned by default, as <projectsDir>/<owner>/<repo>. */
+  /** Where new floors are cloned by default, as <projectsDir>/<repo>. */
   projectsDir: string;
   /** --projects / AGENT_OFFICE_PROJECTS: picks the projects folder, as ⚙️ Settings in the office does. */
   projects?: string;
@@ -108,7 +108,7 @@ Commands:
 Options:
       --home <dir>        Where the office keeps its data when no [dir] is given
                           (default ~/agent-office, env AGENT_OFFICE_HOME)
-      --projects <dir>    Where new floors are cloned, as <dir>/<owner>/<repo>
+      --projects <dir>    Where new floors are cloned, as <dir>/<repo>
                           (default ~/agent-office, env AGENT_OFFICE_PROJECTS).
                           Also settable from ⚙️ Settings in the office
   -p, --port <n>          Port to listen on (default 4600, env PORT)

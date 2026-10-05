@@ -73,7 +73,7 @@ export interface CloneProgress {
   detail?: string;
 }
 
-/** Where the elevator's "add a project" clones to: <dir>/<owner>/<repo> on the office's machine. */
+/** Where the elevator's "add a project" clones to: <dir>/<repo> on the office's machine. */
 export interface ProjectsDirState {
   /** For showing people: under the home folder it's ~/…. */
   dir: string;

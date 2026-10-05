@@ -280,7 +280,7 @@ export function openElevator(opts: ElevatorOptions): void {
     if (matches.length > SHOWN) rows.push(h('p.empty', { style: 'padding:8px 10px' }, `…and ${matches.length - SHOWN} more — type to narrow it down`));
     listEl.replaceChildren(...rows);
     const pick = choice();
-    const dest = pick ? `${store.projectsDir.dir}/${pick}` : `${store.projectsDir.dir}/<owner>/<repo>`;
+    const dest = pick ? `${store.projectsDir.dir}/${pick.split('/').pop()}` : `${store.projectsDir.dir}/<repo>`;
     const change = store.me.admin ? h('button.btn.dir-change', { type: 'button', title: 'Clone new projects into another folder on the office’s machine' }, '📁 Change folder') : null;
     change?.addEventListener('click', () => editDir(true));
     // While it clones: how far it's got (the office asks GitHub about it first).
