@@ -18,6 +18,16 @@ sun.position.set(-12, 25, 4);
 scene.add(sun);
 const office = buildOffice();
 office.setLook(FLOOR_PALETTES[0]);
+const interior = new URLSearchParams(location.search).get('interior');
+const setInterior = (modern: boolean) => {
+  office.setInterior(modern);
+  document.getElementById('classic')!.setAttribute('aria-pressed', String(!modern));
+  document.getElementById('future')!.setAttribute('aria-pressed', String(modern));
+};
+document.getElementById('classic')!.onclick = () => setInterior(false);
+document.getElementById('future')!.onclick = () => setInterior(true);
+setInterior(interior !== 'original');
+(window as unknown as { officeLab: typeof office }).officeLab = office;
 office.danceFloor.group.visible = false;
 scene.add(office.group);
 const camera = new THREE.PerspectiveCamera(65, innerWidth / innerHeight, 0.1, 400);
@@ -35,4 +45,4 @@ renderer.setAnimationLoop(() => {
   controls.update();
   renderer.render(scene, camera);
 });
-ready({ desks: office.desks.size, interactables: office.interactables.length, colliders: office.colliders.length, style: 'Graphite' });
+ready({ desks: office.desks.size, interactables: office.interactables.length, colliders: office.colliders.length, style: interior === 'original' ? 'Original' : 'Futuristic' });

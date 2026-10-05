@@ -102,17 +102,17 @@ function rectOutline(r: Rect): [number, number][] {
 }
 
 /** Ceiling tiles: a light grid, one tile per repeat. */
-function tileTexture(): THREE.CanvasTexture {
+function tileTexture(modern = false): THREE.CanvasTexture {
   const c = document.createElement('canvas');
   c.width = c.height = 128;
   const g = c.getContext('2d')!;
-  g.fillStyle = '#354255';
+  g.fillStyle = modern ? '#354255' : '#fbf7ef';
   g.fillRect(0, 0, 128, 128);
-  g.fillStyle = '#1c2b3c';
+  g.fillStyle = modern ? '#1c2b3c' : '#e3dccf';
   g.fillRect(0, 0, 128, 5);
   g.fillRect(0, 0, 5, 128);
   // A few speckles, like the mineral fibre in real tiles.
-  g.fillStyle = '#3a485b';
+  g.fillStyle = modern ? '#3a485b' : '#efe8dc';
   for (let i = 0; i < 40; i++) g.fillRect(8 + ((i * 53) % 116), 8 + ((i * 97) % 116), 3, 2);
   const t = new THREE.CanvasTexture(c);
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
@@ -218,6 +218,7 @@ export interface Stack {
   interactables: Interactable[];
   /** The ceiling's tiles, for the back office's ceiling to match (its uvs are meters, like a ShapeGeometry's). */
   ceiling: THREE.Material;
+  setInterior(modern: boolean): void;
   /** The floor you're on: the ladder, the hatches and the poles go where there are floors to go to. */
   set(s: StackState): void;
   state: StackState;
@@ -242,16 +243,22 @@ export function buildStack(colliders: Collider[], planks: THREE.Material): Stack
   const group = new THREE.Group();
   const B = { minX: FLOOR.minX - WALL_T, maxX: FLOOR.maxX + WALL_T, minZ: FLOOR.minZ - WALL_T, maxZ: FLOOR.maxZ + WALL_T };
   const concrete = toon('#d3d6dd');
-  const band = toon('#277dab');
+  const band = toon('#e8a87c');
   // Big flat surfaces get no cartoon outline, as the floor never has.
   planks.userData.outlineParameters = { visible: false };
   const tiles = toon('#ffffff').clone();
   tiles.userData.outlineParameters = { visible: false };
   tiles.map = tileTexture();
   // Lit from below by the room's lamps, not left in the shade the sun would give it.
-  tiles.emissive = new THREE.Color('#111c2a');
+  tiles.emissive = new THREE.Color('#6a655d');
   tiles.emissiveMap = tiles.map;
   const ceilingMat = tiles;
+  const originalTiles = tiles.map!;
+  const modernTiles = tileTexture(true);
+  const setInterior = (modern: boolean) => {
+    tiles.map = tiles.emissiveMap = modern ? modernTiles : originalTiles;
+    tiles.emissive.set(modern ? '#111c2a' : '#6a655d');
+  };
   const brass = toon('#f2c14e', { emissive: '#3a2a00' });
   const red = toon('#e63946');
   const steel = toon('#ffd166');
@@ -537,7 +544,7 @@ export function buildStack(colliders: Collider[], planks: THREE.Material): Stack
   const stack: Stack = {
     group,
     interactables,
-    ceiling: ceilingMat,
+    ceiling: ceilingMat, setInterior,
     set,
     state,
     poles: () => (state.count > 1 ? POLES : []),

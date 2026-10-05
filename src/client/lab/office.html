@@ -2,7 +2,7 @@
 <html lang="en">
 <head><meta charset="utf-8"><title>Modern office preview</title><link rel="icon" href="data:,"><style>
 html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#0e1724}canvas{display:block;width:100%;height:100%}
-aside{position:absolute;top:24px;left:28px;color:#d9f2ff;font:14px system-ui;pointer-events:none}b{display:block;font-size:24px;letter-spacing:3px}p{color:#8db5ce}
+aside{position:absolute;top:24px;left:28px;color:#d9f2ff;font:14px system-ui;pointer-events:auto}b{display:block;font-size:24px;letter-spacing:3px}p{color:#8db5ce}button{background:#1d3046;color:#d9f2ff;border:1px solid #4d819f;border-radius:6px;padding:8px 12px;cursor:pointer}button[aria-pressed="true"]{background:#277dab}
 </style></head>
-<body><canvas id="c"></canvas><aside><b>AGENT OFFICE</b><p>Graphite / glass / blue light</p></aside><script type="module" src="./office.ts"></script></body>
+<body><canvas id="c"></canvas><aside><b>AGENT OFFICE</b><p>Choose the office interior</p><button id="classic" aria-pressed="false">Original office</button> <button id="future" aria-pressed="false">Futuristic office</button></aside><script type="module" src="./office.ts"></script></body>
 </html>
