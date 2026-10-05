@@ -4,6 +4,7 @@ import { accessSync, appendFileSync, chmodSync, constants, existsSync, mkdirSync
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { Ledger } from '../src/server/usage.js';
 import { CARRY_ON_PROMPT, WorkerManager, type WorkerEvents } from '../src/server/workers.js';
 import { Worktrees } from '../src/server/worktrees.js';
@@ -1519,4 +1520,48 @@ test("a worker whose worktree was deleted outside the office waits, marked lost,
   assert.equal(git(path.join(f.root, gone.worktree!.path), 'rev-parse', 'HEAD'), gone.worktree!.base);
   assert.equal(after.get(gone.id)?.lost, undefined);
   assert.deepEqual(toasts, []);
+});
+
+test('resolveCommand resolves through a login shell from a process group that is not the terminal foreground', async (t) => {
+  // A command only the login shell's PATH knows, the way nvm and asdf install their tools: absent
+  // from the PATH this process was started with, present on the one /etc/profile and ~/.profile
+  // build. ~/.profile is the file a login shell reads; ~/.bashrc is not one (bash skips it with -c).
+  if (process.platform === 'win32') return t.skip('no login shell on Windows');
+  const root = mkdtempSync(path.join(tmpdir(), 'office-resolve-'));
+  const bin = path.join(root, 'bin');
+  mkdirSync(bin);
+  const agent = path.join(bin, 'office-probe-agent');
+  writeFileSync(agent, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  writeFileSync(path.join(root, '.profile'), `export PATH=${JSON.stringify(bin)}:"$PATH"\n`);
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+
+  // The real pty, and a real background process group, because that is the only way to reproduce
+  // this: an interactive shell calls tcsetpgrp() to take the terminal's foreground group, and that
+  // ioctl sends SIGTTOU to a process group that doesn't already own it. `npm run dev` looks exactly
+  // like this (concurrently gives each command its own group), and the office used to stop itself
+  // solid every time it resolved an agent that way.
+  const pty = await import('@lydell/node-pty');
+  const repo = path.resolve(import.meta.dirname, '..');
+  const server = pty.spawn('/bin/bash', ['--norc', '--noprofile', '-i'], { name: 'xterm', cols: 80, rows: 24, cwd: repo });
+  t.after(() => server.kill());
+
+  const runner = path.join(root, 'probe.mts');
+  writeFileSync(
+    runner,
+    `import { resolveCommand } from ${JSON.stringify(pathToFileURL(path.join(repo, 'src/server/workers.ts')).href)};
+// The trailing newline matters: bash echoes its "[1]+ Done" job notice on the same line, and
+// without it the two run together.
+process.stdout.write('PROBE:' + (resolveCommand('office-probe-agent') ?? 'null') + '\\n');`,
+  );
+
+  let seen = '';
+  server.onData((d) => (seen += d));
+  // set -m turns on job control so the probe runs as a background job, in its own process group.
+  server.write(`export HOME=${root} PS1='$ '\nset -m\n`);
+  server.write(`${JSON.stringify(process.execPath)} --import tsx ${JSON.stringify(runner)} & wait\n`);
+
+  // Generous: this spawns a whole second node process that imports workers.ts under tsx, which is
+  // slow when the rest of the suite is running alongside it.
+  const found = await waitFor(() => (/PROBE:(\S+)/.exec(seen)?.[1] ?? ''), (v) => v === agent || v === 'null', 30_000);
+  assert.equal(found, agent, `probe should resolve the command on the login shell's PATH (saw: ${JSON.stringify(seen.slice(-400))})`);
 });

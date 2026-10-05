@@ -2519,7 +2519,14 @@ export function resolveCommand(cmd: string): string | null {
   }
   if (WIN && !process.env.SHELL) return null;
   try {
-    const found = execFileSync(defaultShell(), ['-l', '-i', '-c', `command -v ${shq(cmd)}`], { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] })
+    // A login shell, and deliberately not an interactive one. -l is what reads /etc/profile and
+    // ~/.profile, where the PATH that finds nvm, asdf and ~/.local/bin is built; -i would add
+    // nothing (bash skips ~/.bashrc when -c is given) and costs a lot, because an interactive
+    // shell turns on job control and calls tcsetpgrp() to take the terminal's foreground process
+    // group. From any other process group — under `npm run dev` (concurrently gives each command
+    // its own), a service manager, CI — that ioctl fails, the shell takes SIGTTOU and stops, and
+    // the office stops with it.
+    const found = execFileSync(defaultShell(), ['-l', '-c', `command -v ${shq(cmd)}`], { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] })
       .trim()
       .split('\n')
       .pop();
