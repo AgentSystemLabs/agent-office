@@ -136,22 +136,13 @@ export function buildBalcony(group: THREE.Group, colliders: Collider[], interact
 
   group.add(mergeByMaterial(parts));
 
-  // The ashtray: a standing bin with a sand-filled bowl and a couple of butts in it.
+  // The ashtray: a standing bin with a sand-filled bowl.
   const tray = new THREE.Group();
   const steel = toon('#8d99ae');
   tray.add(mesh(new THREE.CylinderGeometry(0.2, 0.22, 0.05, 16), steel, 0, 0.025, 0));
   tray.add(mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.8, 10), steel, 0, 0.45, 0));
   tray.add(mesh(new THREE.CylinderGeometry(0.2, 0.14, 0.14, 16), steel, 0, 0.9, 0));
   tray.add(mesh(new THREE.CylinderGeometry(0.18, 0.18, 0.02, 16), toon('#e9d8a6'), 0, 0.965, 0, false));
-  for (const [bx, bz, a] of [
-    [0.06, 0.02, 0.4],
-    [-0.05, -0.06, 2.1],
-    [-0.02, 0.08, 1.2],
-  ]) {
-    const butt = mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.07, 6).rotateZ(Math.PI / 2), toon(a > 1 ? '#fffaf3' : '#e9a03b'), bx, 0.98, bz, false);
-    butt.rotation.y = a;
-    tray.add(butt);
-  }
   tray.position.set(ASHTRAY.x, 0, ASHTRAY.z);
   group.add(tray);
   colliders.push({ minX: ASHTRAY.x - 0.2, maxX: ASHTRAY.x + 0.2, minZ: ASHTRAY.z - 0.2, maxZ: ASHTRAY.z + 0.2, top: 1 });
