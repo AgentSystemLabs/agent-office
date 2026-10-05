@@ -10,6 +10,8 @@ interface Saved {
   position: number;
   /** When `position` and `playing` were last true, on this machine's clock. */
   at: number;
+  /** Whether the room's light is down for the picture (see shared/tv.ts). */
+  theatre: boolean;
 }
 
 /** A position in seconds, floored into something a video could be at. */
@@ -18,12 +20,12 @@ function secs(v: unknown, fallback: number): number {
 }
 
 /**
- * The big TV on one floor, saved in .agent-office/tv.json. It only says which link, whether it's
- * running and how far in; every browser plays the link for itself from the same point (see
- * client/tvscreen.ts), the way the jukebox plays its tunes.
+ * The big TV on one floor, saved in .agent-office/tv.json. It says which link, whether it's running
+ * and how far in, and whether the room's light is down for the picture; every browser plays the link
+ * for itself from the same point (see client/tvscreen.ts), the way the jukebox plays its tunes.
  */
 export class Tv {
-  private s: Saved = { on: false, playing: false, position: 0, at: Date.now() };
+  private s: Saved = { on: false, playing: false, position: 0, at: Date.now(), theatre: false };
   private file: string;
 
   constructor(dataDir: string) {
@@ -32,8 +34,8 @@ export class Tv {
   }
 
   state(): TvState {
-    const { on, url, by, playing, position, at } = this.s;
-    return { on, ...(url ? { url } : {}), ...(by ? { by } : {}), playing, position, at };
+    const { on, url, by, playing, position, at, theatre } = this.s;
+    return { on, ...(url ? { url } : {}), ...(by ? { by } : {}), playing, position, at, theatre };
   }
 
   /** What's on, for toasts: where the link comes from, and its file. */
@@ -55,7 +57,7 @@ export class Tv {
     }
     if (!url) return { error: 'Nothing to play — paste a link to a video first' };
     const position = input.position !== undefined ? secs(input.position, 0) : fromLink ? startSeconds(url) : this.s.position;
-    this.set({ on: true, url, playing: true, position, by });
+    this.set({ ...this.s, on: true, url, playing: true, position, by });
     return { changed: true };
   }
 
@@ -83,6 +85,19 @@ export class Tv {
     return true;
   }
 
+  /**
+   * The switch by the TV: `on` puts the room's light down for the picture, `off` brings it back.
+   * Says whether that changed anything, so two people at the switch in a moment don't fight over it.
+   * Deliberately doesn't go through `set`, which would move `at` and so jump the video along with it.
+   */
+  theatre(on: boolean, by: string): boolean {
+    if (on !== true && on !== false) return false;
+    if (this.s.theatre === on) return false;
+    this.s = { ...this.s, theatre: on, by };
+    this.save();
+    return true;
+  }
+
   private set(s: Omit<Saved, 'at'> & { at?: number }) {
     this.s = { ...s, at: Date.now() };
     this.save();
@@ -101,6 +116,7 @@ export class Tv {
         playing: s.on === true && s.playing === true,
         position: secs(s.position, 0),
         at: typeof s.at === 'number' && Number.isFinite(s.at) ? s.at : Date.now(),
+        theatre: s.theatre === true,
       };
     } catch {
       // a broken file just means a dark screen

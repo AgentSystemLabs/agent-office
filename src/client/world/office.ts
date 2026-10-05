@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { ASHTRAY, BALCONY, BALCONY_DOOR, BEANBAGS, BOARDS, BOOKSHELF, CABINET, DESKS, DESK_SIZE, ELEVATOR, EXIT_DOOR, EXIT_STAIRS, FLOOR, GONG, GREEN_PLANTS, HANGING_PLANTS, KIOSK, LADDER, LOFT, MACHINE_MONITOR, MEETING_BOARD, MEETING_ROOM, MEETING_SEATS, MEETING_TABLE, PLANTS, SEATING_BY_ID, SILL_PLANTS, SLAB, STAIRS, STATIONS, STATION_AGENT, STOREY, STREET_Y, TV, WALL_HEIGHT, WALL_T, WINDOWS, WING, WING_DESKS, deskSeat, greenPlantKind, plantByWing, streetBelow, wingMinZ, wingRowZ, type DeskDef, type Opening, type Side, type StationKind } from '../../shared/layout';
+import { ASHTRAY, BALCONY, BALCONY_DOOR, BEANBAGS, BOARDS, BOOKSHELF, CABINET, DESKS, DESK_SIZE, ELEVATOR, EXIT_DOOR, EXIT_STAIRS, FLOOR, GONG, GREEN_PLANTS, HANGING_PLANTS, KIOSK, LADDER, LOFT, MACHINE_MONITOR, MEETING_BOARD, MEETING_ROOM, MEETING_SEATS, MEETING_TABLE, PLANTS, SEATING_BY_ID, SILL_PLANTS, SLAB, STAIRS, STATIONS, STATION_AGENT, STOREY, STREET_Y, THEATRE_SWITCH, TV, WALL_HEIGHT, WALL_T, WINDOWS, WING, WING_DESKS, deskSeat, greenPlantKind, plantByWing, streetBelow, wingMinZ, wingRowZ, type DeskDef, type Opening, type Side, type StationKind } from '../../shared/layout';
 import { wallFacing, type WallId, type WallRect } from '../../shared/decor';
 import { deskPoint } from '../../shared/nav';
 import { FLOOR_PALETTES, type FloorPalette } from '../../shared/floors';
@@ -10,6 +10,7 @@ import { mergeByMaterial, mesh, roundedBox, textPlane, toon, toonUnique } from '
 import { palette, piece } from './models';
 import { buildElevator, type Elevator } from './elevator';
 import { buildGong, type Gong } from './gong';
+import { buildTheatre, type TheatreView } from './theatre';
 import { buildJukebox, type JukeboxView } from './jukebox';
 import { buildBookshelf } from './bookshelf';
 import { buildCabinet, type CabinetModel } from './cabinet';
@@ -40,7 +41,7 @@ export interface Collider {
   glass?: boolean;
 }
 
-export type InteractKind = 'desk' | 'station' | 'issues' | 'pulls' | 'services' | 'queue' | 'tv' | 'coffee' | 'fridge' | 'decor' | 'smoke' | 'elevator' | 'gong' | 'dog' | 'jukebox' | 'seat' | 'whiteboard' | 'cabinet' | 'ladder' | 'pole' | 'meeting' | 'bar' | 'dj' | 'golf' | 'ball' | 'bookshelf' | 'darts' | 'axe' | 'telescope' | 'car' | 'expand' | 'herald';
+export type InteractKind = 'desk' | 'station' | 'issues' | 'pulls' | 'services' | 'queue' | 'tv' | 'theatre' | 'coffee' | 'fridge' | 'decor' | 'smoke' | 'elevator' | 'gong' | 'dog' | 'jukebox' | 'seat' | 'whiteboard' | 'cabinet' | 'ladder' | 'pole' | 'meeting' | 'bar' | 'dj' | 'golf' | 'ball' | 'bookshelf' | 'darts' | 'axe' | 'telescope' | 'car' | 'expand' | 'herald';
 
 /** Something you can use. Its scene object carries it as `userData.interact`, for clicking. */
 export interface Interactable {
@@ -93,6 +94,8 @@ export interface Office {
   setBeanbags(out: Set<string>): Collider[];
   boardMeshes: Record<keyof typeof BOARDS, THREE.Mesh>;
   tvScreen: THREE.Mesh;
+  /** The theatre switch by the TV, which puts the room's own light down for the picture. */
+  theatre: TheatreView;
   /** The monitor on the boss's desk upstairs, where Minesweeper plays (ui/arcade.ts). */
   bossScreen: THREE.Mesh;
   /** The monitor on the west wall showing how busy the office's machine is (world/machine.ts). */
@@ -1583,6 +1586,13 @@ export function buildOffice(): Office {
   tvGroup.userData.interact = tv;
   fixture('east', TV.z, TV.y, TV.width + 0.3, TV.height + 0.3);
 
+  // The theatre switch, on the same wall just south of the TV: the room's own light down, so the
+  // picture on it is the brightest thing in the office (see world/theatre.ts and Sky.setTheatre).
+  const theatre = buildTheatre();
+  group.add(theatre.group);
+  interactables.push(theatre.interactable);
+  fixture('east', THEATRE_SWITCH.z, THEATRE_SWITCH.y, 0.7, 0.9);
+
   // The machine monitor between the west windows, facing the desks.
   const monitor = new THREE.Group();
   const bezel = mesh(roundedBox(MACHINE_MONITOR.width + 0.16, 0.1, MACHINE_MONITOR.height + 0.16, 0.06), toon(PALETTE.ink), 0, 0, 0);
@@ -1877,13 +1887,14 @@ export function buildOffice(): Office {
     garageLift.update(dt);
     gong.update(dt);
     kitchen.fridge.update(dt);
+    theatre.update(dt);
     green.update(t);
     scenic.update(t);
     hoop.update(dt);
     danceFloor.update(t);
   };
 
-  return { group, colliders, interactables, desks, setBeanbags, boardMeshes, tvScreen, bossScreen, machineScreen, meetingBoard: meeting.board, meetingSign: meeting.sign, fixtures: () => fixtures, wallColliders, elevator, garageLift, cars, scenic, gong, jukebox, cabinet, fridge: kitchen.fridge, whiteboard, danceFloor, tee, green, hoop, stack, wing, setWing, signs, setProjectName, setLook, setInterior, setLevel, night, plants, update };
+  return { group, colliders, interactables, desks, setBeanbags, boardMeshes, tvScreen, theatre, bossScreen, machineScreen, meetingBoard: meeting.board, meetingSign: meeting.sign, fixtures: () => fixtures, wallColliders, elevator, garageLift, cars, scenic, gong, jukebox, cabinet, fridge: kitchen.fridge, whiteboard, danceFloor, tee, green, hoop, stack, wing, setWing, signs, setProjectName, setLook, setInterior, setLevel, night, plants, update };
 }
 
 /** A chair at the meeting table, with its laptop on the table in front of it. */

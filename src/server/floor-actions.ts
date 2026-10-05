@@ -243,6 +243,8 @@ export interface FloorTv {
   pause(position: unknown, by: string): Awaitable<boolean>;
   seek(position: unknown, by: string): Awaitable<boolean>;
   stop(by: string): Awaitable<boolean>;
+  /** The switch by it: the room's light down for the picture, or back up. */
+  theatre(on: boolean, by: string): Awaitable<boolean>;
   /** What is on it, for the toast. Mirrored from the `tv` event, like the rest of the TV's state. */
   title(): string;
   state(): TvState;

@@ -5,7 +5,7 @@
 
 import * as THREE from 'three';
 import { TV } from '../shared/layout';
-import { classify, embedUrl, positionAt, youtubeId, type TvKind, type TvState } from '../shared/tv';
+import { TV_OFF, classify, embedUrl, positionAt, youtubeId, type TvKind, type TvState } from '../shared/tv';
 import { DrunkPicture } from './drunkframe';
 import { roomMediaGain } from './spatial-audio';
 import { store } from './state';
@@ -141,7 +141,7 @@ export class TvScreen {
   private readonly frame: HTMLElement;
   /** So the picture goes with the rest of the office once you've been drinking (see drunkframe.ts). */
   private readonly drunk: DrunkPicture | null;
-  private state: TvState = { on: false, playing: false, position: 0, at: 0 };
+  private state: TvState = TV_OFF;
   /** How the picture is being driven, which is embed rather than youtube when the API can't load. */
   private kind: TvKind | null = null;
   private el: HTMLElement | null = null;

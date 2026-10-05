@@ -20,6 +20,12 @@ import type { NightParts } from './outside';
 const MAX_LAMPS = 24;
 const DEG = Math.PI / 180;
 /**
+ * How much of the room's own light the theatre switch takes away, at full (see skyRoomLight): enough
+ * that the picture on the TV is clearly the brightest thing in the office, and the people in it are
+ * lit by it, but a shape by the window is still a shape and not a hole in the dark.
+ */
+const THEATRE_DIM = 0.84;
+/**
  * The furthest off the haze ever is, however high up you are: past that nothing's built (the grass
  * and the road round the office end there, the city round the roof just past it), so it hides that.
  */
@@ -69,6 +75,8 @@ const uniforms = {
   /** Lamplight filling the office, and the garage: color × strength, in the units of three.js lights. */
   skyOffice: { value: new THREE.Color(0, 0, 0) },
   skyGarage: { value: new THREE.Color(0, 0, 0) },
+  /** How far the room's own light is down for the picture (the switch by the TV), 0–1. */
+  skyTheatre: { value: 0 },
   skyLampCount: { value: 0 },
   /** Each lamp's position and reach, and its color × strength. */
   skyLamps: { value: Array.from({ length: MAX_LAMPS }, () => new THREE.Vector4()) },
@@ -102,6 +110,7 @@ const ROOM_PARS = /* glsl */ `
 varying vec3 vSkyWorld;
 uniform float skyOn;
 uniform float skyInside;
+uniform float skyTheatre;
 uniform vec4 skyWing;
 
 // Inside the office's walls, up to the given height and no further, or in the back office's, up to
@@ -116,6 +125,12 @@ float skyInsideOf( vec3 p, float top ) {
 
 // Up through the office's open top, as far as its light reaches.
 float skyInOffice( vec3 p ) { return skyInsideOf( p, ${SHAFT_TOP.toFixed(1)} ); }
+
+// The theatre switch by the TV: what is left of the room's own light where the fragment is indoors,
+// which is the whole room at once (see Sky.setTheatre). The sun and the sky still come in through
+// the windows and the street keeps its lamps; it is the room's own light that goes out, leaving the
+// picture on the screen the brightest thing in it.
+float skyRoomLight( float indoor ) { return 1.0 - ${THEATRE_DIM} * skyTheatre * indoor; }
 `;
 
 const PARS = /* glsl */ `
@@ -160,11 +175,18 @@ material.diffuseColor *= 1.0 - 0.38 * skyWet * skyUp;
 material.diffuseColor = mix( material.diffuseColor, vec3( 0.93, 0.96, 1.0 ), skySnow * skyUp );
 `;
 
-/** The lamps' light, added to what the sun and the sky give. */
-const LIGHT = /* glsl */ `
+/** The lamps' light, added to what the sun and the sky give, then the room's light turned down. */
+const LIGHT = (screen: boolean) => /* glsl */ `
 if ( skyOn > 0.0 ) {
   vec3 skyLight = skyIndoor * skyOffice * ( 0.65 + 0.35 * skyN.y ) + ( 1.0 - skyIndoor ) * ( skyGar * skyGarage + skyLampsAt( vSkyWorld, skyN ) );
-  reflectedLight.indirectDiffuse += skyLight * BRDF_Lambert( material.diffuseColor );
+  reflectedLight.indirectDiffuse += skyLight * BRDF_Lambert( material.diffuseColor );${screen ? '' : `
+  // The theatre switch: the room's own light down, so the picture on the wall reads (skyRoomLight).
+  // Everything the sun, the sky and the lamps have just given the room goes with it, the lamp globes
+  // included; the TV's screen is drawn unlit, so it doesn't, and the street outside is untouched.
+  float skyRoom = skyRoomLight( skyIndoor );
+  reflectedLight.directDiffuse *= skyRoom;
+  reflectedLight.indirectDiffuse *= skyRoom;
+  totalEmissiveRadiance *= skyRoom;`}
 }
 `;
 
@@ -212,7 +234,19 @@ const HAZE_PARS = /* glsl */ `
 #endif
 `;
 
-const HAZE = /* glsl */ `
+/**
+ * The theatre dim for the unlit materials (glass, signs, the meeting panel, the TV's own dark
+ * screen): the lit ones have their light taken away in LIGHT instead, so this is only for what's
+ * drawn with no light on it at all. A material can ask to be left out of it — the TV's screen does,
+ * because a screen share is painted on that mesh rather than over the canvas, and the one thing
+ * the switch must never take away is the picture itself.
+ */
+const UNLIT_ROOM = /* glsl */ `
+  gl_FragColor.rgb *= skyRoomLight( skyInOffice( vSkyWorld ) * skyOn * skyInside );
+`;
+
+/** The haze over a lit or unlit material, with the theatre dim after it unless it's a screen. */
+const HAZE = (unlitRoom: string) => /* glsl */ `
 #ifdef USE_FOG
   #ifdef FOG_EXP2
     float fogFactor = 1.0 - exp( - fogDensity * fogDensity * vFogDepth * vFogDepth );
@@ -223,12 +257,15 @@ const HAZE = /* glsl */ `
     float fogFactor = max( smoothstep( fogNear, fogFar, vFogDepth / skyReach ), smoothstep( ${(HAZE_MAX * 0.45).toFixed(1)}, ${HAZE_MAX.toFixed(1)}, vFogDepth ) );
   #endif
   gl_FragColor.rgb = mix( gl_FragColor.rgb, fogColor, fogFactor * mix( 1.0, ${INDOOR_FOG.toFixed(2)}, skyInRoom( vSkyWorld ) ) );
+${unlitRoom}
 #endif
 `;
 
 // Everything with fog gets the haze above, and knows which room it's in to work it out; every lit
 // material also gets the lines before that, sharing one set of uniforms. Nothing else in the office
-// uses onBeforeCompile, so this is its default; unlit ones (glass, signs, outlines) only get the haze.
+// uses onBeforeCompile, so this is its default; unlit ones (glass, signs, outlines) get the haze and
+// the theatre dim. A material with `userData.theatreLit` set is a light in its own right — the TV's
+// screen, which a share is painted on — and the switch leaves it alone, whichever kind it is.
 THREE.Material.prototype.onBeforeCompile = function (shader) {
   const foggy = shader.fragmentShader.includes('#include <fog_fragment>');
   const lit = shader.fragmentShader.includes('#include <lights_fragment_end>');
@@ -236,8 +273,11 @@ THREE.Material.prototype.onBeforeCompile = function (shader) {
   // Sprites draw a quad at the centre of themselves and have no project_vertex to hang a world
   // position off (see WORLD), so they're left on three.js's own fog rather than half patched.
   if (!shader.vertexShader.includes('#include <project_vertex>')) return;
+  const screen = this.userData.theatreLit === true;
   shader.uniforms.skyOn = uniforms.skyOn;
   shader.uniforms.skyInside = uniforms.skyInside;
+  // The theatre dim reaches the unlit materials too, so it goes in with the room test both want.
+  shader.uniforms.skyTheatre = uniforms.skyTheatre;
   shader.uniforms.skyWing = uniforms.skyWing;
   // Which room a fragment is in goes to everything with fog, for the haze over it; the lamps and
   // the lamplight from them are the lit materials' alone.
@@ -247,13 +287,13 @@ THREE.Material.prototype.onBeforeCompile = function (shader) {
   if (foggy) {
     shader.uniforms.skyStreet = uniforms.skyStreet;
     shader.vertexShader = shader.vertexShader.replace('#include <fog_pars_vertex>', `#include <fog_pars_vertex>\n${HAZE_PARS_VERTEX}`).replace('#include <fog_vertex>', `#include <fog_vertex>\n${HAZE_VERTEX}`);
-    shader.fragmentShader = shader.fragmentShader.replace('#include <fog_pars_fragment>', `#include <fog_pars_fragment>\n${HAZE_PARS}`).replace('#include <fog_fragment>', HAZE);
+    shader.fragmentShader = shader.fragmentShader.replace('#include <fog_pars_fragment>', `#include <fog_pars_fragment>\n${HAZE_PARS}`).replace('#include <fog_fragment>', HAZE(screen ? '' : UNLIT_ROOM));
   }
   if (!lit) return;
   Object.assign(shader.uniforms, uniforms);
   shader.fragmentShader = shader.fragmentShader
     .replace('#include <lights_fragment_begin>', `${SURFACE}\n#include <lights_fragment_begin>`)
-    .replace('#include <lights_fragment_end>', `#include <lights_fragment_end>\n${LIGHT}`);
+    .replace('#include <lights_fragment_end>', `#include <lights_fragment_end>\n${LIGHT(screen)}`);
 };
 
 // ---- The sky ------------------------------------------------------------------------------------
@@ -433,6 +473,18 @@ let wingBox: { minX: number; maxX: number; minZ: number; maxZ: number } | null =
 const sheltered = (x: number, z: number) =>
   (x > B.minX - 0.05 && x < B.maxX + 0.05 && z > B.minZ - 0.05 && z < B.maxZ + 0.05) || (!!wingBox && x > wingBox.minX - 0.05 && x < wingBox.maxX + 0.05 && z > wingBox.minZ - 0.05 && z < wingBox.maxZ);
 
+/**
+ * Whether a light is the office's own, in the room: what the theatre switch puts out (see
+ * setTheatre). The back office is counted at its widest, so its lamps go out with the rest of the
+ * room — there are none in there until it's been built out anyway. This is the shader's own
+ * `skyInOffice` in numbers, for the halos, which are points and so aren't lit at all.
+ */
+function indoors(p: THREE.Vector3): boolean {
+  if (p.y < 0.05) return false;
+  if (p.x > FLOOR.minX && p.x < FLOOR.maxX && p.z > FLOOR.minZ && p.z < FLOOR.maxZ) return true;
+  return p.x > WING.minX && p.x < WING.maxX && p.z > FLOOR.minZ - WING.rows * WING.row && p.z < FLOOR.minZ;
+}
+
 export class Sky {
   private preview: { hour?: number; weather?: Weather; intensity?: number } = {};
   /** Lightning struck; its thunder should follow `delay` seconds later. */
@@ -445,6 +497,9 @@ export class Sky {
   snow = 0;
   /** How far the lamps are on, 0–1: at night, and on the darkest of days. */
   lampsOn = 0;
+  /** How far the room's own light is down for the picture, 0–1, easing (see setTheatre). */
+  theatre = 0;
+  private theatreOn = false;
   /** Up on the roof: out in the open, over the whole city (see setRoof). */
   private roof = false;
   /** In a hall with a roof and walls all round (a map other than the office's, see setIndoors). */
@@ -490,7 +545,8 @@ export class Sky {
   private readonly stars: THREE.Points<THREE.BufferGeometry, THREE.PointsMaterial>;
   private readonly sunDisc: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>;
   private readonly moonDisc: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>;
-  private readonly halos: THREE.Points<THREE.BufferGeometry, THREE.PointsMaterial>[] = [];
+  /** The halos round the bulbs, and which of them are the office's own, so the switch can put those out. */
+  private readonly halos: { points: THREE.Points<THREE.BufferGeometry, THREE.PointsMaterial>; indoors: boolean }[] = [];
   /** The halos down by the street, which go down with it. */
   private readonly groundHalos = new THREE.Group();
   /** Where the street was when the lamps were last put in place (see NightParts.street). */
@@ -539,22 +595,23 @@ export class Sky {
 
     // Halos round the bulbs at night, one set of points per size (and per floor or street).
     const halo = blobTexture(0.25);
-    const bySize = new Map<string, { size: number; ground: boolean; pos: number[]; col: number[] }>();
+    const bySize = new Map<string, { size: number; ground: boolean; indoors: boolean; pos: number[]; col: number[] }>();
     for (const h of night.halos) {
-      const key = `${h.size}|${!!h.ground}`;
+      const inRoom = indoors(h.at);
+      const key = `${h.size}|${!!h.ground}|${inRoom}`;
       let set = bySize.get(key);
-      if (!set) bySize.set(key, (set = { size: h.size, ground: !!h.ground, pos: [], col: [] }));
+      if (!set) bySize.set(key, (set = { size: h.size, ground: !!h.ground, indoors: inRoom, pos: [], col: [] }));
       set.pos.push(h.at.x, h.at.y, h.at.z);
       const c = new THREE.Color(h.color);
       set.col.push(c.r, c.g, c.b);
     }
-    for (const { size, ground, pos, col } of bySize.values()) {
+    for (const { size, ground, indoors, pos, col } of bySize.values()) {
       const geo = new THREE.BufferGeometry();
       geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
       geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
       const p = new THREE.Points(geo, new THREE.PointsMaterial({ size, map: halo, vertexColors: true, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
       p.visible = false;
-      this.halos.push(p);
+      this.halos.push({ points: p, indoors });
       (ground ? this.groundHalos : scene).add(p);
     }
     scene.add(this.groundHalos);
@@ -650,6 +707,15 @@ export class Sky {
   }
 
   /**
+   * The theatre switch by the TV (see shared/tv.ts): the room's own light goes down, so the picture
+   * on the wall is the brightest thing in the office. Eased in `update` rather than snapped, the way
+   * a dimmer is, and the floor's — everybody on it hears the same switch go over.
+   */
+  setTheatre(on: boolean) {
+    this.theatreOn = on;
+  }
+
+  /**
    * The floor you're on is built out `level` rows into the back office (see WING): lit like the
    * office inside, and out of the rain.
    */
@@ -674,7 +740,9 @@ export class Sky {
   lightAt(p: THREE.Vector3): number {
     if (this.indoors) return 1;
     const inside = !this.roof && ((p.x > FLOOR.minX && p.x < FLOOR.maxX && p.z > FLOOR.minZ && p.z < FLOOR.maxZ) || (sheltered(p.x, p.z) && (p.y < 0 || p.z < FLOOR.minZ)));
-    if (inside) return 1;
+    // Your own hands go down with the room's light, or you'd be the one lit thing in the picture —
+    // but only in the room itself, not in the garage under it or out on the landing.
+    if (inside) return 1 - (indoors(p) ? THEATRE_DIM * this.theatre : 0);
     let lamp = 0;
     if (!this.roof) {
       const drop = STREET_Y - this.street;
@@ -710,6 +778,9 @@ export class Sky {
     const step = (x: number, to: number, secs: number) => (snap ? to : ease(x, to, dt, secs * quick));
     this.spooky = step(this.spooky, this.theme === 'halloween' ? 1 : 0, 12);
     this.festive = step(this.festive, this.theme === 'christmas' ? 1 : 0, 12);
+    // The switch by the TV: a dimmer, not a light switch, so the room comes down over a second.
+    this.theatre = step(this.theatre, this.theatreOn ? 1 : 0, 1.1);
+    uniforms.skyTheatre.value = this.theatre;
     const sp = this.spooky;
 
     // The weather, easing from one spell to the next.
@@ -784,8 +855,10 @@ export class Sky {
     for (const b of this.night.bulbs) b.mat.emissiveIntensity = lerp(b.day, 1, this.lampsOn);
     for (const m of this.night.windows) m.emissiveIntensity = this.lampsOn * 1.1;
     for (const h of this.halos) {
-      h.material.opacity = this.lampsOn * 0.85;
-      h.visible = this.lampsOn > 0.01 && !this.roof && !this.indoors;
+      // The office's own bulbs go out with the switch (see setTheatre); the street's don't.
+      const on = this.lampsOn * (h.indoors ? 1 - THEATRE_DIM * this.theatre : 1);
+      h.points.material.opacity = on * 0.85;
+      h.points.visible = on > 0.01 && !this.roof && !this.indoors;
     }
     for (const g of this.night.glows) {
       g.mat.opacity = g.max * this.lampsOn;

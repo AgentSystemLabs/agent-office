@@ -456,6 +456,7 @@ export class RemoteFloor implements FloorActions {
       pause: async (position, by) => Boolean(await remote.call('tv.pause', { position, by })),
       seek: async (position, by) => Boolean(await remote.call('tv.seek', { position, by })),
       stop: async (by) => Boolean(await remote.call('tv.stop', { by })),
+      theatre: async (on, by) => Boolean(await remote.call('tv.theatre', { on, by })),
       // Read from the `tv` event the host emits as its state changes — the same state a local floor
       // derives its title from, so there is nothing to ask the host for.
       title: () => tvTitle(remote.last<TvState>('tv', TV_OFF).url),

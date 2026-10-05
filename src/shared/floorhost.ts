@@ -123,6 +123,7 @@ export const FLOOR_CASES = [
   'tv.play',
   'tv.seek',
   'tv.stop',
+  'tv.theatre',
   'term.resize',
   'worker.attach',
   'worker.detach',

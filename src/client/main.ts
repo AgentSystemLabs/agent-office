@@ -330,6 +330,9 @@ const tvMat = office.tvScreen.material as THREE.MeshBasicMaterial;
 tvMat.color.set('#ffffff');
 tvMat.map = tvIdle;
 tvMat.toneMapped = false;
+// A share is painted on this mesh, where a link's picture is HTML over the canvas, so the theatre
+// switch leaves the screen alone either way: the picture is the one thing it can't put out.
+tvMat.userData.theatreLit = true;
 /** Whoever's screen sharing, when someone is: the TV shows that instead of a link. */
 let tvStream: MediaStream | null = null;
 /** What's on the screen itself: a share while there is one, dark under a link's picture, else the art. */
@@ -345,6 +348,9 @@ const tvScreen = new TvScreen(office.tvScreen);
 store.on('tv', () => {
   tvScreen.sync(store.tv);
   paintTv();
+  // The switch by the TV: the room's light down, and the switch itself thrown the other way.
+  sky.setTheatre(store.tv.theatre);
+  office.theatre.show(store.tv.theatre, tvShowing() || store.tv.on);
   hintKey = '';
 });
 // The boss's monitor upstairs: Minesweeper, from the boss's chair.
@@ -3029,6 +3035,8 @@ function interact(target: Interactable | null, key: DeskKey, note = aimedNote) {
     if (tvShowing()) watchShare();
     else openTv(net, tvScreen, () => void toggleShare(), { on: () => settings.danceFloor, set: applyDanceFloor });
   }
+  // The switch by the TV: the room's own light down for the picture, or back up.
+  else if (target.kind === 'theatre') net.send({ t: 'tv.theatre', on: !store.tv.theatre });
   else if (target.kind === 'jukebox') showJukebox();
   else if (target.kind === 'bookshelf') showBookshelf();
   else if (target.kind === 'decor' && target.decorId) hanger.view(target.decorId);
@@ -3955,6 +3963,10 @@ function hintFor(it: Interactable): Hint {
       const what = on ? `${s.playing ? '▶' : '⏸'} ${clip(tvTitle(s.url), 34)}` : share ? 'someone is sharing their screen' : 'nothing on it';
       return { k: `${share}|${s.on}|${s.url}|${s.playing}`, parts: [title('📺 Office TV'), aside(what), key('E', share ? 'Watch full screen' : 'Put something on')] };
     }
+    case 'theatre': {
+      const on = store.tv.theatre;
+      return { k: String(on), parts: [title('🎛️ Theatre switch'), aside(on ? 'the room is dark for the film' : "the office's lights are on as usual"), key('E', on ? 'Lights back up' : 'Lights down for the film')] };
+    }
     case 'coffee': {
       const secs = performance.now() / 1000;
       const buzzed = caffeine.buzzed(secs);
@@ -4642,7 +4654,7 @@ document.addEventListener('pointerlockchange', () => {
 const raycaster = new THREE.Raycaster();
 const CROSSHAIR = new THREE.Vector2(0, 0);
 /** How close (meters from your eyes) you must be to use each kind of thing. */
-const REACH: Record<InteractKind, number> = { desk: 4.5, station: 4.5, coffee: 3, fridge: 3, issues: 9, pulls: 9, services: 9, queue: 9, tv: 10, decor: 9, smoke: 3, elevator: 4.5, gong: 3.5, dog: 3.2, jukebox: 4, seat: 3, whiteboard: 7, cabinet: 4, ladder: 3, pole: 4, meeting: 7, bar: 3.5, dj: 6, golf: 3.5, ball: 3.2, bookshelf: 4, darts: 4, axe: 5.5, telescope: 3.5, car: 4, expand: 8, herald: 5 };
+const REACH: Record<InteractKind, number> = { desk: 4.5, station: 4.5, coffee: 3, fridge: 3, issues: 9, pulls: 9, services: 9, queue: 9, tv: 10, theatre: 3, decor: 9, smoke: 3, elevator: 4.5, gong: 3.5, dog: 3.2, jukebox: 4, seat: 3, whiteboard: 7, cabinet: 4, ladder: 3, pole: 4, meeting: 7, bar: 3.5, dj: 6, golf: 3.5, ball: 3.2, bookshelf: 4, darts: 4, axe: 5.5, telescope: 3.5, car: 4, expand: 8, herald: 5 };
 const eye = new THREE.Vector3();
 
 /** What the ray through `ndc` lands on first, whether it is within reach (plus `slack` meters), and where it hit. */
