@@ -55,3 +55,5 @@ Everything the office tells a worker by itself can be rewritten in ⚙️ Settin
 Helper requests from the UI, the workers command, and hosted floors all start the floor’s shared walk to the host desk. Every browser sees the helper arrive, and duplicate requests are refused while that desk has a helper.
 
 Helper status changes preserve walking progress. Joining or refreshing a local floor restores active helper paths rather than leaving their models at the entrance.
+
+Helpers display their current status and activity above their heads, including when their agent needs input or is offline. Open the helper’s terminal to inspect its actual output.

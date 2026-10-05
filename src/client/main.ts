@@ -515,6 +515,7 @@ store.on('dog', () => {
 const helperWalk = new HelperWalk(scene, (x, z, y) => Math.max(groundAt(world.colliders, x, z, y), player.street));
 store.on('helper', () => {
   helperWalk.sync(store.helpers, store.helperStart);
+  for (const w of store.workers.values()) if (w.helper) workerViews.get(w.id)?.model.setTask(helperCard(w));
   // On a map of its own a helper has no desks to stand at, so it keeps to the office.
   if (!inOffice()) for (const v of workerViews.values()) if (v.laptop === null) v.model.root.visible = false;
 });
@@ -2193,6 +2194,10 @@ function syncWorkers() {
         v.status = w.status;
         v.acked = w.acked;
       }
+      v.model.setStatus(w.status, waitingOnSomeone(w));
+      v.model.setAction(w.action);
+      v.model.setLost(!!w.lost);
+      v.model.setTask(helperCard(w));
       continue;
     }
     if (!v) {
@@ -2604,8 +2609,8 @@ function helperCard(w: WorkerInfo): WorkerTask | undefined {
   const h = store.helpers.find((x) => x.workerId === w.id);
   const badge = modelBadge(w.provider, w.model, w.effort);
   const name = `🆘 Helping ${w.helper.hostName}${badge ? ` · ${badge}` : ''}`;
-  const doing = h ? HELPER_DOING[h.phase] : 'on its way';
-  return { name, summary: w.status === 'done' ? '✅ It has told them; going home' : `${doing} · press E to read its terminal` };
+  const doing = w.status === 'needs_input' ? 'waiting for your input — open its terminal' : w.status === 'offline' || w.status === 'exited' ? 'agent is not running — open its terminal' : h ? HELPER_DOING[h.phase] : 'waiting for its walking path';
+  return { name, summary: h?.phase === 'leaving' ? '✅ Report sent; going home' : `${doing} · press E to read its terminal` };
 }
 
 /** Direct hire from an empty desk, with an optional first prompt and provider choice. */
@@ -5410,7 +5415,12 @@ function frame(ts?: number) {
         const w = store.workers.get(id);
         if (w) v.model.setAge(ageOf(w));
       }
-      if (inOffice()) helperWalk.place(id, v.model);
+      if (inOffice()) {
+        v.model.root.visible = true;
+        helperWalk.place(id, v.model);
+        const d = v.model.root.getWorldPosition(workerPos).distanceTo(player.pos);
+        v.model.held = d < (v.model.held ? HOLD_LEAVE : HOLD_NEAR);
+      }
       else v.model.root.visible = false;
       v.model.update(dt, t);
       continue;

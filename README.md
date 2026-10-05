@@ -387,3 +387,5 @@ Every change to the app that lands on `main` is published as a GitHub release by
 ## License
 
 [MIT](LICENSE)
+
+Helpers display their current status and activity above their heads, including when their agent needs input or is offline. Open the helper’s terminal to inspect its actual output.
