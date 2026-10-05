@@ -1,4 +1,4 @@
-// ⚙️ Settings' Office dog, under Building: its name, and its breed and coat as buttons, for everyone
+// ⚙️ Settings' Office cat, under Building: its name, and its breed and coat as buttons, for everyone
 // on the floor (see server/dog.ts).
 import type { Net } from '../net';
 import { store } from '../state';
@@ -7,7 +7,7 @@ import { h } from './dom';
 
 /** The setting, made by `frame` from what goes in it, and how to paint it afresh when the dog changes. */
 export function dogSetting(net: Net, frame: (body: Node[]) => HTMLElement): { section: HTMLElement; paint: () => void } {
-  const dogInput = h('input', { type: 'text', maxlength: DOG_NAME_MAX, 'aria-label': 'The dog’s name', spellcheck: 'false', autocomplete: 'off' }) as HTMLInputElement;
+  const dogInput = h('input', { type: 'text', maxlength: DOG_NAME_MAX, 'aria-label': 'The cat’s name', spellcheck: 'false', autocomplete: 'off' }) as HTMLInputElement;
   const dogSave = h('button.btn.primary', { type: 'button' }, 'Rename');
   const dogNote = h('p.setting-note');
   const breedRow = h('div.seg', { role: 'radiogroup', 'aria-label': 'Breed' });
@@ -18,7 +18,7 @@ export function dogSetting(net: Net, frame: (body: Node[]) => HTMLElement): { se
     dogSection.classList.toggle('hidden', !dog);
     if (!dog) return;
     dogInput.placeholder = dog.name;
-    dogNote.textContent = `${dog.name} lives on this floor. When a worker needs input, ${dog.name} runs to its desk and barks. Walk up and press E to pet it. Its name, breed and coat are for everyone on this floor.`;
+    dogNote.textContent = `${dog.name} lives on this floor. When a worker needs input, ${dog.name} runs to its desk and meows. Walk up and press E to pet it. Its name, breed and coat are for everyone on this floor.`;
     const breed = dogBreed(dog.breed);
     breedRow.replaceChildren(
       ...DOG_BREEDS.map((b) =>

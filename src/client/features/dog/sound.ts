@@ -13,8 +13,8 @@ export function bark(a: AudioCore, x: number, z: number, times: number) {
   let t = ctx.currentTime + 0.03;
   const pitch = rand(0.95, 1.05);
   for (let i = 0; i < times; i++) {
-    woof(a, out, t, 300 * pitch * rand(0.95, 1.05), 0.17, 0.55);
-    t += rand(0.3, 0.42);
+    woof(a, out, t, 520 * pitch * rand(0.95, 1.05), 0.55, 0.4);
+    t += rand(0.7, 0.9);
   }
 }
 
@@ -25,7 +25,7 @@ export function yip(a: AudioCore, x: number, z: number) {
   a.count('yip');
   const out = a.panner({ x, y: 0.5, z }, 1.5, 1);
   out.connect(a.ambience);
-  woof(a, out, ctx.currentTime + 0.02, 620, 0.09, 0.3);
+  woof(a, out, ctx.currentTime + 0.02, 900, 0.16, 0.2);
 }
 
 /** One bark: a buzzy voice that leaps up in pitch and falls away, shaped into a "wuh", with a breathy rasp. */
@@ -33,10 +33,10 @@ function woof(a: AudioCore, out: AudioNode, t: number, f: number, len: number, g
   const ctx = a.ctx!;
   const voice = ctx.createOscillator();
   voice.type = 'sawtooth';
-  voice.frequency.setValueAtTime(f * 0.75, t);
-  voice.frequency.exponentialRampToValueAtTime(f * 1.45, t + len * 0.22);
-  voice.frequency.exponentialRampToValueAtTime(f * 0.6, t + len);
-  const mouth = biquad(ctx, 'bandpass', 950, 1.1);
+  voice.frequency.setValueAtTime(f * 0.8, t);
+  voice.frequency.exponentialRampToValueAtTime(f * 1.3, t + len * 0.35);
+  voice.frequency.exponentialRampToValueAtTime(f * 0.7, t + len);
+  const mouth = biquad(ctx, 'bandpass', 1400, 2);
   mouth.frequency.setValueAtTime(700, t);
   mouth.frequency.linearRampToValueAtTime(1300, t + len * 0.3);
   mouth.frequency.linearRampToValueAtTime(600, t + len);
