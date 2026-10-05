@@ -1108,8 +1108,9 @@ const remotes = new Map<string, RemotePeer>();
 
 interface WorkerView {
   model: Worker;
-  /** A helper stands at somebody else's desk and has none of its own, so it has no laptop in here. */
+  /** A helper stands at somebody else's desk and has none of its own, so its desk laptop is null; its carried laptop is separate. */
   laptop: Laptop | null;
+  carriedLaptop?: Laptop;
   deskId: string;
   status: string;
   acked: boolean;
@@ -1761,7 +1762,7 @@ function setPlace() {
 /** What you can use where you are, and what's in the way of looking at it. */
 function usable(): Interactable[][] {
   if (upTop && roof) return [roof.interactables];
-  return inOffice() ? [office.interactables, gallery.interactables, dog.interactables, ball.interactables] : [world.interactables, court?.interactables ?? []];
+  return inOffice() ? [office.interactables, gallery.interactables, dog.interactables, ball.interactables, [...helperModels.values()].filter(m => m.root.visible).map(m => m.root.userData.interact as Interactable)] : [world.interactables, court?.interactables ?? []];
 }
 
 /**
@@ -1855,6 +1856,7 @@ function applyMap() {
     v.laptop?.root.removeFromParent();
     v.model.dispose();
     v.laptop?.dispose();
+    v.carriedLaptop?.dispose();
     helperModels.delete(id);
     sound.removeTypist(id);
   }
@@ -2185,7 +2187,10 @@ function syncWorkers() {
         const spot = helperSpot(plan().byId.get(helperHost(w.deskId) ?? '') ?? DESKS[0]);
         model.root.userData.interact = { kind: 'desk', deskId: w.deskId, x: spot.at[0], z: spot.at[1], radius: 1.1 } satisfies Interactable;
         helperModels.set(w.id, model);
-        v = { model, laptop: null, deskId: w.deskId, status: '', acked: true };
+        const carriedLaptop = new Laptop();
+        carriedLaptop.setPlaceholder(`${w.name} · E to open helper terminal`);
+        model.carryLaptop(carriedLaptop.root);
+        v = { model, laptop: null, carriedLaptop, deskId: w.deskId, status: '', acked: true };
         workerViews.set(w.id, v);
         helperWalk.sync(store.helpers, store.helperStart);
       }
@@ -2270,6 +2275,7 @@ function syncWorkers() {
       v.laptop?.root.removeFromParent();
       v.model.dispose();
       v.laptop?.dispose();
+      v.carriedLaptop?.dispose();
     }
     helperModels.delete(id);
     helperWalk.forget(id);
@@ -4348,6 +4354,15 @@ function carryHint(card: CarriedIssue, it: Interactable | null): Hint {
 
 function deskHint(deskId: string): Hint {
   const w = store.workerAtDesk(deskId);
+  if (w?.helper) return {
+    k: `helper|${w.id}|${w.status}`,
+    parts: [
+      h('span.title', {}, `${w.name} · ${STATUS_LABEL[w.status]}`),
+      w.status === 'needs_input' ? aside('Answer or approve the request in this helper’s terminal') : '',
+      key('E', 'Open helper terminal', () => openWorkerTerminal(w.id)),
+      key('X', 'Send home'),
+    ],
+  };
   if (!w && plan().byId.get(deskId)?.room) return { k: 'room', parts: [h('span.title', {}, `🤝 ${plan().byId.get(deskId)!.label} · free`), key('E', 'Call a meeting')] };
   // The sign over it, if it has one, and L to hang one (or change it).
   const sign = store.floorPlan.labels[deskId]?.text;
@@ -4862,7 +4877,7 @@ function aimedAt(ndc: THREE.Vector2, slack = 0): { it: Interactable; near: boole
   raycaster.setFromCamera(ndc, camera);
   eye.set(player.pos.x, player.pos.y + EYE_HEIGHT, player.pos.z);
   // (Workers standing in line in the castle carry their spot's interactable: see Court.)
-  for (const hit of raycaster.intersectObjects(upTop && roof ? roof.pickables : inOffice() ? [office.group, dog.root] : world.pickables, true)) {
+  for (const hit of raycaster.intersectObjects(upTop && roof ? roof.pickables : inOffice() ? [office.group, dog.root, ...[...helperModels.values()].map(m => m.root)] : world.pickables, true)) {
     let it: Interactable | undefined;
     let shown = true;
     for (let o: THREE.Object3D | null = hit.object; o; o = o.parent) {
@@ -5423,7 +5438,12 @@ function frame(ts?: number) {
         v.model.held = d < (v.model.held ? HOLD_LEAVE : HOLD_NEAR);
       }
       else v.model.root.visible = false;
+      const target = v.model.root.userData.interact as Interactable;
+      target.x = v.model.root.position.x;
+      target.z = v.model.root.position.z;
+      target.y = v.model.root.position.y;
       v.model.update(dt, t);
+      v.carriedLaptop?.update(dt, store.screens.get(id), v.model.root.position.distanceTo(camPos));
       continue;
     }
     if (aging) {
