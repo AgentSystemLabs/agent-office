@@ -336,7 +336,7 @@ export const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        worker: { type: 'string', description: 'The worker to help, by name or id. It must be in a git worktree of its own.' },
+        worker: { type: 'string', description: 'The worker to help, by name or id. Agents and shell workers are supported, with or without a separate worktree.' },
         provider: { type: 'string', description: "Which agent the helper runs: claude, opencode, codex, grok, muse or dsh. The office's default worker otherwise." },
         model: { type: 'string', description: 'A model for the helper, instead of that default.' },
       },

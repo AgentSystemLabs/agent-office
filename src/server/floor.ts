@@ -424,8 +424,12 @@ export class Floor {
     // What it found is what it said in its last answer, which is the tail of its own terminal.
     const finding = this.workers.finding(worker.id);
     const report = officePrompt(this.ctx.prompts, 'helper.report', { helper: worker.name, finding });
-    const err = this.workers.prompt(host.id, report || finding, worker.name);
-    if (err) this.ctx.toast(this, `🆘 ${worker.name} couldn't reach ${host.name}: ${err}`, 'warn');
+    if (host.kind === 'shell') {
+      this.ctx.emit(this, { t: 'chat', from: worker.id, name: worker.name, color: worker.color, text: `Help for ${host.name}:\n${finding}`, at: Date.now() });
+    } else {
+      const err = this.workers.prompt(host.id, report || finding, worker.name);
+      if (err) this.ctx.toast(this, `🆘 ${worker.name} couldn't reach ${host.name}: ${err}`, 'warn');
+    }
     this.helpers.reported(worker.id);
   }
 

@@ -114,3 +114,40 @@ test('helper motion continues through serialized updates and reading phase chang
   const after = walk.positions(new Map())[0].x;
   assert.ok(before >= 5 && after >= before, 'phase updates must not restart the walk at the door');
 });
+
+import { WorkerManager } from '../src/server/workers.js';
+import { PROMPTS } from '../src/shared/prompts.js';
+
+test('helpers can be hired for shell and agent workers in the shared checkout', () => {
+  for (const kind of ['shell', 'agent'] as const) {
+    const host = { id: 'host', name: 'Pixel', kind, deskId: 'desk-1' } as WorkerInfo;
+    let args: unknown[] = [];
+    const manager = {
+      get: () => host,
+      prompts: { text: (id: keyof typeof PROMPTS) => PROMPTS[id].text },
+      finding: () => 'command failed with exit 1',
+      spawn: (...values: unknown[]) => { args = values; return { id: 'helper' }; },
+    } as unknown as WorkerManager;
+    assert.equal(typeof WorkerManager.prototype.sendHelper.call(manager, 'host', 'Alice'), 'object');
+    assert.match(args[2] as string, /shared project checkout/);
+    assert.match(args[2] as string, /command failed with exit 1/);
+    assert.equal(args[4], 'agent');
+  }
+});
+
+test('a shell helper report is published to chat without being executed in the shell', () => {
+  const host = { id: 'host', name: 'Pixel', kind: 'shell' } as WorkerInfo;
+  const helper = { id: 'helper', name: 'Gizmo', color: '#123456', status: 'done', helper: { hostId: 'host', hostName: 'Pixel' } } as WorkerInfo;
+  const events: unknown[] = [];
+  let reported = false;
+  const floor = {
+    reportedHelpers: new Set(),
+    helpers: { reporting: () => {}, reported: () => { reported = true; } },
+    workers: { get: () => host, finding: () => 'Check the missing dependency', prompt: () => { throw Error('Report executed in shell'); } },
+    ctx: { prompts: { text: () => '' }, emit: (_floor: unknown, event: unknown) => events.push(event) },
+  };
+  (Floor.prototype as any).onHelperUpdate.call(floor, helper);
+  assert.equal((events[0] as any).t, 'chat');
+  assert.match((events[0] as any).text, /Check the missing dependency/);
+  assert.equal(reported, true);
+});

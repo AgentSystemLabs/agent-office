@@ -387,3 +387,5 @@ Every change to the app that lands on `main` is published as a GitHub release by
 ## License
 
 [MIT](LICENSE)
+
+Helpers can assist agent and shell workers, in their own worktree or the shared project checkout. Shell workers receive the findings in office chat; reports are never typed into bash as commands.
