@@ -20,7 +20,7 @@ and jump into any of them together. Every GitHub repo is a floor of the building
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey?style=flat-square)](#run-locally)
 [![Built with TypeScript](https://img.shields.io/badge/built%20with-TypeScript-3178c6?style=flat-square)](https://www.typescriptlang.org)
 
-[**Run locally**](#run-locally) · [**Deploy to AWS**](#deploy-to-aws-ec2) · [**Azure**](#deploy-to-azure) · [**Railway**](#deploy-to-railway) · [**Fly.io**](#deploy-to-flyio) · [**Dokploy**](#deploy-to-dokploy) · [**Any server**](#deploy-to-any-ubuntu-or-debian-server) · [**Add users**](#add-users) · [**Controls**](#controls) · [**Features**](docs/features.md) · [**How it works**](docs/how-it-works.md)
+[**Run locally**](#run-locally) · [**Deploy to AWS**](#deploy-to-aws-ec2) · [**Azure**](#deploy-to-azure) · [**Railway**](#deploy-to-railway) · [**Fly.io**](#deploy-to-flyio) · [**Dokploy**](#deploy-to-dokploy) · [**Any server**](#deploy-to-any-ubuntu-or-debian-server) · [**Add users**](#add-users) · [**Controls**](#controls) · [**Features**](docs/features.md) · [**How it works**](docs/how-it-works.md) · [**Ideas**](docs/ideas.md)
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/AgentSystemLabs/agent-office/main/install.sh | bash
@@ -35,12 +35,13 @@ curl -fsSL https://raw.githubusercontent.com/AgentSystemLabs/agent-office/main/i
 - **A floor per project.** Ride the elevator, pick one of your GitHub repos, and the office clones it and opens a floor for it. Every worker, board and queue on that floor works in that checkout.
 - **Workers at desks.** Walk up to an empty desk, press **E**, and pick Claude Code, Codex, OpenCode, Grok, Muse or DeepSeek Harness. The agent's live terminal shows on its laptop, and anyone can open it and type.
 - **You can see who needs you.** A worker that needs input or has finished jumps up and down and dings. Press **N** to go straight to the one that has waited longest.
+- **A helper, when one is stuck.** Press **U** at a worker that's going in circles and a second agent walks over, stands at the desk with a laptop, re-reads the failure the first one can't see past, tells the worker what it found, and goes home. It works in that worker's own checkout and cannot edit, commit or open a pull request: the work never moves off the worker you're helping.
 - **From your phone, too.** `/lite` is the office in 2D: every worker and what it's waiting on, its terminal with the keys a phone keyboard lacks, and the boards. The 3D office offers it on a phone or a slow computer.
 - **GitHub or Bitbucket on the walls.** Issues and pull requests hang on cork boards, for the repository the checkout's `origin` points at (your own, for a fork). Hand an issue to a worker, queue tasks, give a worker its own git worktree and open its PR with one key (if one gets deleted behind the office's back, the worker waits at its desk until you rebuild it). One task can span several projects: the worker gets a worktree of each, and a PR in each that links the others.
 - **Agents that manage agents.** Every worker can list, hire, message and send home the others, through an `agent-office` MCP server (Claude Code, Codex, OpenCode) or the `office-workers` command. Ask one to "send everyone whose PR merged home" and it does, deleting their worktrees and branches unless they hold unpushed work.
-- **Together.** Voice, chat, a lounge TV that plays whatever video you paste a link to (or shows whoever's screen sharing) for everyone on the floor at once, and a shared whiteboard.
+- **Together.** Voice, chat, a lounge TV that plays whatever video you paste a link to (or shows whoever's screen sharing) for everyone on the floor at once, a dance floor with disco lights in front of it that each person can put out from the TV window, and a shared whiteboard. There's a switch on the wall by that TV: throw it and the office's lights go down for the film.
 - **A green, cosy office.** Plants everywhere you look: floor palms and a fiddle-leaf fig, peace lilies, pothos trailing off the desks and out of baskets hung from the ceiling, little pots on every window sill, herbs in the kitchen and window boxes along the balcony rail — with wood, wicker, terracotta and a warm floor lamp by the lounge.
-- **You need looking after too.** Your energy and stress meters under the project name run down over ten minutes and a quarter of an hour: your legs get heavy as the energy goes and your hands shake when you're wound up. A cup from the coffee machine in the kitchen puts the energy back, and so does a can of Diet Coke off the fridge's shelf (**C**, with the fridge open); a drink from the rooftop bar takes the stress off. Run either right out and you keel over on the floor and come round outside the building with both meters full.
+- **You need looking after too.** Your energy and stress meters under the project name run down over ten minutes and a quarter of an hour: your legs get heavy as the energy goes and your hands shake when you're wound up. A cup from the coffee machine in the kitchen puts the energy back, and so does a can of Diet Coke off the fridge's shelf (**C**, with the fridge open); a drink from the rooftop bar takes the stress off. Run either right out and you keel over on the floor and come round outside the building with both meters full. Bang the office gong and every bot on the floor gathers to dance a **🪕 Fugdi** together: rings of clapping, whirling dancers, and a turn together to finish.
 
 - **Other maps.** Turn the whole building into a castle: sit on a throne of iron blades while your workers line up before you when they're done, send new ones off through the Hand of the King, and watch their beards grow long and grey as they toil. Send one home and the Kingsguard runs up from the dungeon, marches it down the stairs and throws it in a cell, where it starves, dies and rots down to a skeleton. Or turn it into **🌃 Night City**: a rain-slick neon concourse of holographic billboards, vending machines and LED strips, console benches under a steel gantry, the city towers and rain beyond the glass, and a terrace over the street you can walk out onto. Or make a map of your own, with its own way of seeing workers off in JSON ([docs/maps.md](docs/maps.md)).
 
@@ -317,6 +318,20 @@ deploy/dokploy.sh ssh 'node /opt/agent-office/bin/agent-office.js accounts invit
 
 **Removing someone.** Revoke their account in **🔑 Accounts** (or `agent-office accounts revoke <name>`), and on a server also remove them in **👥 Invite teammates** (on AWS, `deploy/aws.sh uninvite <name>`; on Railway, `deploy/railway.sh uninvite <name>`; on Fly.io, `deploy/fly.sh uninvite <name>`; on Dokploy, `deploy/dokploy.sh uninvite <name>`) to take away their SSH keys and drop open tunnels (other teammates just reconnect). If the shared password is still on, change it with `deploy/aws.sh reset-password` (or `deploy/railway.sh reset-password`, `deploy/fly.sh reset-password` or `deploy/dokploy.sh reset-password`).
 
+## Office interiors
+
+Keep the original warm office or switch to the futuristic graphite-and-blue design from
+**Settings → Building → Theme**. Choose **Original office** for the wood floors,
+colorful chairs and pendant lamps, or **Futuristic office** for dark furniture, tiled finishes,
+linear blue lighting and acoustic panels. Switching is live, keeps workers and terminals in
+place, and is saved for everyone in the building. Calendar and holiday themes use the original
+interior with their seasonal decorations.
+
+For an interactive preview without signing in, run `npm run dev` and open
+`http://localhost:5173/lab/office.html`. Its buttons switch between both interiors; add
+`?view=meeting` for the glass-room view or `?interior=original` to start in the original office.
+Drag to orbit and scroll to zoom. See [Maps](docs/maps.md#office-interiors) for the implementation.
+
 ## Controls
 
 | Key | Action |
@@ -343,7 +358,7 @@ The full list is in [docs/controls.md](docs/controls.md).
 
 ```bash
 npm install
-npm run dev          # Vite with hot reload on :5173, the server on :4600 (password: dev)
+npm run dev          # Vite with hot reload on :5173, the server on :4600 (password: 123)
 npm run typecheck
 npm test
 ```
@@ -356,7 +371,7 @@ Every change to the app that lands on `main` is published as a GitHub release by
 
 - [Features](docs/features.md): everything in the office, room by room
 - [Agents](docs/agents.md): Claude Code, Codex and OpenCode, models and effort, and the office's prompts
-- [Floor hosts](docs/floor-hosts.md): running a floor on someone else's machine, and what hosting one means
+- [Floor hosts](docs/floor-hosts.md): running a floor or repo-less demo on someone else's machine, live terminal and room updates, and reconnecting after a disconnect
 - [Configuration](docs/configuration.md): every command-line option, and where the office keeps its data
 - [Maps](docs/maps.md): the castle, and making a map of your own
 - [AWS reference](docs/aws.md): Tailscale, service tunnels, upgrades, and everything `deploy/aws.sh` does
@@ -366,6 +381,7 @@ Every change to the app that lands on `main` is published as a GitHub release by
 - [Your own server](docs/self-hosting.md): the one-line setup for any Ubuntu or Debian server, or by hand behind Caddy or nginx
 - [Azure reference](docs/azure.md): picking a VM size, pausing, and everything `deploy/azure.sh` does
 - [How it works](docs/how-it-works.md): the architecture, and security notes
+- [Decisions](docs/decisions/further-enhancements.md): what the table of bots decided to build next, and why
 - [Streaming to the TV](docs/tv-streaming.md): what plays on the lounge TV, and how every browser stays in step with it
 
 ## License

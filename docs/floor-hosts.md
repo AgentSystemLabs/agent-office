@@ -10,9 +10,18 @@ your laptop runs there, as you, on your disk, with your sign-ins.
 The laptop dials the office. Nothing listens on your machine, and nothing inbound is needed: no port,
 no firewall change, no NAT traversal.
 
+A hosted floor does not need a repository name in its saved definition to hire workers. Its agent
+choices come from the connected host; a demo checkout without a repository uses its floor name.
+
+Terminal output reaches attached viewers, and room and worker updates reach people on the hosted
+floor. Changes previews go only to the viewers watching them. When a host disconnects or leaves a
+floor, pending calls stop waiting immediately. Restart `agent-office floor-host --office <address>`
+to reconnect with its saved token; the floor becomes reachable when the host announces it ready.
+
 > **Status: a machine pairs, connects, runs a real floor, answers calls against it, and the floor
 > appears in the elevator with its machine's name and whether that machine is answering.** Riding
-> into one is not wired yet. See [what is not done](#what-is-not-done) before relying on this.
+> into one works: the floor is a real room you can walk into, with the machine's name on its door.
+> See [what is not done](#what-is-not-done) for the parts that are still missing.
 
 ## Pairing
 
@@ -89,11 +98,22 @@ whose machine ran it.
 
 ## How a floor gets there
 
-The office decides *what* runs on a machine; the machine decides *whether to answer*. On the office:
+On the office, add an existing checkout on a paired machine:
 
-1. Add the floor to the building as usual, in the office's own project folder.
-2. Its `FloorDef` gains a `host` naming the paired machine, and its `dir` becomes the path **on that
-   machine**.
+```bash
+agent-office hosts add-floor "Alice's laptop" owner/repo --checkout /home/alice/work/owner/repo
+agent-office hosts rm-floor owner/repo
+```
+
+Stop the office before changing the building with these commands, then start it again and reconnect
+the floor host. These commands edit the saved building; they do not update an already running office.
+The checkout stays on the host when its floor is removed. No repository is cloned by `add-floor`.
+Use `--floor "Display name"` to name the floor. If `--checkout` is omitted, the path defaults to
+`<host projects folder>/owner/repo`. Hosts report that folder on connection, including when they
+serve no floors; set it with `floor-host --projects <dir>` (default `~/work`, or `AGENT_OFFICE_PROJECTS`).
+
+The office decides *what* runs on a machine; the machine decides *whether to answer*. `add-floor`
+saves a `FloorDef` whose `host` names the paired machine and whose `dir` is the checkout path on it.
 
 The machine is told which floors the office wants when it connects, and serves the ones whose `dir`
 exists there. One that does not is skipped and said so, rather than pretended.
@@ -120,7 +140,7 @@ Stated plainly, because the alternative is someone finding out the hard way:
 
 | | |
 |---|---|
-| **Riding into a hosted floor is not wired.** | It is on the elevator panel, with its machine and its online state, but `floor.go` still resolves floors from the local building, so clicking it does not take you there yet. |
+| ~~Riding into a hosted floor is not wired.~~ | **Done.** You can ride to one from the elevator and stand in it. The room is built from the state the host streams up, so the boards, the queue, the plan, the cars and the ball all arrive with you; the dog, the whiteboard and the docs do not, because they are files on that machine, and asking for one tells you so by name. |
 | ~~The host does not run a real `Floor`.~~ | **Done.** The host opens a real `Floor` — the same class the office runs — with its own `WorkerManager`, `TaskQueue`, `Forge` and `Changes` on this disk, and answers the office's calls against it. |
 | **An agent's office tools are unavailable.** | The host serves `/hooks/*` so a worker's status reaches it, but not the office's `/office/*` MCP endpoints. An agent on a hosted floor cannot use its `office-workers` tools; everything else works. |
 | **A machine is not yet told its floors by the office's building list at startup** in every path. | `floorsFor` reads the building, so it is correct for a floor added with a `host`; adding one from the UI is not wired. |
@@ -148,11 +168,21 @@ building knows a floor's host id long before anyone claims the code.
 ## Trying it without two machines
 
 ```bash
-npx tsx scripts/e2e-floor-host.mjs
+npm run e2e:floor-host
 ```
 
 Runs both sides in one process: a pairing code, a token kept at `0600`, a floor served, the machine
 going away, and the same machine coming back with its token and no code.
+
+```bash
+npm run e2e:floor-ride
+```
+
+Starts three real processes — the office, a floor-host on "another machine", and a browser client —
+and rides the elevator up to the hosted floor for real. This is the one that would have caught the
+bug that made a hosted floor visible and not enterable: the other two wire the registry and the proxy
+by hand, so neither could ever reach `floor.go`. It needs no client bundle (`dist/` gets a stub it
+removes afterwards, because it only ever speaks `/ws`).
 
 ```bash
 npm run demo:floor-host

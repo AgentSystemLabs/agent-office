@@ -15,12 +15,11 @@ import {
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-test('the protocol is 50 messages, not 117', () => {
-  // The number that matters. `handleMessage` is 117 cases across three switches (104 here, 7 in
+test('the protocol has 55 floor messages', () => {
   // handleSignIns, 6 in handleAccounts); only these act on a Floor and need to travel. If this drifts,
   // a case started or stopped touching a floor and nobody decided where it should run.
-  assert.equal(FLOOR_CASES.length, 50);
-  assert.equal(new Set(FLOOR_CASES).size, 50, 'no duplicates');
+  assert.equal(FLOOR_CASES.length, 55);
+  assert.equal(new Set(FLOOR_CASES).size, 55, 'no duplicates');
   for (const c of FLOOR_CASES) assert.match(c, /^[a-z]+\.[a-zA-Z]+$/, `${c} is not a namespaced case`);
 });
 
@@ -40,11 +39,23 @@ const LOOKUP_ONLY = [
   'wb.update',
 ];
 
+/**
+ * Floor calls the office makes on its own initiative, with no client message of their own.
+ *
+ * `ball.left` is the only one, and it became a call when riding onto a hosted floor did: the office
+ * puts the ball back under the hoop when somebody leaves, and the ball is wherever that floor is — so
+ * on a hosted floor the machine holding the floor is the one that has to drop it. It is still a
+ * shipped case rather than something the office does itself, because the office has never seen the
+ * ball. Named here so the check below keeps its teeth: a typo is still a typo.
+ */
+const NO_MESSAGE_CASE = new Set(['ball.left']);
+
 test('every floor case named is a real case in the message switch', () => {
   // The robust half: no ghosts and no typos. A name here that server.ts does not have would be a
   // frame the host accepts and then refuses for a reason nobody can see.
   const source = readFileSync(path.join(root, 'src/server/server.ts'), 'utf8');
   for (const c of FLOOR_CASES) {
+    if (NO_MESSAGE_CASE.has(c)) continue;
     assert.ok(new RegExp(`case '${c.replace('.', '\\.')}'`).test(source), `${c} is not a case in server.ts`);
   }
 });

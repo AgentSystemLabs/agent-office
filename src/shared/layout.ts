@@ -250,6 +250,12 @@ export const BOARDS = {
 /** The big TV on the east wall that shows whoever is screen sharing. */
 export const TV = { x: FLOOR.maxX - 0.1, y: 2.2, z: 0, width: 6.4, height: 3.6 } as const;
 /**
+ * The theatre switch: on the east wall just south of the TV, at the height you flip one at, facing
+ * into the room. Turning it on puts the office in theatre mode — the room's own light goes down and
+ * the picture on the TV is the brightest thing in it (see shared/tv.ts, client/world/theatre.ts).
+ */
+export const THEATRE_SWITCH = { x: FLOOR.maxX - 0.02, y: 1.25, z: 3.9, rotY: -Math.PI / 2 } as const;
+/**
  * The monitor on the west wall, between the first two windows from the north (the ladder has the
  * span between the middle two) and facing the desks: how busy the office's machine is, and how many
  * workers it runs of the most it takes.
@@ -358,6 +364,13 @@ export const HANGING_PLANTS: readonly (readonly [x: number, z: number, cord: num
  * edge is `bottom` above the floor.
  */
 export const WHITEBOARD = { x: 5.4, z: -5.4, width: 4, height: 2.2, bottom: 0.5 } as const;
+
+/**
+ * Where the gong calls the office to dance a Fugdi (see shared/fugdi.ts): the open floor south of
+ * the desks, clear of the desk rugs (which end at z 6.3), the kitchen, the bookshelf, the balcony
+ * doors and the stairs. With several rings they stand in a row either side of here.
+ */
+export const FUGDI_HOME = { x: -3.4, z: 9.2 } as const;
 
 /**
  * The bottom floor of the building is its second storey: the street, and the open garage under the

@@ -66,13 +66,13 @@ const ready = (floorId: string, over: Partial<FloorReady> = {}): FloorReady => (
   ...over,
 });
 
-async function connect(url: string, token: string, floors: string[] = ['f1']) {
+async function connect(url: string, token: string, floors: string[] = ['f1'], projectsDir?: string) {
   const ws = new WebSocket(url);
   await new Promise((res, rej) => {
     ws.once('open', res);
     ws.once('error', rej);
   });
-  ws.send(JSON.stringify({ t: 'hello', token, hostId: 'h1', protocol: FLOORHOST_PROTOCOL, floors }));
+  ws.send(JSON.stringify({ t: 'hello', token, hostId: 'h1', protocol: FLOORHOST_PROTOCOL, floors, projectsDir }));
   return ws;
 }
 
@@ -114,6 +114,84 @@ test('a paired machine connects, announces a floor, and the office knows it', as
     assert.equal(f.registry.isReachable('f1'), true, 'the floor is reachable');
     assert.equal(f.registry.serves('f1')?.host.id, claimed.host.id);
     assert.equal(f.registry.floorsOf(claimed.host.id), 1);
+    ws.close();
+  } finally {
+    f.close();
+  }
+});
+
+test('a host with no floors reports its projects folder during the handshake', async () => {
+  const f = await server();
+  try {
+    const code = f.hosts.pair('admin');
+    assert.ok(typeof code !== 'string');
+    const paired = f.hosts.claim(code.code, 'Empty laptop');
+    assert.ok(typeof paired !== 'string');
+    const ws = await connect(f.url, paired.token, [], 'C:\\work');
+    await new Promise<void>((resolve) => ws.once('message', () => resolve()));
+    assert.equal(f.hosts.get(paired.host.id)?.projectsDir, 'C:\\work');
+    assert.equal(f.registry.floorsOf(paired.host.id), 0);
+    ws.close();
+  } finally {
+    f.close();
+  }
+});
+
+test('leaving one floor notifies the office without disconnecting the other floors', async () => {
+  const f = await server();
+  try {
+    const made = f.hosts.pair('admin');
+    assert.ok(typeof made !== 'string');
+    const claimed = f.hosts.claim(made.code, 'Alice’s laptop', 'alice', 4);
+    assert.ok(typeof claimed !== 'string');
+    const ws = await connect(f.url, claimed.token, ['f1', 'f2']);
+    const bothReady = new Promise<void>((resolve) => {
+      f.registry.onFloorUp = (id) => { if (id === 'f2') resolve(); };
+    });
+    ws.send(JSON.stringify({ t: 'ready', floor: ready('f1') }));
+    ws.send(JSON.stringify({ t: 'ready', floor: ready('f2') }));
+    await bothReady;
+    const gone = new Promise<string>((resolve) => { f.registry.onFloorGone = resolve; });
+    ws.send(JSON.stringify({ t: 'leave', floorId: 'f1' }));
+    assert.equal(await gone, 'f1');
+    assert.equal(f.registry.isReachable('f1'), false);
+    assert.equal(f.registry.isReachable('f2'), true);
+    ws.close();
+  } finally {
+    f.close();
+  }
+});
+
+test('everything a machine announces reaches the proxy, not just the registry', async () => {
+  // `ready` is the one frame the registry handles itself, and handling it there alone is a silent
+  // trap: the office's `RemoteFloor` is where the roster, the branch, the agent list and the forge
+  // kind are read from, and none of them arrive any other way. Dropping it here is an elevator that
+  // always says zero workers and a Bitbucket floor the office goes on treating as GitHub.
+  const f = await server();
+  try {
+    const made = f.hosts.pair('admin');
+    assert.ok(typeof made !== 'string');
+    const claimed = f.hosts.claim(made.code, 'Alice’s laptop', 'alice', 4);
+    assert.ok(typeof claimed !== 'string');
+
+    const upward: { floorId: string; t: string; floor?: unknown }[] = [];
+    f.registry.onUpward = (floorId, msg) => upward.push({ floorId, ...(msg as { t: string }) });
+
+    const ws = await connect(f.url, claimed.token, ['f1']);
+    ws.send(JSON.stringify({ t: 'ready', floor: ready('f1', { seats: 4, branch: 'release/2', providers: ['claude', 'opencode'], workers: [{ id: 'w1', status: 'working', deskId: 'desk-1' }] }) }));
+    await new Promise((r) => setTimeout(r, 120));
+
+    const told = upward.find((m) => m.t === 'ready');
+    assert.ok(told, 'the proxy is handed the ready frame');
+    assert.equal(told.floorId, 'f1');
+    const payload = told.floor as { branch?: string; providers?: string[]; workers: { id: string }[] };
+    assert.equal(payload.branch, 'release/2', 'the branch only that machine knows');
+    assert.deepEqual(payload.providers, ['claude', 'opencode'], 'and the agents it actually has');
+    assert.deepEqual(
+      payload.workers.map((w) => w.id),
+      ['w1'],
+      'and the roster of workers already on it',
+    );
     ws.close();
   } finally {
     f.close();
@@ -308,11 +386,18 @@ test('an upward frame reaches whoever holds that floor proxy', async () => {
     for (const id of ['f1', 'f2']) ws.send(JSON.stringify({ t: 'ready', floor: ready(id) }));
     await new Promise((r) => setTimeout(r, 120));
 
-    // An answer to a call, and a plain event: both are the floor talking upward.
+    // An answer to a call, and a plain event: both are the floor talking upward. And the two `ready`
+    // frames ahead of them, which the registry handles itself but must still hand on — the proxy is
+    // where the roster, the branch and the forge kind are read from, and nothing else carries them.
     ws.send(JSON.stringify({ t: 'event', floorId: 'f1', seq: 7, msg: { t: 'worker.update' } }));
     ws.send(JSON.stringify({ t: 'term.data', floorId: 'f2', workerId: 'w1', data: 'hi' }));
     await new Promise((r) => setTimeout(r, 120));
-    assert.deepEqual(upward, [{ floorId: 'f1', t: 'event' }, { floorId: 'f2', t: 'term.data' }]);
+    assert.deepEqual(upward, [
+      { floorId: 'f1', t: 'ready' },
+      { floorId: 'f2', t: 'ready' },
+      { floorId: 'f1', t: 'event' },
+      { floorId: 'f2', t: 'term.data' },
+    ]);
 
     // And losing the machine tells the office about every floor it carried, in one pass.
     ws.close();

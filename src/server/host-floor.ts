@@ -139,7 +139,20 @@ export class HostFloors {
     state('cars', { state: floor.garage.state() });
     state('meeting', { state: floor.meetings.state() });
     state('tv', { state: floor.tv.state() });
+    // The two boards and the dungeon joined them when riding onto a hosted floor became a thing: the
+    // office builds the view someone walks into out of exactly these, so a board or a jail that is
+    // read but never reported is a room that arrives empty for no reason anyone can see.
+    state('gh.issues', { state: floor.forge.issues.state });
+    state('gh.pulls', { state: floor.forge.pulls.state });
+    state('jail', { state: floor.jail.state() });
   }
+
+  /**
+   * Where this machine keeps its checkouts. Kept as the office would see it — a real path on this
+   * disk — because it is only ever a suggestion for the office's `hosts add-floor`, which has no way
+   * to look here.
+   */
+  projectsDir: string = '';
 
   /** Tells the office a floor is up, with its seats and whoever is already on it. */
   private report(floorId: string, floor: Floor) {
@@ -158,6 +171,12 @@ export class HostFloors {
         // This machine's own identity: commits from here are attributed to whoever runs it, which is
         // the point of a hosted floor running on their sign-ins (decision 5).
         forge: floor.forge.kind,
+        // Only this machine knows these: which branch its checkout is on, and which agent CLIs are
+        // actually installed here. The office needs both to describe the floor to someone who rides
+        // into it from here, and it cannot work either out from its own disk.
+        branch: floor.project.branch,
+        providers: floor.project.agentProviders,
+        projectsDir: this.projectsDir,
         workers: floor.workers.list().map((w) => ({ id: w.id, status: w.status, deskId: w.deskId })),
       },
     });
@@ -183,7 +202,7 @@ export class HostFloors {
       emit: (_floor: Floor, msg: ServerMsg, droppable?: boolean) => up(msg, droppable === true),
       toast: (_floor: Floor, text: string, level?: 'info' | 'warn' | 'error') => up({ t: 'toast', text, level: level ?? 'info' }),
       termData: (workerId: string, data: string, _viewers: string[]) => parts.send({ t: 'term.data', floorId, workerId, data }),
-      changes: (state: ChangesState, _clients: string[]) => up({ t: 'changes', state }),
+      changes: (state: ChangesState, clients: string[]) => parts.send({ t: 'event', floorId, seq: 0, clients, msg: { t: 'changes', state } }),
       workerChanged: (_floor: Floor, w: WorkerInfo | string) => {
         // Keep the worker index current here, which is the one place a worker's arrival and departure
         // is announced.
@@ -236,34 +255,37 @@ export class HostFloors {
   }
 
   /** The floor cases, each against this machine's own floor. */
-  private async apply(floor: Floor, msg: ToOffice): Promise<string | undefined> {
+  private async apply(floor: Floor, msg: ToOffice): Promise<unknown> {
     const m = msg as unknown as Record<string, unknown>;
     const s = (k: string) => (typeof m[k] === 'string' ? (m[k] as string) : '');
     const num = (k: string) => (Number.isFinite(Number(m[k])) ? Number(m[k]) : 0);
     switch (msg.t) {
       case 'worker.spawn':
-        return str(await floor.workers.spawn(s('deskId'), s('by'), s('prompt') || undefined, m.worktree === true, m.kind as never, m.provider as never, s('model') || undefined, m.effort as never, undefined, s('owner') || undefined));
+        return await floor.workers.spawn(s('deskId'), s('by'), s('prompt') || undefined, m.worktree === true, m.kind as never, m.provider as never, s('model') || undefined, m.effort as never, undefined, s('owner') || undefined);
       case 'worker.resume':
-        return str(await floor.workers.resume(s('workerId'), s('prompt') || undefined));
+        return await floor.workers.resume(s('workerId'), s('prompt') || undefined);
       case 'worker.prompt':
-        return str(await floor.workers.prompt(s('workerId'), s('text'), s('by') || undefined));
+        return await floor.workers.prompt(s('workerId'), s('text'), s('by') || undefined);
       case 'worker.kill': {
-        const r = await floor.workers.kill(s('workerId'), m.cleanup as never);
-        return r.error ?? r.note;
+        return floor.sendHome(s('workerId'), m.cleanup as never);
       }
       case 'worker.attach':
-        return str(await floor.workers.attach(s('workerId'), s('clientId'), s('name')));
+        return await floor.workers.attach(s('workerId'), s('clientId'), s('name'));
       case 'worker.detach':
         floor.workers.detach(s('workerId'), s('clientId'));
         return undefined;
       case 'worker.rebuild':
-        return str(await floor.workers.rebuild(s('workerId')));
+        return await floor.workers.rebuild(s('workerId'));
       case 'worker.worktree':
-        return str(await floor.workers.inspectWorktree(s('workerId')));
+        return await floor.workers.inspectWorktree(s('workerId'));
       case 'worker.pr':
-        return str(await floor.workers.openPr(s('workerId'), s('by')));
+        return await floor.workers.openPr(s('workerId'), s('by'));
       case 'station.prompt':
-        return str(await floor.workers.station(s('deskId'), s('by'), s('text'), s('owner') || undefined));
+        return await floor.workers.station(s('deskId'), s('by'), s('text'), s('owner') || undefined);
+      // A helper to walk over to a worker here. The host owns the walk as well as the hire, since the
+      // route is between this floor's own desks, and the office only hears that it happened.
+      case 'worker.helper':
+        return await floor.workers.sendHelper(s('hostId'), s('by'), m.provider as never, s('model') || undefined, m.effort as never, s('owner') || undefined);
       case 'worker.search':
         return (await floor.workers.search(s('needle'), num('perWorker') || 0)) as never;
 
@@ -276,14 +298,14 @@ export class HostFloors {
         return undefined;
 
       case 'queue.add':
-        return str(await floor.queue.add(s('prompt'), s('by'), s('title') || undefined, m.issue as number | undefined, m.provider as AgentProvider | undefined, s('model') || undefined, m.effort as AgentEffort | undefined, s('owner') || undefined));
+        return await floor.queue.add(s('prompt'), s('by'), s('title') || undefined, m.issue as number | undefined, m.provider as AgentProvider | undefined, s('model') || undefined, m.effort as AgentEffort | undefined, s('owner') || undefined);
       case 'queue.remove':
-        return str(await floor.queue.remove(s('taskId')));
+        return await floor.queue.remove(s('taskId'));
       case 'queue.move':
         floor.queue.move(s('taskId'), num('delta') < 0 ? -1 : 1);
         return undefined;
       case 'queue.retry':
-        return str(await floor.queue.retry(s('taskId')));
+        return await floor.queue.retry(s('taskId'));
       case 'queue.dropIssue':
         return (await floor.queue.dropIssue(num('issue'))) as never;
       case 'queue.clear':
@@ -298,13 +320,13 @@ export class HostFloors {
         await floor.forge.refresh();
         return undefined;
       case 'gh.claim':
-        return str(await floor.forge.claim(num('issue')));
+        return await floor.forge.claim(num('issue'));
       case 'gh.merge':
-        return str(await floor.forge.merge(num('n'), m.method as never, m.deleteBranch === true, m.auto === true));
+        return await floor.forge.merge(num('n'), m.method as never, m.deleteBranch === true, m.auto === true);
       case 'gh.comment':
         return (await floor.forge.comment(m.kind as never, num('n'), s('body'))).error;
       case 'gh.close':
-        return str(await floor.forge.close(m.kind as never, num('n'), (m.opts ?? {}) as never));
+        return await floor.forge.close(m.kind as never, num('n'), (m.opts ?? {}) as never);
       case 'gh.labels':
         return (await floor.forge.setLabels(m.kind as never, num('n'), (m.add ?? []) as string[], (m.remove ?? []) as string[])).error;
 
@@ -315,60 +337,69 @@ export class HostFloors {
         floor.changes.unwatch(s('workerId'), s('clientId'));
         return undefined;
       case 'changes.diff':
-        return str(await floor.changes.diff(s('workerId'), s('filePath')));
+        return await floor.changes.diff(s('workerId'), s('filePath'));
       case 'changes.commit':
-        return str(await floor.changes.commit(s('workerId'), s('message'), s('who')));
+        return await floor.changes.commit(s('workerId'), s('message'), s('who'));
       case 'changes.discard':
-        return str(await floor.changes.discard(s('workerId'), s('filePath') || undefined, s('who')));
+        return await floor.changes.discard(s('workerId'), s('filePath') || undefined, s('who'));
       case 'changes.pr':
-        return str(await floor.changes.pullRequest(s('workerId'), s('title'), s('body'), s('who')));
+        return await floor.changes.pullRequest(s('workerId'), s('title'), s('body'), s('who'));
 
       case 'desk.label':
-        return str(await floor.plan.label(s('deskId'), m.text, m.color, s('by')));
+        return await floor.plan.label(s('deskId'), m.text, m.color, s('by'));
       case 'floor.expand':
-        return str(await floor.plan.expand());
+        return await floor.plan.expand();
       case 'floor.shrink':
-        return str(await floor.plan.shrink((id) => floor.workers.deskOccupied(id)));
+        return await floor.plan.shrink((id) => floor.workers.deskOccupied(id));
       case 'decor.add':
-        return str(await floor.decor.add(m.input, s('by')));
+        return await floor.decor.add(m.input, s('by'));
       case 'decor.update':
-        return str(await floor.decor.update(s('id'), m.patch));
+        return await floor.decor.update(s('id'), m.patch);
       case 'decor.remove':
-        return str(await floor.decor.remove(s('id')));
+        return await floor.decor.remove(s('id'));
 
       case 'jukebox.play':
-        return str(await floor.jukebox.play({ track: m.track, url: m.url }, s('by')));
+        return await floor.jukebox.play({ track: m.track, url: m.url }, s('by'));
+      case 'jukebox.place':
+        return await floor.jukebox.place(m.spot);
       case 'jukebox.skip':
         floor.jukebox.skip(s('by'));
         return undefined;
       case 'jukebox.stop':
-        return str(await floor.jukebox.stop(s('by')));
+        return await floor.jukebox.stop(s('by'));
       case 'ball.take':
-        return str(await floor.court.take(s('clientId')));
+        return await floor.court.take(s('clientId'));
+      // The ball rides with the people on the floor, so it is the host's to put back under the hoop
+      // when someone leaves. The office asks, because the office is the one that knows they left.
+      case 'ball.left':
+        return floor.court.left(s('clientId'));
       case 'ball.throw':
-        return str(await floor.court.throw(s('clientId'), m as never));
+        return await floor.court.throw(s('clientId'), m as never);
       case 'car.enter':
-        return str(await floor.garage.enter(s('clientId'), num('car'), m.seat as never));
+        return await floor.garage.enter(s('clientId'), num('car'), m.seat as never);
       case 'car.leave':
-        return str(await floor.garage.leave(s('clientId')));
+        return await floor.garage.leave(s('clientId'));
       case 'car.drive':
-        return str(await floor.garage.drive(s('clientId'), num('car'), m as never));
+        return await floor.garage.drive(s('clientId'), num('car'), m as never);
       case 'car.honk':
-        return str(await floor.garage.honk(s('clientId')));
+        return await floor.garage.honk(s('clientId'));
 
       // A meeting needs the room's people, which this machine does not know. Refused by kind, and the
       // office refuses it too: a hosted floor cannot hold one.
       case 'tv.play':
-        return str(await floor.tv.play((m.input ?? {}) as { url?: unknown; position?: unknown }, s('by')));
+        return await floor.tv.play((m.input ?? {}) as { url?: unknown; position?: unknown }, s('by'));
       case 'tv.pause':
-        return str(await floor.tv.pause(m.position, s('by')));
+        return await floor.tv.pause(m.position, s('by'));
       case 'tv.seek':
-        return str(await floor.tv.seek(m.position, s('by')));
+        return await floor.tv.seek(m.position, s('by'));
       case 'tv.stop':
-        return str(await floor.tv.stop(s('by')));
+        return await floor.tv.stop(s('by'));
+      case 'tv.theatre':
+        return await floor.tv.theatre(m.on === true, s('by'));
 
       case 'meeting.start':
       case 'meeting.stop':
+      case 'meeting.clear':
         // A meeting needs the room's people, which this machine does not know. Refused by kind; the
         // office refuses it too.
         return 'a meeting needs everyone in one building';
@@ -388,12 +419,8 @@ export class HostFloors {
  * A refusal, when the method returned one.
  *
  * The office's convention, and therefore the wire's: a floor method that returns a `string` has
- * failed, and anything else is its result. So this is only ever used to *test* for a refusal — the
- * value travels as it is.
+ * failed, and anything else is its result — the value travels as it is.
  */
-function str(value: unknown): string | undefined {
-  return typeof value === 'string' ? value : undefined;
-}
 
 /**
  * The hook listener for this machine's workers.

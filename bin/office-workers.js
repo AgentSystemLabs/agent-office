@@ -24,6 +24,10 @@ const USAGE = `Usage:
                                                 that isn't on GitHub, and says what it kept
   office-workers home --merged                  send home everyone whose pull request merged
   office-workers tell <name|id> <<'EOF'         type a prompt to a worker (or --prompt "…")
+  office-workers helper <name|id>               walk a second agent over to a worker that is
+                                                stuck, to read what it's doing and tell it what
+                                                it found (--provider, --model); the helper owns
+                                                nothing and goes home once it has reported
   office-workers mcp                            serve these as MCP tools on stdio`;
 
 /** A mistake in how the command was called: the usage is shown with it. */
@@ -35,7 +39,8 @@ export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 /** How long the office may take to come back when it's restarting (a dev reload, an upgrade). */
 const RETRY_MS = 6000;
 /** Sending several workers home waits on git for each; hiring may fetch from GitHub first. */
-const TIMEOUT_MS = { list: 15_000, tell: 15_000, hire: 90_000, home: 300_000 };
+// A helper is a hire, so it takes as long as one: the walk is the office's, not this call's.
+const TIMEOUT_MS = { list: 15_000, tell: 15_000, hire: 90_000, helper: 90_000, home: 300_000 };
 
 /**
  * Reads `--flag value` and `--flag=value` options, and the words that aren't options.
@@ -100,6 +105,15 @@ export function parseArgs(argv) {
     if (words.length !== 1) throw new UsageError('tell takes one worker, its name or id, with the prompt on stdin or --prompt "…"');
     return { cmd: 'tell', worker: words[0], ...(opts['--prompt'] !== undefined ? { prompt: opts['--prompt'] } : {}) };
   }
+  if (cmd === 'helper') {
+    const { opts, words } = options(rest, ['--provider', '--model'], []);
+    if (words.length !== 1) throw new UsageError('helper takes one worker, the one to help, by name or id');
+    /** @type {Record<string, unknown>} */
+    const out = { cmd: 'helper', worker: words[0] };
+    if (opts['--provider'] !== undefined) out.provider = String(opts['--provider']).trim();
+    if (opts['--model'] !== undefined) out.model = String(opts['--model']).trim();
+    return out;
+  }
   if (cmd === 'hire') {
     const { opts, words } = options(rest, ['--prompt', '--provider', '--model', '--effort', '--desk', '--issue'], ['--no-worktree', '--json']);
     if (words.length) throw new UsageError(`Unexpected argument: ${words[0]} (give the task on stdin or with --prompt)`);
@@ -147,7 +161,7 @@ export function officeEnv(env) {
  * @returns {{ method: string, url: string, headers: Record<string, string>, body?: string, timeout: number }}
  */
 export function buildRequest(what, office, body) {
-  const url = new URL(`${office.url}/office/workers${what === 'home' ? '/home' : what === 'tell' ? '/tell' : ''}`);
+  const url = new URL(`${office.url}/office/workers${what === 'home' ? '/home' : what === 'tell' ? '/tell' : what === 'helper' ? '/helper' : ''}`);
   url.searchParams.set('worker', office.worker);
   const headers = { authorization: `Bearer ${office.token}` };
   if (what === 'list') return { method: 'GET', url: url.href, headers, timeout: TIMEOUT_MS.list };
@@ -312,6 +326,25 @@ export const TOOLS = [
     },
     annotations: { destructiveHint: false, openWorldHint: false },
   },
+  {
+    name: 'get_helper',
+    title: 'Bring a helper to a worker',
+    description:
+      "Walks a second agent over to a worker that is stuck, to read what it is doing and tell it what it found. The helper works in that worker's own checkout, cannot edit, " +
+      "commit or open a pull request, and goes home once it has reported. It takes a worker's slot, so a full office refuses it. " +
+      WORKER_NOTE,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        worker: { type: 'string', description: 'The worker to help, by name or id. It must be in a git worktree of its own.' },
+        provider: { type: 'string', description: "Which agent the helper runs: claude, opencode, codex, grok, muse or dsh. The office's default worker otherwise." },
+        model: { type: 'string', description: 'A model for the helper, instead of that default.' },
+      },
+      required: ['worker'],
+      additionalProperties: false,
+    },
+    annotations: { destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  },
 ];
 
 const INSTRUCTIONS =
@@ -338,6 +371,11 @@ async function runTool(name, args, io) {
   if (name === 'tell_worker') {
     const answer = await call('tell', a, io);
     return { text: `Told ${answer.worker?.name ?? a.worker}.` };
+  }
+  if (name === 'get_helper') {
+    const answer = await call('helper', a, io);
+    const w = answer.worker ?? {};
+    return { text: `Brought ${w.name} over to help ${a.worker}; it reports to that worker and goes home.` };
   }
   throw new Error(`Unknown tool: ${name}`);
 }
@@ -462,6 +500,12 @@ export async function main(argv, io = {}) {
       if (!text) throw new UsageError('The prompt is empty');
       const answer = await call('tell', { worker: cmd.worker, prompt: text }, ctx);
       err(`Told ${answer.worker?.name ?? cmd.worker}.`);
+      return 0;
+    }
+    if (cmd.cmd === 'helper') {
+      const { cmd: _, ...body } = cmd;
+      const answer = await call('helper', body, ctx);
+      err(`Brought ${answer.worker?.name ?? cmd.worker} over to help ${cmd.worker}; it reports to them and goes home.`);
       return 0;
     }
     const { cmd: _, json, ...body } = cmd;

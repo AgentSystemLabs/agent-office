@@ -11,6 +11,7 @@ import { OpenBook } from './book';
 import { HeldCard } from './card';
 import { GRIME, UNDEAD_SKIN, beard, beardColor, elfBoot, elfHat, elfWorker, grime, peasantGarb, santaHat, warlockHat, zombieWorker, type Beard, type PeasantGarb } from './costumes';
 import { cardSprite, disposeSprite, mesh, textSprite, toon, toonUnique } from './toon';
+import { BEAT as FUGDI_BEAT, FUGDI, FUGDI_SECONDS, fugdiPose } from '../../shared/fugdi';
 
 export type Pose = 'stand' | 'walk' | 'sit' | 'type';
 
@@ -312,6 +313,8 @@ export function boxOfStuff(): THREE.Group {
 
 const v1 = new THREE.Vector3();
 const v2 = new THREE.Vector3();
+/** Scratch for the parent's scale while a dance is worked out in a seat's own frame (see fugdiStep). */
+const vScale = new THREE.Vector3();
 
 /** Where the line under a person's name tag sits, just over their hair, and how far it lifts the name tag. */
 const DOING_Y = 1.95;
@@ -1445,6 +1448,8 @@ const WAIT_CYCLE = 4.6;
 const TWIRL_TIME = 0.9;
 
 const ease = (x: number) => x * x * (3 - 2 * x);
+/** `ease`, for a value that may sit outside 0..1. */
+const ease01 = (x: number) => ease(Math.min(1, Math.max(0, x)));
 /** 0 → 1 with a little overshoot, for props popping in. */
 const popIn = (x: number) => (x <= 0 ? 0 : x >= 1 ? 1 : 1 + 2.7 * (x - 1) ** 3 + 1.7 * (x - 1) ** 2);
 
@@ -1598,6 +1603,11 @@ export class Worker {
   private cheerT = 0;
   /** Up on its desk dancing (a pull request merged): where, and how many seconds in. */
   private dancing: { stage: Stage; t: number } | null = null;
+  /**
+   * Called out to the circle for a Fugdi (the gong went): the ring's middle in this model's own
+   * frame, which ring, who it is in it, and how far into the dance `t` is (from -FUGDI.gather).
+   */
+  private fugdiDance: { stage: Stage; ring: number; member: number; count: number; t: number } | null = null;
   private pupils: THREE.Mesh[] = [];
   private feet: THREE.Mesh[] = [];
   /** Sent home: the box of its things in its arms, and how far into its waddle it is. */
@@ -1851,7 +1861,8 @@ export class Worker {
    * ball, and hops back down into its seat. Asked again mid-dance, it stays up and dances on.
    */
   dance(stage: Stage) {
-    if (this.leaving) return;
+    // Already in a Fugdi: let the ring finish rather than pull it out to its desk mid-dance.
+    if (this.leaving || this.fugdiDance) return;
     const d = this.dancing;
     if (!d) {
       this.dancing = { stage, t: 0 };
@@ -1863,8 +1874,31 @@ export class Worker {
     } else d.t = Math.min(d.t, DANCE.up);
   }
 
+  /**
+   * Joins the circle dance: the ring's middle as `stage` (in this model's seat's own frame), and
+   * which dancer of the ring it is. Asked to join again mid-dance, it takes its new place and
+   * dances on.
+   */
+  fugdi(stage: Stage, ring: number, member: number, count: number) {
+    if (this.leaving || this.jailed) return;
+    if (this.fugdiDance) {
+      Object.assign(this.fugdiDance, { stage, ring, member, count });
+      return;
+    }
+    this.dancing = null;
+    this.twirlT = -1;
+    this.cheerT = 0;
+    this.bounceT = 0;
+    this.fugdiDance = { stage, ring, member, count, t: -FUGDI.gather };
+  }
+
   /** Back in its seat at once, mid-dance or not (it's being sent home). */
   stopDancing() {
+    if (this.fugdiDance) {
+      this.fugdiDance = null;
+      this.settle();
+      return;
+    }
     if (!this.dancing) return;
     this.dancing = null;
     this.settle();
@@ -1893,6 +1927,7 @@ export class Worker {
     this.cheerT = 0;
     this.bounceT = 0;
     this.twirlT = -1;
+    this.fugdiDance = null;
     for (const prop of [this.papers.group, this.globe.group]) prop.visible = false;
     this.armL.position.set(-0.3, 0.55, 0.05);
     this.armR.position.set(0.3, 0.55, 0.05);
@@ -1977,6 +2012,7 @@ export class Worker {
       this.cheerT = 0;
       this.twirlT = -1;
       this.dancing = null;
+      this.fugdiDance = null;
       for (const prop of [this.papers.group, this.globe.group]) prop.visible = false;
       this.bulb.color.set(STATUS_BULB.exited);
       this.bulb.emissive.set('#000000');
@@ -2072,6 +2108,7 @@ export class Worker {
   update(dt: number, t: number) {
     if (this.jailed) return this.languish(dt, t);
     if (this.leaving) return this.carry(this.leaving, dt, t);
+    if (this.fugdiDance) return this.fugdiStep(dt, t);
     if (this.dancing) return this.boogie(this.dancing, dt, t);
     this.cheerT = Math.max(0, this.cheerT - dt);
     // Waiting on you: a couple of seconds of jumping, then arms crossed and a tapping foot, and round again.
@@ -2303,6 +2340,67 @@ export class Worker {
     this.bulb.emissive.copy(this.bulb.color).multiplyScalar(0.5);
     this.bulbMesh.scale.setScalar(1 + Math.abs(Math.sin(t * 12)) * 0.3);
     this.blink(dt);
+    if (this.bubble) this.bubble.position.y = (this.bubbleIsCard ? 1.74 : 1.95) + lift + Math.sin(t * 3) * 0.03;
+    if (this.nameTag) this.nameTag.position.y = 1.55 + lift;
+  }
+
+  /**
+   * In the ring: step off the desk into it, clap on the beat and wheel with the others, whirl
+   * through the middle in turn, then all turn together, hands up, and set off back to the desk.
+   */
+  private fugdiStep(dt: number, t: number): void {
+    const f = this.fugdiDance!;
+    f.t += dt;
+    if (f.t >= FUGDI_SECONDS + FUGDI.leave) {
+      this.fugdiDance = null;
+      this.settle();
+      return this.update(0, t);
+    }
+    const { stage } = f;
+    // Setting off (t below 0) and going back at the end ease in and out of the seat.
+    const inK = ease01((f.t + FUGDI.gather) / FUGDI.gather);
+    const outK = ease01((f.t - FUGDI_SECONDS) / FUGDI.leave);
+    const k = inK * (1 - outK);
+    const pose = fugdiPose(f.t, f.member, f.count, f.ring);
+    // The ring's middle and its footing are in the seat's own frame, which may be turned and scaled.
+    const turn = stage.yaw;
+    const cos = Math.cos(turn);
+    const sin = Math.sin(turn);
+    const scale = this.root.parent ? this.root.parent.getWorldScale(vScale).x || 1 : 1;
+    const ox = (pose.dx * cos + pose.dz * sin) / scale;
+    const oz = (-pose.dx * sin + pose.dz * cos) / scale;
+    this.root.position.set((stage.pos.x + ox) * k, stage.pos.y * k, (stage.pos.z + oz) * k);
+    this.root.rotation.y = (turn + pose.yaw) * k;
+    // Whatever it was acting out waits: shoulders back in place, eyes ahead, the papers and globe put away.
+    this.armL.position.set(-0.3, 0.55, 0.05);
+    this.armR.position.set(0.3, 0.55, 0.05);
+    for (const p of this.pupils) p.position.y = 0.7;
+    for (const prop of [this.papers.group, this.globe.group]) prop.visible = false;
+    // Arms: clapping in front of the chest, rising overhead for the finale.
+    const up = pose.armsUp * k;
+    const armX = -1.2 - 1.5 * up;
+    const armZ = ((0.28 + 0.44 * pose.clap) * (1 - up) + (0.1 + 0.16 * pose.clap) * up) * k;
+    const soft = 1 - Math.exp(-dt * 16);
+    this.armL.rotation.x += (armX - this.armL.rotation.x) * soft;
+    this.armR.rotation.x += (armX - this.armR.rotation.x) * soft;
+    this.armL.rotation.z += (armZ - this.armL.rotation.z) * soft;
+    this.armR.rotation.z += (-armZ - this.armR.rotation.z) * soft;
+    // The whirl goes on the body, so the name tag stays put; the ring's own turn is on the root.
+    this.body.position.set(0, pose.lift * k, 0);
+    this.body.rotation.set(0, pose.spin * k, pose.sway * k);
+    this.body.scale.setScalar(1);
+    const step = pose.step * k;
+    this.feet.forEach((foot, i) => {
+      const lift = Math.max(0, i ? -step : step);
+      foot.position.set(i ? 0.12 : -0.12, 0.2 + lift * 0.09, 0.05);
+    });
+    // Its light keeps the beat: a color a beat, brighter on each clap.
+    const hue = (((f.ring * 0.37 + Math.floor(Math.max(0, f.t) / FUGDI_BEAT) * 0.21) % 1) + 1) % 1;
+    this.bulb.color.setHSL(hue, 0.85, 0.45 + 0.18 * pose.clap);
+    this.bulb.emissive.copy(this.bulb.color).multiplyScalar(0.55);
+    this.bulbMesh.scale.setScalar(1 + pose.clap * 0.3);
+    this.blink(dt);
+    const lift = pose.lift * k;
     if (this.bubble) this.bubble.position.y = (this.bubbleIsCard ? 1.74 : 1.95) + lift + Math.sin(t * 3) * 0.03;
     if (this.nameTag) this.nameTag.position.y = 1.55 + lift;
   }

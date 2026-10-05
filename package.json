@@ -13,13 +13,15 @@
   "scripts": {
     "test": "node --import tsx --test tests/*.test.ts",
     "demo:floor-host": "node --import tsx scripts/demo-floor-host.ts",
-    "dev": "concurrently -k \"vite\" \"tsx watch src/server/cli.ts --port 4600 --password dev --no-open --host 0.0.0.0 --password 123\"",
+    "dev": "concurrently -k \"vite\" \"tsx watch src/server/cli.ts --port 4600 --password 123 --no-open --host 0.0.0.0\"",
     "build": "npm run build:client && npm run build:server",
     "build:client": "vite build",
     "build:server": "tsc -p tsconfig.server.json",
     "typecheck": "tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.client.json --noEmit",
     "start": "node bin/agent-office.js",
-    "prepare": "npm run build"
+    "prepare": "npm run build",
+    "e2e:floor-host": "node --import tsx scripts/e2e-floor-host.mjs",
+    "e2e:floor-ride": "node --import tsx scripts/e2e-floor-ride.mjs"
   },
   "engines": {
     "node": ">=20"

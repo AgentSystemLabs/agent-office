@@ -24,6 +24,28 @@ import type { ForgeAs } from './signins.js';
 /** gh's and bb's way of saying the sign-in is gone, from a per-account run (see signins.ts). */
 const SIGNED_OUT = /auth login|not logged in|authenticat|401|bad credentials|credentials not found/i;
 
+/**
+ * What a CLI said, as the part of it that says why: the first line that carries words.
+ *
+ * The reason comes first and whatever follows it is help, so the tail is the wrong end to read: gh
+ * answers an unknown `--json` field with `Unknown JSON field: "closingIssuesReferences"` and then an
+ * alphabet of every field it does know, and taking the last lines of that leaves a board saying
+ * `updatedAt url` about a list that never loaded. A JSON envelope is the exception — bb's errors
+ * arrive as one, spread over lines of its own, so it is left whole for bbSaid below to open.
+ */
+export function saidOf(why: string): string {
+  const raw = why.trim();
+  if (!raw) return raw;
+  try {
+    JSON.parse(raw);
+    return raw;
+  } catch {
+    // plain text, which is read a line at a time
+  }
+  const lines = raw.split('\n').map((l) => l.trim()).filter(Boolean);
+  return lines.find((l) => /[a-z]/i.test(l)) ?? '';
+}
+
 /** `dir`'s origin URL, or undefined when it isn't a git checkout. */
 export function originUrl(dir: string, timeout = 10_000): string | undefined {
   try {
@@ -113,7 +135,7 @@ function spawnCli(bin: string, args: string[], cwd: string, timeout: number, env
     const fail = (why: string, missing = false) =>
       done(() => {
         if (missing) return reject(new Error(`${FORGE_LABEL[kind]} CLI (${bin}) is not installed on the server`));
-        const said = why.trim().split('\n').slice(-2).join(' ');
+        const said = saidOf(why);
         // `env` means this ran as someone signed in to an account of their own, so it's their sign-in that stopped.
         if (env && SIGNED_OUT.test(said)) return reject(new Error(`Your ${FORGE_LABEL[kind]} sign-in stopped working — sign in again (☰ → 🔐 Your sign-ins)`));
         reject(new Error(kind === 'bitbucket' ? friendlyBb(said) : friendlyGh(said)));

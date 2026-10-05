@@ -2,12 +2,13 @@ import './style.css';
 import * as THREE from 'three';
 import { OutlineEffect } from 'three/examples/jsm/effects/OutlineEffect.js';
 import { sameLook } from '../shared/avatar';
-import { BALCONY, DESK_BY_ID, DESKS, ELEVATOR, ELEVATOR_CAR, FLOOR, GOLF_HOLE, LADDER, POLE, POLES, SLAB, STATION_AGENT, STOREY, WAKE_UP, WALL_HEIGHT, WALL_T, WING, WING_DESKS, beanbagsOut, deskBuilt, deskSeat, inElevator, inWing, roofDrop, seatPlace, streetBelow, vacantSeats, wingMinZ, wingRowZ, type DeskDef, type SeatDef, type SeatPlace, type StationKind } from '../shared/layout';
+import { BALCONY, DESK_BY_ID, DESKS, ELEVATOR, ELEVATOR_CAR, FLOOR, FUGDI_HOME, GOLF_HOLE, LADDER, POLE, POLES, SLAB, STATION_AGENT, STOREY, WAKE_UP, WALL_HEIGHT, WALL_T, WING, WING_DESKS, beanbagsOut, deskBuilt, deskSeat, inElevator, inWing, roofDrop, seatPlace, streetBelow, vacantSeats, wingMinZ, wingRowZ, type DeskDef, type SeatDef, type SeatPlace, type StationKind } from '../shared/layout';
 import { OFFICE_PLAN, seatOn, type MapPlan } from '../shared/maps';
 import { canLabel } from '../shared/floorplan';
 import { floorPalette } from '../shared/floors';
 import type { AgentEffort, AgentProvider, CarriedIssue, FloorInfo, GhIssue, GongWhy, PeerInfo, WorkerInfo, WorkerTask } from '../shared/protocol';
 import { MEETING_PATTERNS, meetingStage } from '../shared/meetings';
+import { BEAT as FUGDI_BEAT, FUGDI, fugdiPlan, type FugdiPlan } from '../shared/fugdi';
 import { isAsleep, isBusy, workerPr } from '../shared/status';
 import { Net } from './net';
 import { store, lastFloor, lastSpot, loadProfile, loadSettings, rememberSpot, saveSettings, workerForPull, type Profile, type Spot, type Topic } from './state';
@@ -44,6 +45,8 @@ import { Laptop } from './world/laptop';
 import { BoardTexture, QueueBoardTexture, ServicesBoardTexture } from './world/boards';
 import { Gallery } from './world/gallery';
 import { Dog } from './world/dog';
+import { HelperWalk } from './world/helper';
+import { helperHost, helperSpot, type HelperPhase } from '../shared/helper';
 import { Holiday } from './world/holiday';
 import { Arrivals, Departures } from './world/leaving';
 import { Jail } from './world/jail';
@@ -329,6 +332,9 @@ const tvMat = office.tvScreen.material as THREE.MeshBasicMaterial;
 tvMat.color.set('#ffffff');
 tvMat.map = tvIdle;
 tvMat.toneMapped = false;
+// A share is painted on this mesh, where a link's picture is HTML over the canvas, so the theatre
+// switch leaves the screen alone either way: the picture is the one thing it can't put out.
+tvMat.userData.theatreLit = true;
 /** Whoever's screen sharing, when someone is: the TV shows that instead of a link. */
 let tvStream: MediaStream | null = null;
 /** What's on the screen itself: a share while there is one, dark under a link's picture, else the art. */
@@ -344,6 +350,9 @@ const tvScreen = new TvScreen(office.tvScreen);
 store.on('tv', () => {
   tvScreen.sync(store.tv);
   paintTv();
+  // The switch by the TV: the room's light down, and the switch itself thrown the other way.
+  sky.setTheatre(store.tv.theatre);
+  office.theatre.show(store.tv.theatre, tvShowing() || store.tv.on);
   hintKey = '';
 });
 // The boss's monitor upstairs: Minesweeper, from the boss's chair.
@@ -501,12 +510,28 @@ store.on('dog', () => {
   // The dog lives in the office: on a map of its own it stays home.
   if (!inOffice()) dog.root.visible = false;
 });
+// The helpers standing at workers' desks, and the walks that put them there. The office sends the way;
+// this flies each model along it, so everyone on the floor sees the same walk.
+const helperWalk = new HelperWalk(scene, (x, z, y) => Math.max(groundAt(world.colliders, x, z, y), player.street));
+store.on('helper', () => {
+  helperWalk.sync(store.helpers, store.helperStart);
+  // On a map of its own a helper has no desks to stand at, so it keeps to the office.
+  if (!inOffice()) for (const v of workerViews.values()) if (v.laptop === null) v.model.root.visible = false;
+});
 sound.setMusicVolume(settings.music, settings.musicMuted);
 sound.onMusicError = (text) => toast(text, 'warn');
 // The sound of the TV is your own too, like the jukebox's volume: turn it down from the TV window
 // or from ⚙️ Settings and it stays down. The autoplay fallback muting the player comes back through
 // here as well, so the row in the window, the ⚙️ one and what you hear all agree.
 tvScreen.setVolume(settings.tv, settings.tvMuted);
+// The dance floor with disco lights in front of the TV is yours to put out or bring back (the TV
+// window and ⚙️ Settings both switch it; see world/disco.ts).
+function applyDanceFloor(on: boolean) {
+  settings.danceFloor = on;
+  saveSettings(settings);
+  office.danceFloor.setOn(on);
+}
+office.danceFloor.setOn(settings.danceFloor);
 tvScreen.onSound = () => {
   settings.tv = tvScreen.volume;
   settings.tvMuted = tvScreen.muted;
@@ -1082,12 +1107,15 @@ const remotes = new Map<string, RemotePeer>();
 
 interface WorkerView {
   model: Worker;
-  laptop: Laptop;
+  /** A helper stands at somebody else's desk and has none of its own, so it has no laptop in here. */
+  laptop: Laptop | null;
   deskId: string;
   status: string;
   acked: boolean;
 }
 const workerViews = new Map<string, WorkerView>();
+/** Just the helpers' models, for the doors: they are the workers on their feet, not the seated ones. */
+const helperModels = new Map<string, Worker>();
 /** Workers a `worker.remove` is taking out of the store right now. They walk out of the building; a worker that's gone because you changed floors just vanishes. */
 const sentHome = new Set<string>();
 /** The top of whatever's underfoot at (x, z) for feet at `y`, in the world you're in: its floor, a step, the street. */
@@ -1823,9 +1851,10 @@ function applyMap() {
   for (const [id, v] of workerViews) {
     court?.release(id);
     v.model.root.removeFromParent();
-    v.laptop.root.removeFromParent();
+    v.laptop?.root.removeFromParent();
     v.model.dispose();
-    v.laptop.dispose();
+    v.laptop?.dispose();
+    helperModels.delete(id);
     sound.removeTypist(id);
   }
   workerViews.clear();
@@ -2140,7 +2169,32 @@ function syncWorkers() {
   for (const w of store.workers.values()) {
     let v = workerViews.get(w.id);
     const desk = world.desks.get(w.deskId);
-    if (!desk) continue;
+    // A helper stands at somebody else's desk: it has no seat of its own, so there is no desk group to
+    // sit it in. It gets a model on its own and the walk puts it where the office says it is.
+    if (!desk) {
+      if (!w.helper) continue;
+      if (!v) {
+        const model = new Worker(w.name, w.color);
+        model.setCostume(store.theme.active);
+        model.setAge(ageOf(w));
+        // Into the world itself, since it belongs to no desk group.
+        scene.add(model.root);
+        // Pointing at the helper opens its own terminal, the way pointing at a seated worker opens
+        // theirs: it has no desk of its own to be aimed at instead.
+        const spot = helperSpot(plan().byId.get(helperHost(w.deskId) ?? '') ?? DESKS[0]);
+        model.root.userData.interact = { kind: 'desk', deskId: w.deskId, x: spot.at[0], z: spot.at[1], radius: 1.1 } satisfies Interactable;
+        helperModels.set(w.id, model);
+        v = { model, laptop: null, deskId: w.deskId, status: '', acked: true };
+        workerViews.set(w.id, v);
+        helperWalk.sync(store.helpers, store.helperStart);
+      }
+      if (v.status !== w.status || v.acked !== w.acked) {
+        if (waitingOnSomeone(w) && v.status !== '') sound.ding(w.status);
+        v.status = w.status;
+        v.acked = w.acked;
+      }
+      continue;
+    }
     if (!v) {
       departures.vacate(w.deskId);
       sendoffs.vacate(w.deskId);
@@ -2186,12 +2240,12 @@ function syncWorkers() {
     v.model.setPr(workerPr(w, store.pulls.items, store.queue.tasks));
     v.model.setLost(!!w.lost);
     const engineBadge = w.kind === 'agent' ? modelBadge(w.provider, w.model, w.effort) : undefined;
-    v.model.setTask(meetingCard(w) ?? (w.task && w.kind === 'agent' ? { ...w.task, name: `${providerLabel(w.provider, store.project)}${engineBadge ? ` · ${engineBadge}` : ''} · ${w.task.name}` } : w.task));
+    v.model.setTask(helperCard(w) ?? meetingCard(w) ?? (w.task && w.kind === 'agent' ? { ...w.task, name: `${providerLabel(w.provider, store.project)}${engineBadge ? ` · ${engineBadge}` : ''} · ${w.task.name}` } : w.task));
     const deskDef = plan().byId.get(w.deskId);
     // Keys clack while it types, not while it reads, watches its tests or browses.
     if (deskDef) sound.setTyping(w.id, deskDef.x, deskDef.z, w.status === 'working' && (!w.action || w.action === 'edit'));
     const again = w.kind === 'shell' ? 'restart' : 'resume';
-    v.laptop.setPlaceholder(w.lost ? `🌿 ${w.name}'s worktree was deleted — press E to fix it` : w.status === 'offline' ? `💤 ${w.name} is asleep — press R to ${again}` : w.status === 'exited' ? `${w.name} exited` : 'booting…');
+    v.laptop?.setPlaceholder(w.lost ? `🌿 ${w.name}'s worktree was deleted — press E to fix it` : w.status === 'offline' ? `💤 ${w.name} is asleep — press R to ${again}` : w.status === 'exited' ? `${w.name} exited` : 'booting…');
   }
   for (const [id, v] of workerViews) {
     if (store.workers.has(id)) continue;
@@ -2202,14 +2256,18 @@ function syncWorkers() {
     // Sent home: it packs up and walks out, and the seat shows as free once it's up (see departures), or
     // on a map with its own way of seeing workers off, that (the castle's dungeon, for one it locks up).
     const send = plan().sendHome;
-    if (desk && sentHome.has(id) && send && (!send.keeps || store.jail.prisoners.some((p) => p.id === id))) sendoffs.add(id, v.model, v.laptop, desk, up);
-    else if (desk && sentHome.has(id)) departures.add(v.model, v.laptop, desk, up);
+    // A helper has no desk and no laptop, so it is simply taken off the floor: its own walk out is
+    // its legs walking, and it has already said what it came to say.
+    if (v.laptop && desk && sentHome.has(id) && send && (!send.keeps || store.jail.prisoners.some((p) => p.id === id))) sendoffs.add(id, v.model, v.laptop, desk, up);
+    else if (v.laptop && desk && sentHome.has(id)) departures.add(v.model, v.laptop, desk, up);
     else {
       v.model.root.removeFromParent();
-      v.laptop.root.removeFromParent();
+      v.laptop?.root.removeFromParent();
       v.model.dispose();
-      v.laptop.dispose();
+      v.laptop?.dispose();
     }
+    helperModels.delete(id);
+    helperWalk.forget(id);
     sound.removeTypist(id);
     workerViews.delete(id);
   }
@@ -2382,6 +2440,7 @@ store.on('workers', renderUsage);
  */
 function dressUp() {
   const theme = store.theme.active;
+  office.setInterior(theme === 'modern');
   holiday.set(theme);
   sky.setTheme(theme);
   dog.setCostume(theme);
@@ -2483,6 +2542,70 @@ function promptAtDesk(deskId: string) {
       onSubmit: (text) => net.send({ t: 'worker.prompt', workerId: w.id, prompt: text }),
     });
   }
+}
+
+/**
+ * Walking a helper over to a worker that looks stuck (U). It works in that worker's own checkout, so
+ * it reads what the worker is doing and tells the worker what it found, and then goes home. It never
+ * edits anything, never commits, and never opens a pull request: the work stays the host's.
+ */
+function helperFor(w: WorkerInfo) {
+  if (officeIsFull()) return;
+  if (w.kind !== 'agent') return toast(`${w.name} is a shell, not an agent`, 'warn');
+  if (w.helper) return toast(`${w.name} is itself a helper`, 'warn');
+  if (w.lost) return fixLostWorktree(w);
+  if (store.helpers.some((h) => h.hostId === w.id)) return toast(`${w.name} already has a helper at its desk`, 'warn');
+  if (!w.worktree) return toast(`${w.name} isn't in a worktree of its own — a helper needs one to read`, 'warn');
+  openPrompt({
+    title: `🆘 Bring a helper to ${w.name}`,
+    subtitle: 'It walks over, reads what they are stuck on, tells them what it found, and goes home. It cannot edit, commit or open a pull request.',
+    submitLabel: 'Bring them over',
+    allowEmpty: true,
+    providerOption: true,
+    onSubmit: (_text, o) => {
+      net.send({ t: 'worker.helper', hostId: w.id, provider: o.provider, model: o.model, effort: o.effort });
+    },
+  });
+}
+
+/**
+ * The U in a worker's desk hint: a helper over to it, when there is one to bring. Only for a worker
+ * in a worktree of its own, since that is the only place a helper can read without disturbing anyone.
+ */
+function helperKey(w: WorkerInfo) {
+  if (w.kind !== 'agent' || w.helper || !w.worktree || w.lost) return '';
+  if (store.helpers.some((h) => h.hostId === w.id)) return aside('🆘 a helper is on its way');
+  return key('U', 'Bring a helper');
+}
+
+/**
+ * The worker a helper could be brought to, from where you're standing: the one at the desk in reach
+ * that could actually use one. Undefined when there's none, so the menu says so rather than guessing.
+ */
+function helperTarget(): WorkerInfo | undefined {
+  const it = target?.kind === 'desk' ? target.deskId : undefined;
+  const w = it ? store.workerAtDesk(it) : undefined;
+  return w && w.kind === 'agent' && !w.helper && w.worktree && !w.lost ? w : undefined;
+}
+
+const HELPER_DOING: Record<HelperPhase, string> = {
+  walking: 'walking over to their desk',
+  reading: 'reading over their shoulder',
+  reporting: 'telling them what it found',
+  leaving: 'heading home',
+};
+
+/**
+ * The card over a helper's head, so it is never mistaken for a colleague: it says whose desk it is at
+ * and what it is doing there, and it keeps the provider badge like any other worker.
+ */
+function helperCard(w: WorkerInfo): WorkerTask | undefined {
+  if (!w.helper) return undefined;
+  const h = store.helpers.find((x) => x.workerId === w.id);
+  const badge = modelBadge(w.provider, w.model, w.effort);
+  const name = `🆘 Helping ${w.helper.hostName}${badge ? ` · ${badge}` : ''}`;
+  const doing = h ? HELPER_DOING[h.phase] : 'on its way';
+  return { name, summary: w.status === 'done' ? '✅ It has told them; going home' : `${doing} · press E to read its terminal` };
 }
 
 /** Direct hire from an empty desk, with an optional first prompt and provider choice. */
@@ -3041,6 +3164,7 @@ function interact(target: Interactable | null, key: DeskKey, note = aimedNote) {
     if (key === 'R' && w && isAsleep(w.status)) return resumeWorker(w);
     if (key === 'X' && w) return killWorker(w.id);
     if (key === 'O' && w) return pullRequestFor(w);
+    if (key === 'U' && w) return helperFor(w);
     return;
   }
   if (target.kind === 'station' && target.deskId) {
@@ -3063,8 +3187,10 @@ function interact(target: Interactable | null, key: DeskKey, note = aimedNote) {
   else if (target.kind === 'tv') {
     // Someone's screen share is watched full screen; anything else is put on from the TV's window.
     if (tvShowing()) watchShare();
-    else openTv(net, tvScreen, () => void toggleShare());
+    else openTv(net, tvScreen, () => void toggleShare(), { on: () => settings.danceFloor, set: applyDanceFloor });
   }
+  // The switch by the TV: the room's own light down for the picture, or back up.
+  else if (target.kind === 'theatre') net.send({ t: 'tv.theatre', on: !store.tv.theatre });
   else if (target.kind === 'jukebox') showJukebox();
   else if (target.kind === 'bookshelf') showBookshelf();
   else if (target.kind === 'decor' && target.decorId) hanger.view(target.decorId);
@@ -3834,6 +3960,43 @@ function danceParty() {
   for (const a of idleAgents) if (a.view.vacancy.visible) a.model.dance(stageOf(a.view, a.model));
 }
 
+/** A point on the floor `at` (world) and the way to face there, in a model's own seat's frame. */
+function ringSpot(parent: THREE.Object3D, at: { x: number; y?: number; z: number }, yaw = 0): Stage {
+  parent.updateWorldMatrix(true, false);
+  const pos = new THREE.Vector3(at.x, at.y ?? 0, at.z);
+  parent.worldToLocal(pos);
+  const turn = new THREE.Quaternion();
+  parent.getWorldQuaternion(turn);
+  const seatYaw = Math.atan2(2 * (turn.w * turn.y + turn.x * turn.z), 1 - 2 * (turn.y * turn.y + turn.z * turn.z));
+  return { pos, yaw: yaw - seatYaw };
+}
+
+/**
+ * The gong: every bot on the office floor sets off from its seat and dances a Fugdi together, in
+ * rings on the open floor south of the desks (see shared/fugdi.ts). Returns the plan, so the caller
+ * can throw confetti over each ring, or null when there's nobody to dance or nowhere to do it.
+ */
+function fugdiParty(): FugdiPlan | null {
+  if (!inOffice() || upTop) return null;
+  const bots: { id: string; model: Worker; parent: THREE.Object3D }[] = [];
+  for (const [id, v] of workerViews) {
+    // On its way in to a meeting: it gets there first, and dances the next one.
+    if (arrivals.arriving(v.model)) continue;
+    bots.push({ id, model: v.model, parent: v.model.root.parent! });
+  }
+  // The board agents still waiting to be asked join in too.
+  for (const a of idleAgents) if (a.view.vacancy.visible) bots.push({ id: `station:${a.view.def.id}`, model: a.model, parent: a.model.root.parent! });
+  if (!bots.length) return null;
+  // The same order on every browser, so everyone is in the same ring with everyone else.
+  bots.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  const plan = fugdiPlan(bots.length, FUGDI_HOME);
+  bots.forEach((b, i) => {
+    const spot = plan.spots[i];
+    b.model.fugdi(ringSpot(b.parent, plan.rings[spot.ring]), spot.ring, spot.member, spot.count);
+  });
+  return plan;
+}
+
 /** Confetti a square meter of floor gets when a pull request merges, and the most there is in all. */
 const CONFETTI_DENSITY = 3.5;
 const CONFETTI_MOST = 4000;
@@ -3870,6 +4033,18 @@ function gongRang(why: GongWhy, pr?: number) {
       gong?.strike(1.2);
       confetti.burst(top.x, top.y, top.z, 450, 1.5);
     }, 1700);
+  } else if (why === 'hit') {
+    // E at the gong: the whole office sets off into a Fugdi. A puff over each ring to call them in,
+    // then a cannon over the finale, hands up.
+    const plan = fugdiParty();
+    if (!plan) return;
+    const n = plan.spots.length;
+    toast(`🪕 Fugdi! ${n} bot${n === 1 ? '' : 's'} gather in the circle`);
+    for (const ring of plan.rings) confetti.burst(ring.x, 2.6, ring.z, 80);
+    setTimeout(() => {
+      if (!inOffice()) return;
+      for (const ring of plan.rings) confetti.burst(ring.x, 3.4, ring.z, 150, 1.4);
+    }, (FUGDI.gather + FUGDI.circle + FUGDI.centre) * FUGDI_BEAT * 1000);
   }
 }
 
@@ -3971,6 +4146,10 @@ function hintFor(it: Interactable): Hint {
       const on = !share && s.on && !!s.url;
       const what = on ? `${s.playing ? '▶' : '⏸'} ${clip(tvTitle(s.url), 34)}` : share ? 'someone is sharing their screen' : 'nothing on it';
       return { k: `${share}|${s.on}|${s.url}|${s.playing}`, parts: [title('📺 Office TV'), aside(what), key('E', share ? 'Watch full screen' : 'Put something on')] };
+    }
+    case 'theatre': {
+      const on = store.tv.theatre;
+      return { k: String(on), parts: [title('🎛️ Theatre switch'), aside(on ? 'the room is dark for the film' : "the office's lights are on as usual"), key('E', on ? 'Lights back up' : 'Lights down for the film')] };
     }
     case 'coffee': {
       const secs = performance.now() / 1000;
@@ -4213,6 +4392,7 @@ function deskHint(deskId: string): Hint {
       key('C', 'Changes'),
       isAsleep(w.status) ? key('R', shell ? 'Restart' : 'Resume') : key('P', shell ? 'Run command' : 'Prompt'),
       w.repos?.length ? reposKey(w) : w.pr ? key('O', `PR #${w.pr.number}`) : w.prOpening ? aside('⏳ Opening PR…') : prReady(w) ? key('O', 'Open PR') : '',
+      helperKey(w),
       key('X', 'Send home'),
       labelKey,
     ],
@@ -4668,7 +4848,7 @@ document.addEventListener('pointerlockchange', () => {
 const raycaster = new THREE.Raycaster();
 const CROSSHAIR = new THREE.Vector2(0, 0);
 /** How close (meters from your eyes) you must be to use each kind of thing. */
-const REACH: Record<InteractKind, number> = { desk: 4.5, station: 4.5, coffee: 3, fridge: 3, issues: 9, pulls: 9, services: 9, queue: 9, tv: 10, decor: 9, smoke: 3, elevator: 4.5, gong: 3.5, dog: 3.2, jukebox: 4, seat: 3, whiteboard: 7, cabinet: 4, ladder: 3, pole: 4, meeting: 7, bar: 3.5, dj: 6, golf: 3.5, ball: 3.2, bookshelf: 4, darts: 4, axe: 5.5, telescope: 3.5, car: 4, expand: 8, herald: 5 };
+const REACH: Record<InteractKind, number> = { desk: 4.5, station: 4.5, coffee: 3, fridge: 3, issues: 9, pulls: 9, services: 9, queue: 9, tv: 10, theatre: 3, decor: 9, smoke: 3, elevator: 4.5, gong: 3.5, dog: 3.2, jukebox: 4, seat: 3, whiteboard: 7, cabinet: 4, ladder: 3, pole: 4, meeting: 7, bar: 3.5, dj: 6, golf: 3.5, ball: 3.2, bookshelf: 4, darts: 4, axe: 5.5, telescope: 3.5, car: 4, expand: 8, herald: 5 };
 const eye = new THREE.Vector3();
 
 /** What the ray through `ndc` lands on first, whether it is within reach (plus `slack` meters), and where it hit. */
@@ -4863,6 +5043,23 @@ const hud = mountHud(
     { id: 'queue', icon: '📋', label: 'Task queue', section: 'Open', count: () => store.queue.tasks.filter((t) => t.status !== 'done').length, title: () => 'Issues and tasks waiting for a worker', run: showQueue },
     { id: 'services', icon: '🌐', label: 'Services', section: 'Open', count: () => store.services.items.length, title: () => 'Web servers the workers are running', run: () => openServices() },
     { id: 'whiteboard', icon: '📝', label: 'Whiteboard', section: 'Open', title: () => 'Draw together, live', run: () => openWhiteboard(net) },
+    {
+      id: 'helper',
+      icon: '🆘',
+      label: () => (helperTarget() ? `Bring a helper to ${helperTarget()!.name}` : 'Bring a helper to a worker'),
+      section: 'Open',
+      key: 'U',
+      shown: () => inOffice(),
+      title: () => 'Walk a second agent over to a worker that is stuck: it reads what they are doing, tells them what it found, and goes home',
+      on: () => store.helpers.length > 0,
+      status: () => store.helpers.length > 0,
+      chip: () => `${store.helpers.length} out`,
+      run: () => {
+        const w = helperTarget();
+        if (w) helperFor(w);
+        else toast('Stand at a worker in a worktree of its own to bring a helper over', 'warn');
+      },
+    },
     // Up on the top bar while a meeting is on: what's being worked through in the meeting room.
     {
       id: 'meeting',
@@ -4970,6 +5167,7 @@ function showSettings(pane?: SettingsPane) {
       sound.setVolume(settings.volume, settings.muted);
       sound.setMusicVolume(settings.music, settings.musicMuted);
       tvScreen.setVolume(settings.tv, settings.tvMuted);
+      office.danceFloor.setOn(settings.danceFloor);
     },
     editProfile,
     () => sound.ding('done'),
@@ -5206,6 +5404,17 @@ function frame(ts?: number) {
   if (aging) agedAt = now;
   for (const [id, v] of workerViews) {
     const desk = plan().byId.get(v.deskId)!;
+    // A helper has no desk: the walk owns where it is, and its card says whose desk it is at.
+    if (v.laptop === null) {
+      if (aging) {
+        const w = store.workers.get(id);
+        if (w) v.model.setAge(ageOf(w));
+      }
+      if (inOffice()) helperWalk.place(id, v.model);
+      else v.model.root.visible = false;
+      v.model.update(dt, t);
+      continue;
+    }
     if (aging) {
       const w = store.workers.get(id);
       if (w) v.model.setAge(ageOf(w));
@@ -5229,7 +5438,7 @@ function frame(ts?: number) {
   if (inOffice()) dog.update(dt);
   if (!upTop && inOffice()) updateBall(now, dt);
   if (!upTop) {
-    world.update(t, dt, [player.pos, ...[...remotes.values()].map((r) => r.person.root.position), ...departures.positions(), ...sendoffs.positions(), ...arrivals.positions(), ...(court?.positions() ?? [])]);
+    world.update(t, dt, [player.pos, ...[...remotes.values()].map((r) => r.person.root.position), ...departures.positions(), ...sendoffs.positions(), ...arrivals.positions(), ...(court?.positions() ?? []), ...helperWalk.positions(helperModels)]);
     if (inOffice()) {
       office.stack.update(dt, [{ x: player.pos.x, y: player.pos.y, z: player.pos.z, grip }, ...[...remotes.values()].map((r) => ({ x: r.person.root.position.x, y: r.person.root.position.y, z: r.person.root.position.z, grip: r.grip }))], camera.position);
       office.jukebox.update(t, dt, sound.beat());
@@ -5299,6 +5508,8 @@ if (faint.down || modalOpen() || telescope.active || hanger.active || mover.acti
   effect.render(scene, camera);
   pointToWaiting(now);
   // The TV's picture, projected onto its rectangle from this frame's camera (see tvscreen.ts).
+  // A few drinks in it goes with the rest of the office, on the same clock as the shader (see drunkframe.ts).
+  tvScreen.setDrunk(drunk, t, !reduceMotion.matches);
   tvScreen.update(camera, inOffice() && !upTop && !telescope.active, player.colliders, {
     x: player.pos.x,
     y: player.pos.y + EYE_HEIGHT,

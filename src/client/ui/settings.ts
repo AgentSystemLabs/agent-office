@@ -14,7 +14,7 @@ const VIEWS: [ViewMode, string, string][] = [
   ['third', '🎥 Third person', 'Follow your character from behind. Drag to orbit the camera, scroll to zoom, and click things to use them.'],
 ];
 
-const THEME_LABEL: Record<ThemePick, string> = { auto: '📅 By the calendar', halloween: '🎃 Halloween', christmas: '🎄 Christmas', modern: '🏙️ Modern office', off: 'Off' };
+const THEME_LABEL: Record<ThemePick, string> = { auto: '📅 By the calendar', halloween: '🎃 Halloween', christmas: '🎄 Christmas', modern: '🌐 Futuristic office', off: '🏢 Original office' };
 
 const WEBHOOK_NAME: Record<WebhookKind, string> = { slack: 'Slack', discord: 'Discord', other: 'a webhook' };
 
@@ -139,6 +139,37 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
   const musicRow = volumeRow('Jukebox volume', 'music', 'musicMuted');
   const tvRow = volumeRow('TV volume', 'tv', 'tvMuted');
 
+  // The dance floor with disco lights in front of the lounge TV (see world/disco.ts), on or away.
+  const danceFloorRow = h('div.seg', { role: 'radiogroup', 'aria-label': 'Dance floor by the TV' });
+  const paintDanceFloor = () => {
+    danceFloorRow.replaceChildren(
+      ...(
+        [
+          [true, '🪩 On'],
+          [false, 'Off'],
+        ] as const
+      ).map(([on, label]) =>
+        h(
+          'button.btn',
+          {
+            type: 'button',
+            role: 'radio',
+            'aria-checked': String(settings.danceFloor === on),
+            class: settings.danceFloor === on ? 'on' : '',
+            onclick: () => {
+              if (settings.danceFloor === on) return;
+              settings = { ...settings, danceFloor: on };
+              onChange(settings);
+              paintDanceFloor();
+            },
+          },
+          label,
+        ),
+      ),
+    );
+  };
+  paintDanceFloor();
+
   // The swish of the book's pages at the bookshelf, on or off.
   const pagesRow = h('div.seg', { role: 'radiogroup', 'aria-label': 'Page turns at the bookshelf' });
   const paintPages = () => {
@@ -198,8 +229,8 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
         : active === 'christmas'
           ? 'Christmas: the workers are elves, your hands are in mittens, the dog’s Rudolph, and it’s snowing outside.'
           : active === 'modern'
-            ? 'Modern office: frosted-glass screens between the desks, cool LED strips round the ceiling, and a blinking server rack and water cooler in the room.'
-            : 'No decorations up right now.';
+            ? 'Futuristic office: graphite surfaces, illuminated work pods, blue linear lights, acoustic panels and dark glass frames. Switch to Original office to restore the warm wood and colorful furniture.'
+            : 'Original office: warm wood floors, colorful chairs and the original lighting, with no seasonal decorations.';
     const how = pick === 'auto' ? ' By the calendar it’s Halloween through October and Christmas through December.' : '';
     themeNote.textContent = `${now}${how} It’s the same for everyone in the building${by ? `, set by ${by}${at ? ` ${timeAgo(at)}` : ''}` : ''}.`;
   };
@@ -517,6 +548,7 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
       setting('Page turns at the bookshelf', 'you', pagesRow, h('p.setting-note', {}, 'A soft swish each time the book in your hands turns a page, as you open a doc or scroll through one. The 🔈 at the top of the bookshelf turns it off too.')),
       setting('Jukebox', 'you', musicRow, h('p.setting-note', {}, 'The jukebox in the lounge. Everyone on the floor hears the same song, louder the closer they are to it; this is how loud it is for you alone.')),
       setting('TV', 'you', tvRow, h('p.setting-note', {}, 'The big TV on the lounge wall. Everyone on the floor sees the same picture at the same moment; this is how loud it is for you alone. The sound row in the TV window is the same one.')),
+      setting('Dance floor', 'you', danceFloorRow, h('p.setting-note', {}, 'A lit dance floor with disco lights on the floor right in front of the TV. It’s yours alone to put out or bring back — the TV window has the same switch.')),
       setting('Voice chat', 'you', talkRow, h('p.setting-note', {}, 'Either way, V joins voice, holding V talks and you’re muted once you let go, and M mutes or unmutes. With push to talk you join muted. Leave voice from the ☰ menu.')),
     ],
     notify: [

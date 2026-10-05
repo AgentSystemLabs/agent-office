@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { ASHTRAY, BALCONY, BALCONY_DOOR, BEANBAGS, BOARDS, BOOKSHELF, CABINET, DESKS, DESK_SIZE, ELEVATOR, EXIT_DOOR, EXIT_STAIRS, FLOOR, GONG, GREEN_PLANTS, HANGING_PLANTS, KIOSK, LADDER, LOFT, MACHINE_MONITOR, MEETING_BOARD, MEETING_ROOM, MEETING_SEATS, MEETING_TABLE, PLANTS, SEATING_BY_ID, SILL_PLANTS, SLAB, STAIRS, STATIONS, STATION_AGENT, STOREY, STREET_Y, TV, WALL_HEIGHT, WALL_T, WINDOWS, WING, WING_DESKS, deskSeat, greenPlantKind, plantByWing, streetBelow, wingMinZ, wingRowZ, type DeskDef, type Opening, type Side, type StationKind } from '../../shared/layout';
+import { ASHTRAY, BALCONY, BALCONY_DOOR, BEANBAGS, BOARDS, BOOKSHELF, CABINET, DESKS, DESK_SIZE, ELEVATOR, EXIT_DOOR, EXIT_STAIRS, FLOOR, GONG, GREEN_PLANTS, HANGING_PLANTS, KIOSK, LADDER, LOFT, MACHINE_MONITOR, MEETING_BOARD, MEETING_ROOM, MEETING_SEATS, MEETING_TABLE, PLANTS, SEATING_BY_ID, SILL_PLANTS, SLAB, STAIRS, STATIONS, STATION_AGENT, STOREY, STREET_Y, THEATRE_SWITCH, TV, WALL_HEIGHT, WALL_T, WINDOWS, WING, WING_DESKS, deskSeat, greenPlantKind, plantByWing, streetBelow, wingMinZ, wingRowZ, type DeskDef, type Opening, type Side, type StationKind } from '../../shared/layout';
 import { wallFacing, type WallId, type WallRect } from '../../shared/decor';
 import { deskPoint } from '../../shared/nav';
 import { FLOOR_PALETTES, type FloorPalette } from '../../shared/floors';
@@ -10,6 +10,7 @@ import { mergeByMaterial, mesh, roundedBox, textPlane, toon, toonUnique } from '
 import { palette, piece } from './models';
 import { buildElevator, type Elevator } from './elevator';
 import { buildGong, type Gong } from './gong';
+import { buildTheatre, type TheatreView } from './theatre';
 import { buildJukebox, type JukeboxView } from './jukebox';
 import { buildBookshelf } from './bookshelf';
 import { buildCabinet, type CabinetModel } from './cabinet';
@@ -18,10 +19,12 @@ import { buildGreen, buildTee, type Green, type Tee } from './golf';
 import { buildStack, type Stack } from './stack';
 import { buildTower, wingWindows } from './tower';
 import { buildHoop, type HoopView } from './hoop';
+import { buildDanceFloor, type DanceFloorView } from './disco';
 import { buildKitchen } from './kitchen';
 import type { Fridge } from './fridge';
 import { buildDeskSigns, type DeskSigns } from './desksigns';
 import { greenPlant, hangingPothos, plantStand, sillPothos, tablePlant, trailingPothos, windowBox } from './plants';
+import { officeFinishes } from './officefinishes';
 import { HOOP } from '../../shared/hoop';
 
 export interface Collider {
@@ -38,7 +41,7 @@ export interface Collider {
   glass?: boolean;
 }
 
-export type InteractKind = 'desk' | 'station' | 'issues' | 'pulls' | 'services' | 'queue' | 'tv' | 'coffee' | 'fridge' | 'decor' | 'smoke' | 'elevator' | 'gong' | 'dog' | 'jukebox' | 'seat' | 'whiteboard' | 'cabinet' | 'ladder' | 'pole' | 'meeting' | 'bar' | 'dj' | 'golf' | 'ball' | 'bookshelf' | 'darts' | 'axe' | 'telescope' | 'car' | 'expand' | 'herald';
+export type InteractKind = 'desk' | 'station' | 'issues' | 'pulls' | 'services' | 'queue' | 'tv' | 'theatre' | 'coffee' | 'fridge' | 'decor' | 'smoke' | 'elevator' | 'gong' | 'dog' | 'jukebox' | 'seat' | 'whiteboard' | 'cabinet' | 'ladder' | 'pole' | 'meeting' | 'bar' | 'dj' | 'golf' | 'ball' | 'bookshelf' | 'darts' | 'axe' | 'telescope' | 'car' | 'expand' | 'herald';
 
 /** Something you can use. Its scene object carries it as `userData.interact`, for clicking. */
 export interface Interactable {
@@ -91,6 +94,8 @@ export interface Office {
   setBeanbags(out: Set<string>): Collider[];
   boardMeshes: Record<keyof typeof BOARDS, THREE.Mesh>;
   tvScreen: THREE.Mesh;
+  /** The theatre switch by the TV, which puts the room's own light down for the picture. */
+  theatre: TheatreView;
   /** The monitor on the boss's desk upstairs, where Minesweeper plays (ui/arcade.ts). */
   bossScreen: THREE.Mesh;
   /** The monitor on the west wall showing how busy the office's machine is (world/machine.ts). */
@@ -121,6 +126,8 @@ export interface Office {
   fridge: Fridge;
   /** The rolling whiteboard everyone draws on together. */
   whiteboard: WhiteboardStand;
+  /** The optional dance floor with disco lights in front of the lounge TV (see world/disco.ts). */
+  danceFloor: DanceFloorView;
   /** The golf tee on the balcony, and the hole across the street it's hit at. */
   tee: Tee;
   green: Green;
@@ -138,6 +145,8 @@ export interface Office {
   setProjectName(name: string): void;
   /** Paints the walls, their trim and the floor in a floor's colors, so each project looks like itself. */
   setLook(p: FloorPalette): void;
+  /** Switch finishes live without replacing worker anchors. */
+  setInterior(modern: boolean): void;
   /**
    * You're on floor `index` of a building `count` floors tall (0 is the bottom one): the rest of the
    * building goes up over you and down under you, the street that many storeys down, and only the
@@ -218,7 +227,17 @@ function onWall(side: Side, u: number): { x: number; z: number; rotY: number } {
 }
 
 /** Chunky planks in a floor's colors. */
-function paintPlanks(c: HTMLCanvasElement, p: FloorPalette) {
+function paintPlanks(c: HTMLCanvasElement, p: FloorPalette, modern = false) {
+  if (modern) {
+    const g = c.getContext('2d')!;
+    g.fillStyle = p.seam;
+    g.fillRect(0, 0, 512, 512);
+    for (let row = 0; row < 4; row++) for (let col = 0; col < 4; col++) {
+      g.fillStyle = (row + col) % 2 === 0 ? p.floor : p.floorAlt;
+      g.fillRect(col * 128 + 1, row * 128 + 1, 126, 126);
+    }
+    return;
+  }
   const g = c.getContext('2d')!;
   g.fillStyle = p.floor;
   g.fillRect(0, 0, 512, 512);
@@ -1567,6 +1586,13 @@ export function buildOffice(): Office {
   tvGroup.userData.interact = tv;
   fixture('east', TV.z, TV.y, TV.width + 0.3, TV.height + 0.3);
 
+  // The theatre switch, on the same wall just south of the TV: the room's own light down, so the
+  // picture on it is the brightest thing in the office (see world/theatre.ts and Sky.setTheatre).
+  const theatre = buildTheatre();
+  group.add(theatre.group);
+  interactables.push(theatre.interactable);
+  fixture('east', THEATRE_SWITCH.z, THEATRE_SWITCH.y, 0.7, 0.9);
+
   // The machine monitor between the west windows, facing the desks.
   const monitor = new THREE.Group();
   const bezel = mesh(roundedBox(MACHINE_MONITOR.width + 0.16, 0.1, MACHINE_MONITOR.height + 0.16, 0.06), toon(PALETTE.ink), 0, 0, 0);
@@ -1628,6 +1654,11 @@ export function buildOffice(): Office {
   colliders.push(cabinet.collider);
   interactables.push(cabinet.interactable);
   fixture('east', CABINET.z, CABINET.height / 2, CABINET.width + 0.1, CABINET.height);
+
+  // The optional dance floor with disco lights, out in front of the TV (see world/disco.ts and the
+  // TV window's Dance floor option): flush with the floor, so it needs no collider.
+  const danceFloor = buildDanceFloor();
+  group.add(danceFloor.group);
 
   // The bookshelf of the project's docs, on the south wall between the middle window and the balcony doors.
   const shelf = buildBookshelf();
@@ -1712,6 +1743,7 @@ export function buildOffice(): Office {
   colliders.push({ minX: 15.42, maxX: 15.98, minZ: 3.12, maxZ: 3.68, top: 1.55 });
 
   // Ceiling lamps (cartoon pendants), hung on long cords down from the high ceiling.
+  const pendants: THREE.Group[] = [];
   const lampY = 4.05;
   for (const [x, z] of [
     [-10.5, -4],
@@ -1721,6 +1753,7 @@ export function buildOffice(): Office {
     [13, 0],
   ]) {
     const lamp = pendant(WALL_HEIGHT - lampY);
+    pendants.push(lamp);
     lamp.position.set(x, lampY, z);
     group.add(lamp);
     night.halos.push({ at: new THREE.Vector3(x, lampY - 0.12, z), size: 1.3, color: '#ffe08a' });
@@ -1791,14 +1824,28 @@ export function buildOffice(): Office {
   fixture('south', LOFT.maxX - 3, LOFT.y + 1.9, 2.6, 0.6);
 
   const setProjectName = (name: string) => elevator.setSign(`🛗 ${name}`);
+  let modern = false;
+  let floorLook = FLOOR_PALETTES[0];
+  const finish = officeFinishes(group, desks, pendants, [looks.wall, looks.trim]);
   const setLook = (p: FloorPalette) => {
-    looks.wall.color.set(p.wall);
-    looks.trim.color.set(p.trim);
+    floorLook = p;
+    const colors = modern && p.name === 'Maple'
+      ? { ...p, wall: '#303e50', trim: '#277dab', floor: '#3a485b', floorAlt: '#354255', seam: '#202c3c' }
+      : p;
+    looks.wall.color.set(colors.wall);
+    looks.trim.color.set(colors.trim);
     for (const t of looks.planks) {
-      paintPlanks(t.image as HTMLCanvasElement, p);
+      paintPlanks(t.image as HTMLCanvasElement, colors, modern);
       t.needsUpdate = true;
     }
   };
+  const setInterior = (value: boolean) => {
+    modern = value;
+    finish(modern);
+    stack.setInterior(modern);
+    setLook(floorLook);
+  };
+  setInterior(false);
 
   const setLevel = (index: number, count: number, wings: readonly number[] = []) => {
     const drop = index * STOREY;
@@ -1840,12 +1887,14 @@ export function buildOffice(): Office {
     garageLift.update(dt);
     gong.update(dt);
     kitchen.fridge.update(dt);
+    theatre.update(dt);
     green.update(t);
     scenic.update(t);
     hoop.update(dt);
+    danceFloor.update(t);
   };
 
-  return { group, colliders, interactables, desks, setBeanbags, boardMeshes, tvScreen, bossScreen, machineScreen, meetingBoard: meeting.board, meetingSign: meeting.sign, fixtures: () => fixtures, wallColliders, elevator, garageLift, cars, scenic, gong, jukebox, cabinet, fridge: kitchen.fridge, whiteboard, tee, green, hoop, stack, wing, setWing, signs, setProjectName, setLook, setLevel, night, plants, update };
+  return { group, colliders, interactables, desks, setBeanbags, boardMeshes, tvScreen, theatre, bossScreen, machineScreen, meetingBoard: meeting.board, meetingSign: meeting.sign, fixtures: () => fixtures, wallColliders, elevator, garageLift, cars, scenic, gong, jukebox, cabinet, fridge: kitchen.fridge, whiteboard, danceFloor, tee, green, hoop, stack, wing, setWing, signs, setProjectName, setLook, setInterior, setLevel, night, plants, update };
 }
 
 /** A chair at the meeting table, with its laptop on the table in front of it. */

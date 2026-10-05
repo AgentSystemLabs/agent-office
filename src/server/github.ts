@@ -24,6 +24,27 @@ function checksOf(rollup: any[]): GhPull['checks'] {
 
 const FAILED = ['FAILURE', 'ERROR', 'CANCELLED', 'TIMED_OUT', 'ACTION_REQUIRED', 'STARTUP_FAILURE'];
 
+/**
+ * The issues a pull request closes, read out of its description.
+ *
+ * gh's `--json` has no `closingIssuesReferences` — it exists on the GraphQL type, but gh exports
+ * neither it nor anything else off it, and asking for it fails the whole list. GitHub links a pull
+ * request to an issue by scanning the description for these keywords itself, so the same scan finds
+ * the same numbers. As there, the keyword takes the first issue named after it, and only what
+ * separates them is punctuation — "not a fix, see #7" links nothing, and neither does the `Fixes` in
+ * a heading saying the work fixes something.
+ */
+const CLOSES = /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\b[^\n\w]*#(\d+)/gi;
+
+export function closesIn(body: string): number[] {
+  const seen = new Set<number>();
+  for (const m of body.matchAll(CLOSES)) {
+    const n = Number(m[1]);
+    if (Number.isInteger(n) && n > 0) seen.add(n);
+  }
+  return [...seen];
+}
+
 /** One entry of statusCheckRollup: a CheckRun (Actions) or a StatusContext (other CI). */
 function checkOf(c: any): GhCheck {
   const concl = String(c.conclusion ?? c.state ?? '').toUpperCase();
@@ -307,7 +328,7 @@ export class GitHub extends Forge {
   }
 
   protected async listPulls(): Promise<GhPull[]> {
-    const fields = 'number,title,state,isDraft,url,author,labels,reviewDecision,headRefName,headRefOid,baseRefName,createdAt,updatedAt,additions,deletions,statusCheckRollup,body,closingIssuesReferences';
+    const fields = 'number,title,state,isDraft,url,author,labels,reviewDecision,headRefName,headRefOid,baseRefName,createdAt,updatedAt,additions,deletions,statusCheckRollup,body';
     const [open, merged, closed] = await Promise.all([
       this.onRepo(['pr', 'list', '--state', 'open', '--limit', '150', '--json', fields]),
       this.onRepo(['pr', 'list', '--state', 'merged', '--limit', '30', '--json', fields]),
@@ -334,7 +355,7 @@ export class GitHub extends Forge {
       deletions: p.deletions ?? 0,
       checks: checksOf(p.statusCheckRollup),
       body: String(p.body ?? '').slice(0, 4000),
-      closes: (p.closingIssuesReferences ?? []).map((r: any) => Number(r.number)).filter((n: number) => Number.isInteger(n) && n > 0),
+      closes: closesIn(String(p.body ?? '')),
     }));
   }
 }

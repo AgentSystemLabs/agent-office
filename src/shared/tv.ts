@@ -1,7 +1,7 @@
-// The big TV on the lounge's east wall: the link on it and how far into it everyone is, shared by
-// the server (one per floor, kept in .agent-office/tv.json) and the browser, which plays the link
-// itself (see client/tvscreen.ts). Same idea as the jukebox in shared/jukebox.ts, with pause, seek
-// and a link instead of a tune.
+// The big TV on the lounge's east wall: the link on it, how far into it everyone is, and whether the
+// room is dark for it, shared by the server (one per floor, kept in .agent-office/tv.json) and the
+// browser, which plays the link itself (see client/tvscreen.ts). Same idea as the jukebox in
+// shared/jukebox.ts, with pause, seek and a link instead of a tune.
 
 export interface TvState {
   /** Whether something is meant to be on: a link on the screen, playing or paused. */
@@ -16,10 +16,16 @@ export interface TvState {
   position: number;
   /** When that was true, on the office's clock (see the 'pong' message). */
   at: number;
+  /**
+   * Theatre mode: the room's own light is down, so the picture on the wall is the brightest thing in
+   * it. The switch beside the TV turns it on and off for everyone on the floor, and it stays how it
+   * was left (see client/world/theatre.ts, and the `tv.theatre` message).
+   */
+  theatre: boolean;
 }
 
 /** The TV in a building with no floors, or on a floor nobody has put anything on. */
-export const TV_OFF: TvState = { on: false, playing: false, position: 0, at: 0 };
+export const TV_OFF: TvState = { on: false, playing: false, position: 0, at: 0, theatre: false };
 
 /** How a link gets played: through YouTube's player, as a plain media file, or in an iframe. */
 export type TvKind = 'youtube' | 'media' | 'embed';

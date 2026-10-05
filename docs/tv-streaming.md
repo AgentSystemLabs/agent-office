@@ -9,7 +9,9 @@ same moment, controlled from the TV itself.
 
 - [What plays](#what-plays)
 - [Everyone stays in step](#everyone-stays-in-step)
+- [Theatre mode](#theatre-mode)
 - [Why the picture is HTML, not a texture](#why-the-picture-is-html-not-a-texture)
+- [The drinks reach the picture too](#the-drinks-reach-the-picture-too)
 - [The state, and where it lives](#the-state-and-where-it-lives)
 - [What each file does](#what-each-file-does)
 - [Controls](#controls)
@@ -61,6 +63,44 @@ The state sits with the rest of a floor's things in `<project>/.agent-office/tv.
 brings back what was on. Each floor has its own TV: what's on yours says nothing about another
 project's.
 
+## Theatre mode
+
+There is a light switch on the wall beside the TV, at the height you flip one at, and it is a
+real switch in the room: anyone on the floor can press **E** on it and the office's own light goes
+down, so the picture on the 6.4 m screen is the brightest thing in the room. The room comes down
+over about a second, the way a dimmer does, and the switch's own rocker tips over and its little
+lamp lights while it is. Nothing about the film changes: the switch is the light's, so the video
+carries on exactly where it was (`Tv.theatre` deliberately doesn't touch `at`, the second the
+position is measured from).
+
+The dim is done in the sky's own shader, per fragment, rather than by turning lights off
+(`Sky.setTheatre`, `client/world/sky.ts`):
+
+- Everything the sun, the sky and the office's lamps have given a fragment **inside the office's
+  walls** is scaled down by `THEATRE_DIM`, the emissive lamp globes included, so the room goes dark
+  in the middle of the afternoon as well as at night. Fragments outside are untouched: the street
+  keeps its lamps, and the daylight still comes in through the windows.
+- The unlit materials (glass, the board signs, the meeting panel) are dimmed in the fog pass
+  instead, since they never had any light to take away — except the TV's screen, which carries
+  `userData.theatreLit` and is skipped. A link's picture is HTML over the canvas and was never lit at
+  all, but a **screen share** is painted on that mesh, so without the flag the switch would put out
+  the one thing it exists to make brighter. The picture is the only thing in the room the switch
+  cannot touch.
+- The halos round the office's own bulbs are points, not lit materials, so they are sorted by
+  whether they are in the room (`indoors` in sky.ts) and dimmed on the CPU. The street's go on.
+- `Sky.lightAt` dims your own hands by the same amount, or you would be the one lit thing in the
+  picture.
+
+The light the screen throws on the wall round it is a soft additive patch just off the wall
+(`client/world/theatre.ts`), which fades up with the dim and only while there is something on the
+screen. The picture itself is drawn over the canvas, so the patch is the spill round its edge and
+never washes over it.
+
+The state is the floor's, in `theatre` on the same `TvState` as the link, so it rides the same
+message, the same `tv.json` and the same hosted-floor path. The **🎬 Lights down / 💡 Lights back
+up** row in the TV window is the same switch, for anyone who is on the couch rather than standing
+at the wall.
+
 ## Why the picture is HTML, not a texture
 
 WebGL can only draw pixels it is allowed to read, and a cross-origin player (YouTube's, Vimeo's)
@@ -96,6 +136,42 @@ The alternative — CSS3DRenderer — was rejected: it wants scene units to be C
 measures in metres, and it draws over geometry regardless of depth. A single projected quad needs
 neither.
 
+## The drinks reach the picture too
+
+A few drinks from the [rooftop bar](features.md#the-rooftop-bar) put the world through a shader that
+doubles it, smears it, ripples it and darkens its edges (see `src/client/world/drunk.ts`). The TV's
+picture used to stay crisp through all of that, which gave the game away. It now goes with the rest
+of the office, and it has to be done a different way: the picture isn't on the canvas, so there's no
+shader to put it through.
+
+`src/client/drunkframe.ts` rebuilds the same effect as an **SVG filter** on the frame. `filter: url(#…)`
+only asks the browser to run a filter over what an element has already painted, so it needs no
+pixels of its own and reaches into a cross-origin `<iframe>` — the very thing that put the picture
+out of WebGL's reach in the first place. It also runs on the compositor, so the office's frame loop
+never waits for it.
+
+The chain is the shader's, step for step: a turbulence field and a displacement map for the ripple
+(`feTurbulence`, `feDisplacementMap`), a blur for the smear, an offset copy blended back in for the
+doubling — faded to an alpha rather than washed over, so it comes out as a `mix` and not a flat
+veil — red and blue offset against each other for the colour bleed, and one colour matrix for the
+saturation and the warm tint. The darkened corners are a `::after` gradient on the frame, because
+the shader's vignette is radial and no filter primitive is. `drunkStyle` works the numbers out on
+its own, each one read off the line of the shader it comes from, so the two can be compared and
+tested without a browser.
+
+Two things it deliberately does differently:
+
+- **The drift is a little stronger than the shader's.** Its 0.008 is a fraction of a whole screen;
+  the TV is a picture in a corner of one, so at the same fraction the two copies sit too close to
+  read as two.
+- **It costs nothing when you're sober.** Below 0.01 the filter is taken right off, which is the
+  same bargain `world/drunk.ts` strikes by drawing straight to the screen.
+
+With **reduced motion** on, the clock is held at zero, so the picture settles into one pose rather
+than swimming — as the world does. And because the filter sits on the same element as the occlusion
+mask, the two compose: a hole in the mask is still a hole, and the doubling never spills out over
+the bezel (the frame's own `overflow: hidden` takes it back off).
+
 ## The state, and where it lives
 
 Four messages, all floor-wide, all validated server-side (`src/server/tv.ts`):
@@ -106,6 +182,7 @@ Four messages, all floor-wide, all validated server-side (`src/server/tv.ts`):
 | **▶️ / ⏸️** | `tv.play` / `tv.pause` | Carry on from where it was paused, or stop it where the office works out it has got to |
 | Drag the scrubber | `tv.seek { position }` | Jump, keeping play and pause as they were |
 | **⏹️ Stop** | `tv.stop` | Off; the link stays so **Play** puts it on again |
+| **E** at the switch, or **🎬 / 💡** in the window | `tv.theatre { on }` | The room's light down for the picture, or back up — without moving the film |
 
 The server answers every one of them with `{ t: 'tv', state }`, which the browser keeps in
 `store.tv` under the `tv` topic, exactly like `jukebox`. Arriving on a floor gets the whole state in
@@ -115,17 +192,21 @@ The server answers every one of them with `{ t: 'tv', state }`, which the browse
 
 | File | Piece |
 | --- | --- |
-| `src/shared/tv.ts` | `TvState`, `checkTvUrl`, `classify` (YouTube / media / embed), `youtubeId`, `embedUrl`, `startSeconds` (reading `t=`/`start=`), `positionAt` — one source of truth for client and server |
-| `src/server/tv.ts` | `class Tv`: the four operations above, `tv.json` kept with mode `0o600`, like `Jukebox` |
+| `src/shared/tv.ts` | `TvState` (with `theatre`), `checkTvUrl`, `classify` (YouTube / media / embed), `youtubeId`, `embedUrl`, `startSeconds` (reading `t=`/`start=`), `positionAt` — one source of truth for client and server |
+| `src/server/tv.ts` | `class Tv`: the five operations above, `tv.json` kept with mode `0o600`, like `Jukebox` |
 | `src/server/floor.ts` | `Floor.tv`, one per floor's checkout |
 | `src/server/server.ts` | The `tv.*` cases in the message router, `tvChanged` to the floor, `tv:` in `floorView()` |
-| `src/shared/protocol.ts` | The four messages, `{ t: 'tv', state }` and `FloorView.tv` |
+| `src/shared/protocol.ts` | The five messages, `{ t: 'tv', state }` and `FloorView.tv` |
 | `src/client/state.ts` | The `tv` topic, `store.tv`, `enter()` and `apply()` |
-| `src/client/tvscreen.ts` | The layer: what to load for a link, keeping every player in step, the per-frame projection, and the mask of what's in front of it |
-| `src/client/world/office.ts` | The TV itself is unchanged; its glass panes are colliders marked `glass: true`, so they don't hide it |
-| `src/client/main.ts` | Wiring: **E** at the TV, the hint bar, painting the screen dark under the picture, the per-frame `update` |
-| `src/client/ui/tv.ts` | The TV window: what's on, ▶️/⏸️/⏹️, a scrubber, the link box, **Open in a tab ↗**, **Share screen** and your own sound (mute and volume) |
-| `tests/tv.test.ts` | Link parsing and validation, `positionAt`, and `class Tv` surviving a restart |
+| `src/client/tvscreen.ts` | The layer: what to load for a link, keeping every player in step, the per-frame projection, the mask of what's in front of it, and how drunk the picture is |
+| `src/client/drunkframe.ts` | The drunk effect for the picture, as an SVG filter — the same one `world/drunk.ts` puts on the canvas |
+| `src/client/world/office.ts` | The TV itself is unchanged; its glass panes are colliders marked `glass: true`, so they don't hide it, and the switch's bit of wall is a fixture so no picture hangs over it |
+| `src/client/main.ts` | Wiring: **E** at the TV and at the switch, the hint bar, painting the screen dark under the picture, the per-frame `update`, and how drunk the picture is |
+| `src/client/ui/tv.ts` | The TV window: what's on, ▶️/⏸️/⏹️, a scrubber, the **The room** row, the Dance floor choice, the link box, **Open in a tab ↗**, **Share screen** and your own sound (mute and volume) |
+| `tests/tv.test.ts` | Link parsing and validation, `positionAt`, the switch leaving the film alone, and `class Tv` surviving a restart |
+| `tests/drunkframe.test.ts` | How much drink puts the filter on the picture, and the numbers the shader's own lines give |
+| `src/client/world/sky.ts` | `setTheatre` and the `skyRoomLight` dim in the shader, `indoors` for the halos |
+| `src/client/world/theatre.ts` | `buildTheatre`: the switch on the wall, its rocker and lamp, and the light off the screen |
 
 ## Controls
 
@@ -138,6 +219,9 @@ The server answers every one of them with `{ t: 'tv', state }`, which the browse
 - **🖥️ Share screen** is there too, because sharing used to be what **E** at the TV did; starting one
   turns the link off the screen (see above), and **▶️ Play** brings it back once the share ends.
 - The hint bar over the TV says what's on before you press anything.
+- **E** at the switch by the wall puts the room in theatre mode and **E** again brings the light
+  back. It's the floor's, not yours, so it works the same from the **🎬 / 💡** row in the TV window
+  (handy from the couch), and the office says who threw it either way.
 
 ## Limits, and what's deliberately left out
 
@@ -154,3 +238,10 @@ The server answers every one of them with `{ t: 'tv', state }`, which the browse
   as before, but a link plays on the TV itself, which is 6.4 m across. A second screen elsewhere in
   the room (the walls are all spoken for: boards, windows, the ladder, the hoop, the elevator) would
   need its own seating, and is the obvious next step if two things need to be on at once.
+- **Theatre mode dims the whole office, not just the lounge.** The room is one open space, so the
+  switch can't light one end of it without the other, and the shader works out "inside the office's
+  walls" rather than "near the TV". The lamps' halos are sorted the same way, so the balcony and
+  the street keep their lights.
+- **The switch stays where it was left.** Turning the TV off doesn't turn the lights back on,
+  because a switch is a switch; the **💡 Lights back up** row, or **E** at the plate, is how you
+  undo it, and the state is kept in `tv.json` with everything else about the screen.

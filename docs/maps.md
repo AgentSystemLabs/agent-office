@@ -6,6 +6,29 @@ The office is one map the building can be. Under **⚙️ Settings → 🏢 Buil
 
 The office has plenty of its own that a map doesn't (the elevator, the balcony, the rooftop bar, the lounge, the dog, pictures on the walls). On another map you go to another project from the floor list in the top-left corner (or **☰ → Floors**), and each project's hall is dressed in its own colors.
 
+## Office interiors
+
+The built-in office supports both its original warm interior and the futuristic graphite-and-blue
+interior. In **Settings → Building → Theme**, choose **Original office** to restore the
+wood floors, colorful chairs and pendant lamps, or **Futuristic office** for dark furniture,
+blue linear lights, acoustic panels, tiled finishes and dark glass frames. This uses the existing
+saved building theme: everyone sees the choice, on every floor, and it survives server restarts.
+Calendar, Halloween and Christmas themes keep the original interior with seasonal decorations.
+
+The switch changes materials and furniture finishes live, preserving worker anchors, seat IDs,
+terminals, doors and interaction positions. The first project's Maple palette stays warm in the
+original office and becomes graphite in the futuristic office; other project palettes retain
+their assigned colors. A switch back restores the original materials and floor/ceiling textures.
+
+The office is built in code rather than custom map JSON. Architecture lives in
+`src/client/world/modern.ts`, reversible furniture finishes in `src/client/world/officefinishes.ts`,
+and the switch in `src/client/world/office.ts`. Ceiling textures live in `src/client/world/stack.ts`.
+
+Run `npm run dev` and visit `http://localhost:5173/lab/office.html` for an interactive preview.
+Its buttons switch interiors without reloading. `?view=meeting` starts by the glass rooms;
+`?interior=original` starts with the original interior. This lab does not start workers or
+simulate multiplayer interactions.
+
 ## The castle
 
 A long stone hall with a timber roof, pillars and pointed arches down both sides, stained glass high in the walls and fire everywhere.

@@ -24,6 +24,17 @@ function office(t: { after(fn: () => void): void }) {
 
 const saved = (dataDir: string) => (JSON.parse(readFileSync(path.join(dataDir, 'floors.json'), 'utf8')) as FloorDef[]).map((d) => d.id);
 
+test('hosted floors preserve a Windows checkout across restarts without opening it locally', (t) => {
+  const { root, dataDir } = office(t);
+  const building = new Building(dataDir, root);
+  const added = building.addHosted({ repo: 'acme/remote', dir: 'C:\\work\\acme\\remote', host: 'laptop' }, 'Sam');
+  assert.notEqual(typeof added, 'string');
+  const restored = new Building(dataDir, root).list().find((d) => d.repo === 'acme/remote');
+  assert.equal(restored?.host, 'laptop');
+  assert.equal(restored?.dir, 'C:\\work\\acme\\remote');
+  assert.equal(typeof building.addHosted({ repo: 'acme/remote', dir: '/other', host: 'laptop' }, 'Sam'), 'string');
+});
+
 test('a floor comes off the building and stays off, with its checkout left where it was', (t) => {
   const { root, dataDir, defs } = office(t);
   const building = new Building(dataDir, root);
@@ -221,4 +232,3 @@ test('a name bb does not know is refused with a reason, rather than a floor that
   assert.match(r as string, /isn't on GitHub or Bitbucket/);
   assert.deepEqual(building.list(), [], 'and no floor is left behind');
 });
-

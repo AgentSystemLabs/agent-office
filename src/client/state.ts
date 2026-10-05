@@ -5,6 +5,7 @@ import type { Decoration } from '../shared/decor';
 import { EMPTY_PLAN, type FloorPlan } from '../shared/floorplan';
 import { newer, type WbElement } from '../shared/whiteboard';
 import type { DogState } from '../shared/dog';
+import type { HelperState } from '../shared/helper';
 import { JUKEBOX_HOME, JUKEBOX_TUNES, type JukeboxState } from '../shared/jukebox';
 import { TV_OFF, type TvState } from '../shared/tv';
 import type { CabinetFrame, CabinetState } from '../shared/cabinet';
@@ -12,7 +13,7 @@ import type { BallState } from '../shared/hoop';
 import { parked, type CarSeat, type CarState } from '../shared/garage';
 import { OFFICE_MAP, planOf, type MapPlan } from '../shared/maps';
 
-export type Topic = 'peers' | 'workers' | 'issues' | 'pulls' | 'chat' | 'project' | 'screens' | 'team' | 'upgrade' | 'services' | 'decor' | 'floorPlan' | 'usage' | 'limits' | 'queue' | 'me' | 'accounts' | 'signins' | 'notify' | 'machine' | 'floors' | 'floor' | 'projectsDir' | 'repos' | 'dog' | 'jukebox' | 'tv' | 'sky' | 'theme' | 'map' | 'leaveOnMerge' | 'whiteboard' | 'drawing' | 'cabinet' | 'cabinetFrame' | 'meeting' | 'prompts' | 'ball' | 'cars' | 'jail';
+export type Topic = 'peers' | 'workers' | 'issues' | 'pulls' | 'chat' | 'project' | 'screens' | 'team' | 'upgrade' | 'services' | 'decor' | 'floorPlan' | 'usage' | 'limits' | 'queue' | 'me' | 'accounts' | 'signins' | 'notify' | 'machine' | 'floors' | 'floor' | 'projectsDir' | 'repos' | 'dog' | 'jukebox' | 'tv' | 'sky' | 'theme' | 'map' | 'leaveOnMerge' | 'whiteboard' | 'drawing' | 'cabinet' | 'cabinetFrame' | 'meeting' | 'prompts' | 'ball' | 'cars' | 'jail' | 'helper';
 
 const zeroUsage = (): Usage => ({ input: 0, output: 0, cacheWrite: 0, cacheRead: 0, cost: 0, calls: 0 });
 
@@ -65,6 +66,8 @@ export interface Settings {
   /** The lounge TV, 0–1, apart from the office sounds too: your own speakers only. */
   tv: number;
   tvMuted: boolean;
+  /** Put the dance floor with disco lights in front of the TV (see world/disco.ts). */
+  danceFloor: boolean;
   /** The swish of a page turning as you read at the bookshelf. */
   pageTurns: boolean;
   /** Voice chat starts muted and V is held down to talk, instead of an open mic. */
@@ -137,7 +140,7 @@ export function rememberSpot(s: Spot) {
 }
 
 export function loadSettings(): Settings {
-  const s: Settings = { view: 'first', volume: 0.7, muted: false, music: 0.5, musicMuted: false, tv: 0.7, tvMuted: false, pageTurns: true, pushToTalk: false, notify: true, hud: { ...HUD_DEFAULTS }, pins: [] };
+  const s: Settings = { view: 'first', volume: 0.7, muted: false, music: 0.5, musicMuted: false, tv: 0.7, tvMuted: false, danceFloor: true, pageTurns: true, pushToTalk: false, notify: true, hud: { ...HUD_DEFAULTS }, pins: [] };
   try {
     const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? 'null');
     if (saved?.view === 'first' || saved?.view === 'third') s.view = saved.view;
@@ -147,6 +150,7 @@ export function loadSettings(): Settings {
     if (typeof saved?.musicMuted === 'boolean') s.musicMuted = saved.musicMuted;
     if (typeof saved?.tv === 'number' && Number.isFinite(saved.tv)) s.tv = Math.max(0, Math.min(1, saved.tv));
     if (typeof saved?.tvMuted === 'boolean') s.tvMuted = saved.tvMuted;
+    if (typeof saved?.danceFloor === 'boolean') s.danceFloor = saved.danceFloor;
     if (typeof saved?.pageTurns === 'boolean') s.pageTurns = saved.pageTurns;
     if (typeof saved?.pushToTalk === 'boolean') s.pushToTalk = saved.pushToTalk;
     if (typeof saved?.notify === 'boolean') s.notify = saved.notify;
@@ -232,6 +236,12 @@ jukebox: JukeboxState & { since: number } = { on: false, track: JUKEBOX_TUNES[0]
   /** The dog on your floor, and when (performance.now()) the leg it's on began. */
   dog: DogState | null = null;
   dogStart = 0;
+  /**
+   * The helpers on this floor and where each is walking (see shared/helper.ts), and when
+   * (performance.now()) this batch of them was said, which is when the walks began.
+   */
+  helpers: HelperState[] = [];
+  helperStart = 0;
   /** The basketball on this floor, as the office last said (see world/hoop.ts). */
   ball: BallState = {};
   /** Workers sent home and locked up in this floor's dungeon, on a map that has one. */
@@ -331,7 +341,7 @@ jukebox: JukeboxState & { since: number } = { on: false, track: JUKEBOX_TUNES[0]
     this.ball = v.ball ?? {};
     this.setCars(v.cars ?? parked());
     this.jail = v.jail ?? { prisoners: [], bones: 0 };
-    for (const t of ['floor', 'project', 'workers', 'issues', 'pulls', 'queue', 'meeting', 'decor', 'floorPlan', 'services', 'dog', 'jukebox', 'tv', 'whiteboard', 'drawing', 'cabinet', 'cabinetFrame', 'ball', 'cars', 'jail'] as Topic[]) this.emit(t);
+    for (const t of ['floor', 'project', 'workers', 'issues', 'pulls', 'queue', 'meeting', 'decor', 'floorPlan', 'services', 'dog', 'helper', 'jukebox', 'tv', 'whiteboard', 'drawing', 'cabinet', 'cabinetFrame', 'ball', 'cars', 'jail'] as Topic[]) this.emit(t);
   }
 
   private setCars(cars: CarState[]) {
@@ -543,6 +553,11 @@ jukebox: JukeboxState & { since: number } = { on: false, track: JUKEBOX_TUNES[0]
       case 'dog':
         this.setDog(msg.dog);
         this.emit('dog');
+        break;
+      case 'helper':
+        this.helpers = msg.helpers;
+        this.helperStart = performance.now();
+        this.emit('helper');
         break;
       case 'ball':
         this.ball = msg.ball;
