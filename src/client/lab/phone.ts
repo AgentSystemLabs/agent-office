@@ -27,7 +27,7 @@ openSmartphone({
   goToWorker: () => true,
   openWorkerTerminal: () => {},
   fixLostWorktree: () => {},
-  sound: { phoneRing: () => {}, smsSwoosh: () => {}, dialBlip: () => {} },
+  sound: { phoneRing: () => () => {}, smsSwoosh: () => {}, dialBlip: () => {} },
 });
 
 // The SMS thread through the real taps: first contact, then its SMS button (or its Call button).

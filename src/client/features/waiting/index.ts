@@ -110,13 +110,13 @@ export function installWaiting(ctx: Ctx, core: CoreState, parts: Pick<Parts, 'wo
   ctx.ticks.add('render', ({ now }) => pointToWaiting(now));
 
   /** Opening a sleeping worker's terminal wakes it, so there's nothing to press first. */
-  function openWorkerTerminal(id: string, find?: TerminalFind) {
+  function openWorkerTerminal(id: string, find?: TerminalFind, doing?: string) {
     const w = store.workers.get(id);
     if (!w) return;
     const { actions } = parts;
     if (w.lost) return actions.fixLostWorktree(w);
     if (isAsleep(w.status)) actions.resumeWorker(w);
-    openTerminal(net, id, () => openWorkerChanges(id), find);
+    openTerminal(net, id, () => openWorkerChanges(id), find, doing ? { doing } : undefined);
   }
 
   /** 🔎 the chat and every terminal; a terminal line opens that terminal right at it. */

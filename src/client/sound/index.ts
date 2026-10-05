@@ -274,9 +274,9 @@ export class OfficeSound {
     needsYou(this.a, again);
   }
 
-  /** The smartphone's double ring for a call you place. */
-  phoneRing() {
-    phoneRing(this.a);
+  /** The smartphone's double ring for a call you place: returns a stop for hanging up mid-dial. */
+  phoneRing(): () => void {
+    return phoneRing(this.a);
   }
 
   /** An SMS going out. */

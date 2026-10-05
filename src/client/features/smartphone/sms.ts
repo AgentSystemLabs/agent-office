@@ -13,6 +13,7 @@ import type { Phone } from './ui';
 /** The thread's live bits, for following the worker without a redraw. */
 export interface ThreadLive {
   id: string;
+  who: HTMLElement;
   hint: HTMLElement;
   input: HTMLInputElement;
   send: HTMLElement;
@@ -61,8 +62,9 @@ export function renderThread(phone: Phone, id: string): HTMLElement[] {
     ];
   }
   const key = threadKey(store.floor, id);
-  const thread = store.smartphone.threads[key] ?? [];
+  let thread = store.smartphone.threads[key] ?? [];
   const asleep = isAsleep(w.status);
+  const who = h('div.sp-name', {}, `💬 ${w.name}`);
   const hint = h('div.sp-hint', {}, statusNote(w));
   const input = h('input', { type: 'text', maxlength: MAX_SMS_TEXT, placeholder: asleep ? `${w.name} is asleep — call to wake it` : `Text ${w.name}…`, 'aria-label': 'Message', autocomplete: 'off' }) as HTMLInputElement;
   input.toggleAttribute('disabled', asleep);
@@ -70,11 +72,28 @@ export function renderThread(phone: Phone, id: string): HTMLElement[] {
   sendBtn.toggleAttribute('disabled', asleep);
   const mic = dictateInput(input);
   const form = h('form.sp-compose', {}, mic.el, sendBtn);
-  const msgs = h(
-    'div.sp-thread',
-    {},
-    ...thread.map((m) => (m.dir === 'out' ? h('div.sp-bubble sp-out', {}, m.text) : h('div.sp-bubble sp-note', {}, m.text))),
-  );
+  const msgs = h('div.sp-thread', {});
+  // Long threads render a window, not all 50 capped messages at full length: the last
+  // WINDOW_MSGS with a "show earlier" expander, so opening scrolls without jank.
+  const WINDOW_MSGS = 20;
+  let showAll = false;
+  const paintMsgs = () => {
+    msgs.replaceChildren();
+    const hidden = showAll ? 0 : Math.max(0, thread.length - WINDOW_MSGS);
+    if (hidden) {
+      const more = h('button.btn.sp-more', { type: 'button' }, `Show earlier (${hidden})`);
+      more.addEventListener('click', () => {
+        showAll = true;
+        paintMsgs();
+      });
+      msgs.append(more);
+    }
+    for (const m of thread.slice(thread.length - (showAll ? thread.length : WINDOW_MSGS))) {
+      msgs.append(m.dir === 'out' ? h('div.sp-bubble sp-out', {}, m.text) : h('div.sp-bubble sp-note', {}, m.text));
+    }
+    msgs.scrollTop = msgs.scrollHeight;
+  };
+  paintMsgs();
   form.addEventListener('submit', (e) => {
     e.preventDefault();
     const text = input.value.trim();
@@ -102,6 +121,7 @@ export function renderThread(phone: Phone, id: string): HTMLElement[] {
     st.threads[key] = appendSms(st.threads[key], text);
     st.threads = pruneThreadKeys(st.threads);
     saveThread(key, st.threads[key] ?? []);
+    thread = st.threads[key] ?? [];
     st.recents = logRecent(st.recents, { kind: 'sms', workerId: now.id, name: now.name, at: Date.now() });
     store.emit('smartphone');
     phone.deps.sound.smsSwoosh();
@@ -113,10 +133,10 @@ export function renderThread(phone: Phone, id: string): HTMLElement[] {
     input.focus();
     phone.refreshTabs();
   });
-  phone.setLive({ id, hint, input, send: sendBtn, msgs, dropMic: mic.drop });
+  phone.setLive({ id, who, hint, input, send: sendBtn, msgs, dropMic: mic.drop });
   // Keep the focus timer tracked, so it can't fire after close or a view change.
   phone.after(30, () => input.focus());
-  return [h('div.sp-who', {}, h('span.sp-dot', { style: `background:${dotColor(w)}` }), h('div.sp-main', {}, h('div.sp-name', {}, `💬 ${w.name}`))), msgs, hint, form];
+  return [h('div.sp-who', {}, h('span.sp-dot', { style: `background:${dotColor(w)}` }), h('div.sp-main', {}, who)), msgs, hint, form];
 }
 
 /** Follows the worker without a redraw; a worker turning lost switches to the Fix it UI. */
@@ -124,6 +144,7 @@ export function liveThread(phone: Phone, live: ThreadLive | null) {
   if (!live) return phone.draw();
   const w = phone.worker(live.id);
   if (!w || w.lost) return phone.draw();
+  live.who.replaceChildren(`💬 ${w.name}`);
   live.hint.replaceChildren(statusNote(w));
   const asleep = isAsleep(w.status);
   live.input.toggleAttribute('disabled', asleep);

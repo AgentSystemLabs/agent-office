@@ -15,10 +15,15 @@ function ready(a: AudioCore, name: string): AudioContext | null {
   return ctx;
 }
 
-/** An old landline's two-tone ring (440 + 480 Hz), rung twice, for placing a call. */
-export function phoneRing(a: AudioCore) {
+/**
+ * An old landline's two-tone ring (440 + 480 Hz), rung twice, for placing a call. Returns a stop
+ * handle: hanging up mid-dial silences the scheduled rings instead of playing them out with no
+ * call attached (safe to call after the ring ended on its own).
+ */
+export function phoneRing(a: AudioCore): () => void {
   const ctx = ready(a, 'phone-ring');
-  if (!ctx) return;
+  if (!ctx) return () => {};
+  const voices: { o: OscillatorNode; g: GainNode }[] = [];
   for (const at of [0, 0.9]) {
     const t0 = ctx.currentTime + at;
     for (const f of [440, 480]) {
@@ -33,8 +38,24 @@ export function phoneRing(a: AudioCore) {
       o.connect(g).connect(a.alerts);
       o.start(t0);
       o.stop(t0 + 0.7);
+      voices.push({ o, g });
     }
   }
+  let stopped = false;
+  return () => {
+    if (stopped) return;
+    stopped = true;
+    const now = ctx.currentTime;
+    for (const { o, g } of voices) {
+      try {
+        g.gain.cancelScheduledValues(now);
+        g.gain.setTargetAtTime(0.0001, now, 0.02);
+        o.stop(now + 0.15);
+      } catch {
+        // Already ended on its own: nothing to silence.
+      }
+    }
+  };
 }
 
 /** An SMS going out: a short whoosh upward. */

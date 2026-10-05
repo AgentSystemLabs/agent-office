@@ -13,6 +13,18 @@ function pill(w: WorkerInfo) {
   return h('span', { class: cls }, STATUS_LABEL[w.status] ?? w.status);
 }
 
+/** Exact timestamps, memoized per instant: `toLocaleString` is slow for a tooltip per row per draw. */
+const whenTitles = new Map<number, string>();
+function whenTitle(at: number): string {
+  let s = whenTitles.get(at);
+  if (s === undefined) {
+    s = new Date(at).toLocaleString();
+    if (whenTitles.size > 200) whenTitles.clear();
+    whenTitles.set(at, s);
+  }
+  return s;
+}
+
 /** Drops recents rows whose worker went home. Runs at the top of every draw, before anything is
  * painted, so renderers never mutate (every listener draws right after). */
 export function pruneRecents(): void {
@@ -110,7 +122,7 @@ export function renderRecents(phone: Phone): HTMLElement[] {
         },
         h('span.sp-dot', {}, r.kind === 'call' ? '📞' : '💬'),
         h('div.sp-main', {}, h('div.sp-name', {}, w.name), h('div.sp-sub', {}, r.kind === 'call' ? 'outgoing call' : 'text message')),
-        h('span.sp-when', { title: new Date(r.at).toLocaleString() }, timeAgo(r.at)),
+        h('span.sp-when', { title: whenTitle(r.at) }, timeAgo(r.at)),
       );
     }),
     h(

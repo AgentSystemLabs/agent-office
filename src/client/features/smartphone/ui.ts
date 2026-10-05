@@ -11,9 +11,9 @@ export interface SmartphoneDeps {
   net: { send(msg: { t: 'worker.prompt'; workerId: string; prompt: string }): void };
   /** Puts you at the worker's desk; false when there's no getting there. */
   goToWorker(id: string): boolean;
-  openWorkerTerminal(id: string): void;
+  openWorkerTerminal(id: string, doing?: string): void;
   fixLostWorktree(w: WorkerInfo): void;
-  sound: { phoneRing(): void; smsSwoosh(): void; dialBlip(): void };
+  sound: { phoneRing(): () => void; smsSwoosh(): void; dialBlip(): void };
 }
 
 export type PhoneView = { t: 'contacts' } | { t: 'recents' } | { t: 'actions'; id: string } | { t: 'calling'; id: string } | { t: 'thread'; id: string };
@@ -33,6 +33,8 @@ export interface Phone {
   /** The placed call's connect timer: separate from view timers, dropped on hang-up, close or fire. */
   setConnect(ms: number, fn: () => void): void;
   clearConnect(): void;
+  /** The ringback's stop handle: hanging up mid-dial silences it instead of playing out. */
+  setRing(stop: (() => void) | null): void;
   setLive(live: ThreadLive | null): void;
   close(): void;
 }
@@ -71,6 +73,11 @@ export function openSmartphone(deps: SmartphoneDeps) {
     if (connectTimer) clearTimeout(connectTimer);
     connectTimer = null;
   };
+  let ringStop: (() => void) | null = null;
+  const stopRing = () => {
+    ringStop?.();
+    ringStop = null;
+  };
 
   const phone: Phone = {
     deps,
@@ -83,6 +90,7 @@ export function openSmartphone(deps: SmartphoneDeps) {
     refreshTabs: () => drawTabs(store.workers.size),
     hangUp: () => {
       if (view.t !== 'calling') return false;
+      stopRing();
       clearConnect();
       view = { t: 'actions', id: view.id };
       deps.sound.dialBlip();
@@ -98,6 +106,10 @@ export function openSmartphone(deps: SmartphoneDeps) {
       }, ms);
     },
     clearConnect,
+    setRing: (stop) => {
+      stopRing();
+      ringStop = stop;
+    },
     setLive: (l) => {
       live?.dropMic();
       live = l;
@@ -105,9 +117,12 @@ export function openSmartphone(deps: SmartphoneDeps) {
     close: () => modal.close(),
   };
 
-  /** What the open phone shows, for skipping redraws whose inputs didn't change. */
+  /** What the open phone shows, for skipping redraws whose inputs didn't change. Cheap stable
+   * fields only: activity rides as length + prefix, since its full text rebuilds the string that
+   * decides *not* to redraw on every activity tick. */
   function sig(contacts: WorkerInfo[]): string {
-    return `${contacts.map((w) => [w.id, w.name, w.color, w.status, w.activity ?? '', w.pr?.number ?? 0].join('|')).join('~')}#${store.smartphone.recents.length}`;
+    const field = (w: WorkerInfo) => [w.id, w.kind, w.name, w.color, w.status, w.pr?.number ?? 0, w.lost ? 1 : 0, w.activity ? `${w.activity.length}:${w.activity.slice(0, 24)}` : ''].join('|');
+    return `${contacts.map(field).join('~')}#${store.smartphone.recents.length}`;
   }
 
   function draw() {
@@ -141,11 +156,21 @@ export function openSmartphone(deps: SmartphoneDeps) {
 
   function drawBody(contacts: WorkerInfo[]) {
     phone.setLive(null);
-    if (view.t === 'contacts') body.replaceChildren(...renderContacts(phone, contacts));
-    else if (view.t === 'recents') body.replaceChildren(...renderRecents(phone));
-    else if (view.t === 'actions') body.replaceChildren(...renderActions(phone, view.id));
-    else if (view.t === 'calling') body.replaceChildren(...renderCalling(phone, view.id));
-    else body.replaceChildren(...renderThread(phone, view.id));
+    // A renderer whose worker vanished redirects via go() (which paints the fallback itself):
+    // skip the replace or the empty fallback nodes wipe what it just painted.
+    const at = view;
+    const nodes =
+      view.t === 'contacts'
+        ? renderContacts(phone, contacts)
+        : view.t === 'recents'
+          ? renderRecents(phone)
+          : view.t === 'actions'
+            ? renderActions(phone, view.id)
+            : view.t === 'calling'
+              ? renderCalling(phone, view.id)
+              : renderThread(phone, view.id);
+    if (view !== at) return;
+    body.replaceChildren(...nodes);
   }
 
   const tab = (label: string, n: number, on: boolean, go: () => void) => h('button.sp-tab', { type: 'button', class: on ? 'on' : '', 'aria-pressed': String(on), onclick: go }, label, n ? h('span.sp-count', {}, String(n)) : null);
@@ -184,6 +209,7 @@ export function openSmartphone(deps: SmartphoneDeps) {
   const modal = openModal(el, {
     doing: '📱 checking contacts',
     onClose: () => {
+      stopRing();
       clearConnect();
       clearViewTimers();
       if (raf) cancelAnimationFrame(raf);
