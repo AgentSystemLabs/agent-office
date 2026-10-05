@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { WallRect } from '../../../shared/decor';
 import type { FloorPalette } from '../../../shared/floors';
-import { street } from '../outside';
+import { street } from '../streetcity';
 import { cars } from '../../features/cars/world';
 import { scenic } from '../scenic';
 import { toon, toonUnique } from '../toon';

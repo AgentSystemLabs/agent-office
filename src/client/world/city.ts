@@ -46,6 +46,8 @@ export interface City {
   setFloors(floors: number, wings?: readonly number[]): void;
   /** The cars along the streets, the blinking lights on the towers: `night` is how dark it is (0–1). */
   update(t: number, dt: number, night: number): void;
+  /** Where each building stands (the lots' footprints), for walls to stop you at when you're down on the street. */
+  footprints: { minX: number; maxX: number; minZ: number; maxZ: number }[];
 }
 
 /** How a building's walls look: its paint, and the windows in it (glass towers are nearly all window). */
@@ -248,7 +250,11 @@ function rise(ring: number, drop: number): number {
   return ring === 0 ? k : ring === 1 ? Math.sqrt(k) : 1;
 }
 
-export function buildCity(night: NightParts): City {
+/**
+ * `own` puts the office's own building (and its garage) in the street: from the roof you see it
+ * under your feet. Down on a floor you're inside it already, so it's left out.
+ */
+export function buildCity(night: NightParts, own = true): City {
   const group = new THREE.Group();
   /** Everything down on the street, which is as far below the roof as the building is tall. */
   const street = new THREE.Group();
@@ -350,8 +356,8 @@ export function buildCity(night: NightParts): City {
 
   // The office's own building, a floor per project, from the street up to the roof, and the open
   // garage at the bottom: walled at the back and on the west side, columns along the other two.
-  const building = buildTower([], night);
-  group.add(building.group);
+  const building = own ? buildTower([], night) : null;
+  if (building) group.add(building.group);
   const garage = new THREE.Group();
   const garageH = -STREET_Y - SLAB;
   const concrete = toon('#d3d6dd');
@@ -361,7 +367,7 @@ export function buildCity(night: NightParts): City {
   for (const x of [B.maxX - 0.25, -9.6, 0, 9.6]) garage.add(mesh(column, toon('#e6e8ee'), x, garageH / 2, B.maxZ - 0.25, false));
   for (const z of [-6.5, 6.5, B.minZ + 0.25]) garage.add(mesh(column, toon('#e6e8ee'), B.maxX - 0.25, garageH / 2, z, false));
   garage.add(mesh(new THREE.PlaneGeometry(B.maxX - B.minX, B.maxZ - B.minZ).rotateX(-Math.PI / 2), toon('#9a9ea8'), (B.minX + B.maxX) / 2, 0.03, (B.minZ + B.maxZ) / 2, false));
-  street.add(mergeByMaterial(garage));
+  if (own) street.add(mergeByMaterial(garage));
   // Its plaza, with a few trees in front.
   parks.add(mesh(new THREE.PlaneGeometry(inner, inner).rotateX(-Math.PI / 2), toon('#cfc8b8'), blockAt(0, 0).x, 0.02, blockAt(0, 0).z, false));
   for (const [x, z] of [
@@ -512,6 +518,7 @@ export function buildCity(night: NightParts): City {
   let riseNow = -1;
   return {
     group,
+    footprints: lots.map((l) => ({ minX: l.x - l.w / 2, maxX: l.x + l.w / 2, minZ: l.z - l.d / 2, maxZ: l.z + l.d / 2 })),
     setFloors(floors, wings = []) {
       floors = Math.max(1, floors);
       if (floors === floorsNow && wings.join() === wingsNow) return;
@@ -519,7 +526,7 @@ export function buildCity(night: NightParts): City {
       wingsNow = wings.join();
       const drop = roofDrop(floors);
       street.position.y = -drop;
-      building.set(floors, floors, wings);
+      building?.set(floors, floors, wings);
       // The buildings only change height up to six floors (see rise).
       const k = Math.min(1, drop / LAID_OUT);
       if (k !== riseNow) {

@@ -333,90 +333,14 @@ export function neighbourBoxes(): { minX: number; maxX: number; minZ: number; ma
  * sidewalks and street lamps, trees and neighbours' buildings, and in `sky` some clouds.
  */
 export function buildStreet(group: THREE.Group, colliders: Collider[], night: NightParts, sky: THREE.Group): SkyWorld {
-  const lawn = new THREE.Mesh(new THREE.PlaneGeometry(REACH - LAWN_WEST, REACH * 2), new THREE.MeshStandardMaterial({ map: grassTexture((REACH - LAWN_WEST) / 2, REACH), roughness: 0.95, metalness: 0 }));
-  lawn.rotation.x = -Math.PI / 2;
-  lawn.position.set((LAWN_WEST + REACH) / 2, G - 0.03, 0);
-  lawn.receiveShadow = true;
-  group.add(lawn);
+  void night;
   // What you stand on anywhere out there, the lot and the road and the grass alike, and the beach.
+  // (What it looks like is the city's, see streetcity.ts.)
   colliders.push({ minX: -REACH, maxX: REACH, minZ: -REACH, maxZ: REACH, bottom: G - 1, top: G });
-
-  // The lot in front of the garage, out to the sidewalk, and the one down its east side.
-  for (const [b, y] of [
-    [LOT, G - 0.01],
-    [SIDE_LOT, G - 0.012],
-  ] as const) {
-    group.add(groundPlane(b.maxX - b.minX, b.maxZ - b.minZ, (b.minX + b.maxX) / 2, y, (b.minZ + b.maxZ) / 2, null, '#9a9ea8'));
-  }
-
-  // The road, out to either end of the street, where the scenic loop takes over (world/scenic/).
-  const road = roadTexture();
-  road.repeat.set((STREET_END * 2) / 8, 1);
-  group.add(groundPlane(STREET_END * 2, ROAD.maxZ - ROAD.minZ, 0, G - 0.008, (ROAD.minZ + ROAD.maxZ) / 2, road));
-  for (const [z0, z1] of [
-    [21, ROAD.minZ],
-    [ROAD.maxZ, ROAD.maxZ + 2],
-  ]) {
-    group.add(mesh(box(STREET_END * 2 - 4, 0.08, z1 - z0), toon('#e3ddd0'), 0, G, (z0 + z1) / 2));
-  }
-  const forest = new THREE.Group();
-
-  // Trees along the sidewalks and around the building.
-  const trees: [number, number, number][] = [
-    [-34, 22, 1.1],
-    [-22, 22, 1],
-    [22, 22, 1.05],
-    [34, 22, 0.95],
-    [-40, 32.5, 1.1],
-    [-12, 32.5, 1],
-    [14, 32.5, 1.15],
-    [42, 32.5, 1],
-    [-27, -8, 1.2],
-    [-29, 4, 1],
-    [-26, 14, 0.9],
-    [29, -6, 1.1],
-    [30, 6, 1.25],
-    [-12, -22, 1.2],
-    [4, -24, 1],
-    // Clear of the back office, when a floor's built out into one (see WING).
-    [23, -19, 1.1],
-  ];
-  for (const [x, z, s] of trees) {
-    const t = tree(s);
-    t.position.set(x, G, z);
-    forest.add(t);
-    // Its trunk, which you (or a car) can't go through.
-    const r = 0.26 * s;
-    colliders.push({ minX: x - r, maxX: x + r, minZ: z - r, maxZ: z + r, bottom: G, top: G + 2.2 * s });
-  }
-  group.add(mergeByMaterial(forest));
-
-  // Street lamps down both sidewalks, their arms out over the road.
-  const lamps = new THREE.Group();
-  const glass = bulb(night, '#fff3d6');
-  for (const x of [-40, -28, -16, -4, 8, 16, 28, 40]) streetLamp(lamps, night, glass, colliders, x, 22.2, 1);
-  for (const x of [-34, -22, -4, 8, 26, 36]) streetLamp(lamps, night, glass, colliders, x, 31.8, -1);
-  group.add(mergeByMaterial(lamps));
-
-  // The neighbours: across the street, and further out behind and beside the office.
-  for (const [x, z, w, h, d, color] of NEIGHBOURS) {
-    const b = building(w, h, d, color, night.windows);
-    b.position.set(x, G, z);
-    b.rotation.y = facing(x, z);
-    group.add(b);
-  }
-  // Solid: you (and a car) stop at their walls instead of walking in.
-  for (const n of neighbourBoxes()) colliders.push({ minX: n.minX, maxX: n.maxX, minZ: n.minZ, maxZ: n.maxZ, bottom: G, top: G + n.top });
+  void group;
 
   // The voxel sky world: terraced clouds and floating islands, too far off for the fog to hide.
   const world = buildSkyWorld(night.clouds, (c) => bulb(night, c, 0.9));
   sky.add(world.group);
   return world;
 }
-
-/** The street out front, the city along it, and the clouds over it all. */
-export const street: Fixture<never, StreetSite> = (site) => {
-  // The clouds stay up in the sky, however far down the street is.
-  const world = buildStreet(site.ground, site.groundColliders, site.get('night'), site.group);
-  return { update: (t) => world.update(t) };
-};
