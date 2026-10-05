@@ -109,7 +109,7 @@ export function buildSkyWorld(cloud: THREE.MeshStandardMaterial, bulbMat: (color
     const a = (n / 34) * Math.PI * 2 + rand() * 0.4;
     const dist = 110 + rand() * 150;
     const m = new THREE.Mesh(clouds[n % clouds.length], cloud);
-    m.position.set(Math.cos(a) * dist, 8 + rand() * 80, Math.sin(a) * dist);
+    m.position.set(Math.cos(a) * dist, 150 + rand() * 90, Math.sin(a) * dist);
     m.rotation.y = rand() * Math.PI * 2;
     m.scale.setScalar(1.2 + rand() * 1.6);
     group.add(m);
@@ -127,7 +127,7 @@ export function buildSkyWorld(cloud: THREE.MeshStandardMaterial, bulbMat: (color
   for (let n = 0; n < 16; n++) {
     const kind = kinds[n % kinds.length];
     const a = (n / 16) * Math.PI * 2 + rand() * 0.3;
-    const dist = 95 + rand() * 120;
+    const dist = 140 + rand() * 160;
     const isle = new THREE.Group();
     isle.add(new THREE.Mesh(kind.geo, land));
     for (const p of kind.lanterns) {
@@ -135,7 +135,7 @@ export function buildSkyWorld(cloud: THREE.MeshStandardMaterial, bulbMat: (color
       l.position.copy(p);
       isle.add(l);
     }
-    const y = 10 + rand() * 70;
+    const y = 230 + rand() * 90;
     isle.position.set(Math.cos(a) * dist, y, Math.sin(a) * dist);
     isle.rotation.y = rand() * Math.PI * 2;
     isle.scale.setScalar(1 + rand() * 0.7);

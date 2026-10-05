@@ -38,6 +38,8 @@ export default defineConfig({
   root: resolve(import.meta.dirname, 'src/client'),
   publicDir: resolve(import.meta.dirname, 'src/client/public'),
   plugins: [excalidrawFonts()],
+  // Round primitives become blocks everywhere (see src/client/threeVox.ts).
+  resolve: { alias: [{ find: /^three$/, replacement: resolve(import.meta.dirname, 'src/client/threeVox.ts') }] },
   define: {
     __EXCALIDRAW_ASSETS__: JSON.stringify(EXCALIDRAW_ASSETS),
   },

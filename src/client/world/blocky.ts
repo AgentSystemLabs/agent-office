@@ -18,7 +18,7 @@ export function blockBall(r: number, ..._rest: unknown[]): THREE.BufferGeometry 
 
 /** A cone: a four-sided pyramid with its corners on the old radius. */
 export function blockCone(r: number, height: number, _s?: number, _h?: number, open?: boolean, ..._rest: unknown[]): THREE.BufferGeometry {
-  return new THREE.ConeGeometry(r, height, 4, 1, open).rotateY(Math.PI / 4);
+  return new THREE.ConeGeometry(r, height, 4, 1, open);
 }
 
 /** A capsule: a block the same length. */

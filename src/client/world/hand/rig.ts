@@ -63,38 +63,13 @@ export function buildHand(side: 1 | -1, m: HandMaterials): HandRig {
   const hand = new THREE.Group();
   const skin = m.skin;
 
-  // Minecraft-style: a square palm with the knuckles picked out darker, and the four fingers fused into
-  // one block with grooves between them and pale nails at the tips.
-  hand.add(block(skin, 0.066, 0.05, 0.05));
-  for (const x of [-0.024, -0.008, 0.008, 0.024]) {
-    const knuckle = block(m.knuckle, 0.013, 0.006, 0.012);
-    knuckle.position.set(x, 0.027, -0.044);
-    hand.add(knuckle);
-  }
+  // Plain voxel hand: one square block for the palm and fingers, and a small block for the thumb.
+  hand.add(block(skin, 0.06, 0.05, 0.09));
   const fingers = new THREE.Group();
-  fingers.position.z = -0.05;
-  fingers.add(block(skin, 0.066, 0.044, 0.05));
-  for (const x of [-0.0165, 0, 0.0165]) {
-    const groove = block(m.knuckle, 0.002, 0.002, 0.042);
-    groove.position.set(x, 0.0225, -0.004);
-    fingers.add(groove);
-    const side2 = block(m.knuckle, 0.002, 0.03, 0.002);
-    side2.position.set(x, 0, -0.049);
-    fingers.add(side2);
-  }
-  for (const x of [-0.0248, -0.0083, 0.0083, 0.0248]) {
-    const nail = block(m.nail, 0.012, 0.003, 0.012);
-    nail.position.set(x, 0.0225, -0.036);
-    fingers.add(nail);
-  }
-  hand.add(fingers);
-
+  fingers.position.z = -0.045;
   const thumb = new THREE.Group();
-  thumb.position.set(-side * 0.0385, -0.004, -0.012);
-  thumb.add(block(skin, 0.024, 0.034, 0.042));
-  const thumbNail = block(m.nail, 0.014, 0.003, 0.01);
-  thumbNail.position.set(0, 0.0185, -0.032);
-  thumb.add(thumbNail);
+  thumb.position.set(-side * 0.036, -0.004, -0.02);
+  thumb.add(block(skin, 0.022, 0.028, 0.04));
   hand.add(thumb);
 
   // The arm: skin up to a cuff, then the sleeve.
