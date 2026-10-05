@@ -15,11 +15,10 @@ export function dotColor(w: Pick<WorkerInfo, 'color'>): string {
   return HEX_COLOR.test(w.color) ? w.color : '#888888';
 }
 
-/** The line under a contact's name: what it's doing now, or where its work stands. */
-export function contactSub(w: Pick<WorkerInfo, 'activity' | 'pr' | 'lost'>): string | undefined {
+/** The line under a contact's name: what it's doing now. Work standing (a PR) is the badge's job, so it never doubles up here. */
+export function contactSub(w: Pick<WorkerInfo, 'activity' | 'lost'>): string | undefined {
   if (w.lost) return '🌿 worktree deleted — tap to fix it';
   if (w.activity) return w.activity;
-  if (w.pr) return `🔀 PR #${w.pr.number}`;
   return undefined;
 }
 

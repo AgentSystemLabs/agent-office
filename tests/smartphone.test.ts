@@ -132,7 +132,7 @@ test("a contact row names what it's on, and a lost worktree says how to fix it",
   assert.equal(kindIcon({ kind: 'agent' }), '🤖');
   assert.equal(kindIcon({ kind: 'shell' }), '🐚');
   assert.equal(contactSub({ activity: 'Wants permission: npm test' }), 'Wants permission: npm test');
-  assert.equal(contactSub({ pr: { number: 12, url: 'https://x' } }), '🔀 PR #12');
+  // Work standing is the badge's job, never the sub line's (no double 🔀).
   assert.equal(contactSub({}), undefined);
   assert.equal(contactSub({ lost: { branch: 'here' } }), '🌿 worktree deleted — tap to fix it');
 });

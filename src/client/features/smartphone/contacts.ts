@@ -35,7 +35,7 @@ export function renderContacts(phone: Phone, contacts: WorkerInfo[]): HTMLElemen
         },
       },
       h('span.sp-dot', { style: `background:${dotColor(w)}` }),
-      h('div.sp-main', {}, h('div.sp-name', {}, `${kindIcon(w)} ${w.name}`, w.pr && w.activity ? h('span.sp-pr', {}, `🔀 #${w.pr.number}`) : null), sub ? h('div.sp-sub', {}, clip(sub, 48)) : null),
+      h('div.sp-main', {}, h('div.sp-name', {}, `${kindIcon(w)} ${w.name}`, w.pr ? h('span.sp-pr', {}, `🔀 #${w.pr.number}`) : null), sub ? h('div.sp-sub', {}, clip(sub, 48)) : null),
       pill(w),
     );
   });
@@ -49,7 +49,7 @@ export function renderActions(phone: Phone, id: string): HTMLElement[] {
   }
   const sub = contactSub(w);
   return [
-    h('div.sp-who', {}, h('span.sp-bigdot', { style: `background:${dotColor(w)}` }), h('div.sp-main', {}, h('div.sp-name', {}, `${kindIcon(w)} ${w.name}`), sub ? h('div.sp-sub', {}, clip(sub, 60)) : null), pill(w)),
+    h('div.sp-who', {}, h('span.sp-bigdot', { style: `background:${dotColor(w)}` }), h('div.sp-main', {}, h('div.sp-name', {}, `${kindIcon(w)} ${w.name}`, w.pr ? h('span.sp-pr', {}, `🔀 #${w.pr.number}`) : null), sub ? h('div.sp-sub', {}, clip(sub, 60)) : null), pill(w)),
     h(
       'div.sp-actions',
       {},
