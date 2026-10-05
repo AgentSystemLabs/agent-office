@@ -45,7 +45,7 @@ export function buildDesk(def: DeskDef, index: number, trimMat: THREE.Material):
   group.rotation.y = def.rotY;
   const { width, depth, height } = DESK_SIZE;
   group.add(mesh(roundedBox(width - 0.06, 0.08, depth - 0.04, 0.08), toon(PALETTE.desk), 0, height - 0.04, 0));
-  const legMat = toon('#8d99ae');
+  const legMat = toon(PALETTE.deskLeg);
   for (const sx of [-1, 1]) {
     for (const sz of [-1, 1]) {
       group.add(mesh(new THREE.CylinderGeometry(0.035, 0.035, height - 0.08, 8), legMat, sx * (width / 2 - 0.14), (height - 0.08) / 2, sz * (depth / 2 - 0.12)));
