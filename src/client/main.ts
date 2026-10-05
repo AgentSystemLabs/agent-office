@@ -2556,11 +2556,9 @@ function promptAtDesk(deskId: string) {
  */
 function helperFor(w: WorkerInfo) {
   if (officeIsFull()) return;
-  if (w.kind !== 'agent') return toast(`${w.name} is a shell, not an agent`, 'warn');
   if (w.helper) return toast(`${w.name} is itself a helper`, 'warn');
   if (w.lost) return fixLostWorktree(w);
   if (store.helpers.some((h) => h.hostId === w.id)) return toast(`${w.name} already has a helper at its desk`, 'warn');
-  if (!w.worktree) return toast(`${w.name} isn't in a worktree of its own — a helper needs one to read`, 'warn');
   openPrompt({
     title: `🆘 Bring a helper to ${w.name}`,
     subtitle: 'It walks over, reads what they are stuck on, tells them what it found, and goes home. It cannot edit, commit or open a pull request.',
