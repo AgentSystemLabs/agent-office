@@ -536,7 +536,7 @@ export async function startServer(cfg: Config) {
       const effort = isAgentEffort(b.effort) ? b.effort : undefined;
       // It runs as whoever asked for it, like a worker they hired.
       const owner = floor.workers.ownerOf(me.id);
-      const r = await floor.workers.sendHelper(host.id, who, provider, model, effort, owner);
+      const r = await floor.sendHelper(host.id, who, provider, model, effort, owner);
       if (typeof r === 'string') return send(res, 400, { error: r });
       toastFloor(floor, `🆘 ${who} brought ${r.name} over to help ${host.name}`);
       return send(res, 200, { ok: true, worker: row(r.id) });
@@ -1936,7 +1936,7 @@ const handleMessage = async (c: Client, msg: ClientMsg) => {
         // It runs as whoever sent it, like any worker they start.
         const owner = c.accountId ? floor.workers.ownerOf(c.accountId) : undefined;
         withSignIn(c, claudeFor(msg.provider ?? floor.workers.officeDefault.provider), () => {
-          const r = floor.workers.sendHelper(host.wid, who, msg.provider, model, effort, owner);
+          const r = floor.sendHelper(host.wid, who, msg.provider, model, effort, owner);
           void Promise.resolve(r).then((done) => {
             if (typeof done === 'string') return warn(c, done);
             toastFloor(floor, `🆘 ${who} brought ${done.name} over to help ${host.info.name}`);
