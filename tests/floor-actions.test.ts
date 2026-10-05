@@ -20,7 +20,7 @@ test('every floor case has a method on the FloorActions surface', () => {
     assert.match(source, new RegExp(`export interface ${family}\\b`), `${family} is missing`);
   }
   // And the three that hang off the floor itself.
-  for (const m of ['arrived', 'merged', 'landed', 'sendLandedHome', 'sendHome']) {
+  for (const m of ['arrived', 'merged', 'landed', 'sendLandedHome', 'sendHelper', 'sendHome']) {
     assert.match(source, new RegExp(`\\b${m}\\(`), `FloorActions.${m} is missing`);
   }
 });
@@ -90,7 +90,7 @@ test('the 55 floor cases map onto the interface, not onto the class', () => {
   // only exists on the class.
   assert.equal(FLOOR_CASES.length, 55);
   const actions = readFileSync(path.join(root, 'src/server/floor-actions.ts'), 'utf8');
-  for (const m of ['spawn', 'station', 'sendHelper', 'resume', 'prompt', 'kill', 'attach', 'detach', 'write', 'resize', 'openPr', 'rebuild', 'inspectWorktree']) {
+  for (const m of ['spawn', 'station', 'resume', 'prompt', 'kill', 'attach', 'detach', 'write', 'resize', 'openPr', 'rebuild', 'inspectWorktree']) {
     assert.match(actions, new RegExp(`\\b${m}\\(`), `workers.${m} must be on the surface`);
   }
   for (const m of ['add', 'remove', 'move', 'retry', 'clear', 'setLimit']) {

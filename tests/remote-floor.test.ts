@@ -330,3 +330,14 @@ test('the hosted theatre switch returns booleans and follows the TV state mirror
   floor.deliver({ t: 'event', floorId: 'f1', seq: 1, msg: { t: 'tv', state: { on: false, playing: false, position: 0, at: 0, theatre: true } } });
   assert.equal(floor.tv.state().theatre, true);
 });
+
+test('a hosted helper request uses the floor action and returns the hired worker', async () => {
+  const host = fakeHost();
+  const floor = make(host);
+  const result = floor.sendHelper('host-worker', 'Alice', 'codex');
+  assert.equal(host.sent[0].t, 'worker.helper');
+  assert.equal(host.sent[0].hostId, 'host-worker');
+  const helper = { id: 'helper-worker', name: 'Gizmo' };
+  floor.deliver({ t: 'result', floorId: 'f1', seq: host.sent[0].seq as number, value: helper });
+  assert.deepEqual(await result, helper);
+});

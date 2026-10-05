@@ -81,3 +81,22 @@ test('what a helper said comes out as plain text a prompt can carry', () => {
   assert.ok(!/[ \t]$/m.test(out), 'trailing space is trimmed');
   assert.equal(plainText(''), '');
 });
+
+import { Floor } from '../src/server/floor.js';
+import { Helpers } from '../src/server/helpers.js';
+import type { WorkerInfo } from '../src/shared/protocol.js';
+
+test('requesting a helper publishes its walk and refuses a duplicate at the desk', () => {
+  const worker = { id: 'host', deskId: 'desk-1', name: 'Byte' } as WorkerInfo;
+  const helper = { id: 'helper', deskId: 'helper:desk-1', name: 'Gizmo' } as WorkerInfo;
+  const published: unknown[] = [];
+  let hires = 0;
+  const helpers = new Helpers({ workers: () => [worker, helper], send: states => published.push(states), sendHome: () => {} });
+  const floor = { workers: { get: () => worker, sendHelper: () => { hires++; return helper; } }, helpers } as unknown as Floor;
+  assert.equal(Floor.prototype.sendHelper.call(floor, 'host', 'Alice'), helper);
+  assert.equal(published.length, 1);
+  assert.equal(helpers.states()[0].workerId, 'helper');
+  assert.ok(helpers.states()[0].path.length > 0);
+  assert.match(Floor.prototype.sendHelper.call(floor, 'host', 'Alice') as string, /already has a helper/);
+  assert.equal(hires, 1);
+});
