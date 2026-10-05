@@ -265,7 +265,7 @@ export class HostFloors {
       case 'worker.resume':
         return await floor.workers.resume(s('workerId'), s('prompt') || undefined);
       case 'worker.prompt':
-        return await floor.workers.prompt(s('workerId'), s('text'), s('by') || undefined);
+        return m.helperReport === true ? await floor.workers.deliverHelperReport(s('workerId'), s('by') || undefined) : await floor.workers.prompt(s('workerId'), s('text'), s('by') || undefined);
       case 'worker.kill': {
         return floor.sendHome(s('workerId'), m.cleanup as never);
       }

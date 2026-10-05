@@ -151,3 +151,49 @@ test('a shell helper report is published to chat without being executed in the s
   assert.match((events[0] as any).text, /Check the missing dependency/);
   assert.equal(reported, true);
 });
+
+test('busy workers retain helper findings without queuing a prompt', () => {
+  const info = { id: 'host', kind: 'agent', status: 'working' } as WorkerInfo;
+  const worker = { info };
+  const manager = { workers: new Map([['host', worker]]), emitUpdate: () => {}, persist: () => {}, prompt: () => { throw Error('Report was queued'); } };
+  WorkerManager.prototype.stageHelperReport.call(manager as any, 'host', 'Widget', 'Install dependencies');
+  assert.equal(info.helperReport?.state, 'pending');
+});
+
+test('interrupt delivery waits for idle, submits once, and refuses repeat delivery', async () => {
+  const info = { id: 'host', kind: 'agent', provider: 'opencode', status: 'working', helperReport: { helperName: 'Widget', text: 'Install dependencies', state: 'pending' } } as WorkerInfo;
+  const writes: string[] = [];
+  const worker = { info, pty: { write: (text: string) => { writes.push(text); setTimeout(() => { info.status = 'ready'; }, 30); } } };
+  let prompts = 0;
+  const manager = { workers: new Map([['host', worker]]), emitUpdate: () => {}, persist: () => {}, prompt: (_id: string, text: string) => { assert.equal(info.status, 'ready'); assert.equal(text, 'Install dependencies'); prompts++; } };
+  assert.equal(await WorkerManager.prototype.deliverHelperReport.call(manager as any, 'host', 'Alice'), undefined);
+  assert.deepEqual(writes, ['\x1b']);
+  assert.equal(info.helperReport?.state, 'submitted');
+  assert.match(await WorkerManager.prototype.deliverHelperReport.call(manager as any, 'host', 'Alice') as string, /already submitted/);
+  assert.equal(prompts, 1);
+});
+
+test('a failed interruption retains the report without queuing it', async () => {
+  const info = { id: 'host', kind: 'agent', provider: 'opencode', status: 'working', helperReport: { helperName: 'Widget', text: 'Install dependencies', state: 'pending' } } as WorkerInfo;
+  const worker = { info, pty: { write: () => {} } };
+  const manager = { workers: new Map([['host', worker]]), emitUpdate: () => {}, persist: () => {}, prompt: () => { throw Error('Must not queue after timeout'); } };
+  const error = await WorkerManager.prototype.deliverHelperReport.call(manager as any, 'host', 'Alice');
+  assert.match(error as string, /did not stop/);
+  assert.equal(info.helperReport?.state, 'failed');
+  assert.equal(info.helperReport?.text, 'Install dependencies');
+});
+
+test('permission questions are left intact and reports are not queued', async () => {
+  const info = { id: 'host', kind: 'agent', provider: 'opencode', status: 'needs_input', helperReport: { helperName: 'Widget', text: 'Report', state: 'pending' } } as WorkerInfo;
+  const manager = { workers: new Map([['host', { info, pty: { write: () => { throw Error('Permission interrupted'); } } }]]) };
+  assert.match(await WorkerManager.prototype.deliverHelperReport.call(manager as any, 'host') as string, /question or permission/);
+  assert.equal(info.helperReport?.state, 'pending');
+});
+
+test('a terminal interruption error releases the delivery button for retry', async () => {
+  const info = { id: 'host', kind: 'agent', provider: 'opencode', status: 'working', helperReport: { helperName: 'Widget', text: 'Report', state: 'pending' } } as WorkerInfo;
+  const worker = { info, pty: { write: () => { throw Error('Disconnected terminal'); } } };
+  const manager = { workers: new Map([['host', worker]]), emitUpdate: () => {}, persist: () => {} };
+  assert.match(await WorkerManager.prototype.deliverHelperReport.call(manager as any, 'host') as string, /Could not interrupt/);
+  assert.equal(info.helperReport?.state, 'failed');
+});

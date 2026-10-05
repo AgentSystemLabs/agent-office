@@ -315,6 +315,7 @@ export class RemoteFloor implements FloorActions {
 
       station: async (deskId, by, text, owner) => (await remote.call('station.prompt', { deskId, by, text, owner })) as { info: WorkerInfo; hired: boolean } | string,
       resume: async (id, prompt) => String((await remote.call('worker.resume', { workerId: id, prompt })) ?? ''),
+      deliverHelperReport: async (id, by) => String((await remote.call('worker.prompt', { workerId: id, helperReport: true, by })) ?? ''),
       prompt: async (id, text, by) => String((await remote.call('worker.prompt', { workerId: id, text, by })) ?? ''),
       kill: async (id, cleanup) => {
         const result = await remote.call('worker.kill', { workerId: id, cleanup });

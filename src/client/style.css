@@ -1354,3 +1354,4 @@ a.when:hover { text-decoration: underline; }
   .loading-paw, .loading-shadow { animation: none; }
   #loading, .loading-fill { transition: none; }
 }
+.helper-report { padding: 10px 14px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; border-bottom: 2px solid var(--ink); background: #fff3cd; color: #292a3f; flex-shrink: 0; } .helper-report details { width: 100%; } .helper-report pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 160px; overflow: auto; margin: 8px 0; }

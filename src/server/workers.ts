@@ -16,7 +16,7 @@ import { DESK_BY_ID, STATION_AGENT, deskBuilt, type DeskDef } from '../shared/la
 import { FINDING_LINES, helperDesk, helperId, isHelperId, plainText } from '../shared/helper.js';
 import { QUEUE_AGENT_DISALLOWED_TOOLS, stationBrief } from './stations.js';
 import { officePrompt, type PromptSource } from './prompts.js';
-import { isBusy } from '../shared/status.js';
+import { isAsleep, isBusy } from '../shared/status.js';
 import { findPull, forgeOfDir, openPull, originRepo, prRef, pullBody, setPullBody, workRepo } from './forge.js';
 import type { ForgeAs } from './signins.js';
 import type { ServiceOwner } from './services.js';
@@ -1044,7 +1044,56 @@ export class WorkerManager {
     return true;
   }
 
-  /** Types a prompt into the agent's input box and submits it; `by` is the person who sent it, if any. */
+  /** Hold findings outside the agent's queue until someone chooses to deliver them. */
+  stageHelperReport(id: string, helperName: string, text: string): void {
+    const w = this.workers.get(id);
+    if (!w) return;
+    w.info.helperReport = { helperName, text: text.slice(0, 20000), state: 'pending' };
+    this.emitUpdate(w);
+    this.persist();
+  }
+
+  /** Interrupt only on request, wait for an idle status, then submit the saved report once. */
+  async deliverHelperReport(id: string, by?: string): Promise<string | undefined> {
+    const w = this.workers.get(id);
+    const report = w?.info.helperReport;
+    if (!w || !report) return 'No helper report available';
+    if (w.info.kind !== 'agent') return 'Shell reports are read in office chat';
+    if (report.state === 'interrupting') return 'Already interrupting this worker';
+    if (report.state === 'submitted') return 'This report was already submitted';
+    if (w.info.status === 'needs_input') return 'Answer the worker’s question or permission request first';
+    if (w.info.status === 'starting' || isAsleep(w.info.status)) return 'Wait for the worker to be running';
+    if (isBusy(w.info.status) && !w.dsh && !['claude', 'opencode', 'codex'].includes(w.info.provider ?? '')) return 'This provider must be interrupted manually in its terminal first';
+    report.state = 'interrupting';
+    report.error = undefined;
+    this.emitUpdate(w);
+    const fail = (error: string) => {
+      report.state = 'failed'; report.error = error;
+      this.emitUpdate(w); this.persist(); return error;
+    };
+    if (isBusy(w.info.status)) {
+      try {
+        if (w.dsh) w.dsh.cancelTurn();
+        else if (w.pty) w.pty.write('\x1b');
+        else return fail('Worker is not running');
+      } catch { return fail('Could not interrupt the worker; report retained'); }
+      const deadline = Date.now() + 6000;
+      while (isBusy(w.info.status) && Date.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+        if (this.workers.get(id) !== w) return 'Worker disappeared during interruption';
+        if (w.info.helperReport !== report) return 'A newer report arrived during interruption; retry with that report';
+      }
+      if (isBusy(w.info.status)) return fail('The worker did not stop. Interrupt it manually, then retry; the report was not queued');
+    }
+    if (isAsleep(w.info.status)) return fail('Worker exited before the report could be delivered');
+    const error = this.prompt(id, report.text, by);
+    if (error) return fail(error);
+    report.state = 'submitted';
+    this.emitUpdate(w); this.persist();
+    return undefined;
+  }
+
+  /** Types a prompt into the agent's input box and submits it. */
   prompt(id: string, text: string, by?: string): string | undefined {
     const w = this.workers.get(id);
     if (!w) return 'No such worker';
@@ -2317,6 +2366,7 @@ process.stdin.on('end', () => {
       task: info.task,
       pr: info.pr,
       meeting: info.meeting,
+      helperReport: info.helperReport,
       workedMs: workedMs(info),
       tracker: info.kind === 'agent' ? tracker : undefined,
       usage: info.provider === 'opencode' || info.provider === 'codex' || info.provider === 'dsh' ? info.usage : undefined,
@@ -2362,6 +2412,7 @@ process.stdin.on('end', () => {
           createdBy: s.createdBy ?? '?',
           createdAt: s.createdAt ?? Date.now(),
           prompt: s.prompt,
+          helperReport: s.helperReport && typeof s.helperReport.text === 'string' && typeof s.helperReport.helperName === 'string' ? { ...s.helperReport, state: s.helperReport.state === 'submitted' ? 'submitted' : 'pending' } : undefined,
           worktree: s.worktree,
           repos: s.worktree ? validRepos(s.repos) : undefined,
           title: s.title,

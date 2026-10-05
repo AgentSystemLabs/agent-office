@@ -341,3 +341,14 @@ test('a hosted helper request uses the floor action and returns the hired worker
   floor.deliver({ t: 'result', floorId: 'f1', seq: host.sent[0].seq as number, value: helper });
   assert.deepEqual(await result, helper);
 });
+
+test('hosted report delivery forwards a report request without an arbitrary prompt', async () => {
+  const host = fakeHost();
+  const floor = make(host);
+  const delivered = floor.workers.deliverHelperReport('worker', 'Alice');
+  assert.equal(host.sent[0].t, 'worker.prompt');
+  assert.equal(host.sent[0].helperReport, true);
+  assert.equal(host.sent[0].text, undefined);
+  floor.deliver({ t: 'result', floorId: 'f1', seq: host.sent[0].seq as number, value: '' });
+  assert.equal(await delivered, '');
+});

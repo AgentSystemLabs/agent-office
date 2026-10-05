@@ -391,3 +391,5 @@ Every change to the app that lands on `main` is published as a GitHub release by
 Helpers can assist agent and shell workers, in their own worktree or the shared project checkout. Shell workers receive the findings in office chat; reports are never typed into bash as commands.
 
 Helpers display their current status and activity above their heads, including when their agent needs input or is offline. Open the helper’s terminal to inspect its actual output.
+
+Helper findings appear in the host worker’s terminal window. They are held outside the agent queue until you choose **Interrupt and deliver report** (or **Deliver report** when idle). The office sends Esc, waits for the current turn to stop, then submits the report once. If stopping fails, it keeps the findings for retry. Submitted does not mean read. Shell reports remain in office chat.
