@@ -1355,3 +1355,8 @@ a.when:hover { text-decoration: underline; }
   #loading, .loading-fill { transition: none; }
 }
 .helper-report { padding: 10px 14px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; border-bottom: 2px solid var(--ink); background: #fff3cd; color: #292a3f; flex-shrink: 0; } .helper-report details { width: 100%; } .helper-report pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 160px; overflow: auto; margin: 8px 0; }
+
+
+.hint .hint-action { display: inline-flex; align-items: center; gap: 6px; border: 0; padding: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.hint .hint-action:focus-visible { outline: 2px solid #ffd166; outline-offset: 4px; }
+.hint .hint-action { pointer-events: auto; }

@@ -41,13 +41,13 @@ test('desk-specific keys are handled only when their action is available', () =>
 test('U brings a helper only to a worker that could have one', () => {
   const desk = interaction('desk', { deskId: 'desk-1' });
   const base = { id: 'w', kind: 'agent', status: 'working', worktree: { path: '.agent-office/worktrees/x', branch: 'office/x', base: 'abc' } } as NonNullable<InteractionState['worker']>;
-  // A worker in a worktree of its own is the only one a helper can read without disturbing the floor.
+  // Workers in separate worktrees can receive helpers.
   assert.equal(interactionAvailable(desk, 'U', state({ worker: base })), true);
-  // Nobody at the desk, or a shell: there is no agent to send.
+  // Nobody at the desk means there is nobody to help.
   assert.equal(interactionAvailable(desk, 'U', state()), false);
-  assert.equal(interactionAvailable(desk, 'U', state({ worker: { ...base, kind: 'shell' } as typeof base })), false);
-  // Working in the floor's own checkout, a helper would have it reading what everyone shares.
-  assert.equal(interactionAvailable(desk, 'U', state({ worker: { ...base, worktree: undefined } as typeof base })), false);
+  assert.equal(interactionAvailable(desk, 'U', state({ worker: { ...base, kind: 'shell' } as typeof base })), true);
+  // Workers in the shared checkout can receive helpers too.
+  assert.equal(interactionAvailable(desk, 'U', state({ worker: { ...base, worktree: undefined } as typeof base })), true);
   // A helper cannot help a helper, and a lost worktree has to be rebuilt first.
   assert.equal(interactionAvailable(desk, 'U', state({ worker: { ...base, helper: { hostId: 'h', hostName: 'Widget' } } as typeof base })), false);
   assert.equal(interactionAvailable(desk, 'U', state({ worker: { ...base, lost: { branch: 'origin' } } as typeof base })), false);

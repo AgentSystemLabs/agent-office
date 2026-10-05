@@ -2580,7 +2580,7 @@ function helperFor(w: WorkerInfo) {
 function helperKey(w: WorkerInfo) {
   if (w.helper || w.lost) return '';
   if (store.helpers.some((h) => h.hostId === w.id)) return aside('🆘 a helper is on its way');
-  return key('U', 'Bring a helper');
+  return key('U', 'Bring a helper', () => helperFor(w));
 }
 
 /**
@@ -4079,8 +4079,11 @@ function pickTarget(): Interactable | null {
   return best;
 }
 
-function key(k: string, label: string) {
-  return h('span', {}, h('span.key', {}, k), label);
+function key(k: string, label: string, run?: () => void) {
+  if (!run) return h('span', {}, h('span.key', {}, k), label);
+  const button = h('button.hint-action', { type: 'button', 'aria-label': label }, h('span.key', {}, k), label);
+  button.addEventListener('click', (e) => { e.stopPropagation(); run(); });
+  return button;
 }
 
 /** Secondary text in the hint bar. */
