@@ -6,6 +6,8 @@ import { PROVIDERS } from '../providers/index.js';
 // which breaks resume. Each provider names its own (see ProviderAdapter.scrubEnv).
 const SCRUB_ENV = new Set([
   ...Object.values(PROVIDERS).flatMap((p) => p.scrubEnv ?? []),
+  // Triage's classifier key (see config.ts): the office's alone.
+  'JEV_API_KEY', 'TYPESAFE_API_KEY', 'JEV_API_URL', 'JEV_MODEL',
   'NO_COLOR', 'FORCE_COLOR', 'VSCODE_INJECTION', 'TERM_PROGRAM', 'TERM_PROGRAM_VERSION',
 ]);
 const SCRUB_PREFIXES = [...Object.values(PROVIDERS).flatMap((p) => p.scrubPrefixes ?? []), 'NEBULA_', 'AGENT_OFFICE_'];

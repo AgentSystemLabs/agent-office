@@ -1,6 +1,7 @@
 // The floor's task queue.
 
 import type { AgentEffort, AgentProvider } from './agents.js';
+import type { QueueTriage } from './triage.js';
 
 export type TaskStatus = 'queued' | 'running' | 'done';
 
@@ -33,6 +34,12 @@ export interface QueueTask {
   error?: string;
   /** The pull request that closes the issue, or was opened from the worker's branch. */
   pr?: { number: number; url: string; state: string; title: string };
+  /** 0 (p0) goes first; none counts as 2 (p2). Tasks wait in this order, oldest first within each. */
+  priority?: number;
+  /** The part of the code it's in (triage's area): the queue doesn't run two in one area at once. */
+  area?: string;
+  /** Why triage queued it, when it did. */
+  triage?: QueueTriage;
 }
 
 export interface QueueState {

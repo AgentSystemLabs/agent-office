@@ -4,6 +4,7 @@ import type { Net } from '../net';
 import { store } from '../state';
 import { h, openModal, timeAgo, STATUS_LABEL } from './dom';
 import { confirmDialog } from './prompt';
+import { triageStats } from './github/triage';
 import { providerPicker, providerLabel, providerUsageState, providerWaitingLabel, resolvedProvider, modelBadge } from './provider';
 import { officeFull } from '../../shared/machine';
 import { dictateField } from './dictate';
@@ -134,6 +135,7 @@ export function openQueue(net: Net, actions: QueueActions) {
       buttons.push(h('button.btn', { type: 'button', title: 'Put it back on the queue', onclick: () => net.send({ t: 'queue.retry', taskId: t.id }) }, '↻ Requeue'));
       buttons.push(h('button.btn', { type: 'button', title: 'Forget it', 'aria-label': 'Remove', onclick: () => net.send({ t: 'queue.remove', taskId: t.id }) }, '✕'));
     }
+    if (t.triage) meta.push(`🏷️ triage: ${t.triage.reason}${t.triage.priority ? ` · ${t.triage.priority}` : ''}${t.area ? ` · area ${t.area}` : ''}`);
     return h(
       'li',
       { class: t.status },
@@ -165,6 +167,7 @@ export function openQueue(net: Net, actions: QueueActions) {
         h('b', {}, q.maxWorkers === 0 ? '0' : String(q.maxWorkers)),
         " of its tasks are running, the next task gets a fresh worker in its own git worktree (workers you hire yourself don't count). Issues are assigned on GitHub when they start, and the pull request is linked when it shows up.",
       ),
+      store.triage.enabled ? h('p.note', {}, triageStats()) : null,
       queued.length && officeFull(m)
         ? h('p.note', {}, `⏸ The office is at its limit of ${m.limit} worker${m.limit === 1 ? '' : 's'}, so the next task waits until one goes home. A queue worker that's finished goes home by itself to make room.`)
         : null,
@@ -184,7 +187,7 @@ export function openQueue(net: Net, actions: QueueActions) {
     full = k;
     render();
   };
-  const unsubs = [store.on('queue', render), store.on('workers', render), store.on('issues', render), store.on('machine', machineChanged)];
+  const unsubs = [store.on('queue', render), store.on('workers', render), store.on('issues', render), store.on('triage', render), store.on('machine', machineChanged)];
   const tick = setInterval(render, 30_000);
   const modal = openModal(el, {
     doing: '📥 at the queue',

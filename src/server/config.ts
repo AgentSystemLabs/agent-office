@@ -55,6 +55,8 @@ export interface Config {
   maxWorkers?: number;
   /** Slack / Discord webhook to post to when a worker needs input or finishes ('' turns it off). */
   webhook?: string;
+  /** Issue triage with TypeSafe Jev (--triage); unset when it's off. See server/triage/. */
+  triage?: { apiKey: string; url?: string; model?: string };
   /** Where the office is: its sun and live weather follow this city's forecast. */
   city?: string;
   /** Weather pinned for good, instead of made up or forecast. */
@@ -146,6 +148,12 @@ Options:
                           floor (env AGENT_OFFICE_MAX_WORKERS). Hiring past it
                           is refused. Admins can lower the limit from ⚙️
                           Settings, but not raise it past this
+      --triage            Classify new GitHub issues with TypeSafe Jev, label them
+                          and queue the agent-ready ones (env AGENT_OFFICE_TRIAGE=1).
+                          Needs a TypeSafe API key in JEV_API_KEY (or
+                          --jev-key-file); JEV_MODEL pins a version (default
+                          jev-latest). Each floor's .agent-office/triage.json sets the rest
+      --jev-key-file <f>  Read the Jev API key from this file instead of JEV_API_KEY
       --webhook <url>     Post to this Slack or Discord webhook when a worker
                           needs input or finishes (env AGENT_OFFICE_WEBHOOK).
                           Also settable from ⚙️ Settings in the office; "" turns it off
@@ -238,6 +246,8 @@ export function loadConfig(argv: string[]): Config {
   let budgetPause = !!process.env.AGENT_OFFICE_BUDGET_PAUSE && process.env.AGENT_OFFICE_BUDGET_PAUSE !== '0';
   let maxWorkers = process.env.AGENT_OFFICE_MAX_WORKERS || '';
   let webhook = process.env.AGENT_OFFICE_WEBHOOK;
+  let triage = !!process.env.AGENT_OFFICE_TRIAGE && process.env.AGENT_OFFICE_TRIAGE !== '0';
+  let jevKeyFile = '';
   let city = process.env.AGENT_OFFICE_CITY || '';
   let weather = process.env.AGENT_OFFICE_WEATHER || '';
   let realTimeSky = process.env.AGENT_OFFICE_SKY_CLOCK === 'real';
@@ -310,6 +320,12 @@ export function loadConfig(argv: string[]): Config {
       case '--webhook':
         webhook = takeValue(argv, i++, a);
         break;
+      case '--triage':
+        triage = true;
+        break;
+      case '--jev-key-file':
+        jevKeyFile = path.resolve(takeValue(argv, i++, a));
+        break;
       case '--home':
         home = path.resolve(takeValue(argv, i++, a));
         homeGiven = true;
@@ -361,6 +377,7 @@ export function loadConfig(argv: string[]): Config {
     console.error(`agent-office: --max-workers needs a whole number from 1 to ${MAX_WORKER_LIMIT}, e.g. --max-workers 6`);
     process.exit(2);
   }
+  const jev = triage ? triageConfig(jevKeyFile) : undefined;
   weather = weather.trim().toLowerCase();
   if (weather && !(WEATHERS as readonly string[]).includes(weather)) {
     console.error(`agent-office: --weather is one of ${WEATHERS.join(', ')}`);
@@ -460,10 +477,34 @@ export function loadConfig(argv: string[]): Config {
     budgetPause,
     maxWorkers: workerLimit,
     webhook,
+    triage: jev,
     city: city.trim() || undefined,
     weather: (weather as Weather) || undefined,
     realTimeSky,
   };
+}
+
+/** The Jev key --triage needs, read once at start; workers never see it (workers/env.ts). */
+function triageConfig(keyFile: string): Config['triage'] {
+  let apiKey = (process.env.JEV_API_KEY || process.env.TYPESAFE_API_KEY || '').trim();
+  if (keyFile) {
+    try {
+      apiKey = readFileSync(keyFile, 'utf8').trim();
+    } catch (err) {
+      console.error(`agent-office: can't read --jev-key-file: ${(err as Error).message}`);
+      process.exit(2);
+    }
+  }
+  if (!apiKey) {
+    console.error('agent-office: --triage needs a TypeSafe API key: JEV_API_KEY (or TYPESAFE_API_KEY), or --jev-key-file');
+    process.exit(2);
+  }
+  const url = process.env.JEV_API_URL?.trim() || undefined;
+  if (url && !/^https:\/\//.test(url)) {
+    console.error('agent-office: JEV_API_URL must be an https:// URL');
+    process.exit(2);
+  }
+  return { apiKey, url, model: process.env.JEV_MODEL?.trim() || undefined };
 }
 
 export async function ensureSelfSigned(cfg: Config): Promise<void> {

@@ -42,6 +42,11 @@ export interface QueueEvents {
 
 export const DEFAULT_MAX_WORKERS = 3;
 const MAX_TASKS = 100;
+/** Where a task without a priority waits among those with one: p2, normal. */
+const DEFAULT_PRIORITY = 2;
+
+/** What triage adds to a task it queues (see server/triage/). */
+export type TaskExtra = Pick<QueueTask, 'priority' | 'area' | 'triage'>;
 const PUMP_MS = 10_000;
 /** A worker in one of these states is finished with its task (and can make room for the next one). */
 const FINISHED = new Set<WorkerStatus>(['done', 'exited', 'offline']);
@@ -86,7 +91,7 @@ export class TaskQueue {
 
   /** Queues a task. With no `provider`, it runs on the office's default worker, model and effort included. */
   /** Queues a task; `owner` is the account adding it, whose sign-ins its worker will run on. */
-  add(prompt: string, by: string, title?: string, issue?: number, provider?: AgentProvider, model?: string, effort?: AgentEffort, owner?: string): string | undefined {
+  add(prompt: string, by: string, title?: string, issue?: number, provider?: AgentProvider, model?: string, effort?: AgentEffort, owner?: string, extra?: TaskExtra): string | undefined {
     if (provider === undefined) ({ provider, model, effort } = this.workers.officeDefault ?? { provider: this.workers.defaultProvider });
     if (!isAgentProvider(provider) || (provider === 'custom' && this.workers.defaultProvider !== 'custom')) return 'Unknown agent provider';
     const modelError = validateWorkerModel('agent', provider, model);
@@ -109,8 +114,9 @@ export class TaskQueue {
       ...(owner ? { owner } : {}),
       addedAt: Date.now(),
       status: 'queued',
+      ...extra,
     };
-    this.tasks.push(task);
+    this.insert(task);
     this.changed();
     this.pump();
     return undefined;
@@ -135,6 +141,17 @@ export class TaskQueue {
     return true;
   }
 
+  /**
+   * Puts a task in line: one with a priority goes ahead of the waiting tasks with a lower one (a task
+   * without one counts as p2), behind the rest; one without goes at the end, as tasks always have.
+   */
+  private insert(task: QueueTask) {
+    if (task.priority === undefined) return void this.tasks.push(task);
+    const i = this.tasks.findIndex((t) => t.status === 'queued' && (t.priority ?? DEFAULT_PRIORITY) > task.priority!);
+    if (i < 0) this.tasks.push(task);
+    else this.tasks.splice(i, 0, task);
+  }
+
   /** Moves a queued task one place up (-1) or down (+1) among the queued tasks. */
   move(taskId: string, delta: -1 | 1) {
     const queued = this.tasks.filter((t) => t.status === 'queued');
@@ -155,8 +172,8 @@ export class TaskQueue {
     if (t.status !== 'done') return 'That task is still on the queue';
     if (t.issue !== undefined && this.tasks.some((x) => x !== t && x.issue === t.issue && x.status !== 'done')) return `Issue #${t.issue} is already on the queue`;
     this.tasks.splice(this.tasks.indexOf(t), 1);
-    const fresh: QueueTask = { id: t.id, provider: t.provider, model: t.model, effort: t.effort, issue: t.issue, title: t.title, prompt: t.prompt, addedBy: t.addedBy, owner: t.owner, addedAt: Date.now(), status: 'queued' };
-    this.tasks.push(fresh);
+    const fresh: QueueTask = { id: t.id, provider: t.provider, model: t.model, effort: t.effort, issue: t.issue, title: t.title, prompt: t.prompt, addedBy: t.addedBy, owner: t.owner, addedAt: Date.now(), status: 'queued', priority: t.priority, area: t.area, triage: t.triage };
+    this.insert(fresh);
     this.changed();
     this.pump();
     return undefined;
@@ -316,6 +333,8 @@ export class TaskQueue {
     for (const t of this.tasks) {
       if (t.status !== 'queued') continue;
       if (this.busy() >= this.maxWorkers) break;
+      // Two tasks in one part of the code at once mostly make merge conflicts: this one waits its turn.
+      if (t.area && this.tasks.some((x) => x.status === 'running' && x.area === t.area)) continue;
       // A spent budget holds the queue instead of failing every task; the pump seats them once hiring resumes.
       if (this.events.hiringPaused()) break;
       // So does an office at its worker limit (--max-workers), unless one of the queue's own finished
@@ -401,6 +420,9 @@ export class TaskQueue {
           startedAt: s.startedAt,
           finishedAt: s.finishedAt,
           outcome: s.outcome,
+          ...(Number.isInteger(s.priority) ? { priority: s.priority } : {}),
+          ...(typeof s.area === 'string' && s.area ? { area: s.area } : {}),
+          ...(s.triage && typeof s.triage === 'object' ? { triage: s.triage } : {}),
           error: s.error,
           pr: s.pr,
         };

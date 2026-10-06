@@ -11,6 +11,7 @@ import { commentBox } from './comment-box';
 import { labelButton, labelChip } from './labels';
 import { avatar, commentCard, errorBox, nodes, spinnerRow } from './pieces';
 import { issueContext, issuePrompt, type BoardActions } from './prompts';
+import { triageRow } from './triage';
 
 // ---- The issue window -----------------------------------------------------------------------------
 
@@ -42,11 +43,13 @@ export function openIssue(first: GhIssue, net: Net, actions: BoardActions) {
   const carry = actions.pickUp;
   const pickUp = carry ? h('button.btn', { type: 'button', title: 'Carry its card to an empty desk, a worker or the queue board, and press E there', onclick: () => carry(it) }, '✋ Pick it up') : null;
   const meta = h('div.gh-meta');
+  const triage = h('div');
   const el = h(
     'div.modal.gh-window.issue',
     { role: 'dialog', 'aria-label': `Issue #${it.number}` },
     h('header', {}, pill, h('h2', { title: it.title }, `#${it.number} ${it.title}`), close),
     meta,
+    triage,
     h('div.gh-body', {}, conv),
     h(
       'footer',
@@ -73,6 +76,7 @@ export function openIssue(first: GhIssue, net: Net, actions: BoardActions) {
         labelButton('issue', () => it, net, (labels) => ((it = { ...it, labels }), renderFrame())),
       ),
     );
+    triage.replaceChildren(...nodes(isOpen ? triageRow(it.number, net) : null));
     pill.className = `pill ${isOpen ? 'done' : 'offline'}`;
     pill.textContent = isOpen ? 'open' : 'closed';
     const task = store.taskForIssue(it.number);
@@ -116,6 +120,7 @@ export function openIssue(first: GhIssue, net: Net, actions: BoardActions) {
       renderFrame();
     }),
     store.on('queue', renderFrame),
+    store.on('triage', renderFrame),
   ];
   const modal = openModal(el, {
     doing: `📋 reading issue #${it.number}`,
