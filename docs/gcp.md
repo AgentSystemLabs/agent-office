@@ -15,7 +15,7 @@ After that, the whole lifecycle is four more commands:
 deploy/gcp.sh open      # tunnel to the office and open it in your browser
 deploy/gcp.sh pause     # stop the VM to save money (asks first); only the disk and IP are billed
 deploy/gcp.sh resume    # start it again: same address, same files, then open it
-deploy/gcp.sh destroy   # delete the VM, its disk, address, firewall rule and network (asks first)
+deploy/gcp.sh destroy   # delete the VM, its disk, address (or NAT), firewall rule and network (asks first)
 ```
 
 What `up` does, in a few minutes:
@@ -32,6 +32,19 @@ What `up` does, in a few minutes:
 Keep the terminal open while you use the office; Ctrl-C closes the tunnel. Next time, run `deploy/gcp.sh open`.
 
 Everything the script makes is named `agent-office` (or `agent-office-<name>` with `--name`) and described as `Agent Office <name>`, and the VM carries an `agent-office=<name>` label. The script won't touch, or delete, a resource of those names it didn't make.
+
+## A private office
+
+Company projects often come with two organization policies: `constraints/compute.vmExternalIpAccess` (no VM may have a public address) and `constraints/compute.requireOsLogin` (SSH keys go through [OS Login](https://cloud.google.com/compute/docs/oslogin), not instance metadata). `up` reads both before it creates anything, and when either is on it makes a **private office** instead. `up --private` makes one anywhere.
+
+A private office differs from the one above in four ways:
+
+1. **No public address.** The VM only has an address inside its own network. For its own way to the internet (apt, GitHub, npm, Claude), `up` adds a Cloud Router with [Cloud NAT](https://cloud.google.com/nat/docs/overview) to the network, `agent-office-router` and `agent-office-nat`. NAT costs about $0.045 an hour plus a little per GiB, which is more than the static address it replaces.
+2. **SSH through an [IAP tunnel](https://cloud.google.com/iap/docs/using-tcp-forwarding).** The firewall rule opens port 22 to Google's IAP range (`35.235.240.0/20`) only, and every ssh the script runs goes through `gcloud compute start-iap-tunnel` as its ProxyCommand. So `open`, `ssh`, `logs` and the rest work the same, a few seconds slower per connection, and nothing on the VM is reachable from the internet at all. Who may open a tunnel is an IAM role, the **IAP-secured Tunnel User** (`roles/iap.tunnelResourceAccessor`), rather than a list of IPs: `allow` and `revoke` say so instead of doing anything.
+3. **Your key on your OS Login profile.** `up` adds the key to your Google account's OS Login profile (`gcloud compute os-login ssh-keys add`), which every VM with OS Login honours, and signs in as the username that comes with it (`jane_example_com`, say). You need **Compute OS Admin Login** (`roles/compute.osAdminLogin`) in the project for the sudo that provisioning needs. `connect` from a second computer adds that computer's key to the same profile.
+4. **Teammates need gcloud.** They still get a locked-down `office` user and tunnel to the office port, but through IAP, so each needs the gcloud CLI signed in to a Google account with the IAP-secured Tunnel User role in the project. `deploy/gcp.sh invite octocat` installs their GitHub keys and prints the command to send them, with the ProxyCommand in it, and the IAM command that gives them the role. The **👥 Invite teammates** panel in the office shows the plain `ssh office@<address>` command, which doesn't reach a private office: send them the one from `invite` instead.
+
+`status` says whether an office is private, and `destroy` deletes the Cloud Router and NAT along with the rest, and takes this computer's key off your OS Login profile.
 
 ## The project
 
@@ -112,7 +125,8 @@ Useful options for `up`:
 - `--machine-type` and `--disk` set the machine type and disk size.
 - `--project owner/repo` (or `--repo`) also clones that repo as the office's first floor.
 - `--allow <ip>` lets more IPs reach SSH from the start.
-- `--name <name>` runs several offices side by side, each with resources of its own: `agent-office-<name>`, `agent-office-<name>-net`, `agent-office-<name>-ssh`. Every other command then takes the same `--name`, before or after the command, and the commands the office itself suggests include it.
+- `--private` makes a [private office](#a-private-office) even where a public one is allowed.
+- `--name <name>` runs several offices side by side, each with resources of its own: `agent-office-<name>`, `agent-office-<name>-net`, `agent-office-<name>-ssh` (and `-router`, `-nat` when private). Every other command then takes the same `--name`, before or after the command, and the commands the office itself suggests include it.
 - `--claude-token "$(claude setup-token)"`, `--anthropic-api-key`, `--github-token` and `--no-github-token` work as they do on [AWS](aws.md).
 
 **From a second computer.** The SSH key lives on the computer that ran `up`. On another one, signed in to the same project (or with `--gcp-project`), run `deploy/gcp.sh connect`: it makes that computer a key, adds it to the VM's `ssh-keys` metadata, and lets its IP through the firewall. It changes nothing else, where `up` would also re-provision the VM with that computer's GitHub token and git name. Copying `~/.config/agent-office/gcp/<name>/` across works too.
@@ -127,6 +141,6 @@ Useful options for `up`:
 - **Quota.** *"Quota 'CPUS' exceeded"*: the project can't run that many vCPUs in the region. Ask for more in the console under **IAM & Admin → Quotas** (the `CPUS` quota for the region, or the family's own, like `E2_CPUS`), or run `up` again with a smaller `--machine-type`. A brand-new project's regional quota is often 8 to 12 vCPUs: one `e2-standard-4` fits, an `e2-standard-8` may not.
 - **Type not available.** `up` checks first and stops before creating anything. To list the types in a zone: `gcloud compute machine-types list --zones us-central1-a --filter='name~^e2-standard'`.
 - **No room.** *"ZONE_RESOURCE_POOL_EXHAUSTED"* means the zone is out of that type just then. Try another `--zone`, or another type.
-- **Organization policies.** In a company project, two policies make this deployment impossible, and `up` checks for them before it creates anything: `constraints/compute.requireOsLogin` (SSH keys must go through OS Login, where the script doesn't put them) and `constraints/compute.vmExternalIpAccess` (no VMs with a public address). `constraints/compute.vmCanIpForward`, `skipDefaultNetworkCreation` and `restrictVpcPeering` don't get in the way. If `up` can't read the policies, you find out when SSH never comes up: *"Permission denied (publickey)"* on a fresh VM is OS Login.
+- **Organization policies.** `constraints/compute.requireOsLogin` and `constraints/compute.vmExternalIpAccess` turn the office [private](#a-private-office), which `up` does by itself when it can read them. If it can't (the account lacks `orgpolicy.policy.get`), a public `up` fails at the VM (*"Constraint constraints/compute.vmExternalIpAccess violated"*) or at SSH (*"Permission denied (publickey)"* on a fresh VM is OS Login): run `up --private`. `skipDefaultNetworkCreation` doesn't get in the way, since the office brings its own network. On a private office, *"failed to connect to backend"* from the tunnel means the VM is still booting, and *"Permission denied"* means the account lacks the IAP-secured Tunnel User or Compute OS Admin Login role.
 - **A half-made office.** If `up` stops partway (a quota, a lost connection), run it again: it reuses whatever it already made. `destroy` removes all of it.
 - **SSH won't connect.** SSH only answers the IPs you allowed. On a new network, `open` says so; `deploy/gcp.sh allow me` lets your new IP in.

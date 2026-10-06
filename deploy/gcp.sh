@@ -9,8 +9,11 @@
 #
 # Everything it makes is named agent-office (or agent-office-<name>): a VPC network of its own, one
 # firewall rule, a static address and the VM. The office is never exposed to the internet: it listens
-# on the VM's loopback and everyone reaches it through an SSH tunnel. Run `deploy/gcp.sh help` for all
-# commands and options. It's deploy/aws.sh for Google Cloud: same commands, same deploy/provision.sh.
+# on the VM's loopback and everyone reaches it through an SSH tunnel. In an organization that forbids
+# public addresses or requires OS Login, `up` makes a private office instead (or always, with
+# --private): no public address, Cloud NAT for the VM's own internet access, your key on your OS Login
+# profile, and SSH through an IAP tunnel. Run `deploy/gcp.sh help` for all commands and options. It's
+# deploy/aws.sh for Google Cloud: same commands, same deploy/provision.sh.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -33,7 +36,10 @@ ANTHROPIC_KEY=""
 YES=0
 NO_OPEN=0
 EXTRA_ALLOW=()
-SSH_USER="ubuntu"
+PRIVATE=0            # a private office: no public address, SSH through an IAP tunnel, OS Login
+PRIVATE_ARG=0
+IAP_RANGE="35.235.240.0/20" # where IAP tunnels come from
+SSH_USER="ubuntu"    # on a private office: your OS Login username
 TEAM_USER="office"   # teammates' keys log in as this user, which can only tunnel to the office
 OFFICE_PORT=4600     # where the office listens on the VM (127.0.0.1 only)
 LOCAL_PORT=4600
@@ -46,7 +52,9 @@ Agent Office on Google Cloud — one command up, one command down.
 Usage: deploy/gcp.sh <command> [options]
 
 The office is never on the internet. It listens on the VM's loopback, the firewall only opens
-SSH, and everyone reaches the office through an SSH tunnel on http://localhost:4600.
+SSH, and everyone reaches the office through an SSH tunnel on http://localhost:4600. Where your
+organization forbids public addresses or requires OS Login, the office is private: the VM has no
+public address at all, and SSH goes through an IAP tunnel (gcloud, signed in) instead.
 
 Commands
   up                 Create (or reuse) your office on a Compute Engine VM, install and start it, and
@@ -68,7 +76,8 @@ Commands
   team               List who is invited
   status             Show the VM, whether the office is up and which IPs may SSH in
   allow <ip|me>      Let an IP (or CIDR) reach SSH. "me" = your current IP. "anywhere" opens SSH
-                     to every IP — reasonable, since it only accepts your key and invited keys
+                     to every IP — reasonable, since it only accepts your key and invited keys.
+                     (A private office has no IPs to allow: access is an IAM role, see invite)
   revoke <ip|me>     Take that access away again
   ssh                SSH into the VM
   logs               Follow the office's logs
@@ -93,6 +102,10 @@ Options
   --machine-type <type>     Machine type (default: e2-standard-4 — 4 vCPU, 16 GiB). --size and
                             --instance-type work too
   --disk <GiB>              Boot disk size, balanced persistent disk (default: 50)
+  --private                 With up: make a private office even where a public one is allowed.
+                            No public address (the VM reaches the internet through Cloud NAT),
+                            your key on your OS Login profile, SSH through an IAP tunnel. Everyone
+                            who uses it needs gcloud and the IAP-secured Tunnel User role
   --allow <ip|cidr>         With up or invite: also allow this IP to SSH in (repeatable).
                             Your own IP is always allowed.
   --port <n>                Local port for the tunnel (default: 4600, or the next free one)
@@ -137,6 +150,7 @@ while [[ $# -gt 0 ]]; do
     --zone | --region | --location) ZONE_ARG="$2"; shift 2 ;;
     --machine-type | --size | --instance-type) TYPE="$2"; TYPE_SET=1; shift 2 ;;
     --disk) DISK_GB="$2"; shift 2 ;;
+    --private) PRIVATE_ARG=1; shift ;;
     --allow) EXTRA_ALLOW+=("$2"); shift 2 ;;
     --port) LOCAL_PORT="$2"; LOCAL_PORT_SET=1; shift 2 ;;
     --app-repo) APP_REPO="$2"; shift 2 ;;
@@ -171,6 +185,8 @@ VM="$RESOURCE"
 ADDR="$RESOURCE"
 NET="$RESOURCE-net"
 FW="$RESOURCE-ssh"
+ROUTER="$RESOURCE-router" # a private office's way out: a Cloud Router with Cloud NAT on it
+NAT="$RESOURCE-nat"
 TAG="$RESOURCE" # the network tag the firewall rule applies to
 STATE_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/agent-office/gcp/$NAME"
 NAME_FLAG=""
@@ -254,35 +270,88 @@ confirm() {
 # "there's none": taking one for "missing" would re-create, and so reset, what's there. Names are
 # matched whole (~^name$): gcloud's = also matches parts.
 
-# "<zone> <status> <machine type> <label>" for the office's VM, or nothing when it has none.
+# "<zone> <status> <machine type> <label> <internal IP> <public IP or ->" for the office's VM, or
+# nothing when it has none.
 find_vm() {
   gcc compute instances list --filter="name~^$VM\$" \
-    --format='value(zone.basename(),status,machineType.basename(),labels.agent-office)' | words
+    --format='value(zone.basename(),status,machineType.basename(),labels.agent-office,networkInterfaces[0].networkIP,networkInterfaces[0].accessConfigs[0].natIP)' | words
 }
 # "<address> <region> <status> <description>" for its static address, or nothing.
 find_addr() { gcc compute addresses list --filter="name~^$ADDR\$" --format='value(address,region.basename(),status,description)' | words; }
-# The description of its firewall rule / network, or nothing.
+# "<name> <description>" of its firewall rule / network, or nothing.
 find_fw() { gcc compute firewall-rules list --filter="name~^$FW\$" --format='value(name,description)' | words; }
 find_net() { gcc compute networks list --filter="name~^$NET\$" --format='value(name,description)' | words; }
+# "<name> <region> <description>" of a private office's Cloud Router, or nothing.
+find_router() { gcc compute routers list --filter="name~^$ROUTER\$" --format='value(name,region.basename(),description)' | words; }
 
 # Dies when a resource of the office's name wasn't made by this script, so it never takes over
-# (or deletes) someone else's. $1 is what it is, $2 its description.
+# (or deletes) someone else's. $1 is what it is, $2 its description as `words` prints it (spaces
+# taken out), $3 its name.
 ours() {
-  [[ "$2" == "$MADE_BY"* ]] ||
+  [[ "$2" == "${MADE_BY// /}"* ]] ||
     die "the $1 $3 in project $GCP_PROJECT wasn't made by deploy/gcp.sh (its description isn't \"$MADE_BY\") — pick another --name"
 }
 
-# Sets ZONE, REGION, VM_STATUS and VM_TYPE from the office's VM ('' when there's none yet), after
-# making sure this script made it.
+# Sets ZONE, REGION, VM_STATUS, VM_TYPE and INTERNAL_IP from the office's VM ('' when there's none
+# yet), after making sure this script made it, and PRIVATE from whether it has a public address.
 load_office() {
-  local row label
-  ZONE="" REGION="" VM_STATUS="" VM_TYPE=""
+  local row label ext
+  ZONE="" REGION="" VM_STATUS="" VM_TYPE="" INTERNAL_IP=""
   row=$(find_vm) || die "couldn't list the VMs in project $GCP_PROJECT (above)"
   [[ -n "$row" ]] || return 0
-  read -r ZONE VM_STATUS VM_TYPE label <<<"$row"
+  read -r ZONE VM_STATUS VM_TYPE label INTERNAL_IP ext <<<"$row"
   [[ "$label" == "$NAME" ]] ||
     die "the VM $VM in project $GCP_PROJECT wasn't made by deploy/gcp.sh (it has no agent-office=$NAME label) — pick another --name"
   REGION="${ZONE%-*}"
+  [[ "$INTERNAL_IP" != "-" ]] || INTERNAL_IP=""
+  # A stopped VM keeps its access config, so this holds while it's paused too.
+  if [[ "$ext" == "-" || -z "$ext" ]]; then PRIVATE=1; else PRIVATE=0; fi
+  set_ssh_opts
+}
+
+# The OS Login username this account signs in to VMs as (jane_example_com): what a private
+# office's SSH user is. The profile gets its POSIX account when its first key is added.
+oslogin_user() {
+  gcc compute os-login describe-profile --format='value(posixAccounts.username)' 2>/dev/null | tr ';' '\n' | sed '/^$/d' | head -1
+}
+
+# The public keys on this account's OS Login profile, one per line.
+oslogin_keys() { gcc compute os-login ssh-keys list --format='value(value.key)' 2>/dev/null || true; }
+
+# Puts this computer's key on this account's OS Login profile, which every VM with OS Login
+# honours, and sets SSH_USER to the username that comes with it.
+ensure_oslogin_key() {
+  local key
+  key=$(cut -d' ' -f1,2 "$KEY_FILE.pub")
+  if ! oslogin_keys | grep -qF "$key"; then
+    say "Adding this computer's SSH key to your OS Login profile"
+    gcc compute os-login ssh-keys add --key-file "$KEY_FILE.pub" >/dev/null ||
+      die "couldn't add the key to your OS Login profile (above). Is the OS Login API on in $GCP_PROJECT? gcloud services enable oslogin.googleapis.com --project $GCP_PROJECT"
+  fi
+  SSH_USER=$(oslogin_user)
+  [[ -n "$SSH_USER" ]] || die "your OS Login profile has no username yet (gcloud compute os-login describe-profile)"
+}
+
+# How ssh reaches the VM. A public office: straight to its address. A private one: through an IAP
+# tunnel that gcloud opens for each connection, so the VM needs no public address at all.
+set_ssh_opts() {
+  SSH_OPTS=(-i "$KEY_FILE" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile="$KNOWN_HOSTS"
+    -o ServerAliveInterval=15 -o LogLevel=ERROR)
+  if [[ $PRIVATE -eq 0 ]]; then
+    SSH_OPTS+=(-o ConnectTimeout=8)
+    return 0
+  fi
+  # Opening the tunnel takes gcloud a few seconds, on top of the connection itself.
+  SSH_OPTS+=(-o ConnectTimeout=40 -o HostKeyAlias="$VM.$GCP_PROJECT"
+    -o "ProxyCommand=gcloud compute start-iap-tunnel $VM %p --listen-on-stdin --project $GCP_PROJECT --zone $ZONE --verbosity=error")
+  [[ -n "${SSH_USER_SET:-}" ]] && return 0
+  SSH_USER=$(oslogin_user)
+  [[ -n "$SSH_USER" ]] || SSH_USER="ubuntu" # none yet: up and connect add the key, and set it then
+}
+
+# The teammate's ssh command for a private office: the same tunnel, with their own gcloud.
+iap_ssh_hint() {
+  echo "     ssh -o ProxyCommand='gcloud compute start-iap-tunnel $VM %p --listen-on-stdin --project $GCP_PROJECT --zone $ZONE' -L 4600:localhost:$OFFICE_PORT $1@$VM"
 }
 
 require_office() {
@@ -342,6 +411,12 @@ start_vm() {
 }
 
 public_ip() { find_addr | awk '$1 != "-" { print $1 }'; }
+
+# The address ssh goes to: the public one, or on a private office the internal one (the IAP
+# tunnel finds the VM by name; the address is for messages and known_hosts).
+office_ip() {
+  if [[ $PRIVATE -eq 1 ]]; then echo "$INTERNAL_IP"; else public_ip; fi
+}
 
 # "<arch> <vCPUs> <MiB> <shared cores>" for a machine type in $ZONE, or fails when the zone doesn't
 # offer it. Arm types that don't say so are known by name.
@@ -439,12 +514,11 @@ require_vm() {
   require_key
   require_office
   paused_status "$VM_STATUS" && die "the office is paused — start it with: deploy/gcp.sh resume$NAME_FLAG"
-  IP=$(public_ip)
+  IP=$(office_ip)
   [[ -n "$IP" ]] || die "the office has no static address ($ADDR) — run: deploy/gcp.sh up$NAME_FLAG"
 }
 
-SSH_OPTS=(-i "$KEY_FILE" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile="$KNOWN_HOSTS"
-  -o ConnectTimeout=8 -o ServerAliveInterval=15 -o LogLevel=ERROR)
+SSH_OPTS=()
 
 remote() {
   require_key
@@ -528,6 +602,7 @@ ip_allowed() {
 # SSH that won't connect: stop and say so when this computer's IP isn't one the firewall lets in.
 ssh_blocked_hint() {
   local my list
+  [[ $PRIVATE -eq 0 ]] || return 0 # no IPs to allow: the tunnel comes from IAP
   my=$(my_ip 2>/dev/null) || return 0
   [[ "$my" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || return 0
   list=$(allowed_cidrs 2>/dev/null) || return 0
@@ -544,9 +619,13 @@ wait_for_ssh() {
     [[ $i -eq 5 ]] && ssh_blocked_hint
     sleep 5
   done
+  if [[ $PRIVATE -eq 1 ]]; then
+    remote true || die "SSH never came up on $VM through the IAP tunnel. You need the IAP-secured Tunnel User role
+   (roles/iap.tunnelResourceAccessor) and, to sign in as $SSH_USER, Compute OS Admin Login (roles/compute.osAdminLogin)
+   in project $GCP_PROJECT. Try it by hand: gcloud compute ssh $VM --zone $ZONE --project $GCP_PROJECT --tunnel-through-iap"
+  fi
   remote true || die "SSH never came up on $IP. If it says \"Permission denied (publickey)\", your organization may
-   require OS Login (constraints/compute.requireOsLogin), which puts your keys where deploy/gcp.sh doesn't look.
-   Check with: gcloud resource-manager org-policies describe compute.requireOsLogin --project $GCP_PROJECT --effective"
+   require OS Login (constraints/compute.requireOsLogin): run up again with --private, which uses it"
 }
 
 wait_healthy() {
@@ -656,36 +735,39 @@ github_https() {
   echo "https://github.com/$v"
 }
 
-# The Compute Engine API, on. Checked first: turning it on needs a permission that reading doesn't.
-ensure_compute_api() {
+# An API, on. Checked first: turning one on needs a permission that reading doesn't.
+ensure_api() {
   local on
-  on=$(gcc services list --enabled --filter='config.name=compute.googleapis.com' --format='value(config.name)' 2>/dev/null || true)
+  on=$(gcc services list --enabled --filter="config.name=$1" --format='value(config.name)' 2>/dev/null || true)
   [[ -n "$on" ]] && return 0
-  say "Turning the Compute Engine API on in $GCP_PROJECT — about a minute"
-  gcc services enable compute.googleapis.com ||
-    die "couldn't turn the Compute Engine API on (above). If it says billing, link a billing account to the project:
+  say "Turning the $2 API on in $GCP_PROJECT — about a minute"
+  gcc services enable "$1" ||
+    die "couldn't turn the $2 API on (above). If it says billing, link a billing account to the project:
    gcloud billing projects link $GCP_PROJECT --billing-account <id>     (the ids: gcloud billing accounts list)"
 }
 
-# The organization policies that would make this deployment impossible, caught before anything
-# is made. Skipped when this account can't read them.
-check_org_policies() {
+# Whether the organization's policies leave only a private office: OS Login required (keys in
+# instance metadata are ignored), or no public addresses. Prints why, or nothing. Silent when this
+# account can't read the policies.
+private_required() {
   local v
   v=$(gcc resource-manager org-policies describe compute.requireOsLogin --effective --format='value(booleanPolicy.enforced)' 2>/dev/null || true)
-  [[ "$v" == "True" ]] &&
-    die "project $GCP_PROJECT requires OS Login (the organization policy constraints/compute.requireOsLogin), which puts
-   SSH keys where deploy/gcp.sh doesn't — use a project without it, or ask whoever runs your organization"
+  [[ "$v" == "True" ]] && echo "requires OS Login (constraints/compute.requireOsLogin)"
   v=$(gcc resource-manager org-policies describe compute.vmExternalIpAccess --effective --format='value(listPolicy.allValues)' 2>/dev/null || true)
-  [[ "$v" == "DENY" ]] &&
-    die "project $GCP_PROJECT forbids VMs with a public address (the organization policy constraints/compute.vmExternalIpAccess),
-   and the office is reached through SSH to one — use a project without it"
+  [[ "$v" == "DENY" ]] && echo "forbids VMs with a public address (constraints/compute.vmExternalIpAccess)"
   return 0
 }
 
-# Puts this computer's public key in the VM's ssh-keys metadata, keeping the keys already there
-# (add-metadata replaces the whole value). The VM's guest agent then puts it on the ubuntu user.
+# Puts this computer's public key where the VM takes keys from: its ssh-keys metadata, keeping
+# the keys already there (add-metadata replaces the whole value), which the guest agent puts on
+# the ubuntu user; or, on a private office, this account's OS Login profile.
 add_key() {
   local have
+  if [[ $PRIVATE -eq 1 ]]; then
+    ensure_oslogin_key
+    SSH_USER_SET=1
+    return
+  fi
   say "Adding this computer's SSH key to the VM"
   have=$(gcc compute instances describe "$VM" --zone "$ZONE" --flatten='metadata.items[]' --filter='metadata.items.key=ssh-keys' \
     --format='value(metadata.items.value)') || die "couldn't read the VM's SSH keys (above)"
@@ -725,14 +807,20 @@ cmd_up() {
     cidrs+=("$c")
   done
 
-  ensure_compute_api
+  ensure_api compute.googleapis.com "Compute Engine"
 
   # Where: a new office goes in --zone; an existing one stays in its VM's zone.
   load_office
-  local new_vm=0 machine resize=0
+  local new_vm=0 machine resize=0 why
   if [[ -z "$ZONE" ]]; then
     new_vm=1
-    check_org_policies
+    PRIVATE=$PRIVATE_ARG
+    why=$(private_required)
+    if [[ -n "$why" && $PRIVATE -eq 0 ]]; then
+      say "Your organization $(echo "$why" | paste -sd '&' - | sed 's/&/ and /'), so the office will be private:"
+      echo "   no public address, SSH through an IAP tunnel, your key on your OS Login profile (as with --private)."
+      PRIVATE=1
+    fi
     ZONE=$(resolve_zone "${ZONE_ARG:-$(default_zone)}")
     REGION="${ZONE%-*}"
     [[ "$(gcc compute zones describe "$ZONE" --format='value(status)' 2>/dev/null || true)" == "UP" ]] ||
@@ -743,18 +831,29 @@ cmd_up() {
   else
     [[ -z "$ZONE_ARG" || "$(resolve_zone "$ZONE_ARG")" == "$ZONE" ]] ||
       die "office \"$NAME\" is in $ZONE. To move it, destroy it first (or pick another --name)"
+    [[ $PRIVATE_ARG -eq 0 || $PRIVATE -eq 1 ]] || die "office \"$NAME\" has a public address. To make it private, destroy it first (or pick another --name)"
     machine="the existing VM ($VM_TYPE)"
     if [[ $TYPE_SET -eq 1 && "$VM_TYPE" != "$TYPE" ]]; then
       resize=1
       machine="the existing VM, resized from $VM_TYPE to $TYPE"
     fi
   fi
+  if [[ $PRIVATE -eq 1 ]]; then
+    ensure_api iap.googleapis.com "Identity-Aware Proxy"
+    ensure_api oslogin.googleapis.com "OS Login"
+    cidrs=("$IAP_RANGE")
+    [[ ${#EXTRA_ALLOW[@]} -eq 0 ]] || warn "--allow does nothing on a private office: access is the IAP-secured Tunnel User role (see: deploy/gcp.sh invite)"
+  fi
 
   say "Agent Office \"$NAME\" in $ZONE (project $GCP_PROJECT)"
   echo "   machine:  $machine"
   echo "   app:      $APP_REPO @ $APP_REF"
   echo "   projects: ${project_repo:+$project_repo, then }pick them in the office's elevator (cloned into ~/workspace)"
-  echo "   access:   SSH tunnel only (the office is never exposed); SSH from ${cidrs[*]}"
+  if [[ $PRIVATE -eq 1 ]]; then
+    echo "   access:   private — no public address; SSH through an IAP tunnel, as your OS Login user"
+  else
+    echo "   access:   SSH tunnel only (the office is never exposed); SSH from ${cidrs[*]}"
+  fi
   if [[ -n "$gh_token" ]]; then
     echo "   github:   your GitHub token goes on the VM (private clones, issue/PR boards, pushes)"
   else
@@ -795,42 +894,74 @@ cmd_up() {
     ours "firewall rule" "$desc" "$FW"
   fi
   change_ssh_sources "${cidrs[@]}"
-  ok "SSH allowed from ${cidrs[*]}"
+  if [[ $PRIVATE -eq 1 ]]; then ok "SSH allowed from IAP tunnels only ($IAP_RANGE)"; else ok "SSH allowed from ${cidrs[*]}"; fi
 
-  # A fixed address, so the office's address survives pauses and resizes.
   local addr_region
-  row=$(find_addr) || die "couldn't list the addresses in project $GCP_PROJECT (above)"
-  if [[ -z "$row" ]]; then
-    gcc compute addresses create "$ADDR" --region "$REGION" --network-tier PREMIUM --description "$MADE_BY" >/dev/null
-    row=$(find_addr)
+  if [[ $PRIVATE -eq 1 ]]; then
+    # No public address. The VM's own way to the internet (apt, GitHub, npm) is Cloud NAT on a
+    # Cloud Router of the office's own.
+    row=$(find_router) || die "couldn't list the Cloud Routers in project $GCP_PROJECT (above)"
+    if [[ -z "$row" ]]; then
+      gcc compute routers create "$ROUTER" --network "$NET" --region "$REGION" --description "$MADE_BY" >/dev/null
+      row=$(find_router)
+    fi
+    read -r _ addr_region desc <<<"$row"
+    ours "Cloud Router" "$desc" "$ROUTER"
+    [[ "$addr_region" == "$REGION" ]] || die "the office's Cloud Router $ROUTER is in $addr_region, not $REGION. Destroy the office first (or pick another --name)"
+    if [[ -z "$(gcc compute routers nats list --router "$ROUTER" --region "$REGION" --format='value(name)' 2>/dev/null)" ]]; then
+      gcc compute routers nats create "$NAT" --router "$ROUTER" --region "$REGION" \
+        --auto-allocate-nat-external-ips --nat-all-subnet-ip-ranges >/dev/null
+    fi
+    ok "Cloud NAT $NAT (the VM's way out)"
+    ensure_oslogin_key
+    SSH_USER_SET=1
+  else
+    # A fixed address, so the office's address survives pauses and resizes.
+    row=$(find_addr) || die "couldn't list the addresses in project $GCP_PROJECT (above)"
+    if [[ -z "$row" ]]; then
+      gcc compute addresses create "$ADDR" --region "$REGION" --network-tier PREMIUM --description "$MADE_BY" >/dev/null
+      row=$(find_addr)
+    fi
+    read -r IP addr_region _ desc <<<"$row"
+    ours address "$desc" "$ADDR"
+    [[ "$addr_region" == "$REGION" ]] || die "the office's address $ADDR is in $addr_region, not $REGION. Destroy the office first (or pick another --name)"
+    [[ -n "$IP" && "$IP" != "-" ]] || die "the address $ADDR has no IP"
+    ok "Static IP $IP"
   fi
-  read -r IP addr_region _ desc <<<"$row"
-  ours address "$desc" "$ADDR"
-  [[ "$addr_region" == "$REGION" ]] || die "the office's address $ADDR is in $addr_region, not $REGION. Destroy the office first (or pick another --name)"
-  [[ -n "$IP" && "$IP" != "-" ]] || die "the address $ADDR has no IP"
-  ok "Static IP $IP"
 
   # The VM.
   if [[ $new_vm -eq 1 ]]; then
-    local image="ubuntu-2404-lts-amd64" shielded=(--shielded-secure-boot --shielded-vtpm --shielded-integrity-monitoring)
+    local image="ubuntu-2404-lts-amd64" shielded=(--shielded-secure-boot --shielded-vtpm --shielded-integrity-monitoring) access keys
     [[ "$TYPE_ARCH" == "ARM64" ]] && image="ubuntu-2404-lts-arm64"
     case "$TYPE" in t2a-*) shielded=() ;; esac # Tau T2A VMs can't be Shielded VMs
-    printf '%s:%s\n' "$SSH_USER" "$(cut -d' ' -f1,2 "$KEY_FILE.pub") $RESOURCE" >"$KEYS_FILE"
+    if [[ $PRIVATE -eq 1 ]]; then
+      # Keys come from OS Login profiles; nothing in metadata.
+      access=(--no-address)
+      keys=(--metadata enable-oslogin=TRUE)
+    else
+      # OS Login off, project-wide keys blocked: only this key gets in.
+      access=(--address "$IP" --network-tier PREMIUM)
+      keys=(--metadata enable-oslogin=FALSE,block-project-ssh-keys=TRUE --metadata-from-file "ssh-keys=$KEYS_FILE")
+      printf '%s:%s\n' "$SSH_USER" "$(cut -d' ' -f1,2 "$KEY_FILE.pub") $RESOURCE" >"$KEYS_FILE"
+    fi
     say "Creating the VM ($TYPE) — a minute or two"
     # No service account: the office needs no Google API, and it keeps a cloud credential off a
-    # machine that runs agents. OS Login off, project-wide keys blocked: only this key gets in.
+    # machine that runs agents.
     gcc compute instances create "$VM" --zone "$ZONE" --machine-type "$TYPE" \
       --image-family "$image" --image-project ubuntu-os-cloud \
       --boot-disk-size "${DISK_GB}GB" --boot-disk-type "$(disk_type_for "$TYPE")" --boot-disk-auto-delete \
       "${shielded[@]+"${shielded[@]}"}" \
-      --network "$NET" --address "$IP" --network-tier PREMIUM --stack-type IPV4_ONLY \
+      --network "$NET" "${access[@]}" --stack-type IPV4_ONLY \
       --tags "$TAG" --labels "agent-office=$NAME" --description "$MADE_BY" \
-      --metadata enable-oslogin=FALSE,block-project-ssh-keys=TRUE --metadata-from-file "ssh-keys=$KEYS_FILE" \
+      "${keys[@]}" \
       --no-service-account --no-scopes >/dev/null ||
       die "couldn't create the VM (Google's reason is above). If it's a quota (\"Quota 'CPUS' exceeded\"), ask for more
    in the console under IAM & Admin → Quotas, for $REGION, or run up again with a smaller --machine-type. If it names
-   constraints/compute.vmExternalIpAccess, your organization forbids public addresses in this project."
+   constraints/compute.vmExternalIpAccess, your organization forbids public addresses: run up again with --private."
     VM_TYPE="$TYPE"
+    load_office # its internal address, and the ssh options for the mode it's in
+    [[ -n "$ZONE" ]] || die "the VM $VM was created but can't be found (above)"
+    [[ $PRIVATE -eq 0 ]] || IP="$INTERNAL_IP"
   elif [[ $resize -eq 1 ]]; then
     resize_vm "$TYPE"
     if [[ $RESIZED_PAUSED -eq 1 ]]; then start_vm; fi
@@ -839,7 +970,8 @@ cmd_up() {
   else
     say "Reusing $VM ($VM_TYPE)"
   fi
-  ok "VM $VM is running at $IP"
+  [[ $PRIVATE -eq 0 ]] || IP="$INTERNAL_IP"
+  if [[ $PRIVATE -eq 1 ]]; then ok "VM $VM is running (private, $IP inside its network)"; else ok "VM $VM is running at $IP"; fi
 
   # An office made on another computer (or whose key was lost): give this computer's key to it too.
   if [[ $new_key -eq 1 && $new_vm -eq 0 ]]; then add_key; fi
@@ -861,10 +993,18 @@ cmd_up() {
 
   say "Waiting for the office to answer"
   wait_healthy || die "the office didn't come up — check: deploy/gcp.sh logs$NAME_FLAG"
-  ok "Your office is running on $IP (reachable only through SSH)"
+  if [[ $PRIVATE -eq 1 ]]; then
+    ok "Your office is running on $VM (private: reachable only through an IAP tunnel)"
+  else
+    ok "Your office is running on $IP (reachable only through SSH)"
+  fi
   echo
   echo "   Open it later:     deploy/gcp.sh open$NAME_FLAG"
-  echo "   Add a teammate:    the 👥 Invite button in the office, or deploy/gcp.sh invite <their-github-username>$NAME_FLAG"
+  if [[ $PRIVATE -eq 1 ]]; then
+    echo "   Add a teammate:    deploy/gcp.sh invite <their-github-username>$NAME_FLAG (they need gcloud and the IAP tunnel role: it says how)"
+  else
+    echo "   Add a teammate:    the 👥 Invite button in the office, or deploy/gcp.sh invite <their-github-username>$NAME_FLAG"
+  fi
   echo "   Pause / resume:    deploy/gcp.sh pause$NAME_FLAG   /   deploy/gcp.sh resume$NAME_FLAG"
   echo "   Tear it down:      deploy/gcp.sh destroy$NAME_FLAG"
   echo
@@ -882,11 +1022,13 @@ cmd_connect() {
   chmod 700 "$STATE_DIR"
   echo "$GCP_PROJECT" >"$PROJECT_FILE"
   local my
-  my=$(my_ip) || die "couldn't detect your public IP"
-  change_ssh_sources "$my/32"
-  ok "SSH allowed from $my/32"
+  if [[ $PRIVATE -eq 0 ]]; then
+    my=$(my_ip) || die "couldn't detect your public IP"
+    change_ssh_sources "$my/32"
+    ok "SSH allowed from $my/32"
+  fi
   start_vm # the guest agent that adds the key only runs on a running VM
-  IP=$(public_ip)
+  IP=$(office_ip)
   [[ -n "$IP" ]] || die "the office has no static address ($ADDR) — run: deploy/gcp.sh up$NAME_FLAG"
   if [[ -f "$KEY_FILE" ]] && remote true 2>/dev/null; then
     ok "This computer could already SSH in"
@@ -921,10 +1063,14 @@ cmd_status() {
     echo "No office named \"$NAME\" in project $GCP_PROJECT."
     return
   fi
-  IP=$(public_ip)
+  IP=$(office_ip)
   echo "office:    $NAME ($ZONE, project $GCP_PROJECT)"
   echo "vm:        $VM $VM_TYPE $(lower "$VM_STATUS")"
-  echo "address:   ${IP:-none}  (open the office with: deploy/gcp.sh open$NAME_FLAG)"
+  if [[ $PRIVATE -eq 1 ]]; then
+    echo "address:   none, private: $IP inside $NET, reached through an IAP tunnel  (deploy/gcp.sh open$NAME_FLAG)"
+  else
+    echo "address:   ${IP:-none}  (open the office with: deploy/gcp.sh open$NAME_FLAG)"
+  fi
   if paused_status "$VM_STATUS"; then
     echo "office:    paused (start it with: deploy/gcp.sh resume$NAME_FLAG)"
   elif [[ -n "$IP" && -f "$KEY_FILE" ]] && office_get /api/health >/dev/null 2>&1; then
@@ -935,15 +1081,28 @@ cmd_status() {
   else
     echo "office:    not answering"
   fi
+  if [[ $PRIVATE -eq 1 ]]; then
+    echo "ssh from:  IAP tunnels, for whoever has roles/iap.tunnelResourceAccessor in $GCP_PROJECT"
+    return
+  fi
   local from
   from=$(allowed_cidrs 2>/dev/null | tr '\n' ' ') || from="(couldn't read the firewall)"
   echo "ssh from:  ${from:-nobody}"
+}
+
+# allow and revoke on a private office: there's no IP list, the tunnel's IAM role is the list.
+no_ips_private() {
+  [[ $PRIVATE -eq 1 ]] || return 0
+  die "office \"$NAME\" is private: SSH comes through IAP tunnels, so there are no IPs to $1. Who gets in is an IAM role:
+   gcloud projects add-iam-policy-binding $GCP_PROJECT --member user:<their-email> --role roles/iap.tunnelResourceAccessor
+   (and remove-iam-policy-binding to take it back). deploy/gcp.sh invite$NAME_FLAG says the rest."
 }
 
 cmd_allow() {
   preflight
   [[ ${#POSITIONAL[@]} -gt 0 ]] || die "usage: deploy/gcp.sh allow <ip|cidr|me> [...]"
   require_office
+  no_ips_private allow
   local c cidrs=()
   for c in "${POSITIONAL[@]}"; do
     c=$(to_cidr "$c")
@@ -957,6 +1116,7 @@ cmd_revoke() {
   preflight
   [[ ${#POSITIONAL[@]} -gt 0 ]] || die "usage: deploy/gcp.sh revoke <ip|cidr|me> [...]"
   require_office
+  no_ips_private revoke
   local c cidrs=()
   for c in "${POSITIONAL[@]}"; do
     c=$(to_cidr "$c")
@@ -990,25 +1150,36 @@ cmd_invite() {
   ok "$who is invited ($n key(s) from $src)"
 
   local a cidrs=() fp
-  for a in "${EXTRA_ALLOW[@]+"${EXTRA_ALLOW[@]}"}"; do
-    a=$(to_cidr "$a")
-    cidrs+=("$a")
-  done
-  if [[ ${#cidrs[@]} -gt 0 ]]; then
-    change_ssh_sources "${cidrs[@]}"
-    ok "SSH allowed from ${cidrs[*]}"
+  if [[ $PRIVATE -eq 0 ]]; then
+    for a in "${EXTRA_ALLOW[@]+"${EXTRA_ALLOW[@]}"}"; do
+      a=$(to_cidr "$a")
+      cidrs+=("$a")
+    done
+    if [[ ${#cidrs[@]} -gt 0 ]]; then
+      change_ssh_sources "${cidrs[@]}"
+      ok "SSH allowed from ${cidrs[*]}"
+    fi
   fi
   fp=$(remote "ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub" | awk '{print $2}')
   echo
   echo "   Send $who this:"
   echo
-  echo "     ssh -L 4600:localhost:$OFFICE_PORT $TEAM_USER@$IP"
+  if [[ $PRIVATE -eq 1 ]]; then
+    iap_ssh_hint "$TEAM_USER"
+  else
+    echo "     ssh -L 4600:localhost:$OFFICE_PORT $TEAM_USER@$IP"
+  fi
   echo
   echo "     Leave it running, open http://localhost:4600 and sign in with the office password."
   echo "     The first time, ssh asks you to trust the server. Only say yes if it shows"
   echo "     ED25519 key fingerprint $fp"
   echo
-  if ! has_cidr "$(allowed_cidrs)" "0.0.0.0/0"; then
+  if [[ $PRIVATE -eq 1 ]]; then
+    echo "   The office is private, so they also need gcloud, signed in to a Google account that has the"
+    echo "   IAP-secured Tunnel User role in $GCP_PROJECT. Give it with:"
+    echo "     gcloud projects add-iam-policy-binding $GCP_PROJECT --member user:<their-email> --role roles/iap.tunnelResourceAccessor"
+    echo "   (The 👥 Invite panel in the office shows a plain ssh command; on a private office, use this one.)"
+  elif ! has_cidr "$(allowed_cidrs)" "0.0.0.0/0"; then
     echo "   SSH only answers allowed IPs, so also run: deploy/gcp.sh allow <their-ip>$NAME_FLAG"
     echo "   (or \"allow anywhere\" — SSH only accepts your key and invited keys)"
   fi
@@ -1063,7 +1234,7 @@ cmd_resize() {
     echo "   Start it with: deploy/gcp.sh resume$NAME_FLAG"
     return
   fi
-  IP=$(public_ip)
+  IP=$(office_ip)
   say "Waiting for the office to answer"
   wait_healthy || die "the office didn't come back — check: deploy/gcp.sh logs$NAME_FLAG"
   ok "Your office is back — open it with: deploy/gcp.sh open$NAME_FLAG"
@@ -1090,7 +1261,7 @@ cmd_resume() {
   require_key
   require_office
   start_vm
-  IP=$(public_ip)
+  IP=$(office_ip)
   [[ -n "$IP" ]] || die "the office has no static address ($ADDR) — run: deploy/gcp.sh up$NAME_FLAG"
   say "Waiting for the office to answer"
   wait_healthy || die "the office didn't come back — check: deploy/gcp.sh logs$NAME_FLAG"
@@ -1130,11 +1301,15 @@ cmd_reset_password() {
 }
 
 # Drops this computer's files for the office (SSH key, claim link), unless they're for an office of
-# the same name in another project.
+# the same name in another project. A private office put the key on your OS Login profile, which
+# outlives the VM: it comes off there too.
 forget_office() {
   if [[ -s "$PROJECT_FILE" && "$(cat "$PROJECT_FILE")" != "$GCP_PROJECT" ]]; then
     echo "(This computer's files for \"$NAME\", in $STATE_DIR, are for project $(cat "$PROJECT_FILE"), so they stay.)"
     return
+  fi
+  if [[ -f "$KEY_FILE.pub" ]] && oslogin_keys | grep -qF "$(cut -d' ' -f1,2 "$KEY_FILE.pub")"; then
+    gcc compute os-login ssh-keys remove --key-file "$KEY_FILE.pub" >/dev/null 2>&1 && ok "This computer's key is off your OS Login profile"
   fi
   rm -rf "$STATE_DIR"
 }
@@ -1142,10 +1317,15 @@ forget_office() {
 cmd_down() {
   preflight
   load_office
-  local addr_row fw_row net_row disk_zone="" addr_region="" desc
+  local addr_row fw_row net_row router_row router_region="" disk_zone="" addr_region="" desc
   addr_row=$(find_addr) || die "couldn't list the addresses (above)"
   fw_row=$(find_fw) || die "couldn't list the firewall rules (above)"
   net_row=$(find_net) || die "couldn't list the networks (above)"
+  router_row=$(find_router) || die "couldn't list the Cloud Routers (above)"
+  if [[ -n "$router_row" ]]; then
+    read -r _ router_region desc <<<"$router_row"
+    ours "Cloud Router" "$desc" "$ROUTER"
+  fi
   # A boot disk left behind (the VM deleted some other way, without it).
   disk_zone=$(gcc compute disks list --filter="name~^$RESOURCE\$" --format='value(zone.basename())' 2>/dev/null | head -1 || true)
   if [[ -n "$addr_row" ]]; then
@@ -1160,7 +1340,7 @@ cmd_down() {
     read -r _ desc <<<"$net_row"
     ours network "$desc" "$NET"
   fi
-  if [[ -z "$ZONE" && -z "$addr_row" && -z "$fw_row" && -z "$net_row" && -z "$disk_zone" ]]; then
+  if [[ -z "$ZONE" && -z "$addr_row" && -z "$fw_row" && -z "$net_row" && -z "$router_row" && -z "$disk_zone" ]]; then
     echo "Nothing to delete for \"$NAME\" in project $GCP_PROJECT."
     forget_office
     return
@@ -1169,6 +1349,7 @@ cmd_down() {
   [[ -z "$ZONE" ]] || echo "     $VM  VM in $ZONE, with its disk"
   [[ -z "$disk_zone" || -n "$ZONE" ]] || echo "     $RESOURCE  disk in $disk_zone"
   [[ -z "$addr_row" ]] || echo "     $ADDR  static address in $addr_region"
+  [[ -z "$router_row" ]] || echo "     $ROUTER  Cloud Router and its Cloud NAT in $router_region"
   [[ -z "$fw_row" ]] || echo "     $FW  firewall rule"
   [[ -z "$net_row" ]] || echo "     $NET  network"
   echo "   Anything on the VM that isn't pushed to GitHub is lost."
@@ -1188,6 +1369,10 @@ cmd_down() {
   if [[ -n "$addr_row" ]]; then
     gcc compute addresses delete "$ADDR" --region "$addr_region" >/dev/null || die "couldn't release the address (above) — run destroy again in a minute"
     ok "Static address released"
+  fi
+  if [[ -n "$router_row" ]]; then
+    gcc compute routers delete "$ROUTER" --region "$router_region" >/dev/null || die "couldn't delete the Cloud Router (above) — run destroy again in a minute"
+    ok "Cloud Router and NAT deleted"
   fi
   if [[ -n "$fw_row" ]]; then
     gcc compute firewall-rules delete "$FW" >/dev/null || die "couldn't delete the firewall rule (above)"
