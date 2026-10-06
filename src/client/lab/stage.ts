@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { OutlineEffect } from 'three/examples/jsm/effects/OutlineEffect.js';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { toon } from '../world/toon';
 
 // What every lab page shows its models on: lit and outlined like the office (see main.ts), on a floor
@@ -24,9 +25,17 @@ export function stage(canvas: HTMLCanvasElement, showFloor = true): Stage {
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFShadowMap;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
-  const effect = new OutlineEffect(renderer, { defaultThickness: 0.0032, defaultColor: [0.17, 0.18, 0.26] });
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.06;
+  const effect = new OutlineEffect(renderer, { defaultThickness: 0.0021, defaultColor: [0.17, 0.18, 0.26] });
 
   const scene = new THREE.Scene();
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  const room = new RoomEnvironment();
+  scene.environment = pmrem.fromScene(room, 0.04).texture;
+  scene.environmentIntensity = 0.35;
+  room.dispose();
+  pmrem.dispose();
   scene.background = new THREE.Color('#bfe3ff');
   scene.add(new THREE.HemisphereLight('#fff5e6', '#c9a27a', 1.5), new THREE.AmbientLight('#ffffff', 0.5));
   const sun = new THREE.DirectionalLight('#fff1d6', 2.2);

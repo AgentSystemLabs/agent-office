@@ -15,8 +15,11 @@
   --bad: #ef476f;
   --info: #5bc0eb;
   --shadow: 0 4px 0 var(--ink);
+  --shadow-soft: 0 1px 2px rgba(43, 45, 66, .14), 0 8px 24px rgba(43, 45, 66, .16);
+  --shadow-lift: 0 2px 4px rgba(43, 45, 66, .14), 0 14px 34px rgba(43, 45, 66, .22);
+  --ring: 0 0 0 3px rgba(255, 138, 91, .38);
   --radius: 16px;
-  --font: 'Nunito', ui-rounded, 'SF Pro Rounded', system-ui, -apple-system, sans-serif;
+  --font: 'Inter', 'Nunito', ui-rounded, 'SF Pro Rounded', system-ui, -apple-system, sans-serif;
 }
 
 * { box-sizing: border-box; }
@@ -26,21 +29,22 @@ button { font-family: inherit; }
 .hidden { display: none !important; }
 
 .panel {
-  background: var(--paper);
+  background: linear-gradient(180deg, #fffdf9, var(--paper));
   border: 3px solid var(--ink);
   border-radius: var(--radius);
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow), var(--shadow-soft);
 }
 
 .btn {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 7px 12px; font-size: 14px; font-weight: 800; color: var(--ink);
-  background: #fff; border: 3px solid var(--ink); border-radius: 12px; cursor: pointer;
-  box-shadow: 0 3px 0 var(--ink); transition: transform .05s;
+  background: linear-gradient(180deg, #ffffff, #fff4e6); border: 3px solid var(--ink); border-radius: 12px; cursor: pointer;
+  box-shadow: 0 3px 0 var(--ink); transition: transform .05s, box-shadow .15s, background .15s;
   white-space: nowrap;
 }
-.btn:hover { background: var(--paper-2); }
+.btn:hover { background: linear-gradient(180deg, #ffffff, var(--paper-2)); box-shadow: 0 3px 0 var(--ink), var(--shadow-soft); }
 .btn:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--ink); }
+.btn:focus-visible { outline: none; box-shadow: 0 3px 0 var(--ink), var(--ring); }
 .btn.on { background: var(--good); color: #fff; }
 .btn.danger { background: var(--bad); color: #fff; }
 .btn.primary { background: var(--accent); color: #fff; }
@@ -61,7 +65,7 @@ button { font-family: inherit; }
 .key { display: inline-block; min-width: 26px; padding: 1px 7px; margin-right: 5px; border-radius: 7px; background: var(--paper); color: var(--ink); text-align: center; font-weight: 900; box-shadow: 0 2px 0 #999; }
 
 #toasts { position: absolute; top: 72px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; gap: 8px; align-items: center; pointer-events: none !important; }
-.toast { background: var(--paper); border: 3px solid var(--ink); border-radius: 12px; padding: 8px 14px; font-weight: 800; font-size: 14px; box-shadow: var(--shadow); animation: toast-in .25s ease-out; }
+.toast { background: rgba(255, 250, 243, .96); backdrop-filter: blur(6px); border: 3px solid var(--ink); border-radius: 12px; padding: 8px 14px; font-weight: 800; font-size: 14px; box-shadow: var(--shadow), var(--shadow-soft); animation: toast-in .25s ease-out; }
 .toast.warn { background: #fff3c4; }
 .toast.error { background: #ffd6e0; }
 @keyframes toast-in { from { transform: translateY(-10px); opacity: 0; } }
@@ -69,9 +73,9 @@ button { font-family: inherit; }
 .conn { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); background: var(--bad); color: #fff; font-weight: 900; padding: 6px 14px; border-radius: 12px; border: 3px solid var(--ink); }
 
 /* ---------- Modals ---------- */
-.backdrop { position: fixed; inset: 0; background: rgba(43, 45, 66, .45); display: grid; place-items: center; padding: 16px; z-index: 50; animation: fade .15s; }
+.backdrop { position: fixed; inset: 0; background: rgba(27, 29, 46, .48); backdrop-filter: blur(10px) saturate(1.15); display: grid; place-items: center; padding: 16px; z-index: 50; animation: fade .15s; }
 @keyframes fade { from { opacity: 0; } }
-.modal { background: var(--paper); border: 3px solid var(--ink); border-radius: 20px; box-shadow: 0 6px 0 var(--ink); width: min(560px, 100%); max-height: calc(100vh - 32px); display: flex; flex-direction: column; overflow: hidden; animation: pop .18s ease-out; }
+.modal { background: linear-gradient(180deg, #fffdf9, var(--paper)); border: 3px solid var(--ink); border-radius: 20px; box-shadow: 0 6px 0 var(--ink), var(--shadow-lift); width: min(560px, 100%); max-height: calc(100vh - 32px); display: flex; flex-direction: column; overflow: hidden; animation: pop .18s ease-out; }
 @keyframes pop { from { transform: scale(.96); opacity: .5; } }
 .modal header { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 3px solid var(--ink); background: var(--paper-2); }
 .modal header h2 { margin: 0; font-size: 18px; font-weight: 900; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
