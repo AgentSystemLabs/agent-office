@@ -15,7 +15,7 @@ import * as pty from '@lydell/node-pty';
  */
 
 /** Bump whenever the host's messages change: an office that finds an older host stops it and starts its own. */
-export const PTY_PROTOCOL = 1;
+export const PTY_PROTOCOL = 2;
 export const SCROLLBACK = 3000;
 
 export interface SpawnOpts {

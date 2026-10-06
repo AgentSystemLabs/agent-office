@@ -12,7 +12,7 @@ import * as pty from '@lydell/node-pty';
 import headless from '@xterm/headless';
 import serialize from '@xterm/addon-serialize';
 import { PTY_PROTOCOL, SCROLLBACK, readMessages, type FromHost, type SpawnOpts, type ToHost } from './ptys.js';
-import { screenSnapshot } from './screen.js';
+import { screenSnapshot, withoutFullScreen } from './screen.js';
 import { safeEq } from './secrets.js';
 
 /** How long terminals keep running with no office connected before the host gives up on it. */
@@ -108,7 +108,10 @@ function spawn(id: string, opts: SpawnOpts) {
   });
   term.onTitleChange((title: string) => (s.title = title));
   proc.onData((data) => {
-    term.write(data);
+    // The host keeps a terminal of its own for the office to pick up, so it needs the same scrollback
+    // a full-screen agent's output would otherwise throw away (see withoutFullScreen). What goes to
+    // the office is what the worker really printed: it forwards that to viewers.
+    term.write(withoutFullScreen(data, opts.rows));
     if (!s.attached) return;
     if (s.held) s.held.push(data);
     else send({ t: 'data', id, data });

@@ -6,6 +6,7 @@ import path from 'node:path';
 import headless from '@xterm/headless';
 import serialize from '@xterm/addon-serialize';
 import { CHAT_KEEP, ChatLog, ScrollbackStore, searchTerminal, terminalTail } from '../src/server/history.js';
+import { withoutFullScreen } from '../src/server/screen.js';
 import { findLine, searchKey, snippet } from '../src/shared/search.js';
 import type { ChatLine } from '../src/shared/protocol.js';
 
@@ -92,6 +93,23 @@ test('snippets cut long lines down around the match', () => {
   assert.ok(s.includes('NEEDLE'));
   assert.ok(s.startsWith('…') && s.endsWith('…'));
   assert.ok(s.length <= 62);
+});
+
+test('a full-screen agent\'s saved scrollback holds the whole session, not the last screenful', async () => {
+  const rows = 10;
+  const a = terminal(80, rows);
+  // What an agent draws full-screen, and how it was fed to the office's copy of the terminal.
+  const said = Array.from({ length: 40 }, (_, i) => `the agent said <${i + 1}>`);
+  await a.write(withoutFullScreen(`\x1b[?1049h${said.map((l) => `${l}\r\n`).join('')}`, rows));
+
+  // Which is what gets written to .agent-office/scrollback, and replayed as the next run's prelude.
+  const b = terminal(80, rows);
+  await b.write(`${terminalTail(a.term, a.ser, 3000)}\r\nNEXT\r\n`);
+  const held: string[] = [];
+  for (let y = 0; y < b.term.buffer.normal.length; y++) held.push(b.term.buffer.normal.getLine(y)!.translateToString(true));
+  for (const line of said) assert.ok(held.includes(line), `${line} survives the save and the reload`);
+  // And what searching the terminal a while later reports.
+  assert.deepEqual(searchTerminal(b.term, searchKey('said <1>'), 10).hits.map((h) => h.text), ['the agent said <1>']);
 });
 
 test('scrollback files are per worker, and pruning keeps only workers still at a desk', (t) => {

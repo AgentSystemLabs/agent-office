@@ -33,7 +33,7 @@ import { MCP_READ_ONLY, codexMcpArgs, openCodeMcp, writeClaudeMcpConfig } from '
 import { ScrollbackStore, searchTerminal, terminalTail } from './history.js';
 import { DSH_PROFILE_DEFAULT, DshSession, dshArgs, terminalSafe, writeDshPatch } from './dsh.js';
 import { DropStore } from './drops.js';
-import { screenSnapshot } from './screen.js';
+import { screenSnapshot, withoutFullScreen } from './screen.js';
 import type { Capacity } from './machine.js';
 
 type HeadlessTerminal = InstanceType<typeof headless.Terminal>;
@@ -196,6 +196,11 @@ interface Worker {
   outputAt?: number;
   /** Where this run's own output starts, below the scrollback carried over from before. */
   fresh?: { readonly line: number };
+  /**
+   * This run went full-screen, so its screen is its own and not a continuation of the scrollback: it
+   * may have drawn above `fresh`, and what the office reads off the screen has to be all of it.
+   */
+  fullScreen?: boolean;
   /** Its lost worktree is being put back (see rebuild): the folder coming back mustn't wake it before that's done. */
   rebuilding?: boolean;
 }
@@ -1909,7 +1914,7 @@ export class WorkerManager {
       {
         output: (data) => {
           if (w.dsh !== session) return;
-          term.write(data);
+          term.write(this.observed(data, w));
           w.outputAt = Date.now();
           w.screenDirty = true;
           w.unsaved = true;
@@ -2022,11 +2027,24 @@ export class WorkerManager {
     w.term?.dispose();
     w.term = term;
     w.ser = ser;
-    w.snapshot = screenSnapshot(term, ser);
+    // The backstop for a scrollback written before withoutFullScreen existed, replayed as a prelude.
+    w.snapshot = screenSnapshot(term, ser, () => (w.fullScreen = true));
     w.lastLines = [];
     w.screenDirty = true;
     w.fresh = undefined;
+    w.fullScreen = undefined;
     return term;
+  }
+
+  /**
+   * What the office feeds its own copy of a worker's terminal, given what the worker really printed.
+   * Viewers are sent the real bytes, so their terminal switches to the full-screen buffer as it should;
+   * this copy keeps the scrollback that buffer has none of (see withoutFullScreen).
+   */
+  private observed(data: string, w: Worker): string {
+    const seen = withoutFullScreen(data, w.info.rows);
+    if (seen !== data) w.fullScreen = true;
+    return seen;
   }
 
   private setTitle(w: Worker, title: string) {
@@ -2046,7 +2064,7 @@ export class WorkerManager {
     const isMuse = info.kind === 'agent' && info.provider === 'muse';
     w.pty = proc;
     proc.onData((data) => {
-      term.write(data);
+      term.write(this.observed(data, w));
       w.outputAt = Date.now();
       w.screenDirty = true;
       w.unsaved = true;
@@ -2253,7 +2271,9 @@ export class WorkerManager {
     const s = w.info.status;
     if (s !== 'starting' && s !== 'idle' && !(w.bootBlocked && s === 'needs_input')) return;
     // Only this run's output counts: a "Not logged in" in the scrollback from before is old news.
-    const text = screenText(w.term, w.term.buffer.active.type === 'normal' ? Math.max(0, w.fresh?.line ?? 0) : 0);
+    // A full-screen agent paints the whole screen, rows above the marker included, so the marker
+    // would hide the very screen it means to read.
+    const text = screenText(w.term, w.fullScreen ? 0 : Math.max(0, w.fresh?.line ?? 0));
     const loggedOut = NOT_LOGGED_IN.test(text);
     const blocked = loggedOut || (SETUP_PROMPT.test(text) && (s === 'starting' || w.bootBlocked));
     if (blocked && s !== 'needs_input') {
