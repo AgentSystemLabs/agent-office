@@ -13,6 +13,7 @@
   --good: #06d6a0;
   --warn: #ffd166;
   --bad: #ef476f;
+  --bad-deep: #c9184a;
   --info: #5bc0eb;
   --shadow: 0 4px 0 var(--ink);
   --shadow-soft: 0 1px 2px rgba(43, 45, 66, .14), 0 8px 24px rgba(43, 45, 66, .16);
@@ -45,9 +46,9 @@ button { font-family: inherit; }
 .btn:hover { background: linear-gradient(180deg, #ffffff, var(--paper-2)); box-shadow: 0 3px 0 var(--ink), var(--shadow-soft); }
 .btn:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--ink); }
 .btn:focus-visible { outline: none; box-shadow: 0 3px 0 var(--ink), var(--ring); }
-.btn.on { background: var(--good); color: #fff; }
-.btn.danger { background: var(--bad); color: #fff; }
-.btn.primary { background: var(--accent); color: #fff; }
+.btn.on { background: var(--good); color: var(--ink); }
+.btn.danger { background: var(--bad-deep); color: #fff; }
+.btn.primary { background: var(--accent); color: var(--ink); }
 .btn:disabled { opacity: .5; cursor: default; }
 
 /* Status dots and pills, empty lists, key caps, toasts and the reconnecting banner: the office's HUD
@@ -56,12 +57,17 @@ button { font-family: inherit; }
 .pill { font-size: 11px; font-weight: 900; padding: 2px 7px; border-radius: 999px; border: 2px solid var(--ink); white-space: nowrap; }
 .pill.starting, .pill.idle { background: #e0f2fe; }
 .pill.working { background: var(--warn); }
-.pill.needs_input { background: var(--bad); color: #fff; animation: pulse 1s infinite; }
-.pill.done { background: var(--good); color: #fff; }
+.pill.needs_input { background: var(--bad-deep); color: #fff; animation: pulse 1s infinite; }
+.pill.done { background: var(--good); color: var(--ink); }
 .pill.exited, .pill.offline { background: #dee2e6; }
 .pill.lost { background: #ffb703; }
 .empty { color: var(--muted); font-size: 13px; font-weight: 600; }
 @keyframes pulse { 50% { transform: scale(1.08); } }
+@media (prefers-reduced-motion: reduce) {
+  .pill.needs_input { animation: none; }
+  .toast, .modal, .backdrop { animation: none; }
+  .btn { transition: none; }
+}
 .key { display: inline-block; min-width: 26px; padding: 1px 7px; margin-right: 5px; border-radius: 7px; background: var(--paper); color: var(--ink); text-align: center; font-weight: 900; box-shadow: 0 2px 0 #999; }
 
 #toasts { position: absolute; top: 72px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; gap: 8px; align-items: center; pointer-events: none !important; }
