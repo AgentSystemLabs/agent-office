@@ -84,6 +84,10 @@ Triage's queued tasks wait by priority (p0 first, a task added by hand counts as
 - **📋 Queue anyway** queues it whatever the rules said, unless it needs a human.
 - An issue is classified again only when its title, body, comments or other labels change, never because triage labelled or commented on it.
 
+## Writing issues it can act on
+
+Triage is only as good as the issues it reads: [docs/issue-writing.md](issue-writing.md) has a template, what each question looks for, and instructions to give an agent that files issues for you.
+
 ## Checking it's right
 
 Before turning `autoQueue` on, hand-label 30 to 50 past issues in `<project>/.agent-office/triage-eval.json`:
