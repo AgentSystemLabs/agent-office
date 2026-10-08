@@ -33,6 +33,7 @@ curl -fsSL https://raw.githubusercontent.com/AgentSystemLabs/agent-office/main/i
 ## What it is
 
 - **A floor per project.** Ride the elevator, pick one of your GitHub repos, and the office clones it (showing how far along it is) and opens a floor for it. Every worker, board and queue on that floor works in that checkout.
+- **Codex on Windows.** Office hooks support PowerShell and cmd.exe. After upgrading an Office with failing hooks, restart its Codex workers and review the changed commands in `/hooks` once; see [agent setup](docs/agents.md).
 - **Workers at desks.** Walk up to an empty desk, press **E**, and pick Claude Code, Codex, OpenCode, Grok, Muse, DeepSeek Harness, Pi or Cursor, each with its model and reasoning effort. The agent's live terminal shows on its laptop, and anyone can open it and type.
 - **Talk instead of typing.** Hold **Ctrl+Space** (or the **🎤**) in a worker's terminal or a prompt box and say what you want: it's typed in for you to send. Your browser does the listening, so there's nothing to install.
 - **You can't miss who needs you.** A worker that stops to ask you something lights a red beacon over its desk, puts a banner on your screen saying who and what for, and sounds an alarm. One that has finished jumps up and down and dings. Press **N** to go straight to whoever is waiting.
