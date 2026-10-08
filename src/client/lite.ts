@@ -1,13 +1,14 @@
 // The 2D view (/lite): the office without the 3D, for a phone or a computer the 3D office is too
 // much for. Every worker on the floor and how it's doing, the ones waiting on someone first; its
-// terminal, with the keys a phone's keyboard hasn't got and a box to send it a prompt; and the boards
-// and the task queue. You're in the office as someone on the 2D view (PeerInfo.lite), not standing
+// terminal, with the keys a phone's keyboard hasn't got and a box to send it a prompt; and the
+// coordinator's boards. You're in the office as someone on the 2D view (PeerInfo.lite), not standing
 // anywhere in it.
 
 import { Net } from './net';
 import { AVATAR_COLORS, loadProfile, loadSettings, saveProfile, store } from './state';
 import { randomLook } from '../shared/avatar';
 import { cloneLabel } from '../shared/floors';
+import { localDay } from '../shared/coordinator';
 import { ROOF } from '../shared/rooftop';
 import { DESK_BY_ID, nextFreeSeat } from '../shared/layout';
 import { isAsleep } from '../shared/status';
@@ -16,10 +17,9 @@ import { $, clip, closeAllModals, doingNow, h, onDoingChange, onModalChange, ope
 import { openTerminal, openTerminalFor, routeTerminalMessage } from './ui/terminal';
 import { openChanges, openChangesFor, routeChangesMessage } from './ui/changes';
 import { lostWorktreeDialog, openPrompt, routeWorktreeMessage, sendHomeDialog } from './ui/prompt';
-import { openBoard } from './ui/boards';
+import { openCoordinator } from './ui/coordinator';
 import type { BoardActions } from './ui/github/prompts';
 import { openPull, routePullMessage } from './ui/pull';
-import { openQueue } from './ui/queue';
 import { openAsk } from './ui/ask';
 import { openMeeting, type MeetingPreset } from './ui/meeting';
 import { openSignIns } from './ui/signins';
@@ -317,20 +317,18 @@ function showMeeting(preset?: MeetingPreset) {
   );
 }
 
-$('btn-issues').addEventListener('click', () => openBoard('issues', net, boardActions()));
-$('btn-pulls').addEventListener('click', () => openBoard('pulls', net, boardActions()));
-$('btn-queue').addEventListener('click', () => openQueue(net, { openTerminal: openWorker }));
+$('btn-checklist').addEventListener('click', () => openCoordinator(net, 'checklist'));
+$('btn-timeline').addEventListener('click', () => openCoordinator(net, 'timeline'));
+$('btn-phase').addEventListener('click', () => openCoordinator(net, 'summary'));
 $('btn-new').addEventListener('click', () => sendToWorker('✨ New task'));
 
 function renderNav() {
   const count = (id: string, n: number) => ($(id).querySelector('.n')!.textContent = n ? String(n) : '');
-  count('btn-issues', store.issues.items.filter((i) => i.state === 'OPEN').length);
-  count('btn-pulls', store.pulls.items.filter((p) => p.state === 'OPEN').length);
-  count('btn-queue', store.queue.tasks.filter((t) => t.status !== 'done').length);
+  count('btn-checklist', store.coordinator.cards.filter((c) => c.status !== 'Done').length);
+  count('btn-timeline', store.coordinator.timeline.filter((e) => e.date === localDay()).length);
+  count('btn-phase', store.coordinator.chapters.length);
 }
-store.on('issues', renderNav);
-store.on('pulls', renderNav);
-store.on('queue', renderNav);
+store.on('coordinator', renderNav);
 
 // ---- What you have open, for the others (see PeerInfo.doing) -----------------------------------
 let doingSent: string | undefined;
