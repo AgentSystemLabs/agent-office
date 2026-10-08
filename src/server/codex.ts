@@ -82,18 +82,24 @@ export function validateCodexHook(event: string, payload: unknown): boolean {
   return !!normalizeCodexHook(event, payload);
 }
 
-function shellQuote(value: string): string {
-  return `'${value.replaceAll("'", "'\"'\"'")}'`;
+function hookCommand(values: string[], platform: NodeJS.Platform): string {
+  if (platform === 'win32') {
+    // Codex uses the session shell (usually PowerShell), with cmd.exe as a fallback.
+    // An encoded script keeps paths literal through either outer shell.
+    const script = '& ' + values.map((value) => "'" + value.replaceAll("'", "''") + "'").join(' ') + '; exit $LASTEXITCODE';
+    return 'powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand ' + Buffer.from(script, 'utf16le').toString('base64');
+  }
+  return values.map((value) => `'${value.replaceAll("'", "'\"'\"'")}'`).join(' ');
 }
 
 /**
  * Build the CLI config overrides for all lifecycle hooks. The command is encoded as a TOML basic
  * string so paths containing spaces remain valid; the command itself is shell-quoted.
  */
-export function codexHookArgs(hookPath: string): string[] {
+export function codexHookArgs(hookPath: string, platform: NodeJS.Platform = process.platform): string[] {
   const args: string[] = [];
   for (const event of CODEX_HOOK_EVENTS) {
-    const command = [process.execPath, hookPath, event].map(shellQuote).join(' ');
+    const command = hookCommand([process.execPath, hookPath, event], platform);
     const config = `hooks.${event}=[{hooks=[{type="command",command=${JSON.stringify(command)},timeout=3}]}]`;
     args.push('-c', config);
   }
