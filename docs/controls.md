@@ -22,6 +22,7 @@ Back to the [README](../README.md).
 | H | These controls; in a car, honk the horn |
 | T / Enter | Chat |
 | G / 1–6 | Emote: hold G for the wheel (point and let go) or press 1–6 to wave, give a thumbs up, clap, dance, point or facepalm; everyone on your floor sees it |
+| Shift + 1–9 | Go straight to that floor (numbered from the bottom up, as on the elevator's panel), standing in the same spot there; from outside, the elevator takes you in |
 | / | Search the chat and every terminal on your floor |
 | Ctrl + K (⌘K on a Mac) | Command palette: find a worker, issue, PR, service, board, teammate or action; Enter opens it, Shift+Enter walks you there first |
 | V | Join voice; in voice, hold to talk (you're muted when you let go) |
