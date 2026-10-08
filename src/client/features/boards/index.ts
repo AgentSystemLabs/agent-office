@@ -1,20 +1,20 @@
 /**
- * The boards on the walls: the issues board (the open issues nobody has started on, less the cards
- * someone's carrying around), the PR board, the services board, the task queue, the machine monitor
- * and the meeting room's two. What E does at each is defined with it.
+ * The boards on the walls: the coordinator's three (the checklist, the day's timeline and the phase,
+ * see features/boards/coordinator.ts and ui/coordinator.ts), the services board, the machine monitor
+ * and the meeting room's two. The GitHub boards and the task queue stay in the code (see
+ * docs/features.md) but nothing shows them on the wall any more. What E does at each is defined with it.
  */
 import type * as THREE from 'three';
 import type { GhIssue } from '../../../shared/protocol';
 import type { Ctx } from '../../core/context';
-import { aside, boardHint, hintTitle, key, onE } from '../../core/hint';
+import { boardHint, hintTitle, key, onE } from '../../core/hint';
 import { store, type Topic } from '../../state';
-import { openBoard } from '../../ui/boards';
-import { inProgress } from '../../ui/github/progress';
+import { openCoordinator, type CoordinatorFocus } from '../../ui/coordinator';
 import type { BoardActions } from '../../ui/github/prompts';
-import { clip } from '../../ui/dom';
-import { openIssue } from '../../ui/pull';
+import { inProgress } from '../../ui/github/progress';
 import { openServices } from '../../ui/services';
 import { BoardTexture, QueueBoardTexture, ServicesBoardTexture } from './world';
+import { CoordinatorBoardTexture } from './coordinator';
 import { MachineTexture } from './machine';
 import { MeetingBoardTexture, MeetingSignTexture } from './meeting';
 import type { World } from '../../world/world';
@@ -63,14 +63,13 @@ export function installBoards(ctx: Ctx, deps: BoardsDeps) {
     for (const p of store.peers.values()) if (p.carrying && p.id !== store.you && store.onMyFloor(p)) off.add(p.carrying.issue);
     return off;
   }
+  // The GitHub boards' textures are kept: pointer.ts still reads the issues board's notes, and
+  // features/carrying still asks it to redraw when a card is taken off it.
   const issuesTex = new BoardTexture('issues');
-  // The cork holds the issues nobody has started on: one that's in progress comes off it, as a closed one does.
   const renderIssuesBoard = () => {
     const off = offBoard();
     issuesTex.render({ ...store.issues, items: store.issues.items.filter((i) => !off.has(i.number) && !inProgress(i, store.taskForIssue(i.number))) });
   };
-  // The queue too: a task that starts running takes its issue off the board before GitHub says it's assigned.
-  mountBoard(office.boardMeshes.issues, issuesTex.texture, renderIssuesBoard, ['issues', 'queue']);
   let carriedOff = '';
   store.on('peers', () => {
     const k = [...offBoard()].join(',');
@@ -85,39 +84,31 @@ export function installBoards(ctx: Ctx, deps: BoardsDeps) {
   }
   const pullsTex = new BoardTexture('pulls');
   const renderPullsBoard = () => pullsTex.render(store.pulls, store.workers);
-  mountBoard(office.boardMeshes.pulls, pullsTex.texture, renderPullsBoard, ['pulls']);
-  // PR notes name the desk they came from. Redraw when that changes, not on every worker update.
-  let deskLinks = '';
-  store.on('workers', () => {
-    const k = JSON.stringify([...store.workers.values()].filter((w) => w.worktree).map((w) => [w.worktree!.branch, w.pr?.number, w.name, w.color, w.deskId]));
-    if (k === deskLinks) return;
-    deskLinks = k;
-    renderPullsBoard();
-  });
+  const queueTex = new QueueBoardTexture();
+  const renderQueueBoard = () => queueTex.render(store.queue, store.workers);
+
+  // The coordinator's three boards, in the three boards' places along the north wall.
+  const checklistTex = new CoordinatorBoardTexture('checklist');
+  const timelineTex = new CoordinatorBoardTexture('timeline');
+  const summaryTex = new CoordinatorBoardTexture('summary');
+  mountBoard(office.boardMeshes.issues, checklistTex.texture, () => checklistTex.render(store.coordinator), ['coordinator']);
+  mountBoard(office.boardMeshes.queue, timelineTex.texture, () => timelineTex.render(store.coordinator), ['coordinator']);
+  mountBoard(office.boardMeshes.pulls, summaryTex.texture, () => summaryTex.render(store.coordinator), ['coordinator']);
+
   const servicesTex = new ServicesBoardTexture();
   const renderServicesBoard = () => servicesTex.render(store.services.items, store.workers);
   mountBoard(office.boardMeshes.services, servicesTex.texture, renderServicesBoard, ['services', 'workers']);
-  const queueTex = new QueueBoardTexture();
-  const renderQueueBoard = () => queueTex.render(store.queue, store.workers);
-  mountBoard(office.boardMeshes.queue, queueTex.texture, renderQueueBoard, ['queue', 'workers']);
+
+  const openCoord = (focus: CoordinatorFocus) => onE(() => openCoordinator(ctx.net, focus));
   ctx.interactions.define('issues', {
     reach: 9,
-    hint: () => {
-      const aimedNote = deps.aimedNote();
-      if (aimedNote) return { k: String(aimedNote.number), parts: [hintTitle(clip(`📌 #${aimedNote.number} ${aimedNote.title}`, 60)), key('E', 'Take it'), key('O', 'Read it')] };
-      return issuesTex.hasNotes ? { k: 'notes', parts: [hintTitle('📌 Issues board'), key('E', 'Open'), aside('or point at a note to take it')] } : boardHint('📌 Issues board');
-    },
-    use: (_it, key, note) => {
-      // A note on the issues board: E takes it straight off the cork, O opens it to read first.
-      if (note && key === 'E') return deps.pickUp(note);
-      if (note && key === 'O') return openIssue(note, ctx.net, deps.boardActions());
-      if (key === 'E') openBoard('issues', ctx.net, deps.boardActions());
-    },
+    hint: () => boardHint('📋 Checklist'),
+    use: openCoord('checklist'),
   });
   ctx.interactions.define('pulls', {
     reach: 9,
-    hint: () => boardHint('🔀 Pull request board'),
-    use: onE(() => openBoard('pulls', ctx.net, deps.boardActions())),
+    hint: () => boardHint('🎯 Phase'),
+    use: openCoord('summary'),
   });
   ctx.interactions.define('services', {
     reach: 9,
@@ -127,10 +118,10 @@ export function installBoards(ctx: Ctx, deps: BoardsDeps) {
   ctx.interactions.define('queue', {
     reach: 9,
     hint: () => {
-      const n = store.queue.tasks.filter((t) => t.status !== 'done').length;
-      return { k: String(n), parts: [hintTitle(`📋 Task queue${n ? ` · ${n}` : ''}`), key('E', 'Open')] };
+      const n = store.coordinator.cards.length;
+      return { k: String(n), parts: [hintTitle(`🕓 Timeline${n ? ` · ${n}` : ''}`), key('E', 'Open')] };
     },
-    use: onE(() => deps.showQueue()),
+    use: openCoord('timeline'),
   });
   // The machine monitor on the west wall.
   const machineTex = new MachineTexture();
@@ -142,10 +133,10 @@ export function installBoards(ctx: Ctx, deps: BoardsDeps) {
   mountBoard(office.meetingSign, meetingSignTex.texture, () => meetingSignTex.render(store.meeting), ['meeting']);
   /** Puts every board's texture up on `w`'s boards. */
   function dressBoards(w: World) {
-    showOn(w.boardMeshes.issues, issuesTex.texture);
-    showOn(w.boardMeshes.pulls, pullsTex.texture);
+    showOn(w.boardMeshes.issues, checklistTex.texture);
+    showOn(w.boardMeshes.queue, timelineTex.texture);
+    showOn(w.boardMeshes.pulls, summaryTex.texture);
     showOn(w.boardMeshes.services, servicesTex.texture);
-    showOn(w.boardMeshes.queue, queueTex.texture);
     if (w.meetingBoard) showOn(w.meetingBoard, meetingBoardTex.texture);
     if (w.meetingSign) showOn(w.meetingSign, meetingSignTex.texture);
   }

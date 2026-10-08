@@ -49,7 +49,7 @@ test('a worker stays while it works, waits on someone, opens a PR or has its ter
 test('shells, board agents and the meeting table never go by pull request', () => {
   const merged = [pull(1, 'MERGED', 'office/a')];
   assert.deepEqual(ids([worker('a', 'done', { kind: 'shell' })], merged), []);
-  assert.deepEqual(ids([worker('a', 'done', { deskId: 'station-pulls' })], merged), []);
+  assert.deepEqual(ids([worker('a', 'done', { deskId: 'station-coordinator' })], merged), []);
   assert.deepEqual(ids([worker('a', 'done', { meeting: 'm1' })], merged), []);
 });
 

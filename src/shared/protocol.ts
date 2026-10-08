@@ -6,6 +6,7 @@
 
 import type { AccountsClientMsg, AccountsServerMsg, SignInsClientMsg, TeamClientMsg } from './protocol/accounts.js';
 import type { ChangesClientMsg, ChangesServerMsg } from './protocol/changes.js';
+import type { CoordinatorClientMsg, CoordinatorServerMsg } from './protocol/coordinator.js';
 import type { FloorClientMsg, FloorServerMsg, PlanClientMsg } from './protocol/floors.js';
 import type { GitHubClientMsg, GitHubServerMsg } from './protocol/github.js';
 import type { MeetingClientMsg, MeetingServerMsg } from './protocol/meetings.js';
@@ -20,6 +21,7 @@ import type { WorkerClientMsg, WorkerServerMsg } from './protocol/workers.js';
 export * from './protocol/accounts.js';
 export * from './protocol/agents.js';
 export * from './protocol/changes.js';
+export * from './protocol/coordinator.js';
 export * from './protocol/floors.js';
 export * from './protocol/github.js';
 export * from './protocol/meetings.js';
@@ -41,6 +43,7 @@ export type ClientMsg =
   | FloorClientMsg
   | PlanClientMsg
   | ChangesClientMsg
+  | CoordinatorClientMsg
   | TeamClientMsg
   | AccountsClientMsg
   | SignInsClientMsg
@@ -63,6 +66,7 @@ export type ServerMsg =
   | MeetingServerMsg
   | FloorServerMsg
   | ChangesServerMsg
+  | CoordinatorServerMsg
   | AccountsServerMsg
   | SettingsServerMsg
   | UsageServerMsg

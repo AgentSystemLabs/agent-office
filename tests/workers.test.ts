@@ -997,28 +997,28 @@ test('a board agent is hired with its brief on the first prompt, then prompted, 
   const launches = () => f.read().filter((r) => r.kind === 'claude' && r.args.includes('--settings') && r.stdin === undefined);
 
   assert.match(workers.station('desk-1', 'test', 'file an issue') as string, /no agent/i);
-  assert.match(workers.station('station-issues', 'test', '   ') as string, /empty/i);
-  assert.match(workers.spawn('station-issues', 'test', undefined, false, 'shell') as string, /shell/i);
+  assert.match(workers.station('station-coordinator', 'test', '   ') as string, /empty/i);
+  assert.match(workers.spawn('station-coordinator', 'test', undefined, false, 'shell') as string, /shell/i);
 
   // Nobody there yet: it's hired, told what it's for, with the request after that.
-  const hired = workers.station('station-issues', 'Ada', 'File an issue about the dog');
+  const hired = workers.station('station-coordinator', 'Ada', 'File an issue about the dog');
   assert.equal(typeof hired, 'object');
   if (typeof hired === 'string') return;
   assert.equal(hired.hired, true);
-  assert.equal(hired.info.name, 'Issues agent');
-  assert.equal(hired.info.deskId, 'station-issues');
+  assert.equal(hired.info.name, 'Coordinator');
+  assert.equal(hired.info.deskId, 'station-coordinator');
   assert.equal(hired.info.activity, 'File an issue about the dog');
   const [first] = await waitFor(launches, (l) => l.length === 1);
   const initial = first.args.at(-1)!;
-  assert.match(initial, /Issues agent/);
-  assert.match(initial, /office-queue add/);
-  // Only the queue agent loses its file-editing tools.
+  assert.match(initial, /Coordinator/);
+  assert.match(initial, /skill:\/\/coordinator/);
+  // The coordinator keeps its tools: only the old queue agent went without them.
   assert.equal(first.args.includes('--disallowedTools'), false);
   assert.ok(initial.endsWith('File an issue about the dog'));
   const id = hired.info.id;
 
   // The same agent takes the next request in its session.
-  const again = workers.station('station-issues', 'Grace', 'Label it as a bug');
+  const again = workers.station('station-coordinator', 'Grace', 'Label it as a bug');
   assert.deepEqual(typeof again === 'object' && [again.hired, again.info.id], [false, id]);
   await waitFor(() => f.read(), (records) => records.some((r) => r.stdin?.includes('Label it as a bug')));
 
@@ -1026,7 +1026,7 @@ test('a board agent is hired with its brief on the first prompt, then prompted, 
   assert.equal(workers.handleHook(id, first.env.hookToken!, 'SessionStart', { session_id: 'issues-session' }), true);
   assert.equal(workers.handleHook(id, first.env.hookToken!, 'PermissionRequest', { tool_name: 'Bash', tool_input: { command: 'gh issue create' } }), true);
   assert.equal(workers.get(id)?.status, 'needs_input');
-  assert.match(workers.station('station-issues', 'Ada', 'hello?') as string, /waiting on an answer/i);
+  assert.match(workers.station('station-coordinator', 'Ada', 'hello?') as string, /waiting on an answer/i);
 
   // Its own token proves who it is; anyone else's doesn't.
   assert.equal(workers.authenticate(id, first.env.hookToken!)?.id, id);
@@ -1036,7 +1036,7 @@ test('a board agent is hired with its brief on the first prompt, then prompted, 
   // Asleep, a request wakes it up carrying on its session, without the brief again.
   await waitFor(() => workers.get(id)?.status, (s) => s === 'exited');
   assert.equal(workers.authenticate(id, first.env.hookToken!), undefined);
-  const woken = workers.station('station-issues', 'Ada', 'Close the duplicates');
+  const woken = workers.station('station-coordinator', 'Ada', 'Close the duplicates');
   assert.deepEqual(typeof woken === 'object' && [woken.hired, woken.info.id], [false, id]);
   const [, second] = await waitFor(launches, (l) => l.length === 2);
   assert.ok(second.args.includes('--resume') && second.args.includes('issues-session'));
@@ -1054,7 +1054,7 @@ test('a worker nobody picked a model for starts on the office default, and a boa
     f.close();
   });
   const prompts: PromptSource = {
-    text: (id) => (id === 'station.issues' ? 'You triage issues. The request:' : PROMPTS[id].text),
+    text: (id) => (id === 'station.coordinator' ? 'You run the plan. The request:' : PROMPTS[id].text),
     agent: () => ({ provider: 'claude', model: 'sonnet', effort: 'low' }),
   };
   const workers = new WorkerManager(f.root, f.data, f.claude, ['--from-test'], { url: 'http://127.0.0.1:1', token: '' }, events([]), ledger(f.data), undefined, prompts);
@@ -1062,12 +1062,12 @@ test('a worker nobody picked a model for starts on the office default, and a boa
   const launches = (id: string) => f.read().filter((r) => r.kind === 'claude' && r.args.includes('--settings') && r.stdin === undefined && r.env.workerId === id);
   const flag = (args: string[], name: string) => (args.includes(name) ? args[args.indexOf(name) + 1] : undefined);
 
-  const hired = workers.station('station-issues', 'Ada', 'File one about the dog');
+  const hired = workers.station('station-coordinator', 'Ada', 'File one about the dog');
   assert.equal(typeof hired, 'object');
   if (typeof hired === 'string') return;
   assert.deepEqual([hired.info.provider, hired.info.model, hired.info.effort], ['claude', 'sonnet', 'low']);
   const [first] = await waitFor(() => launches(hired.info.id), (l) => l.length === 1);
-  assert.equal(first.args.at(-1), 'You triage issues. The request:\n\nFile one about the dog');
+  assert.equal(first.args.at(-1), 'You run the plan. The request:\n\nFile one about the dog');
   assert.deepEqual([flag(first.args, '--model'), flag(first.args, '--effort')], ['sonnet', 'low']);
 
   // Picked at the desk, the pick wins, down to "the provider's own model".
@@ -1079,7 +1079,7 @@ test('a worker nobody picked a model for starts on the office default, and a boa
   assert.equal(own.args.includes('--model'), false);
 });
 
-test('the queue agent is launched without file-editing tools, and board agents get office-queue on their PATH', async (t) => {
+test('the coordinator keeps its tools, and board agents get office-queue on their PATH', async (t) => {
   const f = fixture();
   const updates: WorkerInfo[] = [];
   isolateProviderEnvironment(f, t);
@@ -1108,35 +1108,29 @@ test('the queue agent is launched without file-editing tools, and board agents g
   accessSync(path.join(bin, 'office-queue'), constants.X_OK);
   assert.match(execFileSync(path.join(bin, 'office-queue'), ['--help'], { encoding: 'utf8' }), /office-queue add --title/);
 
-  const hired = workers.station('station-queue', 'Ada', 'Fix the typo in the README');
+  const hired = workers.station('station-coordinator', 'Ada', 'Fix the typo in the README');
   assert.equal(typeof hired, 'object');
   if (typeof hired === 'string') return;
   const id = hired.info.id;
   const [first] = await waitFor(() => launches(id), (l) => l.length === 1);
-  assert.deepEqual(denied(first.args), ['Edit', 'Write', 'NotebookEdit']);
-  assert.ok(first.args.indexOf('--disallowedTools') < first.args.indexOf('--'), 'the tools come before the prompt');
+  assert.equal(denied(first.args), undefined, 'the coordinator keeps its file-editing tools');
   assert.ok(first.args.at(-1)!.endsWith('Fix the typo in the README'));
   assert.ok(onPath(first), 'office-queue is first on its PATH');
 
-  // Woken up carrying on its session, it's still without them.
+  // Woken up carrying on its session, it still has the office's commands on its PATH.
   assert.equal(workers.handleHook(id, first.env.hookToken!, 'SessionStart', { session_id: 'queue-session' }), true);
   await waitFor(() => workers.get(id)?.status, (s) => s === 'exited');
-  workers.station('station-queue', 'Grace', 'Also bump the version');
+  workers.station('station-coordinator', 'Grace', 'Also bump the version');
   const [, second] = await waitFor(() => launches(id), (l) => l.length === 2);
   assert.ok(second.args.includes('--resume') && second.args.includes('queue-session'));
-  assert.deepEqual(denied(second.args), ['Edit', 'Write', 'NotebookEdit']);
   assert.equal(second.args.at(-1), 'Also bump the version');
   assert.ok(onPath(second));
 
-  // The other board agents keep their tools; they, and a desk worker, get the commands all the same.
-  const pulls = workers.station('station-pulls', 'Ada', 'Sum up the open PRs');
+  // A desk worker gets the commands too.
   const desk = workers.spawn('desk-2', 'Ada', 'Fix login');
-  assert.ok(typeof pulls === 'object' && typeof desk === 'object');
-  if (typeof pulls !== 'object' || typeof desk !== 'object') return;
-  const [pullsLaunch] = await waitFor(() => launches(pulls.info.id), (l) => l.length === 1);
+  assert.ok(typeof desk === 'object');
+  if (typeof desk !== 'object') return;
   const [deskLaunch] = await waitFor(() => launches(desk.id), (l) => l.length === 1);
-  assert.equal(denied(pullsLaunch.args), undefined);
-  assert.ok(onPath(pullsLaunch));
   assert.equal(denied(deskLaunch.args), undefined);
   assert.ok(onPath(deskLaunch), 'office-workers is first on a desk worker\'s PATH');
 });

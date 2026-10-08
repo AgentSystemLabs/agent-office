@@ -24,7 +24,7 @@ const STYLE_PROPS: Record<MapStyle, { kinds: Readonly<Record<string, string>>; f
   station: { kinds: STATION_PROP_KINDS, footprint: stationFootprint, top: stationTop },
 };
 
-const STATION_KINDS: readonly StationKind[] = ['issues', 'pulls', 'queue'];
+const STATION_KINDS: readonly StationKind[] = ['coordinator'];
 /** How far in from a table's edge a seat's place setting is; the worker sits 0.85 out from it (see deskSeat), on the bench. */
 const PLACE_IN = 0.35;
 /** How far out from a table's edge the middle of the bench down that side is. */
@@ -46,7 +46,7 @@ export const MAP_LIMITS = { tables: 40, seats: 12, props: 400 } as const;
 /** The dais a throne stands on when its map doesn't say. */
 export const DEFAULT_DAIS = { width: 8, depth: 4.5, height: 0.9, steps: 3 } as const;
 
-const DEFAULT_BOARD_LABEL: Record<BoardKey, string> = { issues: 'Issues', queue: '📋 Task queue', pulls: 'Pull Requests', services: '🌐 Services' };
+const DEFAULT_BOARD_LABEL: Record<BoardKey, string> = { issues: '📋 Checklist', queue: '🕓 Timeline', pulls: '🎯 Phase', services: '🌐 Services' };
 
 // ---- The office -----------------------------------------------------------------------------------
 
@@ -214,7 +214,7 @@ export function planMap(input: unknown): MapPlan {
   const overflow: DeskDef[] = named.slice(MAP_DESKS.length).map((d, i) => ({ ...d, id: BEANBAGS[i].id }));
 
   // The board agents' lecterns.
-  if (!isObj(c.stations)) throw new MapError('it needs stations: where the Issues, PR and Queue agents stand');
+  if (!isObj(c.stations)) throw new MapError('it needs stations: where the coordinator stands');
   const stations: DeskDef[] = STATION_KINDS.map((kind) => {
     const p = place(c.stations[kind], `stations.${kind}`);
     const def = { id: `station-${kind}`, station: kind, x: p.x, z: p.z, rotY: p.rotY, label: STATION_AGENT[kind].name };

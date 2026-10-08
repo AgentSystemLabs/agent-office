@@ -2,7 +2,7 @@
 
 Back to the [README](../README.md).
 
-The office is one map the building can be. Under **⚙️ Settings → 🏢 Building → Map**, anyone can change it for everyone, on every floor: to the **🏰 Castle**, to the **🚀 Space station**, or to a map of your own. Everything that makes the office work comes along: the workers and their terminals, the issues and PR boards, the task queue and its agent, the services board, meetings, the merge gong, the budget and the limits. Workers keep their seats, since every map places the same seats (see [Seats](#seats)), so a map can change while they work.
+The office is one map the building can be. Under **⚙️ Settings → 🏢 Building → Map**, anyone can change it for everyone, on every floor: to the **🏰 Castle**, to the **🚀 Space station**, or to a map of your own. Everything that makes the office work comes along: the workers and their terminals, the coordinator and its boards, the services board, meetings, the merge gong, the budget and the limits. Workers keep their seats, since every map places the same seats (see [Seats](#seats)), so a map can change while they work.
 
 The office has plenty of its own that a map doesn't (the elevator, the balcony, the rooftop bar, the lounge, the dog, pictures on the walls). On another map you go to another project from the floor list in the top-left corner (or **☰ → Floors**), and each project's hall is dressed in its own colors: the castle's banners and shields, the station's lines of light.
 
@@ -16,7 +16,7 @@ A long stone hall with a timber roof, pillars and pointed arches down both sides
 - **The tables.** Two long tables down each side of the hall, benches along them. The workers work at open tomes, whose pages show their terminals. The seats toward the middle of the hall fill first; the ones along the walls come out when they're all taken, as the office's bean bags do.
 - **Wear and tear.** Workers here dress as peasants, and the longer one works the more worn out it looks: a beard that grows out and goes from brown to grey to white, down to the floor, dirt and patched clothes, bags under its eyes, a hunch and a slower walk. It's fully spent after 30 minutes of work (`agents.ageMinutes`). Only time spent working counts, over the worker's whole stay, and the office keeps it through a restart.
 - **The dungeon.** Send a worker home (**X**) and it doesn't walk out: the **Kingsguard**, on watch down in the dungeon, comes running up the stairs to its seat, says his piece, waits while it packs its things into a box, and marches it off with a hand on its shoulder, down the carpet, down the stairs by the east wall, to a cell. The door swings open, he throws it in, and the door slams. It stays there for good. Everyone ever sent home is kept, and wastes away: thinner and paler by the hour, until after a day it starves to death (☠️ on its name tag) and keels over on the straw. Then it rots, its bones showing through, down to a bare skeleton (💀) half a day later. You can walk down the stairs (behind the rail south of the east tables) and look in on them; the living ones mutter at you now and then. There are 67 seats in the 9 cells, filled round the cells one each: once they're all taken, the oldest are thrown on the heap of bones at the west end. It's the same for workers that go home on their own when their pull request merges, ones another worker sends home, and ones the task queue sends home to make room; a meeting's workers, let go when it's over, still just walk out. Each floor has its own dungeon (kept in the project's `.agent-office/jail.json`).
-- **The boards** hang on the side walls, with a scribe at a lectern under each of the issues, queue and PR boards (the board agents). The **small council**'s round table, near the dais, is the meeting room: **E** at it calls a meeting, and its easel shows what the meeting writes. The gong is by the dais, and there's ale by the hearth (it works like the office's coffee).
+- **The boards** hang on the side walls — the coordinator's checklist, timeline and phase — with the coordinator at a lectern under them. The **small council**'s round table, near the dais, is the meeting room: **E** at it calls a meeting, and its easel shows what the meeting writes. The gong is by the dais, and there's ale by the hearth (it works like the office's coffee).
 
 ## The space station
 
@@ -26,14 +26,14 @@ A long pressurised deck in orbit: white hull panels and dark plating, ribs overh
 - **The line.** As in the castle, a worker that's done or waiting on you comes and lines up before the chair, the one that has waited longest at the front, and from the chair **E**, **P**, **O** and **X** are for whoever's first in line.
 - **The First Officer** stands at your left. Speak to them (**E** by them, **K** from the chair) and say what a new worker should do: it runs off to the first free seat. A worker the task queue sends comes in through the docking port, aft.
 - **The benches.** Two long benches down each side of the deck, where the workers sit at their laptops. The seats toward the middle fill first.
-- **The boards** are displays on the side walls (*Incoming signals* for issues, *Mission queue*, *Docking requests* for pull requests, *Subsystems* for services), a board agent at a console under each of the first three. The **briefing table**, aft on the starboard side, is the meeting room, with its display on a stand beside it. The merge gong is by the bridge, there's a drinks dispenser aft (the coffee), and a holo-table in the middle of the deck with the Earth turning over it.
+- **The boards** are displays on the side walls (the checklist, the timeline, the phase, and *Subsystems* for services), with the coordinator at a console under them. The **briefing table**, aft on the starboard side, is the meeting room, with its display on a stand beside it. The merge gong is by the bridge, there's a drinks dispenser aft (the coffee), and a holo-table in the middle of the deck with the Earth turning over it.
 - **The airlock.** Send a worker home (**X**) and **Security**, on watch by the airlock in the starboard wall, comes for it, says its piece, waits while it packs its box, and marches it across the deck. The inner door slides up, it's shoved through, and the door comes down behind it: you can see it through the porthole, under the red lights. Then the outer hatch parts and it's blown out into space, tumbling, box and all. **Stand at one of the two big observation windows either side of the airlock to watch it go.** It doesn't come back: everyone ever ejected is still out there, adrift, each off on a heading of its own and turning over as it goes, quickly at first and slower by the hour, out to about 40 m. They waste away as the castle's prisoners do: thinner for an hour until the air's gone (☠️ on its name tag), then down to a skeleton (💀) over the next twelve. The latest 30 are still to be seen; the ones from before them have drifted out of sight. It's the same for workers that go home on their own when their pull request merges, ones another worker sends home, and ones the task queue sends home to make room; a meeting's workers still just walk out of the docking port. Each floor has its own, and it's the same list the castle's dungeon keeps (the project's `.agent-office/jail.json`): change the building from the station to the castle and the ones adrift are in the cells.
 
 ## Maps of your own
 
 A map is plain JSON. Put a file in the office's `.agent-office/maps/` folder: `~/agent-office/.agent-office/maps/` for an office started without a project, or `<dir>/.agent-office/maps/` for `agent-office <dir>`. It's read whenever someone opens ⚙️ Settings or joins, so there's nothing to restart: open Settings and it's in the list. A map that won't load is listed with why.
 
-The easy way is to start from the castle and change only what you want. This one moves the issues board, and the Issues agent's lectern under it, three bays down the west wall, and makes the line shorter:
+The easy way is to start from the castle and change only what you want. This one moves the checklist board, and the coordinator's lectern under it, three bays down the west wall, and makes the line shorter:
 
 ```json
 {
@@ -41,7 +41,7 @@ The easy way is to start from the castle and change only what you want. This one
   "name": "My hall",
   "extends": "castle",
   "boards": { "issues": { "z": 3 } },
-  "stations": { "issues": { "z": 3 } },
+  "stations": { "coordinator": { "z": 3 } },
   "lineup": { "count": 5 }
 }
 ```
@@ -73,7 +73,7 @@ The station works the same way. This one has a quieter crew: no First Officer, a
 
 To change the lists (move a pillar, resize the hall and everything in it), start from a copy of the whole map instead: [`docs/maps/castle.json`](maps/castle.json) is the castle, as a map of your own called *My castle*, and [`docs/maps/station.json`](maps/station.json) the station, as *My station*. Copy one into the folder and it's in Settings; change what you like from there.
 
-Or write one from nothing. This is about the least a map can be: a hall, a door, tables to seat 32, the board agents, a meeting table and the four boards. Everything else (the throne, the line, the herald, the props) is optional:
+Or write one from nothing. This is about the least a map can be: a hall, a door, tables to seat 32, the coordinator, a meeting table and the four boards. Everything else (the throne, the line, the herald, the props) is optional:
 
 ```json
 {
@@ -89,9 +89,7 @@ Or write one from nothing. This is about the least a map can be: a hall, a door,
     { "name": "East table", "x": 5, "z": 0, "length": 12, "seats": 5 }
   ],
   "stations": {
-    "issues": { "x": -8.6, "z": -11, "rotY": -1.5708 },
-    "queue": { "x": -8.6, "z": 9, "rotY": -1.5708 },
-    "pulls": { "x": 8.6, "z": -11, "rotY": 1.5708 }
+    "coordinator": { "x": -8.6, "z": 9, "rotY": -1.5708 }
   },
   "council": { "x": 0, "z": -11, "rotY": 0 },
   "boards": {
@@ -127,7 +125,7 @@ A map that won't load (bad JSON, something outside the hall, too few seats, a pr
 | `herald` | `{ x, z, rotY, name, says, ask, button }`: who sends out new workers. `says` goes under their name, `ask` in the box you type in, and `button` on the button. Optional. |
 | `lineup` | `{ x, z, rotY, step: [dx, dz], count }`: the first spot in line, and each next one `step` further on, all facing `rotY`. Optional. |
 | `tables` | `[{ x, z, length, seats, width?, rotY?, sides?, name? }]`: where the workers sit. `seats` is per side (1 to 12); `width` is 1.4 m unless you say; `sides` is `"both"` (the default), `"inner"` or `"outer"`; `rotY` 0 runs the table along z. **Required.** |
-| `stations` | `{ issues, queue, pulls }`, each `{ x, z, rotY }`: the board agents' lecterns. The agent stands 0.55 m from its lectern the way `rotY` points (toward the wall, usually) and faces back across it into the hall. **Required.** |
+| `stations` | `{ coordinator }`, `{ x, z, rotY }`: the coordinator's lectern. It stands 0.55 m from its lectern the way `rotY` points (toward the wall, usually) and faces back across it into the hall. **Required.** |
 | `council` | `{ x, z, rotY }`: the meeting table. Five chairs go round it, the head of the table at `rotY`'s side, and its easel 3.1 m behind the other way. The table is 2.6 m across and the chairs are 1.7 m out from its middle, so leave about 2.3 m clear round it (3.5 m on the easel's side). **Required.** |
 | `boards` | `{ issues, queue, pulls, services }`, each `{ x, y, z, rotY, width, height, label? }`: the boards on the walls, `rotY` the way each faces. **Required.** |
 | `props` | `[{ kind, x, z, … }]`: everything else, from the list below. |
@@ -139,7 +137,7 @@ A map that won't load (bad JSON, something outside the hall, too few seats, a pr
 
 ### Seats
 
-Every map has the same seats, by id, so that the server, the task queue, meetings and saved workers work on any of them: 16 regular seats (`desk-1` to `desk-16`), 4 for the office's back office (`desk-17` to `desk-20`, only sat at once that floor's back office is built out that far), 12 more that come out once those are taken (`beanbag-1` to `beanbag-12`), the three board agents' places and the five meeting chairs. The tables' seats are handed out in order: first the side of every table toward the middle of the hall (its inner side), table by table in the order they're listed, then their other sides the same way. Along a table they go from one end to the other, north to south for one that runs along z. So `desk-1` is the first seat on the first table's inner side, and a map's tables must seat at least 32 between them; any seats past that are just bench.
+Every map has the same seats, by id, so that the server, the task queue, meetings and saved workers work on any of them: 16 regular seats (`desk-1` to `desk-16`), 4 for the office's back office (`desk-17` to `desk-20`, only sat at once that floor's back office is built out that far), 12 more that come out once those are taken (`beanbag-1` to `beanbag-12`), the coordinator's place and the five meeting chairs. The tables' seats are handed out in order: first the side of every table toward the middle of the hall (its inner side), table by table in the order they're listed, then their other sides the same way. Along a table they go from one end to the other, north to south for one that runs along z. So `desk-1` is the first seat on the first table's inner side, and a map's tables must seat at least 32 between them; any seats past that are just bench.
 
 ### Props
 

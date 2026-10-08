@@ -133,7 +133,7 @@ export function buildCouncil(kit: Kit, plan: MapPlan): { board?: THREE.Mesh; sig
   return { board, sign };
 }
 
-const LECTERN_SIGN: Record<StationKind, string> = { issues: '📜 Ask me', pulls: '🔀 Ask me', queue: '📋 Ask me' };
+const LECTERN_SIGN: Record<StationKind, string> = { coordinator: '👑 Ask me' };
 
 /** A board agent's lectern (a scribe's desk): the agent stands behind it, as at the office's kiosk. */
 export function lectern(kit: Kit, def: DeskDef): DeskView {

@@ -83,16 +83,14 @@ export const STATION: MapConfig = {
     { name: 'Starboard aft bench', x: BENCH_X, z: 6, length: 10, seats: 4 },
   ],
   stations: {
-    issues: { x: -13.2, z: BOARDS_Z[0], rotY: -Math.PI / 2 },
-    queue: { x: -13.2, z: BOARDS_Z[1], rotY: -Math.PI / 2 },
-    pulls: { x: 13.2, z: BOARDS_Z[0], rotY: Math.PI / 2 },
+    coordinator: { x: -13.2, z: BOARDS_Z[1], rotY: -Math.PI / 2 },
   },
   // The briefing table, aft on the starboard side.
   council: { x: 10, z: 24.8, rotY: Math.PI },
   boards: {
-    issues: { x: -WALL_X, y: 3.3, z: BOARDS_Z[0], rotY: Math.PI / 2, width: 4.4, height: 2.6, label: '📡 Incoming signals' },
-    queue: { x: -WALL_X, y: 3.3, z: BOARDS_Z[1], rotY: Math.PI / 2, width: 4.4, height: 2.6, label: '📋 Mission queue' },
-    pulls: { x: WALL_X, y: 3.3, z: BOARDS_Z[0], rotY: -Math.PI / 2, width: 4.4, height: 2.6, label: '🔀 Docking requests' },
+    issues: { x: -WALL_X, y: 3.3, z: BOARDS_Z[0], rotY: Math.PI / 2, width: 4.4, height: 2.6, label: '📋 Checklist' },
+    queue: { x: -WALL_X, y: 3.3, z: BOARDS_Z[1], rotY: Math.PI / 2, width: 4.4, height: 2.6, label: '🕓 Timeline' },
+    pulls: { x: WALL_X, y: 3.3, z: BOARDS_Z[0], rotY: -Math.PI / 2, width: 4.4, height: 2.6, label: '🎯 Mission phase' },
     services: { x: WALL_X, y: 3.3, z: BOARDS_Z[1], rotY: -Math.PI / 2, width: 4.4, height: 2.6, label: '🌐 Subsystems' },
   },
   props,

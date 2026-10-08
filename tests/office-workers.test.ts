@@ -224,7 +224,7 @@ test("a worker's row says where its pull request stands, and whether it would go
   const watched = workerRow(worker('bolt', { status: 'working', viewers: [] }), view);
   assert.equal(watched.staying, 'still working');
   assert.equal(workerRow(worker('mochi'), view, 'mochi').you, true);
-  assert.equal(workerRow(worker('pat', { deskId: 'station-pulls' }), view).board, 'PR agent');
+  assert.equal(workerRow(worker('pat', { deskId: 'station-coordinator' }), view).board, 'Coordinator');
   assert.equal(notLeaving(worker('bolt', { viewers: ['Ada', 'Grace'] })), 'Ada, Grace have its terminal open');
   assert.equal(notLeaving(worker('bolt')), undefined);
 });
@@ -293,7 +293,7 @@ test('reads send-home and hire requests', () => {
   });
   assert.match(readHireRequest({}, [...providers]) as string, /prompt/);
   assert.match(readHireRequest({ prompt: 'x', provider: 'grok' }, [...providers]) as string, /provider is one of claude, codex/);
-  assert.match(readHireRequest({ prompt: 'x', desk: 'station-queue' }, [...providers]) as string, /desk/);
+  assert.match(readHireRequest({ prompt: 'x', desk: 'station-coordinator' }, [...providers]) as string, /desk/);
   assert.match(readHireRequest({ prompt: 'x', issue: 0 }, [...providers]) as string, /issue/);
 });
 

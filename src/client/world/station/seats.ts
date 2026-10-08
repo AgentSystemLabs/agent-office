@@ -71,7 +71,7 @@ export function placeSetting(kit: Kit, def: DeskDef, overflow: boolean): { view:
   return { view: { def, group: g, laptopAnchor, seatAnchor, stage, chair: new THREE.Group(), vacancy, vacancyY: 1.35 }, it };
 }
 
-const CONSOLE_SIGN: Record<StationKind, string> = { issues: '📡 Ask me', pulls: '🔀 Ask me', queue: '📋 Ask me' };
+const CONSOLE_SIGN: Record<StationKind, string> = { coordinator: '📡 Ask me' };
 
 /** A board agent's console: a slanted panel on a pedestal, lit in the agent's color; it stands behind it, as at the office's kiosk. */
 export function agentConsole(kit: Kit, def: DeskDef): DeskView {

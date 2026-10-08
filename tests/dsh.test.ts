@@ -869,7 +869,7 @@ test('a DSH worker comes back offline after a restart, then resumes its session'
 test('a DSH board agent proves itself with its token, and a second question goes to its running session', async (t) => {
   const f = tracked(t);
   const mgr = supervised(t, f, []);
-  const asked = mgr.station('station-issues', 'tester', 'which issues are stale?');
+  const asked = mgr.station('station-coordinator', 'tester', 'which issues are stale?');
   assert.equal(typeof asked, 'object', typeof asked === 'string' ? asked : '');
   const { info, hired } = asked as { info: WorkerInfo; hired: boolean };
   assert.equal(hired, true);
@@ -886,7 +886,7 @@ test('a DSH board agent proves itself with its token, and a second question goes
   assert.equal(mgr.authenticate(id, 'not-the-token'), undefined);
 
   // Asked again, the running agent gets the prompt; it is not "resumed" into an error.
-  const again = mgr.station('station-issues', 'tester', 'and the oldest one?');
+  const again = mgr.station('station-coordinator', 'tester', 'and the oldest one?');
   assert.equal(typeof again, 'object', typeof again === 'string' ? again : '');
   assert.equal((again as { hired: boolean }).hired, false);
   await waitFor(() => mgr.get(id)?.status, (s) => s === 'needs_input');

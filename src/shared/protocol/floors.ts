@@ -9,6 +9,7 @@ import type { BallState } from '../hoop.js';
 import type { JukeboxState } from '../jukebox.js';
 import type { WhiteboardView } from '../whiteboard.js';
 import type { AgentProvider } from './agents.js';
+import type { CoordinatorState } from './coordinator.js';
 import type { GhIssue, GhPull, GhState } from './github.js';
 import type { MeetingState } from './meetings.js';
 import type { PeerInfo } from './presence.js';
@@ -103,6 +104,8 @@ export interface FloorView {
   issues: GhState<GhIssue>;
   pulls: GhState<GhPull>;
   queue: QueueState;
+  /** The floor's coordinator board, read from its `plans/` folder (see shared/coordinator.ts). */
+  coordinator: CoordinatorState;
   /** Pictures on this floor's walls. */
   decor: Decoration[];
   /** The signs over this floor's desks, and how far its back office is built out. */

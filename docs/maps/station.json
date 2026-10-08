@@ -50,20 +50,10 @@
     "count": 8
   },
   "stations": {
-    "issues": {
-      "x": -13.2,
-      "z": -14,
-      "rotY": -1.5708
-    },
-    "queue": {
+    "coordinator": {
       "x": -13.2,
       "z": -3,
       "rotY": -1.5708
-    },
-    "pulls": {
-      "x": 13.2,
-      "z": -14,
-      "rotY": 1.5708
     }
   },
   "council": {
@@ -79,7 +69,7 @@
       "rotY": 1.5708,
       "width": 4.4,
       "height": 2.6,
-      "label": "📡 Incoming signals"
+      "label": "📋 Checklist"
     },
     "queue": {
       "x": -14.92,
@@ -88,7 +78,7 @@
       "rotY": 1.5708,
       "width": 4.4,
       "height": 2.6,
-      "label": "📋 Mission queue"
+      "label": "🕓 Timeline"
     },
     "pulls": {
       "x": 14.92,
@@ -97,7 +87,7 @@
       "rotY": -1.5708,
       "width": 4.4,
       "height": 2.6,
-      "label": "🔀 Docking requests"
+      "label": "🎯 Mission phase"
     },
     "services": {
       "x": 14.92,

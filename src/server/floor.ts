@@ -12,6 +12,7 @@ import { GitHub, MergeWatch } from './github.js';
 import type { GhAs } from './signins.js';
 import { TaskQueue } from './queue.js';
 import { Changes } from './changes.js';
+import { Coordinator } from './coordinator.js';
 import { Decor } from './decor.js';
 import { FloorPlanStore } from './floorplan.js';
 import { Docs } from './docs.js';
@@ -116,6 +117,8 @@ export class Floor {
   readonly github: GitHub;
   readonly queue: TaskQueue;
   readonly changes: Changes;
+  /** The coordinator board: the phase plan its checkout's `plans/` folder holds. */
+  readonly coordinator: Coordinator;
   readonly decor: Decor;
   /** The signs over its desks, and how far its back office is built out. */
   readonly plan: FloorPlanStore;
@@ -308,6 +311,7 @@ export class Floor {
     this.decor = new Decor(dataDir);
     this.jukebox = new Jukebox(dataDir);
     this.whiteboard = new Whiteboard(dataDir);
+    this.coordinator = new Coordinator(def.dir, (state) => ctx.emit(this, { t: 'coordinator', state }));
     this.ready = this.workers.start();
 
     void this.github.refresh();
@@ -415,6 +419,7 @@ export class Floor {
     this.dog.stop();
     this.github.stop();
     this.queue.shutdown();
+    this.coordinator.shutdown();
     this.meetings.shutdown();
     this.changes.stop();
     this.whiteboard.flush();

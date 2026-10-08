@@ -39,7 +39,7 @@ test('signs go up over desks, get changed and come down, and stay across restart
 test('only desks get signs: not bean bags, kiosks or the meeting table', () => {
   withDir((dir) => {
     const plan = new FloorPlanStore(dir);
-    for (const id of ['beanbag-1', 'station-queue', 'meeting-1', 'nope']) assert.equal(typeof plan.label(id, 'Ops', undefined, 'Ada'), 'string', id);
+    for (const id of ['beanbag-1', 'station-coordinator', 'meeting-1', 'nope']) assert.equal(typeof plan.label(id, 'Ops', undefined, 'Ada'), 'string', id);
     // The back office's desks can have one before they're built, ready for when they are.
     assert.equal(typeof plan.label(WING_DESKS[0].id, 'Ops', undefined, 'Ada'), 'object');
   });

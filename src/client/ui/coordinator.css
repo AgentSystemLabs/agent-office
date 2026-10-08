@@ -1,0 +1,142 @@
+/* The coordinator's board window: the checklist, the day's timeline and the phase, read from the
+   project's plans/ folder. */
+.coord-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 64vh;
+  overflow-y: auto;
+}
+
+.coord-phase {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 800;
+  color: var(--muted);
+}
+
+.coord-section > h4 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0;
+}
+.coord-section > h4 .count {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--muted);
+}
+
+.coord-group > h5 {
+  margin: 10px 0 4px;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.coord-list,
+.coord-timeline,
+.coord-chapters {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.coord-chapters li {
+  font-weight: 700;
+}
+.coord-chapters small {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.coord-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 2px solid var(--ink);
+  border-radius: 10px;
+  background: #fff;
+}
+.coord-card .coord-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex: none;
+  box-shadow: 0 0 0 2px var(--ink);
+}
+.coord-card .coord-id {
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}
+.coord-card .coord-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.coord-card .coord-status {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--muted);
+}
+.coord-card .coord-owner,
+.coord-card .coord-note {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--muted);
+}
+
+.coord-timeline li {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+}
+.coord-time {
+  font-family: ui-monospace, Menlo, monospace;
+  font-weight: 800;
+  color: var(--muted);
+}
+.coord-text {
+  font-weight: 700;
+}
+
+.coord-empty {
+  margin: 4px 0;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+/* The dot in a card, and the card's edge, take the status color. */
+.st-pending .coord-dot,
+.st-pending.coord-dot {
+  background: #8d99ae;
+}
+.st-ready .coord-dot,
+.st-ready.coord-dot {
+  background: #118ab2;
+}
+.st-planned .coord-dot,
+.st-planned.coord-dot {
+  background: #9b5de5;
+}
+.st-in-flight .coord-dot,
+.st-in-flight.coord-dot {
+  background: #ffb703;
+}
+.st-blocked .coord-dot,
+.st-blocked.coord-dot {
+  background: #ef476f;
+}
+.st-done .coord-dot,
+.st-done.coord-dot {
+  background: #06d6a0;
+}
