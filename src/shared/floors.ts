@@ -19,7 +19,7 @@ export interface FloorPalette {
 
 /** The first is the office as it always looked; every new floor takes the next one nobody has. */
 export const FLOOR_PALETTES: FloorPalette[] = [
-  { name: 'Maple', wall: '#fff6ea', trim: '#e8a87c', floor: '#f2d7b0', floorAlt: '#e9c89a', seam: '#d9b88c' },
+  { name: 'Maple', wall: '#f7efe3', trim: '#dcb596', floor: '#e6d2b6', floorAlt: '#dcc7a8', seam: '#cdb695' },
   { name: 'Mint', wall: '#e3f6ec', trim: '#40a878', floor: '#cfe6d9', floorAlt: '#bcdcc9', seam: '#9fc6b0' },
   { name: 'Sky', wall: '#e7f0ff', trim: '#4f7fe0', floor: '#d6dde9', floorAlt: '#c5cedd', seam: '#aab5c8' },
   { name: 'Lavender', wall: '#f2eaff', trim: '#9470e0', floor: '#e1d7ef', floorAlt: '#d2c4e7', seam: '#b8a6d6' },

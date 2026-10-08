@@ -2,9 +2,13 @@ import * as THREE from 'three';
 import { FLOOR, SLAB, STREET_Y, WALL_T, roofDrop } from '../../shared/layout';
 import { mulberry32 } from '../../shared/rng';
 import type { NightParts } from './outside';
+import { cloudGeometry } from './skyworld';
+import { leafyGeometry, treeMaterial } from './voxtrees';
 import { tilingCanvasTexture } from './texture';
 import { mergeByMaterial, mesh, toon } from './toon';
 import { buildTower } from './tower';
+import { buildVancouver } from './vancity';
+import { inSea, inZone, offRoad } from './vanzones';
 
 // The city around the rooftop bar: the building's own floors going down to the street (as the tower
 // looks from outside, world/tower.ts), a grid of streets with cars running along them, parks, and
@@ -42,6 +46,8 @@ export interface City {
   setFloors(floors: number, wings?: readonly number[]): void;
   /** The cars along the streets, the blinking lights on the towers: `night` is how dark it is (0–1). */
   update(t: number, dt: number, night: number): void;
+  /** Where each building stands (the lots' footprints), for walls to stop you at when you're down on the street. */
+  footprints: { minX: number; maxX: number; minZ: number; maxZ: number }[];
 }
 
 /** How a building's walls look: its paint, and the windows in it (glass towers are nearly all window). */
@@ -194,9 +200,9 @@ function groundTexture(): THREE.CanvasTexture {
 
 function tree(r: () => number): THREE.Group {
   const t = new THREE.Group();
-  const s = 0.8 + r() * 0.7;
-  t.add(mesh(new THREE.CylinderGeometry(0.25 * s, 0.32 * s, 2.4 * s, 6), toon('#8a5a3b'), 0, 1.2 * s, 0, false));
-  t.add(mesh(new THREE.SphereGeometry(1.9 * s, 8, 6), toon(r() < 0.5 ? '#5fb760' : '#4ea657'), 0, 3.4 * s, 0, false));
+  const m = new THREE.Mesh(leafyGeometry(r() < 0.5 ? '#5fb760' : '#4ea657', Math.floor(r() * 4)), treeMaterial);
+  m.scale.setScalar(0.8 + r() * 0.7);
+  t.add(m);
   return t;
 }
 
@@ -244,17 +250,11 @@ function rise(ring: number, drop: number): number {
   return ring === 0 ? k : ring === 1 ? Math.sqrt(k) : 1;
 }
 
-interface Car {
-  /** Along x (true) or z. */
-  alongX: boolean;
-  /** The lane's line across the street, and which way it drives (±1). */
-  lane: number;
-  dir: number;
-  at: number;
-  speed: number;
-}
-
-export function buildCity(night: NightParts): City {
+/**
+ * `own` puts the office's own building (and its garage) in the street: from the roof you see it
+ * under your feet. Down on a floor you're inside it already, so it's left out.
+ */
+export function buildCity(night: NightParts, own = true): City {
   const group = new THREE.Group();
   /** Everything down on the street, which is as far below the roof as the building is tall. */
   const street = new THREE.Group();
@@ -270,7 +270,7 @@ export function buildCity(night: NightParts): City {
   const gp = groundGeo.getAttribute('position') as THREE.BufferAttribute;
   // Line the texture up with the streets: a road down its middle falls on x = STREET_X, z = STREET_Z.
   for (let i = 0; i < uv.count; i++) uv.setXY(i, (gp.getX(i) - STREET_X) / PERIOD + 0.5, (gp.getZ(i) - STREET_Z) / PERIOD + 0.5);
-  const ground = new THREE.Mesh(groundGeo, new THREE.MeshToonMaterial({ map: groundTexture(), gradientMap: (toon('#fff') as THREE.MeshToonMaterial).gradientMap }));
+  const ground = new THREE.Mesh(groundGeo, new THREE.MeshStandardMaterial({ map: groundTexture() }));
   ground.receiveShadow = false;
   street.add(ground);
 
@@ -288,6 +288,8 @@ export function buildCity(night: NightParts): City {
       if (dist > RADIUS) continue;
       // The block the office stands on: a plaza round it.
       if (i === 0 && j === 0) continue;
+      // Vancouver's landmarks, the water and Stanley Park have these blocks.
+      if (inZone(bx, bz, 24) || inSea(bx, bz, 70)) continue;
       // Now and then a park, with trees.
       if (r() < 0.1 && dist > 60) {
         const park = mesh(new THREE.PlaneGeometry(inner, inner).rotateX(-Math.PI / 2), toon('#8fcf7a'), bx, 0.03, bz, false);
@@ -354,8 +356,8 @@ export function buildCity(night: NightParts): City {
 
   // The office's own building, a floor per project, from the street up to the roof, and the open
   // garage at the bottom: walled at the back and on the west side, columns along the other two.
-  const building = buildTower([], night);
-  group.add(building.group);
+  const building = own ? buildTower([], night) : null;
+  if (building) group.add(building.group);
   const garage = new THREE.Group();
   const garageH = -STREET_Y - SLAB;
   const concrete = toon('#d3d6dd');
@@ -365,7 +367,7 @@ export function buildCity(night: NightParts): City {
   for (const x of [B.maxX - 0.25, -9.6, 0, 9.6]) garage.add(mesh(column, toon('#e6e8ee'), x, garageH / 2, B.maxZ - 0.25, false));
   for (const z of [-6.5, 6.5, B.minZ + 0.25]) garage.add(mesh(column, toon('#e6e8ee'), B.maxX - 0.25, garageH / 2, z, false));
   garage.add(mesh(new THREE.PlaneGeometry(B.maxX - B.minX, B.maxZ - B.minZ).rotateX(-Math.PI / 2), toon('#9a9ea8'), (B.minX + B.maxX) / 2, 0.03, (B.minZ + B.maxZ) / 2, false));
-  street.add(mergeByMaterial(garage));
+  if (own) street.add(mergeByMaterial(garage));
   // Its plaza, with a few trees in front.
   parks.add(mesh(new THREE.PlaneGeometry(inner, inner).rotateX(-Math.PI / 2), toon('#cfc8b8'), blockAt(0, 0).x, 0.02, blockAt(0, 0).z, false));
   for (const [x, z] of [
@@ -384,15 +386,14 @@ export function buildCity(night: NightParts): City {
   street.add(mergeByMaterial(parks));
 
   // The buildings' walls (a material for each paint), their roofs, and what's on them.
-  const gradient = (toon('#fff') as THREE.MeshToonMaterial).gradientMap;
-  const paintMats = new Map<number, THREE.MeshToonMaterial>();
+  const paintMats = new Map<number, THREE.MeshStandardMaterial>();
   const paintOf = (i: number) => {
     let m = paintMats.get(i);
     if (!m) {
       const p = PAINTS[i];
       const lit = litTexture(p, i + 1);
       lit.repeat.set(1 / 16, 1 / 16);
-      m = new THREE.MeshToonMaterial({ map: bayTexture(p), emissive: '#ffffff', emissiveMap: lit, emissiveIntensity: 0, gradientMap: gradient });
+      m = new THREE.MeshStandardMaterial({ map: bayTexture(p), emissive: '#ffffff', emissiveMap: lit, emissiveIntensity: 0 });
       night.windows.push(m);
       paintMats.set(i, m);
     }
@@ -483,94 +484,41 @@ export function buildCity(night: NightParts): City {
       }
     }
   }
+  for (let i = lampPos.length - 3; i >= 0; i -= 3) if (offRoad(lampPos[i], lampPos[i + 2])) lampPos.splice(i, 3);
   const lampGeo = new THREE.BufferGeometry();
   lampGeo.setAttribute('position', new THREE.Float32BufferAttribute(lampPos, 3));
   const lamps = new THREE.Points(lampGeo, new THREE.PointsMaterial({ size: 4, map: glow, color: '#ffcf8a', transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }));
   lamps.visible = false;
   street.add(lamps);
 
-  // Cars, up and down the streets round the office's block.
-  const cars: Car[] = [];
-  const lanes: [boolean, number][] = [
-    [true, STREET_Z],
-    [true, STREET_Z - PERIOD],
-    [false, STREET_X],
-    [false, STREET_X - PERIOD],
-    [true, STREET_Z + PERIOD],
-    [false, STREET_X + PERIOD],
-  ];
-  for (const [alongX, line] of lanes) {
-    for (let k = 0; k < 7; k++) {
-      const dir = k % 2 ? 1 : -1;
-      cars.push({ alongX, lane: line + dir * (ROAD / 4) * (alongX ? 1 : -1), dir, at: -RADIUS + r() * RADIUS * 2, speed: 9 + r() * 6 });
-    }
-  }
-  const body = new THREE.BoxGeometry(4.2, 1.05, 1.9).translate(0, 0.9, 0);
-  const cabin = new THREE.BoxGeometry(2.2, 0.7, 1.7).translate(-0.3, 1.75, 0);
-  const carGeo = mergeGeometries([body, cabin]);
-  const carMesh = new THREE.InstancedMesh(carGeo, toon('#ffffff'), cars.length);
-  const paints = ['#ef476f', '#ffd166', '#06d6a0', '#118ab2', '#f4f1de', '#3d405b', '#e07a5f', '#8ecae6'];
-  cars.forEach((_, i) => carMesh.setColorAt(i, new THREE.Color(paints[Math.floor(r() * paints.length)])));
-  const headMat = new THREE.MeshBasicMaterial({ color: '#fff6d0' });
-  const tailMat = new THREE.MeshBasicMaterial({ color: '#ff2d2d' });
-  const heads = new THREE.InstancedMesh(new THREE.BoxGeometry(0.12, 0.3, 1.6).translate(2.12, 0.95, 0), headMat, cars.length);
-  const tails = new THREE.InstancedMesh(new THREE.BoxGeometry(0.12, 0.25, 1.6).translate(-2.12, 0.95, 0), tailMat, cars.length);
-  for (const m of [carMesh, heads, tails]) {
-    m.frustumCulled = false;
-    street.add(m);
-  }
-  const place = new THREE.Matrix4();
-  const q = new THREE.Quaternion();
-  const up = new THREE.Vector3(0, 1, 0);
-  const at = new THREE.Vector3();
-  const one = new THREE.Vector3(1, 1, 1);
-  const moveCars = (dt: number) => {
-    cars.forEach((c, i) => {
-      c.at += c.dir * c.speed * dt;
-      if (c.at > RADIUS) c.at -= RADIUS * 2;
-      if (c.at < -RADIUS) c.at += RADIUS * 2;
-      if (c.alongX) at.set(c.at, 0, c.lane);
-      else at.set(c.lane, 0, c.at);
-      // The car's nose is +x: turned to face the way it's going.
-      const yaw = c.alongX ? (c.dir > 0 ? 0 : Math.PI) : c.dir > 0 ? -Math.PI / 2 : Math.PI / 2;
-      q.setFromAxisAngle(up, yaw);
-      place.compose(at, q, one);
-      carMesh.setMatrixAt(i, place);
-      heads.setMatrixAt(i, place);
-      tails.setMatrixAt(i, place);
-    });
-    for (const m of [carMesh, heads, tails]) m.instanceMatrix.needsUpdate = true;
-  };
-  moveCars(0);
+  // Downtown Vancouver, its traffic and its people (see vancity.ts).
+  const van = buildVancouver(mulberry32(1913), { period: PERIOD, road: ROAD, walk: WALK, streetX: STREET_X, streetZ: STREET_Z, radius: RADIUS }, lampPos);
+  street.add(van.group);
 
   // Clouds, drifting past at about the height of the towers.
   const cloud = night.clouds;
+  cloud.fog = false;
+  cloud.vertexColors = true;
+  cloud.needsUpdate = true;
+  const cityClouds = Array.from({ length: 4 }, () => cloudGeometry(r));
   const sky = new THREE.Group();
   for (let k = 0; k < 9; k++) {
     const a = (k / 9) * Math.PI * 2 + r();
     const dist = 220 + r() * 120;
-    const c = new THREE.Group();
-    for (const [dx, dy, rad] of [
-      [0, 0, 9],
-      [10, -2, 7],
-      [-10, -2, 6.5],
-      [4, 4, 6],
-    ]) {
-      const puff = mesh(new THREE.SphereGeometry(rad, 12, 9), cloud, dx, dy, 0, false);
-      puff.scale.y = 0.7;
-      c.add(puff);
-    }
+    const c = new THREE.Mesh(cityClouds[k % cityClouds.length], cloud);
+    c.scale.setScalar(2.2 + r() * 1.4);
+    c.rotation.y = r() * 6.28;
     c.position.set(Math.cos(a) * dist, 40 + r() * 50, Math.sin(a) * dist);
-    c.lookAt(0, c.position.y, 0);
     sky.add(c);
   }
-  group.add(mergeByMaterial(sky));
+  group.add(sky);
 
   let floorsNow = 0;
   let wingsNow = '';
   let riseNow = -1;
   return {
     group,
+    footprints: lots.map((l) => ({ minX: l.x - l.w / 2, maxX: l.x + l.w / 2, minZ: l.z - l.d / 2, maxZ: l.z + l.d / 2 })),
     setFloors(floors, wings = []) {
       floors = Math.max(1, floors);
       if (floors === floorsNow && wings.join() === wingsNow) return;
@@ -578,7 +526,7 @@ export function buildCity(night: NightParts): City {
       wingsNow = wings.join();
       const drop = roofDrop(floors);
       street.position.y = -drop;
-      building.set(floors, floors, wings);
+      building?.set(floors, floors, wings);
       // The buildings only change height up to six floors (see rise).
       const k = Math.min(1, drop / LAID_OUT);
       if (k !== riseNow) {
@@ -587,27 +535,11 @@ export function buildCity(night: NightParts): City {
       }
     },
     update(t, dt, dark) {
-      moveCars(dt);
+      van.update(t, dt, dark);
       lamps.visible = dark > 0.02;
       lamps.material.opacity = dark;
-      headMat.color.setScalar(0.75 + 0.25 * dark);
       // The masts' lights blink, a second on and a second off, brighter at night.
       beaconMat.opacity = (Math.sin(t * Math.PI) > 0 ? 1 : 0.08) * (0.35 + 0.65 * dark);
     },
   };
-}
-
-/** Puts geometries (position and normal only) into one. */
-function mergeGeometries(geos: THREE.BufferGeometry[]): THREE.BufferGeometry {
-  const pos: number[] = [];
-  const norm: number[] = [];
-  for (const g of geos) {
-    const flat = g.index ? g.toNonIndexed() : g;
-    pos.push(...(flat.getAttribute('position').array as Float32Array));
-    norm.push(...(flat.getAttribute('normal').array as Float32Array));
-  }
-  const out = new THREE.BufferGeometry();
-  out.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  out.setAttribute('normal', new THREE.Float32BufferAttribute(norm, 3));
-  return out;
 }

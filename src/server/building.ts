@@ -68,7 +68,7 @@ const MAX_REPOS = 1000;
 /**
  * The floors of the building, saved in <office>/.agent-office/floors.json: which projects there are,
  * where their checkouts live, and how each floor is painted. New floors are cloned with the office
- * machine's `gh` login into <projects>/<owner>/<repo>; the projects folder can be picked in ⚙️ Settings
+ * machine's `gh` login into <projects>/<repo>; the projects folder can be picked in ⚙️ Settings
  * (kept in projects-folder.json).
  */
 export class Building {
@@ -311,7 +311,18 @@ export class Building {
     if (this.defs.some((d) => sameRepo(d.repo, repo))) return `${repo} already has a floor`;
     if (this.cloning.has(key)) return `${repo} is already being cloned`;
     const [owner, name] = repo.split('/');
-    const dest = path.join(this.projectsDir, owner, name);
+    // Straight into the workspace folder, one folder per project; the owner joins the name when that's taken.
+    let dest = path.join(this.projectsDir, name);
+    if (existsSync(dest)) {
+      // A leftover of this same repository is reused (the clone sorts it out); anything else keeps its folder.
+      let origin = '';
+      try {
+        origin = execFileSync('git', ['-C', dest, 'config', '--get', 'remote.origin.url'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+      } catch {
+        // not a checkout
+      }
+      if (!sameRepo(normalizeRepo(origin), repo)) dest = path.join(this.projectsDir, `${owner}-${name}`);
+    }
     if (this.defs.some((d) => path.resolve(d.dir) === dest)) return `${dest} is already a floor`;
     const def = this.newDef(name, repo, dest, by);
     const pending: Pending = { def, owner: account, empty };

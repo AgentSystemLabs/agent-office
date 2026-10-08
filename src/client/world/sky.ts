@@ -177,9 +177,9 @@ const HAZE = /* glsl */ `
     float fogFactor = 1.0 - exp( - fogDensity * fogDensity * vFogDepth * vFogDepth );
   #else
     // How many times as far off the haze is as down on the street; and past HAZE_MAX, from 45% of
-    // the way there, as the haze on the roof always went.
+    // the way there, as the haze on the roof always went (unless the fog's switched right off: far edge past 5 km).
     float skyReach = 1.0 + max( max( cameraPosition.y, vSkyFogY ) - skyStreet - ${HAZE_CLEAR.toFixed(1)}, 0.0 ) / ${HAZE_ABOVE.toFixed(1)};
-    float fogFactor = max( smoothstep( fogNear, fogFar, vFogDepth / skyReach ), smoothstep( ${(HAZE_MAX * 0.45).toFixed(1)}, ${HAZE_MAX.toFixed(1)}, vFogDepth ) );
+    float fogFactor = max( smoothstep( fogNear, fogFar, vFogDepth / skyReach ), smoothstep( ${(HAZE_MAX * 0.45).toFixed(1)}, ${HAZE_MAX.toFixed(1)}, vFogDepth ) * step( fogFar, 5000.0 ) );
   #endif
   gl_FragColor.rgb = mix( gl_FragColor.rgb, fogColor, fogFactor );
 #endif
@@ -241,8 +241,8 @@ const C = {
   sunHigh: new THREE.Color('#fff1d6'),
   sunLow: new THREE.Color('#ffa566'),
   moon: new THREE.Color('#a9bcff'),
-  hemiSky: new THREE.Color('#fff5e6'),
-  hemiGround: new THREE.Color('#c9a27a'),
+  hemiSky: new THREE.Color('#ffe8c8'),
+  hemiGround: new THREE.Color('#7f97b0'),
   hemiSkyNight: new THREE.Color('#4b5b90'),
   hemiGroundNight: new THREE.Color('#1d1b29'),
   ambientNight: new THREE.Color('#8797cc'),
@@ -357,6 +357,7 @@ export interface SkyLights {
   sun: THREE.DirectionalLight;
   hemi: THREE.HemisphereLight;
   ambient: THREE.AmbientLight;
+  fill?: THREE.DirectionalLight;
 }
 
 /** Soft round blob, for halos and snowflakes. */
@@ -468,7 +469,7 @@ export class Sky {
       const y = rand(0.08, 1);
       const a = rand(0, Math.PI * 2);
       const r = Math.sqrt(1 - y * y);
-      starPos.push(Math.cos(a) * r * 170, y * 170, Math.sin(a) * r * 170);
+      starPos.push(Math.cos(a) * r * 300, y * 300, Math.sin(a) * r * 300);
     }
     const starGeo = new THREE.BufferGeometry();
     starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starPos, 3));
@@ -478,8 +479,8 @@ export class Sky {
       m.material.userData.outlineParameters = { visible: false };
       return m;
     };
-    this.sunDisc = disc(5, '#fff4c8');
-    this.moonDisc = disc(3.2, '#f2f1ea');
+    this.sunDisc = disc(9.4, '#fff4c8');
+    this.moonDisc = disc(6, '#f2f1ea');
     this.moonDisc.material.map = moonTexture();
     this.dome.add(this.spookyDome, this.stars, this.sunDisc, this.moonDisc);
     scene.add(this.dome);
@@ -694,20 +695,19 @@ export class Sky {
       this.nextSpook = t + rand(25, 70);
     }
     this.lightning(t, dt);
-    const flash = this.flash;
-    const sunI = 2.2 * smooth(-3, 10, elD) * (1 - 0.8 * this.cover) * (1 - 0.6 * this.fog) * (1 - 0.65 * sp);
-    const moonI = 0.4 * smooth(-4, -12, elD) * (1 - 0.75 * this.cover);
-    const hemiI = lerp(0.38, 1.5 * (1 - 0.25 * this.cover) * (1 - 0.35 * this.storm), day);
-    const ambI = lerp(0.12, 0.5, day);
-    const { sun, hemi, ambient } = this.lights;
+    const flash = this.flash, sunI = 2.3 * smooth(-3, 10, elD) * (1 - 0.8 * this.cover) * (1 - 0.6 * this.fog) * (1 - 0.65 * sp);
+    const hemiI = lerp(0.2, 0.6 * (1 - 0.25 * this.cover) * (1 - 0.35 * this.storm), day);
+    const ambI = lerp(0.06, 0.15, day), moonI = 0.4 * smooth(-4, -12, elD) * (1 - 0.75 * this.cover);
+    const { sun, hemi, ambient, fill } = this.lights;
     hemi.intensity = hemiI + flash * 3;
     hemi.color.copy(C.hemiSkyNight).lerp(C.hemiSky, day).lerp(SPOOKY.hemiSky, sp * 0.5);
     hemi.groundColor.copy(C.hemiGroundNight).lerp(C.hemiGround, day).lerp(SPOOKY.hemiGround, sp * 0.5);
     ambient.intensity = ambI + flash;
+    if (fill) fill.position.set(sun.position.x * -0.6, 11, sun.position.z * -0.6).add(sun.target.position), (fill.intensity = 0.55 * day * (1 - 0.7 * this.cover));
     ambient.color.copy(C.ambientNight).lerp(C.white, day);
-    // A cartoon sun: never so low its shadows fill the room. At night the moon lights things, from across the sky.
+    // A real sun, low enough for long shadows and slanting light through the windows. At night the moon lights things, from across the sky.
     const moonlit = elD < -4;
-    const lightEl = (moonlit ? 50 : 25 + Math.max(0, elD) * 0.6) * DEG;
+    const lightEl = (moonlit ? 50 : 14 + Math.max(0, elD) * 0.65) * DEG;
     const lightAz = moonlit ? az + Math.PI : az;
     this.dir.set(Math.cos(lightEl) * Math.sin(lightAz), Math.sin(lightEl), -Math.cos(lightEl) * Math.cos(lightAz));
     sun.position.copy(sun.target.position).addScaledVector(this.dir, 45);
@@ -778,7 +778,7 @@ export class Sky {
     const clear = (1 - this.cover) * (1 - this.fog);
     this.stars.material.opacity = (1 - day) ** 2 * clear;
     this.stars.visible = this.stars.material.opacity > 0.01;
-    const up = (e: number, a: number, m: THREE.Mesh) => m.position.set(Math.cos(e) * Math.sin(a) * 160, Math.sin(e) * 160, -Math.cos(e) * Math.cos(a) * 160);
+    const up = (e: number, a: number, m: THREE.Mesh) => m.position.set(Math.cos(e) * Math.sin(a) * 300, Math.sin(e) * 300, -Math.cos(e) * Math.cos(a) * 300);
     up(el, az, this.sunDisc);
     this.sunDisc.material.color.copy(C.sunLow).lerp(C.white, smooth(0, 20, elD));
     this.sunDisc.material.opacity = smooth(-3, 0, elD) * clear;
@@ -790,7 +790,7 @@ export class Sky {
     skyward(SPOOKY_MOON.el, SPOOKY_MOON.az, this.moonTo);
     u.moonDir.value.copy(this.moonTo);
     this.moonAt.lerp(this.moonTo, sp);
-    this.moonDisc.position.copy(this.moonAt.lengthSq() > 1e-6 ? this.moonAt : this.moonTo).normalize().multiplyScalar(160);
+    this.moonDisc.position.copy(this.moonAt.lengthSq() > 1e-6 ? this.moonAt : this.moonTo).normalize().multiplyScalar(300);
     this.moonDisc.scale.setScalar(1 + 2.2 * sp);
     this.moonDisc.material.color.copy(C.white).lerp(SPOOKY.moon, sp);
     this.moonDisc.material.opacity = Math.max(smooth(2, -2, elD) * clear, sp * (1 - 0.5 * this.cover));

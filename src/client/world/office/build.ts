@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { WallRect } from '../../../shared/decor';
 import type { FloorPalette } from '../../../shared/floors';
-import { street } from '../outside';
+import { street } from '../streetcity';
 import { cars } from '../../features/cars/world';
 import { scenic } from '../scenic';
 import { toon, toonUnique } from '../toon';
@@ -89,7 +89,7 @@ export function buildOffice(): Office {
   // The floor's planks, which the stack lays the floor with (and the back office its own).
   const floorTex = floorTexture();
   looks.planks.push(floorTex);
-  const planks = new THREE.MeshToonMaterial({ map: floorTex, gradientMap: (toon('#fff') as THREE.MeshToonMaterial).gradientMap });
+  const planks = new THREE.MeshStandardMaterial({ map: floorTex });
   const desks = new Map<string, DeskView>();
   const doors: Door[] = [];
   /** What the fixtures built so far give the office. */

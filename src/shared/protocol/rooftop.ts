@@ -1,4 +1,4 @@
-// The balcony and the roof: golf, darts and axes, the gong and the air horn.
+// The balcony and the roof: golf, darts and axes, the gong and the (retired) air horn.
 
 import type { BarGame } from '../bargames.js';
 
@@ -12,13 +12,13 @@ export type RooftopClientMsg =
    */
   | { t: 'golf'; yaw: number; loft: number; power: number }
   /**
-   * You threw a dart or an axe at the rooftop bar: where it lands on the target (u right, v up, in
+   * You threw a dart or an axe at the rooftop café: where it lands on the target (u right, v up, in
    * meters from its middle), whether an axe sticks, and which throw of the round it is (from 1).
    */
   | { t: 'toss'; game: BarGame; u: number; v: number; stick: boolean; n: number }
   /** Hit the office gong (E at the gong); everyone on the floor hears it. */
   | { t: 'gong' }
-  /** Blow the DJ's air horn on the roof; everyone up there hears it. */
+  /** Retired (the DJ is gone, and the client never sends it): blow the air horn on the roof; everyone up there hears it. */
   | { t: 'horn' };
 
 export type RooftopServerMsg =
@@ -31,5 +31,5 @@ export type RooftopServerMsg =
    * over the desk it came from), or the last task on the queue just finished (a bigger party).
    */
   | { t: 'gong'; why: GongWhy; by?: string; pr?: number }
-  /** Someone on the roof blew the DJ's air horn (sent to everyone up there, them too). */
+  /** Retired: someone on the roof blew the air horn (sent to everyone up there, them too). */
   | { t: 'horn'; by: string };

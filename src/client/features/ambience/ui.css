@@ -1,0 +1,20 @@
+/* The thinking spot's window: three big scene buttons, Off, and a volume. */
+.modal.ambience { width: min(440px, 100%); }
+.ambience .scenes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.ambience .scene { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 14px 6px; font: inherit; font-size: 14px; font-weight: 800; color: var(--ink); background: #fff; border: 3px solid var(--ink); border-radius: 16px; box-shadow: 0 3px 0 var(--ink); cursor: pointer; }
+.ambience .scene .emoji { font-size: 38px; line-height: 1; }
+.ambience .scene:hover { background: var(--paper-2); }
+.ambience .scene.on { background: #fff1de; border-color: var(--accent); }
+.ambience .scene:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.ambience .now { margin: 14px 0 0; font-size: 15px; font-weight: 800; }
+.ambience .level { display: flex; align-items: center; gap: 12px; margin-top: 14px; }
+.ambience .level .btn { flex: none; }
+.ambience .level .pct { flex: none; width: 3.2em; text-align: right; font-weight: 800; font-size: 14px; }
+.ambience input[type=range] { flex: 1; min-width: 0; height: 28px; margin: 0; background: transparent; cursor: pointer; -webkit-appearance: none; appearance: none; --fill: 60%; }
+.ambience input[type=range]:focus { outline: none; }
+.ambience input[type=range]::-webkit-slider-runnable-track { height: 14px; border: 3px solid var(--ink); border-radius: 999px; background: linear-gradient(to right, var(--accent) var(--fill), #fff var(--fill)); }
+.ambience input[type=range]::-moz-range-track { height: 8px; border: 3px solid var(--ink); border-radius: 999px; background: #fff; }
+.ambience input[type=range]::-moz-range-progress { height: 8px; border-radius: 999px; background: var(--accent); }
+.ambience input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 24px; height: 24px; margin-top: -8px; border-radius: 50%; border: 3px solid var(--ink); background: var(--paper); box-shadow: 0 2px 0 var(--ink); }
+.ambience input[type=range]::-moz-range-thumb { width: 18px; height: 18px; border-radius: 50%; border: 3px solid var(--ink); background: var(--paper); box-shadow: 0 2px 0 var(--ink); }
+.ambience input[type=range]:focus-visible::-webkit-slider-thumb { border-color: var(--accent); }

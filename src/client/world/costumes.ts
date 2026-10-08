@@ -11,9 +11,9 @@ import { mesh, toon, toonUnique } from './toon';
 /** What undead skin is mixed toward, for Halloween: a warlock's hands and face. */
 export const UNDEAD_SKIN = new THREE.Color('#a3bf98');
 
-const details = new Map<string, THREE.MeshToonMaterial>();
+const details = new Map<string, THREE.MeshStandardMaterial>();
 /** A material for small bits (stitches, bells), drawn without the cartoon outline, which would swallow them. */
-function detail(color: string): THREE.MeshToonMaterial {
+function detail(color: string): THREE.MeshStandardMaterial {
   let m = details.get(color);
   if (!m) {
     m = toonUnique(color);
@@ -207,7 +207,7 @@ export interface PeasantGarb {
   /** The linen coif on its head (off while a holiday hat's on). */
   cap: THREE.Group;
   /** The smock's cloth, which gets grubby (see Worker.setAge), and the color it started out. */
-  cloth: THREE.MeshToonMaterial;
+  cloth: THREE.MeshStandardMaterial;
   clean: THREE.Color;
   /** Patches sewn on as it wears through: each shows once the worker's this worn (0–1). */
   patches: { part: THREE.Object3D; at: number }[];
@@ -267,7 +267,7 @@ export function peasantGarb(seed: number): PeasantGarb {
 /** A beard and brows, grown out as the worker toils (see Worker.setAge). */
 export interface Beard {
   group: THREE.Group;
-  hair: THREE.MeshToonMaterial;
+  hair: THREE.MeshStandardMaterial;
   mustache: THREE.Group;
   chin: THREE.Mesh;
   /** What hangs off the chin: its length is its y scale. */
@@ -481,7 +481,7 @@ export function dogAntlers(): THREE.Group {
 }
 
 /** Rudolph's nose, which glows (head-local, over the dog's own). */
-export function dogRedNose(): { nose: THREE.Mesh; glow: THREE.MeshToonMaterial } {
+export function dogRedNose(): { nose: THREE.Mesh; glow: THREE.MeshStandardMaterial } {
   const glow = toonUnique('#ff3030');
   glow.emissive.set('#ff1a1a');
   glow.emissiveIntensity = 0.8;

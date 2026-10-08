@@ -175,15 +175,15 @@ export function openElevator(opts: ElevatorOptions): void {
     confirmDialog(`Take ${f.name} off the building?`, `${workers}${people}Nothing is deleted: its checkout stays in ${f.dir}, .agent-office folder and all.${own}`, '🗑 Remove floor', () => net.send({ t: 'floor.remove', floor: f.id }));
   };
 
-  /** The roof, over every floor: the rooftop bar. */
+  /** The roof, over every floor: the rooftop café. */
   const roofButton = () => {
     const here = store.floor === ROOF;
     const people = [...store.peers.values()].filter((p) => p.floor === ROOF).length;
     const btn = h(
       'button.floor-btn',
       { type: 'button', class: here ? 'here' : '', disabled: here, title: here ? "You're up on the roof" : `Ride up to the ${ROOF_NAME.toLowerCase()}` },
-      h('span.floor-no', { style: 'background:#2b2d42' }, '🍸'),
-      h('span.floor-text', {}, h('span.floor-name', {}, ROOF_NAME, here ? h('span.here-tag', {}, 'you are here') : null), h('span.floor-sub', {}, 'The roof: a DJ playing drum and bass, a bar, and the city all around')),
+      h('span.floor-no', { style: 'background:#2b2d42' }, '☕'),
+      h('span.floor-text', {}, h('span.floor-name', {}, ROOF_NAME, here ? h('span.here-tag', {}, 'you are here') : null), h('span.floor-sub', {}, 'The roof: a café, tables under string lights, and the city all around')),
       h('span.floor-stats', {}, people ? h('span', { title: 'People up there' }, `🧑 ${people}`) : ''),
     );
     btn.addEventListener('click', () => {
@@ -280,7 +280,7 @@ export function openElevator(opts: ElevatorOptions): void {
     if (matches.length > SHOWN) rows.push(h('p.empty', { style: 'padding:8px 10px' }, `…and ${matches.length - SHOWN} more — type to narrow it down`));
     listEl.replaceChildren(...rows);
     const pick = choice();
-    const dest = pick ? `${store.projectsDir.dir}/${pick}` : `${store.projectsDir.dir}/<owner>/<repo>`;
+    const dest = pick ? `${store.projectsDir.dir}/${pick.split('/').pop()}` : `${store.projectsDir.dir}/<repo>`;
     const change = store.me.admin ? h('button.btn.dir-change', { type: 'button', title: 'Clone new projects into another folder on the office’s machine' }, '📁 Change folder') : null;
     change?.addEventListener('click', () => editDir(true));
     // While it clones: how far it's got (the office asks GitHub about it first).
@@ -297,6 +297,7 @@ export function openElevator(opts: ElevatorOptions): void {
     addBtn.disabled = !!adding || !pick || store.floors.some((f) => sameRepo(f.repo, pick));
     addBtn.textContent = adding ? '⏳ Cloning…' : pick ? `🛗 Add ${pick}` : '🛗 Add floor';
     input.disabled = !!adding;
+    syncCreate();
     if (!built) {
       built = true;
       addEl.replaceChildren(
@@ -304,21 +305,34 @@ export function openElevator(opts: ElevatorOptions): void {
         h('div.repo-search', {}, input, refreshBtn),
         listEl,
         statusEl,
+        createBtn,
         dirEl,
       );
     }
   };
 
+  const createBtn = h('button.btn', { type: 'button', title: 'Make a new private repository on GitHub with this name, and a floor for it' }, '✨ New repo + floor') as HTMLButtonElement;
+  createBtn.addEventListener('click', () => {
+    const name = filter.trim();
+    if (name && !adding) add(name, true);
+  });
+  const syncCreate = () => {
+    const name = filter.trim();
+    const valid = /^([\w.-]+\/)?[\w.-]{1,100}$/.test(name);
+    createBtn.disabled = !!adding || !valid;
+    createBtn.textContent = valid ? `✨ Create ${name} on GitHub` : '✨ Type a name to create a new repo';
+  };
+
   /** The floor being added, once the office is cloning it (and after, when it's there). */
   const addingFloor = () => (adding ? store.floors.find((f) => sameRepo(f.repo, adding!)) : undefined);
 
-  const add = (repo: string) => {
+  const add = (repo: string, create = false) => {
     if (adding) return;
     adding = repo;
     seen = false;
     error = '';
     renderAdd();
-    net.send({ t: 'floor.add', repo });
+    net.send({ t: 'floor.add', repo, ...(create ? { create: true } : {}) });
     // The office went away before it started (a restart): don't wait forever.
     clearTimeout(startTimer);
     startTimer = window.setTimeout(() => {

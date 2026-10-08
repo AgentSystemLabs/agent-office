@@ -73,7 +73,7 @@ export interface CloneProgress {
   detail?: string;
 }
 
-/** Where the elevator's "add a project" clones to: <dir>/<owner>/<repo> on the office's machine. */
+/** Where the elevator's "add a project" clones to: <dir>/<repo> on the office's machine. */
 export interface ProjectsDirState {
   /** For showing people: under the home folder it's ~/…. */
   dir: string;
@@ -136,7 +136,7 @@ export type FloorClientMsg =
   /** The repositories that could become a floor; answered with `floor.repos`. */
   | { t: 'floor.repos'; refresh?: boolean }
   /** Clone a repository and make it a new floor; answered with `floor.added` once it's there. */
-  | { t: 'floor.add'; repo: string }
+  | { t: 'floor.add'; repo: string; /** Make the repository on GitHub first (private, with a README): `repo` is `name` or `owner/name`. */ create?: boolean }
   /** Stop a floor's clone before it's there (admins, or whoever added it); the one who added it hears `floor.added` with why. */
   | { t: 'floor.cancel'; floor: string }
   /** Take a floor off the building (admins only). Its checkout stays on disk; everyone on it rides to another floor. */

@@ -5,4 +5,4 @@ export { Worker } from './worker';
 export type { Stage } from './worker-dance';
 export { BACKSWING_TIME, IMPACT } from './person-golf';
 export { EXHALE_AT, REACH_TIME, SMOKE_CYCLE, dragCurve, emoteEnvelope, popCurve, reachCurve } from './curves';
-export { boxOfStuff, cigarette, coffeeMug, drinkGlass, putDownGlass } from './props';
+export { boxOfStuff, cigarette, coffeeMug, putDownGlass, serving } from './props';

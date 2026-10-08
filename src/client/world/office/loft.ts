@@ -29,7 +29,7 @@ export function buildLoft(group: THREE.Group, colliders: Collider[], interactabl
   group.add(mesh(box(w, SLAB, d), trimMat, cx, floorY - SLAB / 2, cz));
   const planks = floorTexture(w, d);
   looks.planks.push(planks);
-  const floor = new THREE.Mesh(new THREE.PlaneGeometry(w, d), new THREE.MeshToonMaterial({ map: planks, gradientMap: (toon('#fff') as THREE.MeshToonMaterial).gradientMap }));
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(w, d), new THREE.MeshStandardMaterial({ map: planks }));
   floor.rotation.x = -Math.PI / 2;
   floor.position.set(cx, floorY + 0.005, cz);
   floor.receiveShadow = true;

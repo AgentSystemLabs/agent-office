@@ -1,3 +1,4 @@
+import { buildCat, type Cat } from './cat';
 import * as THREE from 'three';
 import { BARK_EVERY_S, BARK_FOR_S, DOG_COATS, dogAt, dogBreed, legSeconds, type DogAct, type DogBreed, type DogState } from '../../../shared/dog';
 import type { Theme } from '../../../shared/protocol';
@@ -153,7 +154,7 @@ export class Dog {
    * it; unlike `ready`, a later breed never makes it wait again. Never rejects.
    */
   readonly firstReady = new Promise<void>((resolve) => (this.firstIn = resolve));
-  private coatMats: [THREE.MeshToonMaterial, THREE.MeshToonMaterial, THREE.MeshToonMaterial];
+  private coatMats: [THREE.MeshStandardMaterial, THREE.MeshStandardMaterial, THREE.MeshStandardMaterial];
   private coat = -1;
   private tag: THREE.Sprite | null = null;
   private tagName = '';
@@ -176,7 +177,7 @@ export class Dog {
   private costume: Theme | null = null;
   private outfit: THREE.Object3D[] = [];
   private wings: THREE.Object3D[] = [];
-  private rudolph: THREE.MeshToonMaterial | null = null;
+  private rudolph: THREE.MeshStandardMaterial | null = null;
 
   constructor(
     private sounds: DogSounds,
@@ -305,7 +306,7 @@ export class Dog {
       if (!this.hushed(s.workerId)) {
         this.sounds.bark(at.x, at.z, this.barks === 0 ? 3 : 2);
         this.woofT = 0;
-        this.say('woof', this.barks === 0 ? 'Woof! Woof! Woof!' : 'Woof! Woof!', 1.4);
+        this.say('meow', this.barks === 0 ? 'Meow! Meow! Meow!' : 'Meow! Meow!', 1.4);
       }
       this.barks++;
       this.nextBark = this.arriveAt + this.barks * BARK_EVERY_S * 1000;
@@ -323,7 +324,7 @@ export class Dog {
    */
   private wear(breed: DogBreed) {
     this.wants = breed;
-    this.loading = loadModel(`dog-${breed}`)
+    this.loading = Promise.resolve(buildCat(breed))
       .then((m) => {
         if (this.wants !== breed) return false;
         this.attach(m, breed);
@@ -342,7 +343,8 @@ export class Dog {
    * Puts a loaded model on in place of the one it had: paints it, fits its picking capsules, finds the
    * bones the code moves and the costume sockets, and dresses it.
    */
-  private attach({ scene: model, clips }: Model, breed: DogBreed) {
+  private attach(cat: Cat, breed: DogBreed) {
+    const { scene: model, clips } = cat;
     const nose: THREE.Object3D[] = [];
     let collar = PUP_COLLAR_WIDTH;
     // The model comes split into one part per material; its materials are only names for what to paint.
@@ -370,14 +372,14 @@ export class Dog {
       return o;
     };
     // Everything here reads the model at rest, before any clip has posed it.
-    const { pick, top } = fitPicking(model);
+    const { pick, top } = cat;
     const jaw = part('jaw');
     const jawRest = jaw.quaternion.clone();
     const eyes = ['eye_L', 'eye_R'].map((n) => {
       const bone = part(n);
       return { bone, rest: bone.scale.clone() };
     });
-    const drop = drops(model, clips, top);
+    const drop = cat.drop as Partial<Record<Act, number>>;
     const mixer = new THREE.AnimationMixer(model);
     const rig: Rig = {
       breed,
@@ -461,7 +463,7 @@ export class Dog {
       this.root.remove(this.tag);
       disposeSprite(this.tag);
     }
-    this.tag = textSprite(`🐶 ${name}`, { bg: '#fffaf3', size: 30 });
+    this.tag = textSprite(`🐱 ${name}`, { bg: '#fffaf3', size: 30 });
     this.tag.position.y = (this.rig?.top ?? PUP_TOP) + TAG_OVER;
     this.root.add(this.tag);
   }

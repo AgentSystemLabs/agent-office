@@ -113,7 +113,7 @@ test('a clone shows how far along it is, then becomes a floor', async (t) => {
   const r = await building.add('acme/game', 'Sam', (def) => (id = def.id));
   assert.equal(typeof r, 'object', String(r));
   assert.deepEqual(seen.at(-1), { step: 'Downloading', percent: 42, detail: '1.00 MiB · 512.00 KiB/s' });
-  assert.ok(existsSync(path.join(projects, 'acme', 'game', 'index.html')));
+  assert.ok(existsSync(path.join(projects, 'game', 'index.html')));
   assert.deepEqual(building.list().map((d) => d.repo), ['acme/game']);
   assert.deepEqual(building.pending(), []);
   assert.deepEqual(saved(), [], "cloning.json is gone once it's done");
@@ -189,7 +189,7 @@ test('a clone that finished while no office was watching becomes its floor at th
 
 test("a clone that was cut off isn't taken for a checkout", async (t) => {
   const { dataDir, projects } = office(t);
-  const dest = path.join(projects, 'acme', 'game');
+  const dest = path.join(projects, 'game');
   execFileSync('git', ['init', '-q', dest]);
   execFileSync('git', ['-C', dest, 'remote', 'add', 'origin', 'https://github.com/acme/game.git']);
   const building = new Building(dataDir, projects, fast);

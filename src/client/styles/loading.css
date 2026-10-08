@@ -3,10 +3,10 @@
 #loading.gone { opacity: 0; pointer-events: none; }
 .loading-card { width: min(320px, 100%); padding: 22px 26px 20px; text-align: center; background: var(--paper); border: 3px solid var(--ink); border-radius: var(--radius); box-shadow: var(--shadow); }
 .loading-paw { display: block; width: 54px; height: 54px; margin: 0 auto; fill: var(--accent); stroke: var(--ink); stroke-width: 3; stroke-linejoin: round; transform-origin: 50% 100%; animation: loading-hop 1.1s ease-in-out infinite; }
-.loading-shadow { display: block; width: 38px; height: 7px; margin: 3px auto 12px; border-radius: 50%; background: rgba(43, 45, 66, .18); animation: loading-shadow 1.1s ease-in-out infinite; }
+.loading-shadow { display: block; width: 38px; height: 7px; margin: 3px auto 12px; border-radius: var(--radius-control); background: rgba(43, 45, 66, .18); animation: loading-shadow 1.1s ease-in-out infinite; }
 .loading-name { margin-bottom: 14px; font-size: 26px; font-weight: 900; }
-.loading-bar { height: 18px; padding: 2px; background: #fff; border: 3px solid var(--ink); border-radius: 999px; overflow: hidden; }
-.loading-fill { display: block; width: 0; height: 100%; border-radius: 999px; background: var(--accent); transition: width .3s ease; }
+.loading-bar { height: 18px; padding: 2px; background: #fff; border: 3px solid var(--ink); border-radius: var(--radius-control); overflow: hidden; }
+.loading-fill { display: block; width: 0; height: 100%; border-radius: var(--radius-control); background: var(--accent); transition: width .3s ease; }
 .loading-say { margin: 12px 0 0; font-size: 14px; font-weight: 800; color: var(--muted); }
 /* A hop: squashed on landing, up and tipped over at the top. Its shadow shrinks as it goes up. */
 @keyframes loading-hop {

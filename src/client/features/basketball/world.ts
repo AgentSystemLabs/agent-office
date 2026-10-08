@@ -182,7 +182,7 @@ function texture(): THREE.CanvasTexture {
 
 /** A basketball, `r` meters round (its own size unless given): in the room, or in your hands. */
 export function ballMesh(r: number = BALL.r): THREE.Mesh {
-  const mat = new THREE.MeshToonMaterial({ map: texture(), gradientMap: (toon('#fff') as THREE.MeshToonMaterial).gradientMap });
+  const mat = new THREE.MeshStandardMaterial({ map: texture() });
   const m = mesh(new THREE.SphereGeometry(r, 20, 14), mat);
   m.rotation.z = 0.4;
   return m;

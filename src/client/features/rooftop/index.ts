@@ -1,24 +1,16 @@
 /**
  * Up on the roof: the roof itself, built the first time anyone goes up there and standing on as many
- * floors as the building has, and everything up there moving to the DJ's set. The bar, the DJ's booth
- * and the games up there are features/bar's and features/bargames'.
+ * floors as the building has. The café counter and its menu are features/bar's, and the games up there
+ * are features/bargames'.
  */
-import type * as THREE from 'three';
 import { roofDrop } from '../../../shared/layout';
 import type { Ctx } from '../../core/context';
 import { builtFloors, floorWings } from '../../core/floors';
 import { noOutline } from '../../core/outline';
-import { djFrame, djTime } from '../../dnb';
 import { store } from '../../state';
 import { buildRooftop, type Rooftop } from './world';
 
-export interface RooftopDeps {
-  /** The office's lights, which the roof's strobes flash as a drop lands. */
-  ambient: THREE.AmbientLight;
-  hemi: THREE.HemisphereLight;
-}
-
-export function installRooftop(ctx: Ctx, deps: RooftopDeps) {
+export function installRooftop(ctx: Ctx) {
   /** Up on the roof: built the first time anyone goes up there. */
   let roof: Rooftop | null = null;
   function theRoof(): Rooftop {
@@ -44,16 +36,9 @@ export function installRooftop(ctx: Ctx, deps: RooftopDeps) {
     if (ctx.upTop()) ctx.sky.setRoof(true, roofDrop(floors));
   }
   store.on('floors', syncRoof);
-  /** How far into the DJ's set it is, on the office's clock, so everyone up there hears the same bar. */
-  const djAt = () => djTime(store.officeNow());
   ctx.ticks.add('env', ({ dt, t }) => {
-    if (ctx.upTop() && roof) {
-      // Everything up there moves to the DJ's set; strobes flash the whole roof as a drop lands.
-      const strobe = roof.update(t, dt, djFrame(djAt()), { dark: ctx.sky.lampsOn, motion: !ctx.reduceMotion.matches });
-      deps.ambient.intensity += strobe * 1.5;
-      deps.hemi.intensity += strobe * 0.8;
-    }
+    if (ctx.upTop() && roof) roof.update(t, dt, { dark: ctx.sky.lampsOn, motion: !ctx.reduceMotion.matches });
   });
 
-  return { roof: () => roof, theRoof, roofFloors, syncRoof, djAt };
+  return { roof: () => roof, theRoof, roofFloors, syncRoof };
 }

@@ -1,0 +1,21 @@
+/* Shared by the office, lite view and sign-in pages. World and UI use the same warm voxel palette. */
+:root {
+  --ink: #29464a;
+  --paper: #fff9ee;
+  --paper-2: #eee7d8;
+  --accent: #216c70;
+  --accent-ink: #ffffff;
+  --muted: #56675f;
+  --good: #287a62;
+  --warn: #edbd65;
+  --bad: #b7463f;
+  --info: #247389;
+  --edge: #8a9e93;
+  --tile: #e5eddf;
+  --button-shadow: 2px 3px 0 #84998e;
+  --shadow: 4px 4px 0 #789389, 7px 7px 0 rgba(41, 70, 74, .2);
+  --radius: 2px;
+  --radius-control: 2px;
+  --font: 'Avenir Next', 'Segoe UI', system-ui, sans-serif;
+  --font-label: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+}

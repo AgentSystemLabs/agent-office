@@ -108,7 +108,7 @@ export function installMaps(ctx: Ctx, core: CoreState, parts: MapsParts) {
     const f = builtFloors()[0];
     if (!f) return;
     parts.travel.leaveRoofFor(f.id);
-    toast(`The building's ${plan().icon} ${plan().name} now, with no rooftop bar: down you go`);
+    toast(`The building's ${plan().icon} ${plan().name} now, with no rooftop café: down you go`);
   }
 
   ctx.messages.on('floors', () => noticeWaiting());

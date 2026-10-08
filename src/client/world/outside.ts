@@ -2,9 +2,12 @@ import * as THREE from 'three';
 import { ELEVATOR, ELEVATOR_FRONT, FLOOR, ROAD, SLAB, STREET_Y, WALL_T } from '../../shared/layout';
 import { LOT, SIDE_LOT } from '../../shared/garage';
 import { STREET_END, shoreX } from '../../shared/scenic';
+import { mulberry32 } from '../../shared/rng';
 import type { Collider } from './types';
 import type { Fixture, StreetSite } from './office/fixture';
 import { canvasTexture } from './texture';
+import { leafyGeometry, treeMaterial } from './voxtrees';
+import { buildSkyWorld, type SkyWorld } from './skyworld';
 import { mergeByMaterial, mesh, textPlane, toon, toonUnique } from './toon';
 
 const G = STREET_Y;
@@ -29,15 +32,15 @@ export interface Lamp {
 /** Everything that changes between day and night and with the weather, for the sky to drive. */
 export interface NightParts {
   /** Bulbs whose glow goes from `day` (emissive intensity by day) up to full at night. */
-  bulbs: { mat: THREE.MeshToonMaterial; day: number }[];
+  bulbs: { mat: THREE.MeshStandardMaterial; day: number }[];
   /** Where each bulb's soft halo goes at night, and its color; `ground` as for a Lamp. */
   halos: { at: THREE.Vector3; size: number; color: string; ground?: boolean }[];
   lamps: Lamp[];
   /** How far below the floor you're on the street is (see streetBelow): what the `ground` lamps drop with. */
   street: number;
   /** The neighbours' walls, whose windows light up at night. */
-  windows: THREE.MeshToonMaterial[];
-  clouds: THREE.MeshToonMaterial;
+  windows: THREE.MeshStandardMaterial[];
+  clouds: THREE.MeshStandardMaterial;
   /** Rain running down the office windows. */
   wetGlass: THREE.MeshBasicMaterial;
   /** Light you only see at night (the lighthouse's beam): see-through, `max` opaque when it's dark. */
@@ -45,7 +48,7 @@ export interface NightParts {
 }
 
 /** A bulb that glows `day` much by day and fully at night. */
-export function bulb(night: NightParts, color: string, day = 0): THREE.MeshToonMaterial {
+export function bulb(night: NightParts, color: string, day = 0): THREE.MeshStandardMaterial {
   const mat = toonUnique(color);
   mat.emissive.set(color);
   mat.emissiveIntensity = day;
@@ -57,7 +60,7 @@ const box = (w: number, h: number, d: number) => new THREE.BoxGeometry(w, h, d);
 
 /** A flat, textured toon plane lying on the ground. */
 function groundPlane(w: number, d: number, x: number, y: number, z: number, map: THREE.Texture | null, color = '#ffffff'): THREE.Mesh {
-  const mat = new THREE.MeshToonMaterial({ color, map, gradientMap: (toon('#fff') as THREE.MeshToonMaterial).gradientMap });
+  const mat = new THREE.MeshStandardMaterial({ color, map });
   const m = new THREE.Mesh(new THREE.PlaneGeometry(w, d), mat);
   m.rotation.x = -Math.PI / 2;
   m.position.set(x, y, z);
@@ -181,18 +184,39 @@ export function buildGarage(group: THREE.Group, colliders: Collider[]) {
   group.add(mergeByMaterial(parts));
 }
 
+/** Grass in blocks: a field of square tufts in a handful of greens, a block (2 m) to a square, sharp however far it stretches. */
+function grassTexture(w: number, d: number): THREE.CanvasTexture {
+  const n = 32;
+  const rand = mulberry32(99);
+  const tones = ['#8fcf6b', '#9bd777', '#84c561', '#a5dd80', '#7bbb5a'];
+  const t = canvasTexture(n * 4, n * 4, (g) => {
+    for (let y = 0; y < n; y++)
+      for (let x = 0; x < n; x++) {
+        g.fillStyle = tones[Math.floor(rand() * tones.length)];
+        g.fillRect(x * 4, y * 4, 4, 4);
+        if (rand() < 0.05) {
+          g.fillStyle = ['#f2e86d', '#f4a6c0', '#ffffff'][Math.floor(rand() * 3)];
+          g.fillRect(x * 4 + 1, y * 4 + 1, 2, 2);
+        }
+      }
+  });
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.magFilter = THREE.NearestFilter;
+  t.repeat.set(w / 8, d / 8);
+  return t;
+}
+
 export function tree(scale: number): THREE.Group {
   const t = new THREE.Group();
-  t.add(mesh(new THREE.CylinderGeometry(0.22, 0.3, 2.2, 8), toon('#8a5a3b'), 0, 1.1, 0));
-  t.add(mesh(new THREE.SphereGeometry(1.6, 12, 10), toon('#5fb760'), 0, 3.2, 0));
-  t.add(mesh(new THREE.SphereGeometry(1.1, 12, 10), toon('#3f8f45'), 0.8, 3.9, 0.4));
-  t.add(mesh(new THREE.SphereGeometry(1.0, 12, 10), toon('#6fcf6a'), -0.7, 3.8, -0.3));
+  const m = new THREE.Mesh(leafyGeometry('#5fb760', Math.floor(scale * 13)), treeMaterial);
+  m.castShadow = true;
+  t.add(m);
   t.scale.setScalar(scale);
   return t;
 }
 
 /** A building across the street or out back: a painted block with rows of windows and a roof cap. */
-function building(w: number, h: number, d: number, color: string, lit: THREE.MeshToonMaterial[]): THREE.Group {
+function building(w: number, h: number, d: number, color: string, lit: THREE.MeshStandardMaterial[]): THREE.Group {
   const g = new THREE.Group();
   // Where the windows go across a floor (in 256ths): each column's middle half, 70 to 190 up.
   const face = (n: number) =>
@@ -223,7 +247,7 @@ function building(w: number, h: number, d: number, color: string, lit: THREE.Mes
     const t = face(n);
     t.wrapT = THREE.RepeatWrapping;
     t.repeat.set(1, floors);
-    const m = new THREE.MeshToonMaterial({ map: t, emissive: '#ffffff', emissiveMap: lights(n, floors), emissiveIntensity: 0, gradientMap: (toon('#fff') as THREE.MeshToonMaterial).gradientMap });
+    const m = new THREE.MeshStandardMaterial({ map: t, emissive: '#ffffff', emissiveMap: lights(n, floors), emissiveIntensity: 0 });
     lit.push(m);
     return m;
   };
@@ -238,7 +262,7 @@ function building(w: number, h: number, d: number, color: string, lit: THREE.Mes
 }
 
 /** A street lamp on the sidewalk at (x, z), its arm reaching out over the road toward `toward` (±1 in z). */
-export function streetLamp(parts: THREE.Group, night: NightParts, glass: THREE.MeshToonMaterial, colliders: Collider[], x: number, z: number, toward: number) {
+export function streetLamp(parts: THREE.Group, night: NightParts, glass: THREE.MeshStandardMaterial, colliders: Collider[], x: number, z: number, toward: number) {
   const ink = toon('#3d405b');
   const H = 5;
   parts.add(mesh(new THREE.CylinderGeometry(0.2, 0.24, 0.5, 10), ink, x, G + 0.25, z));
@@ -308,117 +332,15 @@ export function neighbourBoxes(): { minX: number; maxX: number; minZ: number; ma
  * Everything outside, down on the street: grass, the lot in front of the garage, a road with
  * sidewalks and street lamps, trees and neighbours' buildings, and in `sky` some clouds.
  */
-export function buildStreet(group: THREE.Group, colliders: Collider[], night: NightParts, sky: THREE.Group) {
-  const lawn = new THREE.Mesh(new THREE.PlaneGeometry(REACH - LAWN_WEST, REACH * 2), toon('#a7d98b'));
-  lawn.rotation.x = -Math.PI / 2;
-  lawn.position.set((LAWN_WEST + REACH) / 2, G - 0.03, 0);
-  lawn.receiveShadow = true;
-  group.add(lawn);
+export function buildStreet(group: THREE.Group, colliders: Collider[], night: NightParts, sky: THREE.Group): SkyWorld {
+  void night;
   // What you stand on anywhere out there, the lot and the road and the grass alike, and the beach.
+  // (What it looks like is the city's, see streetcity.ts.)
   colliders.push({ minX: -REACH, maxX: REACH, minZ: -REACH, maxZ: REACH, bottom: G - 1, top: G });
+  void group;
 
-  // The lot in front of the garage, out to the sidewalk, and the one down its east side.
-  for (const [b, y] of [
-    [LOT, G - 0.01],
-    [SIDE_LOT, G - 0.012],
-  ] as const) {
-    group.add(groundPlane(b.maxX - b.minX, b.maxZ - b.minZ, (b.minX + b.maxX) / 2, y, (b.minZ + b.maxZ) / 2, null, '#9a9ea8'));
-  }
-
-  // The road, out to either end of the street, where the scenic loop takes over (world/scenic/).
-  const road = roadTexture();
-  road.repeat.set((STREET_END * 2) / 8, 1);
-  group.add(groundPlane(STREET_END * 2, ROAD.maxZ - ROAD.minZ, 0, G - 0.008, (ROAD.minZ + ROAD.maxZ) / 2, road));
-  for (const [z0, z1] of [
-    [21, ROAD.minZ],
-    [ROAD.maxZ, ROAD.maxZ + 2],
-  ]) {
-    group.add(mesh(box(STREET_END * 2 - 4, 0.08, z1 - z0), toon('#e3ddd0'), 0, G, (z0 + z1) / 2));
-  }
-  const forest = new THREE.Group();
-
-  // Trees along the sidewalks and around the building.
-  const trees: [number, number, number][] = [
-    [-34, 22, 1.1],
-    [-22, 22, 1],
-    [22, 22, 1.05],
-    [34, 22, 0.95],
-    [-40, 32.5, 1.1],
-    [-12, 32.5, 1],
-    [14, 32.5, 1.15],
-    [42, 32.5, 1],
-    [-27, -8, 1.2],
-    [-29, 4, 1],
-    [-26, 14, 0.9],
-    [29, -6, 1.1],
-    [30, 6, 1.25],
-    [-12, -22, 1.2],
-    [4, -24, 1],
-    // Clear of the back office, when a floor's built out into one (see WING).
-    [23, -19, 1.1],
-  ];
-  for (const [x, z, s] of trees) {
-    const t = tree(s);
-    t.position.set(x, G, z);
-    forest.add(t);
-    // Its trunk, which you (or a car) can't go through.
-    const r = 0.26 * s;
-    colliders.push({ minX: x - r, maxX: x + r, minZ: z - r, maxZ: z + r, bottom: G, top: G + 2.2 * s });
-  }
-  group.add(mergeByMaterial(forest));
-
-  // Street lamps down both sidewalks, their arms out over the road.
-  const lamps = new THREE.Group();
-  const glass = bulb(night, '#fff3d6');
-  for (const x of [-40, -28, -16, -4, 8, 16, 28, 40]) streetLamp(lamps, night, glass, colliders, x, 22.2, 1);
-  for (const x of [-34, -22, -4, 8, 26, 36]) streetLamp(lamps, night, glass, colliders, x, 31.8, -1);
-  group.add(mergeByMaterial(lamps));
-
-  // The neighbours: across the street, and further out behind and beside the office.
-  for (const [x, z, w, h, d, color] of NEIGHBOURS) {
-    const b = building(w, h, d, color, night.windows);
-    b.position.set(x, G, z);
-    b.rotation.y = facing(x, z);
-    group.add(b);
-  }
-  // Solid: you (and a car) stop at their walls instead of walking in.
-  for (const n of neighbourBoxes()) colliders.push({ minX: n.minX, maxX: n.maxX, minZ: n.minZ, maxZ: n.maxZ, bottom: G, top: G + n.top });
-
-  // Puffy clouds, too far off for the fog to hide.
-  const cloud = night.clouds;
-  cloud.fog = false;
-  const puffs = new THREE.Group();
-  for (const [x, y, z, s] of [
-    [-70, 34, -60, 1.3],
-    [-10, 40, -90, 1.6],
-    [60, 36, -70, 1.2],
-    [90, 30, 20, 1.4],
-    [-95, 32, 30, 1.1],
-    [30, 38, 95, 1.5],
-    [-45, 36, 90, 1.2],
-  ]) {
-    const c = new THREE.Group();
-    for (const [dx, dy, r] of [
-      [0, 0, 5],
-      [5.5, -1, 3.8],
-      [-5.5, -1.2, 3.6],
-      [2.5, 2.4, 3.4],
-    ]) {
-      const puff = mesh(new THREE.SphereGeometry(r, 14, 10), cloud, dx, dy, 0, false);
-      puff.scale.y = 0.75;
-      c.add(puff);
-    }
-    c.position.set(x, y, z);
-    c.scale.setScalar(s);
-    c.lookAt(0, y, 0);
-    puffs.add(c);
-  }
-  sky.add(mergeByMaterial(puffs));
+  // The voxel sky world: terraced clouds and floating islands, too far off for the fog to hide.
+  const world = buildSkyWorld(night.clouds, (c) => bulb(night, c, 0.9));
+  sky.add(world.group);
+  return world;
 }
-
-/** The street out front, the city along it, and the clouds over it all. */
-export const street: Fixture<never, StreetSite> = (site) => {
-  // The clouds stay up in the sky, however far down the street is.
-  buildStreet(site.ground, site.groundColliders, site.get('night'), site.group);
-  return {};
-};

@@ -150,12 +150,10 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
       ),
     );
     const now =
-      active === 'halloween'
-        ? 'Halloween: the workers are zombies, your hands are an undead warlock’s, the dog’s in costume, the sky’s gone creepy and there are jack-o’-lanterns everywhere.'
-        : active === 'christmas'
-          ? 'Christmas: the workers are elves, your hands are in mittens, the dog’s Rudolph, and it’s snowing outside.'
-          : 'No decorations up right now.';
-    const how = pick === 'auto' ? ' By the calendar it’s Halloween through October and Christmas through December.' : '';
+      active === 'christmas'
+        ? 'Christmas: the workers are elves, your hands are in mittens, the dog’s Rudolph, and it’s snowing outside.'
+        : 'No decorations up right now.';
+    const how = pick === 'auto' ? ' By the calendar it’s Christmas through December.' : '';
     themeNote.textContent = `${now}${how} It’s the same for everyone in the building${by ? `, set by ${by}${at ? ` ${timeAgo(at)}` : ''}` : ''}.`;
   };
   paintTheme();
@@ -417,7 +415,7 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
     dirRow.classList.toggle('hidden', !admin);
     dirActions.classList.toggle('hidden', !admin || !custom);
     dirNote.textContent =
-      `New projects from the elevator are cloned into ${dir}/<owner>/<repo> on the office’s machine.` +
+      `New projects from the elevator are cloned into ${dir}/<repo> on the office’s machine.` +
       (custom && by && at ? ` Set by ${by} ${timeAgo(at)}.` : '') +
       (admin ? ' A checkout of the same repository that’s already there is used as it is. Floors you already have stay where they are.' : ' An admin can move it.');
   };

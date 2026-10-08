@@ -138,5 +138,5 @@ export class MachineTexture {
 
 function roundRect(g: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
   g.beginPath();
-  g.roundRect(x, y, w, h, r);
+  g.rect(x, y, w, h);
 }

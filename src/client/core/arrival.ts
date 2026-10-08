@@ -106,8 +106,8 @@ export function installArrival(ctx: Ctx, core: CoreState, parts: ArrivalParts) {
     if (player.seat) net.send({ t: 'sit', seat: player.seat.key });
     const carrying = core.carrying;
     if (carrying) net.send({ t: 'carry', issue: carrying.issue, title: carrying.title });
-    const shownDrink = parts.bar.shownDrink();
-    if (shownDrink) net.send({ t: 'act', drink: shownDrink });
+    const shownItem = parts.bar.shownItem();
+    if (shownItem) net.send({ t: 'act', drink: shownItem });
     if (parts.golf.golf.active) net.send({ t: 'act', golf: true });
     const { thrower } = parts.bargames;
     if (thrower.playing) net.send({ t: 'act', throwing: thrower.playing });
@@ -181,8 +181,8 @@ export function installArrival(ctx: Ctx, core: CoreState, parts: ArrivalParts) {
     if (store.floor === ROOF) {
       const n = builtFloors().length;
       $('project-meta').classList.remove('lobby');
-      $('project-name').textContent = `🍸 ${ROOF_NAME}`;
-      $('project-meta').textContent = `🛗 on top of ${n} floor${n === 1 ? '' : 's'} · 🎧 drum & bass`;
+      $('project-name').textContent = `☕ ${ROOF_NAME}`;
+      $('project-meta').textContent = `🛗 on top of ${n} floor${n === 1 ? '' : 's'} · 🌇 the city all around`;
       return;
     }
     if (!p) {
