@@ -1,0 +1,10 @@
+.racing-panel { position: relative; width: min(940px, 94vw); padding: 22px; border: 3px solid var(--ink); border-radius: 18px; background: var(--paper); box-shadow: 0 8px 0 var(--ink); }
+.racing-panel header { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.racing-panel h2 { margin: 0; font-size: 24px; }
+.racing-panel header .close { margin-left: auto; }
+.racing-stats { display: flex; flex-wrap: wrap; gap: 10px 28px; margin-bottom: 14px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.racing-panel canvas { width: 100%; height: min(52vh, 500px); display: block; border-radius: 10px; border: 2px solid var(--ink); }
+.racing-status { min-height: 24px; margin: 12px 0; font-weight: 800; }
+.racing-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.racing-actions .tip { flex: 1; font-size: 13px; color: var(--muted); }
+@media (max-width: 600px) { .racing-panel { padding: 14px; } .racing-panel h2 { font-size: 20px; } }

@@ -71,7 +71,7 @@ export class Cabinet {
   constructor(
     screen: THREE.Mesh,
     private readonly net: Net,
-    private readonly opts: { openTerminal(workerId: string): void; sound(kind: CabinetSound, lines?: number): void },
+    private readonly opts: { openTerminal(workerId: string): void; race?(): void; sound(kind: CabinetSound, lines?: number): void },
   ) {
     this.view = new ScreenZoom(screen);
     this.picture.width = 512;
@@ -189,6 +189,11 @@ export class Cabinet {
     this.watching = mode === 'watch' ? (store.cabinet.player?.name ?? '') : '';
     const board = h('canvas', { 'aria-label': mode === 'play' ? GAME : `${this.watching} playing ${GAME}` });
     const stop = h('button.btn', { type: 'button' }, mode === 'play' ? '✕ Stop playing' : '✕ Stop watching');
+    const race = this.opts.race ? h('button.btn', { type: 'button', onclick: () => {
+      // Open first so leaving BLOCKFALL does not briefly restore pointer lock.
+      this.opts.race?.();
+      this.modal?.close();
+    } }, '🏎️ Circuit Racer') : null;
     const tip = mode === 'play' ? '← → move · ↑ turn · ↓ faster · Space drop · C hold · P pause' : `👀 Watching ${this.watching}`;
     const call = h('div.cabinet-call.hidden', { role: 'status' });
     const box = h(
@@ -196,7 +201,7 @@ export class Cabinet {
       { role: 'dialog', 'aria-label': GAME },
       h('div.arcade-screen', {}, board),
       call,
-      h('div.arcade-bar', {}, h('span', {}, `🕹️ ${GAME}`), h('span.tip', {}, tip), stop),
+      h('div.arcade-bar', {}, h('span', {}, `🕹️ ${GAME}`), h('span.tip', {}, tip), race, stop),
     );
 
     const fit = () => {

@@ -15,12 +15,13 @@ declare module '../../world/types' {
 export interface CabinetDeps {
   /** A worker's terminal: one of yours needing you stops the game, with a button to it. */
   openTerminal(id: string): void;
+  race(): void;
 }
 
 /** The arcade cabinet by the jukebox: BLOCKFALL up close, and on its screen for everyone else on the floor. */
 export function installCabinet(ctx: Ctx, deps: CabinetDeps): Cabinet {
   // The arcade cabinet next to it: BLOCKFALL up close, and on its screen for everyone else on the floor.
-  const cabinet = new Cabinet(ctx.office.cabinet.screen, ctx.net, { openTerminal: (id) => deps.openTerminal(id), sound: (kind, lines) => ctx.sound.arcade(kind, lines) });
+  const cabinet = new Cabinet(ctx.office.cabinet.screen, ctx.net, { openTerminal: (id) => deps.openTerminal(id), race: () => deps.race(), sound: (kind, lines) => ctx.sound.arcade(kind, lines) });
   ctx.ticks.add('play', ({ dt }) => cabinet.update(ctx.camera, dt));
   ctx.interactions.define('cabinet', {
     reach: 4,
