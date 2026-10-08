@@ -8,6 +8,7 @@ import { custom } from './custom.js';
 import { dsh } from './dsh.js';
 import { grok } from './grok.js';
 import { muse } from './muse.js';
+import { omp } from './omp.js';
 import { opencode } from './opencode.js';
 import { pi } from './pi.js';
 import type { SomeAdapter } from './types.js';
@@ -22,6 +23,7 @@ export const PROVIDERS: Record<AgentProvider, SomeAdapter> = {
   muse,
   dsh,
   pi,
+  omp,
   cursor,
   custom,
 };

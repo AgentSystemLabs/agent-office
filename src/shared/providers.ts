@@ -4,7 +4,7 @@
 //
 // Browser-safe: no node imports, the hire dialog reads this too.
 
-export const AGENT_PROVIDERS = ['claude', 'opencode', 'codex', 'grok', 'muse', 'dsh', 'pi', 'cursor', 'custom'] as const;
+export const AGENT_PROVIDERS = ['claude', 'opencode', 'codex', 'grok', 'muse', 'dsh', 'pi', 'omp', 'cursor', 'custom'] as const;
 
 export type AgentProvider = (typeof AGENT_PROVIDERS)[number];
 
@@ -57,6 +57,7 @@ export const OPEN_CODE_MODEL_MAX = 256;
 export const GROK_MODEL_MAX = 64;
 export const MUSE_MODEL_MAX = 128;
 export const PI_MODEL_MAX = 256;
+export const OMP_MODEL_MAX = 256;
 export const CURSOR_MODEL_MAX = 128;
 export const CODEX_MODEL_MAX = 128;
 
@@ -105,6 +106,16 @@ export function isValidCodexModel(value: unknown): value is string {
  */
 export function isValidPiModel(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0 && value.length <= PI_MODEL_MAX && /^[A-Za-z0-9._:/@+][A-Za-z0-9._:/@+-]*$/.test(value);
+}
+
+/**
+ * OMP takes the same model shapes Pi does: model ids, fuzzy model names and provider/model patterns
+ * with an optional `:thinking` suffix (`sonnet`, `openai/gpt-4.1`, `deepseek/deepseek-v4-flash:low`).
+ * They're argv values, and a Windows `.cmd` launcher runs them through cmd.exe, so only the
+ * characters a model name uses get through, and never a leading '-'.
+ */
+export function isValidOmpModel(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= OMP_MODEL_MAX && /^[A-Za-z0-9._:/@+][A-Za-z0-9._:/@+-]*$/.test(value);
 }
 
 /**
@@ -303,6 +314,23 @@ export const PROVIDER_META: Record<AgentProvider, ProviderMeta> = {
     takesEffort: true,
     effortLabel: 'Thinking',
     usage: { note: 'Pi uses your existing Pi login and settings. Usage and cost stay in its terminal; the office does not meter them.' },
+  },
+  omp: {
+    label: 'OMP',
+    name: 'OMP',
+    bin: 'omp',
+    validModel: isValidOmpModel,
+    invalidModel: 'Invalid OMP model (expected a model name or provider/model without whitespace)',
+    models: {
+      pick: 'typed',
+      unset: 'Default (omp settings)',
+      max: OMP_MODEL_MAX,
+      hint: 'Optional model name or provider/model; leave Default to use omp settings.',
+      invalid: 'Use an omp model name or provider/model: letters, digits and . _ : / @ + - (up to 256 characters).',
+    },
+    takesEffort: true,
+    effortLabel: 'Thinking',
+    usage: { tracked: true, waiting: 'waiting for usage', note: 'OMP uses your existing omp login and settings. Sessions live in your own OMP store, so `omp --resume` opens the same conversation, and the office shows the spend OMP records.' },
   },
   cursor: {
     label: 'Cursor',
