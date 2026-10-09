@@ -83,8 +83,7 @@ uniform vec3 skyLampMin;
 uniform vec3 skyLampMax;
 uniform float skyWet;
 uniform float skySnow;
-uniform float skyClearRooms;
-uniform float skyDrop;
+uniform float skyClearRooms, skyDrop, skyStreet;
 uniform vec4 skyWing;
 
 // Inside the office's walls (and up through its open top), or the back office's, up to its ceiling

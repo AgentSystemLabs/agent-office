@@ -36,6 +36,7 @@ test('weather fog is cleared from office and garage fragments', () => {
   assert.match(shader.vertexShader, /vSkyWorld = \( modelMatrix \* skyW \)\.xyz;/);
   assert.match(shader.fragmentShader, /float skyRoom = skyClearRooms \* max\( skyInOffice\( vSkyWorld \), skyInGarage\( vSkyWorld \) \);/);
   assert.match(shader.fragmentShader, /float skyFogDepth = vFogDepth \* \( 1\.0 - skyRoom \);/);
+  assert.match(shader.fragmentShader, /uniform float skyClearRooms, skyDrop, skyStreet;/);
   assert.match(shader.fragmentShader, /smoothstep\( fogNear, fogFar, skyFogDepth \/ skyReach \)/);
   assert.ok('skyClearRooms' in shader.uniforms);
 });
