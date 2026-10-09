@@ -12,6 +12,7 @@ import WebSocket from 'ws';
 import { loadConfig } from '../src/server/config.js';
 import { startServer } from '../src/server/server.js';
 import type { ServerMsg } from '../src/shared/protocol.js';
+import { LOBBY, LOBBY_SEATING } from '../src/shared/lobby.js';
 
 type Office = Awaited<ReturnType<typeof startServer>>;
 type Msg<T extends ServerMsg['t']> = Extract<ServerMsg, { t: T }>;
@@ -48,7 +49,9 @@ class Browser {
     ws.on('close', () => (this.closed = true));
   }
 
-  static open(query = '', headers: Record<string, string> = { cookie, origin: base }): Promise<Browser> {
+  static open(query = '', headers: Record<string, string> = { cookie, origin: base }, project = true): Promise<Browser> {
+    // Existing project tests explicitly request that floor; new connections otherwise start on G.
+    if (project && !query.includes('floor=')) query += `${query ? '&' : '?'}floor=${office.floors()[0].id}`;
     return new Promise((resolve, reject) => {
       const ws = new WebSocket(`${base.replace('http', 'ws')}/ws${query}`, { headers });
       const b = new Browser(ws);
@@ -261,8 +264,9 @@ test('welcomes a browser and dispatches what it sends', async () => {
   assert.equal(welcome.project?.name, floor.project.name);
   assert.deepEqual(welcome.me, { admin: true });
   assert.deepEqual(welcome.workers, []);
-  assert.equal(welcome.floors.length, 1);
-  assert.equal(welcome.floors[0].id, floor.id);
+  assert.equal(welcome.floors.length, 2);
+  assert.equal(welcome.floors[0].id, LOBBY);
+  assert.equal(welcome.floors[1].id, floor.id);
   const ada = welcome.peers.find((p) => p.id === welcome.you);
   assert.equal(ada?.name, 'Ada');
   assert.equal(ada?.color, '#ff8a5b');
@@ -323,6 +327,72 @@ test('welcomes a browser and dispatches what it sends', async () => {
   await b.close();
   assert.equal((await a.take('peer.leave')).id, bWelcome.you);
   await a.close();
+});
+
+test('the public lobby welcomes everyone, shares amenities and isolates them from projects', async () => {
+  const a = await Browser.open('?name=LobbyA', { cookie, origin: base }, false);
+  const welcome = await a.take('welcome');
+  assert.equal(welcome.floor, LOBBY);
+  assert.equal(welcome.project, null);
+  assert.deepEqual(welcome.workers, []);
+  assert.equal(welcome.floors[0].id, LOBBY);
+  assert.equal(welcome.floors[0].dir, '');
+  assert.equal(welcome.floors[0].people, 1);
+  const b = await Browser.open('?name=LobbyB&floor=%40lobby');
+  const bw = await b.take('welcome');
+  const project = await Browser.open('?name=ProjectObserver');
+  await project.take('welcome');
+  await project.drain();
+  try {
+    a.send({ t: 'move', x: 1, y: 0, z: 2, rotY: 0, moving: true });
+    assert.equal((await b.take('peer.move')).id, welcome.you);
+    a.send({ t: 'sit', seat: `${LOBBY_SEATING[0].id}:0` });
+    assert.equal((await b.take('peer.update', (m) => !!m.peer.seat)).peer.seat, `${LOBBY_SEATING[0].id}:0`);
+    b.send({ t: 'sit', seat: `${LOBBY_SEATING[0].id}:0` });
+    assert.equal((await b.take('sit.refused')).by, 'LobbyA');
+    a.send({ t: 'jukebox.skip' });
+    assert.equal((await b.take('jukebox')).state.on, true);
+    a.send({ t: 'wb.open' });
+    assert.deepEqual((await b.take('wb.people')).people, [welcome.you]);
+    const element = { id: 'lobby-drawing', type: 'rectangle', version: 1, versionNonce: 1 };
+    a.send({ t: 'wb.update', elements: [element] });
+    assert.deepEqual((await b.take('wb.update')).elements, [element]);
+    a.send({ t: 'ball.take' });
+    assert.equal((await b.take('ball')).ball.holder, welcome.you);
+    a.send({ t: 'cabinet.play' });
+    assert.equal((await b.take('cabinet')).state.player?.id, welcome.you);
+    a.send({ t: 'car.enter', car: 0, seat: 'driver' });
+    await a.take('cars', (m) => m.answer === true);
+    assert.equal((await b.take('cars')).cars[0].driver, welcome.you);
+    a.send({ t: 'floor.remove', floor: LOBBY });
+    assert.match((await a.take('toast', (m) => m.level === 'warn')).text, /permanent ground floor/);
+    a.send({ t: 'worker.spawn', deskId: 'desk-1' });
+    assert.match((await a.take('toast', (m) => m.level === 'warn')).text, /floor/);
+    a.send({ t: 'floor.go', floor: office.floors()[0].id });
+    const upstairs = await a.take('floor.enter');
+    assert.equal(upstairs.project?.name, office.floors()[0].project.name);
+    assert.deepEqual(upstairs.whiteboard.elements, []);
+    assert.deepEqual((await b.take('wb.people')).people, []);
+    assert.equal((await b.take('ball')).ball.holder, undefined);
+    assert.equal((await b.take('cabinet', (m) => m.state.player === null)).state.player, null);
+    a.send({ t: 'floor.go', floor: LOBBY });
+    const back = await a.take('floor.enter');
+    assert.equal(back.floor, LOBBY);
+    assert.deepEqual(back.whiteboard.elements, [element]);
+    assert.equal(back.jukebox.on, true);
+    project.send({ t: 'ping', at: 99 });
+    await project.take('pong', (m) => m.at === 99);
+    assert.deepEqual(project.pending('wb.update'), []);
+    assert.deepEqual(project.pending('jukebox'), []);
+    assert.deepEqual(project.pending('peer.move'), []);
+    // A disconnected player releases public amenities too.
+    b.send({ t: 'ball.take' });
+    await a.take('ball', (m) => m.ball.holder === bw.you);
+    await b.close();
+    assert.equal((await a.take('ball', (m) => !m.ball.holder)).ball.holder, undefined);
+  } finally {
+    await a.close(); await b.close(); await project.close();
+  }
 });
 
 test('the toys on a floor, and letting go of them on leaving the floor or the office', async () => {
@@ -483,4 +553,26 @@ test('the hook server answers only workers, with their own token', async () => {
     assert.equal(res.status, 401);
     assert.match(((await res.json()) as { error: string }).error, /AGENT_OFFICE_WORKER_ID/);
   }
+});
+
+test('removing the last project leaves the ground-floor lobby and roof open', async () => {
+  const a = await Browser.open('?name=LastProject');
+  await a.take('welcome');
+  try {
+    a.send({ t: 'floor.remove', floor: office.floors()[0].id });
+    const arrived = await a.take('floor.enter');
+    assert.equal(arrived.floor, LOBBY);
+    assert.equal(arrived.project, null);
+    const floors = await a.take('floors', (m) => m.floors.length === 1);
+    assert.equal(floors.floors[0].id, LOBBY);
+    const b = await Browser.open('?name=NoProjects', { cookie, origin: base }, false);
+    const welcome = await b.take('welcome');
+    assert.equal(welcome.floor, LOBBY);
+    assert.equal(welcome.floors.length, 1);
+    await b.close();
+    a.send({ t: 'floor.go', floor: '@roof' });
+    assert.equal((await a.take('floor.enter')).floor, '@roof');
+    a.send({ t: 'floor.go', floor: LOBBY });
+    assert.equal((await a.take('floor.enter')).floor, LOBBY);
+  } finally { await a.close(); }
 });

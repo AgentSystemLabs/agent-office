@@ -1,8 +1,8 @@
+import { LOBBY, lobbyInfo } from '../../shared/lobby.js';
 import { existsSync } from 'node:fs';
 import { WebSocket } from 'ws';
 import type { FloorDef } from '../building.js';
 import { Floor, type FloorContext } from '../floor.js';
-import { ROOF } from '../../shared/rooftop.js';
 import type { FloorInfo, ServerMsg } from '../../shared/protocol.js';
 import type { Ctx, FloorHelpers, FloorsOpen } from './context.js';
 import { SLOW_CLIENT_BYTES, type Client } from './client.js';
@@ -16,6 +16,7 @@ export function floorHelpers(ctx: Ctx): FloorHelpers {
     return undefined;
   };
   const floorInfos = (): FloorInfo[] => [
+    lobbyInfo([...ctx.clients.values()].filter((c) => c.peer.floor === LOBBY).length),
     ...[...ctx.floors.values()].map((f) => ({ ...f.info(), ...(ctx.building.isLocal(f.id) ? { local: true } : {}) })),
     ...ctx.building.pending().map((d) => ({ id: d.id, name: d.name, repo: d.repo, dir: d.dir, palette: d.palette, addedBy: d.addedBy, addedAt: d.addedAt, cloning: true, clone: ctx.building.cloneProgress(d.id), workers: 0, busy: 0, waiting: 0, people: 0, wing: 0 })),
   ];
@@ -32,12 +33,12 @@ export function floorHelpers(ctx: Ctx): FloorHelpers {
       ctx.broadcast({ t: 'floors', floors: list });
     }, 250);
   };
-  /** Where someone arriving goes: the floor they asked for, else the first one there is. */
-  const arrivalFloor = (wanted: string | null): Floor | undefined => (wanted && ctx.floors.get(wanted)) || ctx.floors.values().next().value;
+  /** Where someone arriving goes: the floor they asked for, else the public lobby (no project Floor). */
+  const arrivalFloor = (wanted: string | null): Floor | undefined => wanted ? ctx.floors.get(wanted) : undefined;
 
   /**
    * Takes `floor` off the building (already out of floors.json): everyone on it rides the elevator to
-   * the next floor, or out to the lobby if it was the last (the roof goes with it), and its workers stop.
+   * the next project floor, or the public lobby if it was the last, and its workers stop.
    */
   const closeFloor = (floor: Floor, who: string) => {
     const name = floor.def.name;
@@ -47,7 +48,7 @@ export function floorHelpers(ctx: Ctx): FloorHelpers {
     floorsSent = JSON.stringify(list);
     ctx.broadcast({ t: 'floors', floors: list });
     for (const c of ctx.clients.values()) {
-      if (c.peer.floor === floor.id || (!next && c.peer.floor === ROOF)) {
+      if (c.peer.floor === floor.id) {
         if (next) ctx.goToFloor(c, next);
         else ctx.toLobby(c);
         ctx.sendTo(c, { t: 'toast', text: next ? `🛗 ${who} took ${name} off the building, so you rode the elevator to ${next.def.name}` : `🛗 ${who} took ${name}, the last floor, off the building`, level: 'warn' });

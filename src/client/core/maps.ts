@@ -101,6 +101,7 @@ export function installMaps(ctx: Ctx, core: CoreState, parts: MapsParts) {
     ctx.hud.refresh();
   }
   store.on('map', applyMap);
+  store.on('floor', applyMap);
 
   /** Down off the roof, on a map with no roof to be up on (it changed while you were up there). */
   function offTheRoof() {

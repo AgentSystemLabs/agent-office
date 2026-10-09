@@ -1,6 +1,7 @@
 // ⚙️ Settings: team notifications, the worker limit, upgrades, the holiday theme, the building's map,
 // the office's prompts and default worker, and whether merged workers go home by themselves.
 import path from 'node:path';
+import { LOBBY } from '../../../shared/lobby.js';
 import { OPEN_CODE_MODEL_MAX } from '../../../shared/providers.js';
 import { MAX_WORKER_LIMIT, parseWorkerLimit } from '../../machine.js';
 import { OFFICE_MAP } from '../../../shared/maps/index.js';
@@ -22,7 +23,7 @@ export const servicesView: ViewPieces['services'] = (ctx, floor) => ctx.services
 export const mapNews = (ctx: Ctx, was: string, who?: string) => {
   const { maps } = ctx;
   const now = maps.pick();
-  if (now !== was) for (const other of ctx.clients.values()) delete other.peer.seat;
+  if (now !== was) for (const other of ctx.clients.values()) if (other.peer.floor !== LOBBY) delete other.peer.seat;
   ctx.broadcast({ t: 'map', state: maps.state() });
   if (now === was) return;
   const plan = maps.plan();

@@ -499,6 +499,7 @@ export function seatOn(plan: MapPlan, key: string): SeatPlace | undefined {
 
 /** The place `key` names on `plan`, if it's somewhere you can sit from where you are (see seatHere): up on the roof, or down on a floor. */
 export function seatHereOn(plan: MapPlan, key: string, onRoof: boolean): SeatPlace | undefined {
-  if (plan.style === 'office' || onRoof) return seatHere(key, onRoof);
-  return seatOn(plan, key);
+  if (onRoof) return seatHere(key, true);
+  const place = seatOn(plan, key);
+  return place && !plan.seatingById.get(place.seatId)?.roof ? place : undefined;
 }

@@ -1,3 +1,4 @@
+import { LOBBY } from '../../../shared/lobby.js';
 // The building's floors: riding the elevator between them and up to the roof, and adding and taking
 // off floors.
 import type { FloorClientMsg } from '../../../shared/protocol.js';
@@ -9,9 +10,9 @@ export const projectView: ViewPieces['project'] = (_ctx, floor) => floor?.projec
 
 export const floorHandlers = {
   'floor.go'(ctx, c, msg) {
+    if (msg.floor === LOBBY) return ctx.toLobby(c, arrivalSpot(msg.at));
     if (msg.floor === ROOF) {
-      if (ctx.floors.size) ctx.goToRoof(c);
-      else ctx.warn(c, 'There is no building to go up on yet');
+      ctx.goToRoof(c);
       return;
     }
     const floor = ctx.floors.get(str(msg.floor, 64));
@@ -61,6 +62,7 @@ export const floorHandlers = {
     // Everyone's workers on it stop: admins do it.
     if (!ctx.meOf(c.accountId).admin) return ctx.warn(c, 'Only admins can take a floor off the building');
     const id = str(msg.floor, 64);
+    if (id === LOBBY) return ctx.warn(c, 'The public lobby is the permanent ground floor');
     const r = ctx.building.remove(id, who);
     if (typeof r === 'string') return ctx.warn(c, r);
     console.log(`  ${who} took the ${r.name} floor off the building (${r.dir} stays where it is)`);
