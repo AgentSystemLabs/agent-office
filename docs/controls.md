@@ -28,7 +28,7 @@ Back to the [README](../README.md).
 | M | Mute / unmute in voice |
 | Ctrl + Space | Dictate, in a worker's terminal or a prompt box: hold it and talk, and what you said is typed in when you let go. A quick tap leaves it listening until the next tap. The **🎤** does the same |
 | Tab | The ☰ menu: every window, and what shows on screen |
-| Esc | Close any window (a terminal too) and get back to looking around |
+| Esc | Close any window and get back to looking around. In a terminal, **Hide**, **✕** and Esc only hide the terminal; the worker keeps running |
 | Ctrl + [ | Send Esc to a terminal instead, to close a menu like Claude's `/skills` or interrupt Claude. **⎋ Esc** in the terminal's header does the same |
 
 You can also click a nearby desk to interact with it, or click a worker in the Workers panel (**🤖 Workers**, top right) to open its terminal.
