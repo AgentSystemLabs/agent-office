@@ -1,3 +1,4 @@
+import { checkoutWorktree } from './worktree-checkout.js';
 import { execFile, execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, realpathSync, statSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
@@ -68,6 +69,21 @@ export class Worktrees {
       return { path: rel, branch, base, from, note };
     } catch (err) {
       return `Could not create a git worktree: ${gitError(err)}`;
+    }
+  }
+
+  /** Meeting checkouts run off the event loop, with a budget suitable for large LFS projects. */
+  async createAsync(slug: string, signal?: AbortSignal): Promise<(Required<Omit<WorktreeRef, 'made'>> & { from?: string; note?: string }) | string> {
+    const rel = path.join(WORKTREES_DIR, slug);
+    try {
+      if (signal?.aborted) throw new Error('Meeting start cancelled');
+      const from = this.currentBranch();
+      const { base, note } = this.startPoint(from);
+      const branch = `${BRANCH_PREFIX}${slug}`;
+      await checkoutWorktree(this.dir, ['worktree', 'add', '-b', branch, path.resolve(this.dir, rel), base], signal);
+      return { path: rel, branch, base, from, note };
+    } catch (err) {
+      return `Could not create a git worktree: ${(err as Error).message}. Any partial checkout was preserved at ${path.resolve(this.dir, rel)}`;
     }
   }
 

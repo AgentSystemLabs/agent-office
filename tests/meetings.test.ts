@@ -4,13 +4,13 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { MeetingRoom, type MeetingWorkers } from '../src/server/meetings.js';
+import { MeetingRoom, type MeetingWorkers, type MeetingTrees } from '../src/server/meetings.js';
 import { Worktrees } from '../src/server/worktrees.js';
 import type { AgentChoice, MeetingRequest, WorkerInfo } from '../src/shared/protocol.js';
 import { MEETING_PATTERNS, MEETING_PATTERN_IDS, fixedRounds, isMeetingPattern } from '../src/shared/meetings.js';
 import { PROMPTS, type PromptId } from '../src/shared/prompts.js';
 
-function fixture(opts: { git?: boolean; rewritten?: Partial<Record<PromptId, string>>; officeDefault?: AgentChoice } = {}) {
+function fixture(opts: { trees?: MeetingTrees; git?: boolean; rewritten?: Partial<Record<PromptId, string>>; officeDefault?: AgentChoice } = {}) {
   const dir = mkdtempSync(path.join(tmpdir(), 'office-meeting-'));
   const dataDir = path.join(dir, '.agent-office');
   mkdirSync(dataDir, { recursive: true });
@@ -59,7 +59,7 @@ function fixture(opts: { git?: boolean; rewritten?: Partial<Record<PromptId, str
       return {};
     },
   };
-  const room: MeetingRoom = new MeetingRoom(dir, dataDir, manager, opts.git ? new Worktrees(dir) : undefined, {
+  const room: MeetingRoom = new MeetingRoom(dir, dataDir, manager, opts.trees ?? (opts.git ? new Worktrees(dir) : undefined), {
     update() {},
     toast: (text) => toasts.push(text),
     hiringPaused: () => undefined,
@@ -101,9 +101,38 @@ function fixture(opts: { git?: boolean; rewritten?: Partial<Record<PromptId, str
   return { dir, room, workers, prompts, typed, toasts, reviews, take, settle, start, cwd, kill: (id: string) => manager.kill(id), close() { room.shutdown(); rmSync(dir, { recursive: true, force: true }); } };
 }
 
-test('a debate runs its rounds and ends when the chair writes the decision', (t) => {
+test('a pending checkout rejects duplicate starts and cancellation never seats workers', async (t) => {
+  let complete!: () => void;
+  let calls = 0;
+  const trees: MeetingTrees = {
+    async createAsync() {
+      calls++;
+      await new Promise<void>((resolve) => { complete = resolve; });
+      return { path: '.agent-office/worktrees/slow', branch: 'office/slow', base: 'abc' };
+    },
+    async inspect() { throw new Error('not used'); },
+    async remove() { throw new Error('must preserve the cancelled worktree'); },
+  };
+  const f = fixture({ trees }); t.after(() => f.close());
+  const starting = f.start({});
+  assert.match(await f.start({}) ?? '', /already being prepared/);
+  assert.equal(calls, 1);
+  assert.equal(f.workers.length, 0);
+  assert.equal(f.room.stop('Ada'), undefined);
+  complete();
+  assert.match(await starting ?? '', /cancelled/);
+  assert.equal(f.workers.length, 0);
+  assert.equal(f.room.state().current, null);
+  const retry = f.start({});
+  complete();
+  assert.equal(await retry, undefined);
+  assert.equal(calls, 2);
+  assert.equal(f.workers.length, 3);
+});
+
+test('a debate runs its rounds and ends when the chair writes the decision', async (t) => {
   const f = fixture(); t.after(() => f.close());
-  assert.equal(f.start({ rounds: 3, output: 'docs/decision.md' }), undefined);
+  assert.equal(await f.start({ rounds: 3, output: 'docs/decision.md' }), undefined);
   let m = f.room.state().current!;
   assert.equal(m.seats.length, 3);
   assert.deepEqual(m.seats.map((s) => s.role), ['Chair', 'Pragmatist', 'Skeptic']);
@@ -130,10 +159,10 @@ test('a debate runs its rounds and ends when the chair writes the decision', (t)
   assert.ok(existsSync(path.join(f.dir, '.agent-office', 'meetings', m.id)));
 });
 
-test('a meeting has no token limit: what its workers use is added up and shown, and never stops it', (t) => {
+test('a meeting has no token limit: what its workers use is added up and shown, and never stops it', async (t) => {
   const f = fixture(); t.after(() => f.close());
   // A limit an older page still sends is ignored.
-  assert.equal(f.start({ rounds: 2, output: 'decision.md', budget: 100_000 } as Partial<MeetingRequest>), undefined);
+  assert.equal(await f.start({ rounds: 2, output: 'decision.md', budget: 100_000 } as Partial<MeetingRequest>), undefined);
   assert.ok(!('budget' in f.room.state().current!));
   assert.doesNotMatch(f.prompts[0].text, /budget|tokens/i);
   assert.doesNotMatch(f.toasts[0], /tokens/);
@@ -156,9 +185,9 @@ test('a meeting has no token limit: what its workers use is added up and shown, 
   assert.match(f.room.state().past[0].summary, /Debate · 2 rounds · 60\.5M tokens · \$31\.50 · ✅ decision\.md/);
 });
 
-test('a worker that ends its part without writing the file is reminded once, then the meeting stops', (t) => {
+test('a worker that ends its part without writing the file is reminded once, then the meeting stops', async (t) => {
   const f = fixture(); t.after(() => f.close());
-  assert.equal(f.start({ rounds: 2, output: 'decision.md' }), undefined);
+  assert.equal(await f.start({ rounds: 2, output: 'decision.md' }), undefined);
   for (const i of [0, 1, 2]) f.take(i);
   f.take(0, '', true);
   assert.match(f.prompts.at(-1)!.text, /without writing \S*[\\/]decision\.md,/);
@@ -171,16 +200,16 @@ test('a worker that ends its part without writing the file is reminded once, the
 
 test('sending a worker home stops the meeting and names who left', async (t) => {
   const f = fixture(); t.after(() => f.close());
-  assert.equal(f.start({}), undefined);
+  assert.equal(await f.start({}), undefined);
   await f.kill(f.room.state().current!.seats[2].workerId!);
   const m = f.room.state().current!;
   assert.equal(m.status, 'stopped');
   assert.match(m.reason!, /the Skeptic \(Worker 3\) was sent home/);
 });
 
-test('red / blue ends early when red finds nothing more', (t) => {
+test('red / blue ends early when red finds nothing more', async (t) => {
   const f = fixture(); t.after(() => f.close());
-  assert.equal(f.start({ pattern: 'redblue', prompt: 'The login change', rounds: 3 }), undefined);
+  assert.equal(await f.start({ pattern: 'redblue', prompt: 'The login change', rounds: 3 }), undefined);
   f.settle();
   let m = f.room.state().current!;
   assert.deepEqual(m.seats.map((s) => s.role), ['Blue team', 'Red team']);
@@ -201,8 +230,8 @@ test('red / blue ends early when red finds nothing more', (t) => {
 
 test('a review panel posts the combined review on the pull request', async (t) => {
   const f = fixture(); t.after(() => f.close());
-  assert.match(f.start({ pattern: 'review', prompt: 'Review it' }) ?? '', /needs a pull request/);
-  assert.equal(f.start({ pattern: 'review', prompt: 'Review it', pr: 42 }), undefined);
+  assert.match(await f.start({ pattern: 'review', prompt: 'Review it' }) ?? '', /needs a pull request/);
+  assert.equal(await f.start({ pattern: 'review', prompt: 'Review it', pr: 42 }), undefined);
   let m = f.room.state().current!;
   assert.equal(m.output, 'reviews/pr-42.md');
   assert.equal(m.title, 'Review of PR #42');
@@ -217,10 +246,10 @@ test('a review panel posts the combined review on the pull request', async (t) =
   assert.equal(m.review?.url, 'https://github.com/o/r/pull/42#pullrequestreview-1');
 });
 
-test('map-reduce hands each mapper its own parts', (t) => {
+test('map-reduce hands each mapper its own parts', async (t) => {
   const f = fixture(); t.after(() => f.close());
-  assert.match(f.start({ pattern: 'mapreduce', parts: ['src/a.ts'] }) ?? '', /at least 2 parts/);
-  assert.equal(f.start({ pattern: 'mapreduce', parts: ['src/a.ts', 'src/b.ts', 'src/c.ts'] }), undefined);
+  assert.match(await f.start({ pattern: 'mapreduce', parts: ['src/a.ts'] }) ?? '', /at least 2 parts/);
+  assert.equal(await f.start({ pattern: 'mapreduce', parts: ['src/a.ts', 'src/b.ts', 'src/c.ts'] }), undefined);
   const mapper1 = f.prompts.find((p) => p.id === f.workers[1].id)!.text;
   const mapper2 = f.prompts.find((p) => p.id === f.workers[2].id)!.text;
   assert.match(mapper1, /- src\/a\.ts\n- src\/c\.ts/);
@@ -228,22 +257,22 @@ test('map-reduce hands each mapper its own parts', (t) => {
   assert.match(f.prompts[0].text, /Round 1 has no part for you/);
 });
 
-test('bad requests are turned away before anyone sits down', (t) => {
+test('bad requests are turned away before anyone sits down', async (t) => {
   const f = fixture(); t.after(() => f.close());
-  assert.match(f.start({ prompt: '  ' }) ?? '', /what the meeting is about/);
-  assert.match(f.start({ output: '../x.md' }) ?? '', /\.\./);
-  assert.match(f.start({ output: '/etc/x' }) ?? '', /relative/);
-  assert.match(f.start({ output: '.agent-office/x.md' }) ?? '', /\.agent-office/);
-  assert.match(f.start({ roles: ['a', 'b', 'c', 'd', 'e', 'f'] }) ?? '', /2 to 5 workers/);
-  assert.match(f.start({ pattern: 'redblue', roles: ['a', 'b', 'c'] }) ?? '', /seats 2 workers/);
+  assert.match(await f.start({ prompt: '  ' }) ?? '', /what the meeting is about/);
+  assert.match(await f.start({ output: '../x.md' }) ?? '', /\.\./);
+  assert.match(await f.start({ output: '/etc/x' }) ?? '', /relative/);
+  assert.match(await f.start({ output: '.agent-office/x.md' }) ?? '', /\.agent-office/);
+  assert.match(await f.start({ roles: ['a', 'b', 'c', 'd', 'e', 'f'] }) ?? '', /2 to 5 workers/);
+  assert.match(await f.start({ pattern: 'redblue', roles: ['a', 'b', 'c'] }) ?? '', /seats 2 workers/);
   assert.equal(f.workers.length, 0);
-  assert.equal(f.start({}), undefined);
-  assert.match(f.start({}) ?? '', /busy/);
+  assert.equal(await f.start({}), undefined);
+  assert.match(await f.start({}) ?? '', /busy/);
 });
 
 test('in a git project the output is committed on the meeting branch, which outlives the room being cleared', async (t) => {
   const f = fixture({ git: true }); t.after(() => f.close());
-  assert.equal(f.start({ rounds: 2, output: 'docs/decision.md', title: 'Pick a cache' }), undefined);
+  assert.equal(await f.start({ rounds: 2, output: 'docs/decision.md', title: 'Pick a cache' }), undefined);
   const m0 = f.room.state().current!;
   assert.match(m0.worktree!.branch, /^office\/meeting-pick-a-cache-/);
   assert.ok(f.workers.every((w) => w.worktree?.path === m0.worktree!.path));
@@ -268,20 +297,20 @@ test('in a git project the output is committed on the meeting branch, which outl
   assert.match(f.room.state().past[0].summary, /Debate · 2 rounds · 0 tokens · \$0\.00 · ✅ docs\/decision\.md on office\/meeting-pick-a-cache-/);
 });
 
-test('Pi meetings retain the chosen model and thinking level for every seat', (t) => {
+test('Pi meetings retain the chosen model and thinking level for every seat', async (t) => {
   const f = fixture({ officeDefault: { provider: 'claude', model: 'sonnet' } });
   t.after(() => f.close());
-  assert.equal(f.start({ provider: 'pi', model: 'openai/gpt-4.1', effort: 'high' }), undefined);
+  assert.equal(await f.start({ provider: 'pi', model: 'openai/gpt-4.1', effort: 'high' }), undefined);
   assert.deepEqual(f.workers.map((w) => [w.provider, w.model, w.effort]), Array(3).fill(['pi', 'openai/gpt-4.1', 'high']));
   const meeting = f.room.state().current!;
   assert.deepEqual([meeting.provider, meeting.model, meeting.effort], ['pi', 'openai/gpt-4.1', 'high']);
 });
 
-test('Cursor meetings retain the chosen model for every seat, and leave out an effort it has no flag for', (t) => {
+test('Cursor meetings retain the chosen model for every seat, and leave out an effort it has no flag for', async (t) => {
   const f = fixture({ officeDefault: { provider: 'claude', model: 'sonnet' } });
   t.after(() => f.close());
-  assert.match(f.start({ provider: 'cursor', model: '--force' }) ?? '', /Invalid Cursor model/);
-  assert.equal(f.start({ provider: 'cursor', model: 'gpt-5', effort: 'high' }), undefined);
+  assert.match(await f.start({ provider: 'cursor', model: '--force' }) ?? '', /Invalid Cursor model/);
+  assert.equal(await f.start({ provider: 'cursor', model: 'gpt-5', effort: 'high' }), undefined);
   assert.deepEqual(f.workers.map((w) => [w.provider, w.model, w.effort]), Array(3).fill(['cursor', 'gpt-5', undefined]));
   const meeting = f.room.state().current!;
   assert.deepEqual([meeting.provider, meeting.model, meeting.effort], ['cursor', 'gpt-5', undefined]);
@@ -292,7 +321,7 @@ test('only the real meeting patterns pass, not what every object inherits', () =
   for (const v of ['constructor', '__proto__', 'toString', 'hasOwnProperty', 'valueOf', '', 'nope', 1, null, undefined]) assert.equal(isMeetingPattern(v), false, String(v));
 });
 
-test('a meeting says what the office’s rewritten prompts say, and seats the default worker when nobody picked one', (t) => {
+test('a meeting says what the office’s rewritten prompts say, and seats the default worker when nobody picked one', async (t) => {
   const f = fixture({
     rewritten: {
       'meeting.brief': 'You are the {{role}}. Topic: {{about}}{{nothing}}',
@@ -302,7 +331,7 @@ test('a meeting says what the office’s rewritten prompts say, and seats the de
     officeDefault: { provider: 'claude', model: 'sonnet', effort: 'medium' },
   });
   t.after(() => f.close());
-  assert.equal(f.start({ rounds: 3, provider: undefined }), undefined);
+  assert.equal(await f.start({ rounds: 3, provider: undefined }), undefined);
   assert.equal(f.prompts[0].text, `You are the Chair. Topic: Which cache should we use?{{nothing}}\n\nRound 1 of 3, proposing. Pitch it as the Chair, into ${path.join(f.cwd(), '.agent-office', 'meetings', f.room.state().current!.id, 'r1-1-chair.md')}.`);
   assert.deepEqual(f.workers.map((w) => [w.provider, w.model, w.effort]), Array(3).fill(['claude', 'sonnet', 'medium']));
   // A worker that ends its turn without its part is nudged in the office's words.
@@ -315,11 +344,11 @@ test('a meeting says what the office’s rewritten prompts say, and seats the de
   // Picked, the meeting's own choice wins.
   const g = fixture({ officeDefault: { provider: 'claude', model: 'sonnet' } });
   t.after(() => g.close());
-  assert.equal(g.start({ provider: 'claude', model: 'haiku' }), undefined);
+  assert.equal(await g.start({ provider: 'claude', model: 'haiku' }), undefined);
   assert.deepEqual(g.workers.map((x) => x.model), ['haiku', 'haiku', 'haiku']);
 });
 
-test('a pattern with a set number of rounds says so, and names them; a range is left to pick from', (t) => {
+test('a pattern with a set number of rounds says so, and names them; a range is left to pick from', async (t) => {
   assert.deepEqual(fixedRounds(MEETING_PATTERNS.lead), {
     line: '3 rounds · fixed by the Lead & team workflow',
     stages: 'Planning → Execution → Merge',
@@ -335,6 +364,6 @@ test('a pattern with a set number of rounds says so, and names them; a range is 
   }
   // The office holds to it whatever is asked for.
   const f = fixture(); t.after(() => f.close());
-  assert.equal(f.start({ pattern: 'lead', rounds: 5 }), undefined);
+  assert.equal(await f.start({ pattern: 'lead', rounds: 5 }), undefined);
   assert.equal(f.room.state().current!.rounds, 3);
 });
