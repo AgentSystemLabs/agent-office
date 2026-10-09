@@ -4,7 +4,7 @@ import path from 'node:path';
 import { timingSafeEqual } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 
-export const HELP = 'ARTIQ STUDIO • Posting OFF\n/status\n/ask <brand> <instruksi>\n/report <brand> <campaign>\n/design <brand> <campaign> <vNN>\n/file <path export campaign>\nContoh: /design viniela-design feed-design-test-20261008 v06';
+export const HELP = 'ARTIQ STUDIO • Posting OFF\n/status\n/ask <brand> <instruksi>\n/report <brand> [campaign]\n/design <brand> <campaign> <vNN>\n/file <path export campaign>\nContoh: /report viniela-design\nContoh: /design viniela-design feed-design-test-20261008 v06';
 const slug = /^[a-z0-9][a-z0-9-]{0,79}$/;
 export function parseCommand(text) {
   if (typeof text !== 'string' || text.length > 12000) return null;
@@ -13,7 +13,7 @@ export function parseCommand(text) {
   if (['/start', '/help'].includes(cmd)) return { kind: 'help' };
   if (cmd === '/status' && !parts.length) return { kind: 'status' };
   if (cmd === '/ask' && slug.test(parts[0]) && parts.length > 1) return { kind: 'ask', brand: parts[0], text: parts.slice(1).join(' ') };
-  if (cmd === '/report' && parts.length === 2 && parts.every((p) => slug.test(p))) return { kind: 'report', brand: parts[0], campaign: parts[1] };
+  if (cmd === '/report' && [1, 2].includes(parts.length) && parts.every((p) => slug.test(p))) return { kind: 'report', brand: parts[0], ...(parts[1] ? { campaign: parts[1] } : {}) };
   if (cmd === '/design' && parts.length === 3 && parts.slice(0, 2).every((p) => slug.test(p)) && /^v[0-9]{2,}$/.test(parts[2])) return { kind: 'design', brand: parts[0], campaign: parts[1], version: parts[2] };
   if (cmd === '/file' && parts.length === 1 && validExport(parts[0])) return { kind: 'file', file: parts[0] };
   return null;
