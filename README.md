@@ -79,6 +79,8 @@ Press Enter to skip a step: the elevator in the office asks for your first proje
 
 Walk to an empty desk, press **E** and hire a worker.
 
+Workers' HTTP servers appear on the **🌐 Services** board on macOS, Linux and Windows. Windows TCP listeners are checked every four seconds without WMI. Process ancestry is shared across floors and cached for up to one minute; a new listener can trigger an earlier refresh, limited to one WMI query per ten seconds. Discovery of a new server can therefore take about fourteen seconds, while stopped ports disappear on the next successful TCP scan. On Windows, keep the server running in the worker's terminal (or a child process of it); detached processes cannot be matched by their working directory. See [Services board](docs/features.md) for details.
+
 Common options:
 
 ```bash
