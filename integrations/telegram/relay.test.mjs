@@ -25,11 +25,30 @@ test('only paired private human owner can enqueue', () => {
   for (const changed of [{ ...update(), update_id: -1 }, { ...update(), message: { ...update().message, from: { id: 999 } } }, { ...update(), message: { ...update().message, chat: { id: 123, type: 'group' } } }, { ...update(), message: { ...update().message, from: { id: 123, is_bot: true } } }]) assert.equal(authorizedUpdate(changed, config), false);
 });
 test('commands need explicit context and exports cannot read credentials', () => {
+  assert.deepEqual(parseCommand('/report viniela-design'), { kind: 'report', brand: 'viniela-design' });
+  assert.equal(parseCommand('/report'), null);
   assert.equal(parseCommand('/ask buat'), null);
   assert.equal(parseCommand('/design viniela-design camp v06').version, 'v06');
   assert.equal(parseCommand('/design viniela-design camp ../../'), null);
   assert.equal(validExport('.agent-office/artiq-studio/brands/viniela-design/results/camp/v06/feed-1080x1350.png'), true);
   for (const file of ['.agent-office/homes/token.json', '.agent-office/artiq-studio/brands/viniela-design/results/camp/v06/../../accounts.json', '.agent-office/artiq-studio/brands/viniela-design/reports/camp/private.json']) assert.equal(validExport(file), false);
+});
+test('short report command delivers the sole report or asks for a campaign', async () => {
+  const cfg = { office: 'http://127.0.0.1:4600', relay: 'https://example.com', localToken: 'local', relayToken: 'relay' };
+  const job = { id: 'tg-1', status: 'queued', command: { kind: 'report', brand: 'viniela-design' } };
+  for (const campaigns of [[], ['camp-a'], ['camp-a', 'camp-b']]) {
+    const calls = []; let delivery;
+    await processJob(cfg, job, async (_origin, _token, route, data) => {
+      calls.push(route);
+      if (route.includes('/reports?')) return { campaigns };
+      if (route.includes('/export?')) return Buffer.from('report');
+      delivery = data; return { status: 'completed' };
+    });
+    assert.equal(delivery.files.length, campaigns.length === 1 ? 1 : 0);
+    assert.equal(calls.some((p) => p.includes('/export?')), campaigns.length === 1);
+    if (campaigns.length > 1) assert.match(delivery.text, /\/report viniela-design camp-b/);
+    if (campaigns.length === 1) assert.match(delivery.files[0].path, /reports\/camp-a\/report.md$/);
+  }
 });
 test('webhook authentication, owner isolation and durable duplicate suppression', async (t) => {
   const f = await fixture(t);
