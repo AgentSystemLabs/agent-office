@@ -41,6 +41,8 @@ The leader receives a prompt and writes `.agent-office/telegram/replies/tg-<upda
 
 ## Safety and failures
 
+When the leader needs input, `/ask` returns a notice instead of pasting into its question or permission dialog. Resolve that prompt in the local office, then send a new instruction; the bot cannot approve native permissions.
+
 The registered `/api/telegram/` feature is disabled by default, uses a dedicated local token, and rejects non-loopback clients and browser Origin headers. Relay webhooks require the Telegram secret header and both the owner's private user/chat IDs. Bot/group senders are rejected. No hire, shell, native permission approval, or publication endpoint is provided.
 
 Disk journals deduplicate webhook updates and leader prompts. Crashes during prompt dispatch are reported uncertain rather than replaying instructions. Ambiguous Telegram sends are retained without automatic retry; inspect before resending. A crash during send leaves `sending` evidence for operator diagnosis. Offline Mac requests queue up to 64 unfinished jobs. Persist queue/journals and run a single connector; losing them loses deduplication history. These are operational safeguards, not an intercept of all agent behavior.
