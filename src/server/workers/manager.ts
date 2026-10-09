@@ -20,6 +20,7 @@ import { launchAcp } from './acp.js';
 import { clockWork } from './clock.js';
 import { childEnv } from './env.js';
 import { midTurn } from './lifecycle.js';
+import { submitPrompt } from './prompt.js';
 import { restoreWorkers, saveWorkers } from './persist.js';
 import { WorkerPrs } from './pr.js';
 import { WIN, binScript, defaultShell, resolveCommand, shellRun, shq, writeOfficeCommands } from './process.js';
@@ -513,9 +514,7 @@ export class WorkerManager {
     if (!w.pty) return 'Worker is not running';
     const clean = text.replace(/\r\n?/g, '\n').trim();
     if (!clean) return 'Empty prompt';
-    // Bracketed paste keeps multi-line prompts in one message, then Enter submits.
-    w.pty.write(`\x1b[200~${clean}\x1b[201~`);
-    setTimeout(() => w.pty?.write('\r'), 120);
+    submitPrompt(w, clean, providerAdapter(w.info.provider)?.promptDelayMs);
     w.info.activity = truncate(clean, 80);
     this.tasks.notePrompt(w, clean);
     if (by) w.info.lastInput = { by, at: Date.now() };
@@ -999,6 +998,7 @@ export class WorkerManager {
    * it once the screen moves on.
    */
   private checkBlocked(w: Worker) {
+    if (w.term) providerAdapter(w.info.provider)?.screen?.observe?.(this.handleOf(w), screenText(w.term));
     const blockedBy = w.info.kind === 'agent' ? providerAdapter(w.info.provider)?.screen?.blocked : undefined;
     if (!w.term || !blockedBy) return;
     const s = w.info.status;

@@ -25,6 +25,8 @@ export interface CodexHookEvent {
   turnId?: string;
   /** Only the server-side metric reader uses this path; never sent to browsers. */
   transcriptPath?: string;
+  prCommand?: string;
+  prOutput?: string;
 }
 
 const MAX_ID = 160;
@@ -57,6 +59,14 @@ export function normalizeCodexHook(event: string, payload: unknown): CodexHookEv
   const sessionId = bounded(payload.session_id, MAX_ID);
   if (!sessionId) return undefined;
   const result: CodexHookEvent = { sessionId, event: event as CodexHookEventName };
+  if (event === 'PostToolUse') {
+    const command = bounded(payload.pr_command, MAX_TEXT);
+    const output = bounded(payload.pr_output, MAX_TEXT);
+    if (command && output && /(?:^|[\s;&|(])gh\s+pr\s+create\b/.test(command)) {
+      result.prCommand = command;
+      result.prOutput = output;
+    }
+  }
 
   const transcriptPath = bounded(payload.transcript_path, 4096);
   if (transcriptPath) result.transcriptPath = transcriptPath;
@@ -100,7 +110,7 @@ export function codexHookArgs(hookPath: string, platform: NodeJS.Platform = proc
   const args: string[] = [];
   for (const event of CODEX_HOOK_EVENTS) {
     const command = hookCommand([process.execPath, hookPath, event], platform);
-    const config = `hooks.${event}=[{hooks=[{type="command",command=${JSON.stringify(command)},timeout=3}]}]`;
+    const config = `hooks.${event}=[{hooks=[{type="command",command=${JSON.stringify(command)},timeout=10}]}]`;
     args.push('-c', config);
   }
   return args;
@@ -173,6 +183,15 @@ process.stdin.on('end', async () => {
   if (toolUseId) body.tool_use_id = toolUseId;
   if (turn) body.turn_id = turn;
   if (transcript) body.transcript_path = transcript;
+  if (event === 'PostToolUse') {
+    const command = allowed(input.tool_input?.command, MAX_TEXT);
+    const response = input.tool_response;
+    const output = allowed(typeof response === 'string' ? response : response?.stdout ?? response?.output, MAX_TEXT);
+    if (command && output && /(?:^|[\s;&|(])gh\s+pr\s+create\b/.test(command)) {
+      body.pr_command = command;
+      body.pr_output = output;
+    }
+  }
   const base = process.env.AGENT_OFFICE_HOOK_URL;
   const token = process.env.AGENT_OFFICE_HOOK_TOKEN;
   const worker = process.env.AGENT_OFFICE_WORKER_ID;

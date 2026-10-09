@@ -45,7 +45,10 @@ export class WorkerTasks {
     if (!clean || /^\/\S+$/.test(clean) || w.prompts.at(-1) === clean || clean === CARRY_ON_PROMPT) return;
     w.prompts = [...w.prompts, clean].slice(-TASK_PROMPTS);
     const hadTask = !!w.info.task;
-    if (!hadTask) w.info.task = fallbackTask(clean);
+    if (!hadTask || clean.length >= 16) {
+      w.info.prompt = clean;
+      w.info.task = fallbackTask(clean);
+    }
     if (!providerAdapter(w.info.provider)?.namesTasks) return;
     // "yes", "go ahead", "2": a reply within the same task, not worth a new name.
     if (hadTask && clean.length < 16) return;

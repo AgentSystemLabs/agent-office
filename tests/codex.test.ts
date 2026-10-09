@@ -69,7 +69,7 @@ test('generates one stable CLI hook override per supported event', () => {
     assert.equal(args[i * 2], '-c');
     assert.match(args[i * 2 + 1], new RegExp(`^hooks\\.${CODEX_HOOK_EVENTS[i]}=\\[\\{hooks=`));
     assert.match(args[i * 2 + 1], /type="command"/);
-    assert.match(args[i * 2 + 1], /timeout=3/);
+    assert.match(args[i * 2 + 1], /timeout=10/);
     assert.match(args[i * 2 + 1], /agent-office-codex-hook\.cjs/);
   }
 });
