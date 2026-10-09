@@ -59,7 +59,6 @@ const uniforms = {
   /** How wet the ground is, and how much snow lies on it: 0–1. */
   skyWet: { value: 0 },
   skySnow: { value: 0 },
-  /** While in the office, weather fog clears out of the rooms but still fills the outdoors. */
   skyClearRooms: { value: 1 },
   /** How much further down the garage is than from the bottom floor: a storey for each floor below yours. */
   skyDrop: { value: 0 },
@@ -167,11 +166,9 @@ const HAZE_VERTEX = /* glsl */ `
 #endif
 `;
 
-const HAZE_PARS = /* glsl */ `
-#ifdef USE_FOG
+const HAZE_PARS = /* glsl */ `#ifdef USE_FOG
   varying float vSkyFogY;
-#endif
-`;
+#endif`;
 
 const HAZE = /* glsl */ `
 #ifdef USE_FOG
@@ -193,8 +190,7 @@ const HAZE = /* glsl */ `
 // sharing one set of uniforms. Nothing else in the office uses onBeforeCompile, so this is its
 // default; unlit ones (glass, signs, outlines) only get the haze.
 THREE.Material.prototype.onBeforeCompile = function (shader) {
-  const fogged = shader.fragmentShader.includes('#include <fog_fragment>');
-  const lit = shader.fragmentShader.includes('#include <lights_fragment_end>');
+  const fogged = shader.fragmentShader.includes('#include <fog_fragment>'), lit = shader.fragmentShader.includes('#include <lights_fragment_end>');
   if (fogged || lit) {
     shader.vertexShader = shader.vertexShader.replace('#include <fog_pars_vertex>', `#include <fog_pars_vertex>\n${HAZE_PARS_VERTEX}`).replace('#include <fog_vertex>', `#include <fog_vertex>\n${HAZE_VERTEX}`);
     Object.assign(shader.uniforms, uniforms);
@@ -586,8 +582,7 @@ export class Sky {
   setRoof(on: boolean, drop = 0) {
     this.roof = on;
     this.roofStreet = -drop;
-    uniforms.skyInside.value = on || this.indoors ? 0 : 1;
-    uniforms.skyClearRooms.value = on || this.indoors ? 0 : 1;
+    uniforms.skyInside.value = uniforms.skyClearRooms.value = on || this.indoors ? 0 : 1;
   }
 
   /**
@@ -597,8 +592,7 @@ export class Sky {
    */
   setIndoors(on: boolean) {
     this.indoors = on;
-    uniforms.skyInside.value = on || this.roof ? 0 : 1;
-    uniforms.skyClearRooms.value = on || this.roof ? 0 : 1;
+    uniforms.skyInside.value = uniforms.skyClearRooms.value = on || this.roof ? 0 : 1;
   }
 
   /**
