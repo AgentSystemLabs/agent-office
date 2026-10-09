@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -14,6 +14,31 @@ import {
   writeCodexHook,
 } from '../src/server/codex.js';
 import { codex } from '../src/server/providers/codex.js';
+
+test('Windows hooks preserve arguments and stdin through PowerShell and cmd.exe', { skip: process.platform !== 'win32' }, async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "office's & %PATH% !hooks \u00fc "));
+  try {
+    const hook = path.join(dir, 'hook.cjs');
+    writeFileSync(hook, 'let input = ""; process.stdin.on("data", c => input += c); process.stdin.on("end", () => process.stdout.write(process.argv[2] + input));');
+    const config = codexHookArgs(hook, 'win32')[1];
+    const command = JSON.parse(config.match(/command=("(?:\\.|[^"\\])*"),timeout/)![1]);
+    for (const shell of ['cmd.exe', 'powershell.exe']) {
+      const args = shell === 'cmd.exe' ? ['/d', '/s', '/c', `"${command}"`] : ['-NoProfile', '-NonInteractive', '-Command', command];
+      const output = await new Promise<string>((resolve, reject) => {
+        const child = spawn(shell, args, { windowsVerbatimArguments: shell === 'cmd.exe' });
+        let stdout = '', stderr = '';
+        child.stdout.on('data', (chunk) => stdout += chunk);
+        child.stderr.on('data', (chunk) => stderr += chunk);
+        child.on('error', reject);
+        child.on('close', (code) => code === 0 ? resolve(stdout) : reject(new Error(stderr)));
+        child.stdin.end('{"session_id":"test"}');
+      });
+      assert.equal(output.trim(), 'SessionStart{"session_id":"test"}', shell);
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 test('normalizes bounded root Codex hook payloads and passes only the metric reader path', () => {
   assert.deepEqual(normalizeCodexHook('SessionStart', {
@@ -38,13 +63,13 @@ test('rejects unknown, malformed, empty, oversized, and child-scoped events', ()
 });
 
 test('generates one stable CLI hook override per supported event', () => {
-  const args = codexHookArgs('/tmp/office data/agent-office-codex-hook.cjs');
+  const args = codexHookArgs('/tmp/office data/agent-office-codex-hook.cjs', 'linux');
   assert.equal(args.length, CODEX_HOOK_EVENTS.length * 2);
   for (let i = 0; i < CODEX_HOOK_EVENTS.length; i++) {
     assert.equal(args[i * 2], '-c');
     assert.match(args[i * 2 + 1], new RegExp(`^hooks\\.${CODEX_HOOK_EVENTS[i]}=\\[\\{hooks=`));
     assert.match(args[i * 2 + 1], /type="command"/);
-    assert.match(args[i * 2 + 1], /timeout=3/);
+    assert.match(args[i * 2 + 1], /timeout=10/);
     assert.match(args[i * 2 + 1], /agent-office-codex-hook\.cjs/);
   }
 });
@@ -90,7 +115,7 @@ test('writes a mode-restricted helper that forwards paths without reading transc
   }
 });
 
-test('helper forwards only the bounded root event fields to the authenticated bridge', async () => {
+for (const prefix of ['', '\uFEFF']) test(`helper forwards bounded root events with ${prefix ? 'Windows BOM' : 'plain UTF-8'}`, async () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'agent-office-codex-'));
   const received: { url?: string; authorization?: string; body?: unknown } = {};
   const server = createServer((req, res) => {
@@ -122,7 +147,7 @@ test('helper forwards only the bounded root event fields to the authenticated br
       child.stdout.on('data', (chunk) => { output += chunk; });
       child.on('error', reject);
       child.on('close', () => resolve(output));
-      child.stdin.end(JSON.stringify({
+      child.stdin.end(prefix + JSON.stringify({
         session_id: 'thread-1', prompt: 'fix it', turn_id: 'turn-1',
         transcript_path: '/private/transcript.jsonl', model: 'private-model',
         tool_input: { command: 'private' }, hook_event_name: 'forged',

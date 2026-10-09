@@ -33,6 +33,7 @@ curl -fsSL https://raw.githubusercontent.com/AgentSystemLabs/agent-office/main/i
 ## What it is
 
 - **A floor per project.** Ride the elevator, pick one of your GitHub repos, and the office clones it (showing how far along it is) and opens a floor for it. Every worker, board and queue on that floor works in that checkout.
+- **Codex on Windows.** Office hooks support PowerShell and cmd.exe. After upgrading an Office with failing hooks, restart its Codex workers and review the changed commands in `/hooks` once; see [agent setup](docs/agents.md).
 - **Workers at desks.** Walk up to an empty desk, press **E**, and pick Claude Code, Codex, OpenCode, Grok, Muse, DeepSeek Harness, Pi or Cursor, each with its model and reasoning effort. The agent's live terminal shows on its laptop, and anyone can open it and type.
 - **Talk instead of typing.** Hold **Ctrl+Space** (or the **🎤**) in a worker's terminal or a prompt box and say what you want: it's typed in for you to send. Your browser does the listening, so there's nothing to install.
 - **You can't miss who needs you.** A worker that stops to ask you something lights a red beacon over its desk, puts a banner on your screen saying who and what for, and sounds an alarm. One that has finished jumps up and down and dings. Press **N** to go straight to whoever is waiting.
@@ -420,3 +421,11 @@ Every change to the app that lands on `main` is published as a GitHub release by
 ## License
 
 [MIT](LICENSE)
+
+Codex hook reports accept UTF-8 with or without the leading BOM emitted by Windows PowerShell. Hook approval remains in Codex; the next lifecycle event updates the office status.
+
+### Autonomous Codex workers
+
+For an office whose operator wants unattended Codex work, set `AGENT_OFFICE_CODEX_AUTONOMOUS=1` in the **office server environment** before starting it. New and resumed Codex workers then use `--ask-for-approval never --sandbox danger-full-access` and trust their configured hooks. This grants filesystem and network access without command approval; use it only on an office and agent configuration you trust. Without this explicit opt-in, Codex keeps its normal permissions. Existing CLI processes retain their settings until resumed/restarted.
+
+Codex task pastes wait one second before a single Enter, and a delayed Enter is discarded if its terminal process was replaced. Task names update like Claude's instead of keeping the first connection-test label. The live working/permission footer recovers status when a hook was missed, without treating an idle input box as task completion. Windows hook launches allow ten seconds for PowerShell startup plus the bounded two-second HTTP request, rather than timing out after three seconds under concurrent load.

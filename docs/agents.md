@@ -72,6 +72,16 @@ OpenCode metrics come from assistant-message token/cost records exposed by its p
 
 DeepSeek Harness metrics come from ACP `usage_update`: tokens in context and the window's size, shown per worker and for the current desks, plus a session cost only when the harness reports one. The daily budget and historical ledger remain Claude-only.
 
+On native Windows, Office runs its Codex hook helper through an encoded PowerShell command so paths remain literal whether Codex selects PowerShell or cmd.exe. If an older Office reported `Hook failed` / `hook exited with code 1`, upgrade the Office, restart the affected Codex worker and review its changed Office hooks in `/hooks` once. A successful model reply alone does not confirm the integration: the Office must also receive lifecycle reports and update the worker status.
+
 ## The office's prompts
 
 Everything the office tells a worker by itself can be rewritten in ⚙️ Settings → **🤖 Workers** → **📝 Edit the prompts…**: what **🤖 Hand to a worker**, **🔍 Review**, **Fix up & merge**, **Fix conflicts & merge** and **✍️ Ask a worker** send from the boards, what a meeting about an issue or a review panel starts with, the note the queue adds to a worktree task, the three board agents' briefs, every part the meeting room hands out, and the instructions for the model that writes the signs over workers' heads. Each one lists its `{{placeholders}}` (the issue number, the PR's branch, the file a meeting waits for…), which the office fills in when it sends it, and warns when one the office counts on is missing. **↺ Default** puts the office's own wording back. Admins edit them; they're the same on every floor and kept in `.agent-office/prompts.json` with the Default worker.
+
+Codex hook reports accept UTF-8 with or without the leading BOM emitted by Windows PowerShell. Hook approval remains in Codex; the next lifecycle event updates the office status.
+
+### Autonomous Codex workers
+
+For an office whose operator wants unattended Codex work, set `AGENT_OFFICE_CODEX_AUTONOMOUS=1` in the **office server environment** before starting it. New and resumed Codex workers then use `--ask-for-approval never --sandbox danger-full-access` and trust their configured hooks. This grants filesystem and network access without command approval; use it only on an office and agent configuration you trust. Without this explicit opt-in, Codex keeps its normal permissions. Existing CLI processes retain their settings until resumed/restarted.
+
+Codex task pastes wait one second before a single Enter, and a delayed Enter is discarded if its terminal process was replaced. Task names update like Claude's instead of keeping the first connection-test label. The live working/permission footer recovers status when a hook was missed, without treating an idle input box as task completion. Windows hook launches allow ten seconds for PowerShell startup plus the bounded two-second HTTP request, rather than timing out after three seconds under concurrent load.

@@ -99,7 +99,11 @@ export interface ProviderAdapter<S = undefined, P = undefined> {
   hook?: ProviderHook<S>;
   /** The provider whose hook route its workers report on, when not their own (a custom --agent speaks Claude Code's). */
   hooksAs?: AgentProvider;
+  /** Delay after bracketed paste before Enter; providers may debounce large pastes. */
+  promptDelayMs?: number;
   screen?: {
+    /** Observe only the current terminal viewport, never historical scrollback. */
+    observe?(h: WorkerHandle<S>, text: string): void;
     /** It reports progress with OSC 9;4 (0 = idle): that catches a turn ending without a hook (Esc). */
     progress?: boolean;
     /**

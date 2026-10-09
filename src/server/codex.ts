@@ -25,6 +25,8 @@ export interface CodexHookEvent {
   turnId?: string;
   /** Only the server-side metric reader uses this path; never sent to browsers. */
   transcriptPath?: string;
+  prCommand?: string;
+  prOutput?: string;
 }
 
 const MAX_ID = 160;
@@ -57,6 +59,14 @@ export function normalizeCodexHook(event: string, payload: unknown): CodexHookEv
   const sessionId = bounded(payload.session_id, MAX_ID);
   if (!sessionId) return undefined;
   const result: CodexHookEvent = { sessionId, event: event as CodexHookEventName };
+  if (event === 'PostToolUse') {
+    const command = bounded(payload.pr_command, MAX_TEXT);
+    const output = bounded(payload.pr_output, MAX_TEXT);
+    if (command && output && /(?:^|[\s;&|(])gh\s+pr\s+create\b/.test(command)) {
+      result.prCommand = command;
+      result.prOutput = output;
+    }
+  }
 
   const transcriptPath = bounded(payload.transcript_path, 4096);
   if (transcriptPath) result.transcriptPath = transcriptPath;
@@ -82,19 +92,25 @@ export function validateCodexHook(event: string, payload: unknown): boolean {
   return !!normalizeCodexHook(event, payload);
 }
 
-function shellQuote(value: string): string {
-  return `'${value.replaceAll("'", "'\"'\"'")}'`;
+function hookCommand(values: string[], platform: NodeJS.Platform): string {
+  if (platform === 'win32') {
+    // Codex uses the session shell (usually PowerShell), with cmd.exe as a fallback.
+    // An encoded script keeps paths literal through either outer shell.
+    const script = '& ' + values.map((value) => "'" + value.replaceAll("'", "''") + "'").join(' ') + '; exit $LASTEXITCODE';
+    return 'powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand ' + Buffer.from(script, 'utf16le').toString('base64');
+  }
+  return values.map((value) => `'${value.replaceAll("'", "'\"'\"'")}'`).join(' ');
 }
 
 /**
  * Build the CLI config overrides for all lifecycle hooks. The command is encoded as a TOML basic
  * string so paths containing spaces remain valid; the command itself is shell-quoted.
  */
-export function codexHookArgs(hookPath: string): string[] {
+export function codexHookArgs(hookPath: string, platform: NodeJS.Platform = process.platform): string[] {
   const args: string[] = [];
   for (const event of CODEX_HOOK_EVENTS) {
-    const command = [process.execPath, hookPath, event].map(shellQuote).join(' ');
-    const config = `hooks.${event}=[{hooks=[{type="command",command=${JSON.stringify(command)},timeout=3}]}]`;
+    const command = hookCommand([process.execPath, hookPath, event], platform);
+    const config = `hooks.${event}=[{hooks=[{type="command",command=${JSON.stringify(command)},timeout=10}]}]`;
     args.push('-c', config);
   }
   return args;
@@ -149,7 +165,7 @@ process.stdin.on('error', () => finish(false));
 process.stdin.on('end', async () => {
   if (overflow || !EVENTS.has(event)) return finish(false);
   let input;
-  try { input = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { return finish(false); }
+  try { input = JSON.parse(Buffer.concat(chunks).toString('utf8').replace(/^\uFEFF/, '')); } catch { return finish(false); }
   if (!input || typeof input !== 'object' || Array.isArray(input)) return finish(false);
   if (hasText(input.agent_id) || hasText(input.agent_type)) return finish(false);
   const session = allowed(input.session_id, MAX_ID);
@@ -167,6 +183,15 @@ process.stdin.on('end', async () => {
   if (toolUseId) body.tool_use_id = toolUseId;
   if (turn) body.turn_id = turn;
   if (transcript) body.transcript_path = transcript;
+  if (event === 'PostToolUse') {
+    const command = allowed(input.tool_input?.command, MAX_TEXT);
+    const response = input.tool_response;
+    const output = allowed(typeof response === 'string' ? response : response?.stdout ?? response?.output, MAX_TEXT);
+    if (command && output && /(?:^|[\s;&|(])gh\s+pr\s+create\b/.test(command)) {
+      body.pr_command = command;
+      body.pr_output = output;
+    }
+  }
   const base = process.env.AGENT_OFFICE_HOOK_URL;
   const token = process.env.AGENT_OFFICE_HOOK_TOKEN;
   const worker = process.env.AGENT_OFFICE_WORKER_ID;

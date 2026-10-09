@@ -3,6 +3,8 @@
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { codexHookArgs, codexModelArgs, normalizeCodexHook, writeCodexHook } from '../codex.js';
+import { codexAutonomyArgs } from './codex-runtime.js';
+import { observeCodexScreen } from './codex-screen.js';
 import { CodexUsageReader } from '../codex-usage.js';
 import { codexMcpArgs } from '../office-workers.js';
 import { reduceLifecycle, type ToolTracker } from '../workers/lifecycle.js';
@@ -79,6 +81,7 @@ function codexHook(h: WorkerHandle<CodexState>, event: string, payload: unknown)
       s.usage = new CodexUsageReader();
     },
     onReport() {
+      if (report.prCommand && report.prOutput) h.notePr(report.prCommand, report.prOutput);
       if (report.transcriptPath) s.transcript = report.transcriptPath;
       h.scheduleScan();
     },
@@ -93,13 +96,16 @@ export const codex: ProviderAdapter<CodexState, CodexSetup> = {
   prepare: ({ dataDir, mcpScript }) => ({ hook: writeCodexHook(dataDir), mcpScript }),
   launch({ h, args, prompt, resumeSessionId, setup }) {
     // Resumed too: Codex resumes on whatever its config says now, not on the model the session ran on.
-    args = codexModelArgs(args, h.info.model, h.info.effort);
+    args = codexModelArgs(codexAutonomyArgs(args), h.info.model, h.info.effort);
     args.push(...codexHookArgs(setup.hook), ...(setup.mcpScript ? codexMcpArgs(setup.mcpScript) : []), '--no-alt-screen');
     if (resumeSessionId) args.push('resume', resumeSessionId);
     if (prompt) args.push('--', prompt);
     tracker(h.state).clear();
     return { args, rotateToken: true };
   },
+  promptDelayMs: 1000,
+  namesTasks: true,
+  screen: { observe: observeCodexScreen },
   bootHint: 'Open the terminal: complete login and review Office hooks in /hooks',
   hook: { strictJson: true, handle: codexHook },
   usage: {
