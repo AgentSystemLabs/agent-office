@@ -1,3 +1,4 @@
+import { cursorHookCommand, cursorHookWorkers, readableHookCommand } from '../src/server/cursor-command.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
@@ -91,8 +92,8 @@ test('puts a worker\'s hooks in its folder and takes the file away with them', (
   assert.deepEqual(Object.keys(written.hooks), Object.keys(CURSOR_HOOK_EVENTS));
   for (const [event, entries] of Object.entries(written.hooks)) {
     assert.equal(entries.length, 1);
-    assert.ok(entries[0].command.includes(hook));
-    assert.ok(entries[0].command.endsWith(` '${event}' 'abc123'`));
+    assert.ok(readableHookCommand(entries[0].command).includes(hook));
+    assert.ok(readableHookCommand(entries[0].command).endsWith(` '${event}' 'abc123'`));
     assert.equal(entries[0].timeout, 5);
   }
   // The office made it, so it's no change of the worker's.
@@ -107,16 +108,43 @@ test('puts a worker\'s hooks in its folder and takes the file away with them', (
   removeCursorHooks(cwd, 'abc123');
 });
 
-test('workers sharing a folder each keep their own entries', (t) => {
+test('workers sharing a folder launch one hook per event and unregister independently', (t) => {
   const dir = scratch(t);
   const hook = writeCursorHook(path.join(dir, 'data'));
   assert.equal(addCursorHooks(dir, hook, 'worker-a'), true);
   assert.equal(addCursorHooks(dir, hook, 'worker-b'), true);
-  assert.deepEqual(readHooks(dir).hooks.stop.map((e) => e.command.split(' ').at(-1)), ["'worker-a'", "'worker-b'"]);
+  for (let i = 0; i < 20; i++) addCursorHooks(dir, hook, 'worker-b');
+  for (const entries of Object.values(readHooks(dir).hooks)) {
+    assert.equal(entries.length, 1);
+    assert.deepEqual(cursorHookWorkers(entries[0].command), ['worker-a', 'worker-b']);
+  }
   removeCursorHooks(dir, 'worker-a');
-  assert.deepEqual(readHooks(dir).hooks.stop.map((e) => e.command.split(' ').at(-1)), ["'worker-b'"]);
+  assert.deepEqual(readHooks(dir).hooks.stop.map((e) => readableHookCommand(e.command).split(' ').at(-1)), ["'worker-b'"]);
   removeCursorHooks(dir, 'worker-b');
   assert.equal(existsSync(hooksFile(dir)), false);
+});
+
+test('collapses legacy Windows and POSIX registrations while preserving user hooks', (t) => {
+  const dir = scratch(t);
+  const hook = writeCursorHook(path.join(dir, "data with 'quotes'"));
+  mkdirSync(path.join(dir, '.cursor'));
+  writeFileSync(hooksFile(dir), JSON.stringify({ version: 1, hooks: {
+    stop: [
+      { command: './notify.sh' },
+      { command: cursorHookCommand([process.execPath, hook, 'stop', 'worker-a'], false) },
+      { command: cursorHookCommand([process.execPath, hook, 'stop', 'worker-b'], true) },
+    ],
+  } }));
+  assert.equal(addCursorHooks(dir, hook, 'worker-c'), true);
+  let entries = readHooks(dir).hooks.stop;
+  assert.equal(entries.length, 2);
+  assert.deepEqual(cursorHookWorkers(entries[1].command), ['worker-a', 'worker-b', 'worker-c']);
+  removeCursorHooks(dir, 'worker-b');
+  entries = readHooks(dir).hooks.stop;
+  assert.deepEqual(cursorHookWorkers(entries[1].command), ['worker-a', 'worker-c']);
+  removeCursorHooks(dir, 'worker-c');
+  removeCursorHooks(dir, 'worker-a');
+  assert.deepEqual(readHooks(dir).hooks, { stop: [{ command: './notify.sh' }] });
 });
 
 test('a project\'s own hooks.json keeps its hooks and comes back byte for byte', (t) => {
@@ -161,7 +189,7 @@ test('a hooks.json the office cannot read is left alone', (t) => {
 });
 
 /** Runs the helper as Cursor would for one hook, and says what the office's hook server got. */
-async function runHelper(t: { after(fn: () => void): void }, argv: string[], env: Record<string, string>, input: unknown) {
+async function runHelper(t: { after(fn: () => void): void }, argv: string[], env: Record<string, string>, input: unknown, bom = false) {
   const dir = scratch(t);
   const received: { url?: string; authorization?: string; body?: unknown }[] = [];
   const server = createServer((req, res) => {
@@ -187,7 +215,7 @@ async function runHelper(t: { after(fn: () => void): void }, argv: string[], env
       child.stdout.on('data', (chunk) => { output += chunk; });
       child.on('error', reject);
       child.on('close', () => resolve(output));
-      child.stdin.end(JSON.stringify(input));
+      child.stdin.end((bom ? '\uFEFF' : '') + JSON.stringify(input));
     });
     return { stdout, received };
   } finally {
@@ -228,4 +256,22 @@ test('helper stays quiet for another worker, a person\'s own Cursor session, a s
     assert.equal(stdout, '{}');
     assert.deepEqual(received, []);
   }
+});
+
+test('shared helper routes once to the calling registered worker and rejects outsiders', async (t) => {
+  for (const worker of ['worker-a', 'worker-b', 'worker', 'worker-c']) {
+    const result = await runHelper(t, ['preToolUse', 'worker-a,worker-b'], { AGENT_OFFICE_WORKER_ID: worker }, {
+      conversation_id: `chat-${worker}`, tool_name: 'Shell',
+    });
+    assert.equal(result.stdout, '{}');
+    assert.equal(result.received.length, worker === 'worker-a' || worker === 'worker-b' ? 1 : 0);
+    if (result.received.length) assert.equal(result.received[0].url, `/hooks/cursor?worker=${worker}&event=preToolUse`);
+  }
+});
+
+
+test('helper accepts the UTF-8 BOM emitted by Windows Cursor hook stdin', async (t) => {
+  const result = await runHelper(t, ['stop', 'worker-1'], { AGENT_OFFICE_WORKER_ID: 'worker-1' }, { conversation_id: 'chat-1' }, true);
+  assert.equal(result.received.length, 1);
+  assert.deepEqual(result.received[0].body, { conversation_id: 'chat-1', hook_event_name: 'stop' });
 });

@@ -3,10 +3,11 @@
 // The CLI reads hooks from ~/.cursor/hooks.json, which is the person's own and the office never
 // touches, and from <folder>/.cursor/hooks.json. Nothing moves either (CURSOR_CONFIG_DIR only moves
 // its settings and chats), and its terminal only fires the prompt and stop hooks when one of those
-// two files has them, so a plugin's hooks (--plugin-dir) aren't enough. So each worker's own entries
-// go into the hooks.json of the folder it works in as it starts, and come out again when it ends.
+// two files has them, so a plugin's hooks (--plugin-dir) aren't enough. Workers register in one
+// shared command per event in their folder, and unregister again when they end.
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmdirSync, unlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { cursorHookCommand, cursorHookWorkers, withCursorHookWorkers } from './cursor-command.js';
 import { excludeFromGit } from './config.js';
 
 /** Cursor's hook events the office listens to, and the lifecycle event each one is (see workers/lifecycle.ts). */
@@ -77,10 +78,6 @@ export function normalizeCursorHook(event: string, payload: unknown): CursorHook
   return result;
 }
 
-function shellQuote(value: string): string {
-  return `'${value.replaceAll("'", "'\"'\"'")}'`;
-}
-
 /** Write the self-contained helper invoked by Cursor's command hooks. */
 export function writeCursorHook(dataDir: string): string {
   mkdirSync(dataDir, { recursive: true, mode: 0o700 });
@@ -109,15 +106,21 @@ function readHooks(file: string): { config: HooksConfig; text: string } | 'none'
 
 /** Whether a hook entry is the office's, and `workerId`'s when one is named. */
 function isOffice(entry: unknown, workerId?: string): boolean {
-  const command = isRecord(entry) ? entry.command : undefined;
-  return typeof command === 'string' && command.includes(HOOK_FILE) && (!workerId || command.endsWith(` ${shellQuote(workerId)}`));
+  const raw = isRecord(entry) ? entry.command : undefined;
+  const workers = typeof raw === 'string' ? cursorHookWorkers(raw) : undefined;
+  return !!workers && (!workerId || workers.includes(workerId));
 }
 
 /** Takes `workerId`'s entries out of `config`. */
 function strip(config: HooksConfig, workerId: string) {
   for (const [event, entries] of Object.entries(config.hooks)) {
     if (!Array.isArray(entries) || !entries.some((e) => isOffice(e, workerId))) continue;
-    const kept = entries.filter((e) => !isOffice(e, workerId));
+    const kept = entries.flatMap((entry) => {
+      if (!isOffice(entry, workerId)) return [entry];
+      const owned = entry as { command: string };
+      const workers = cursorHookWorkers(owned.command)!.filter((id) => id !== workerId);
+      return workers.length ? [{ ...owned, command: withCursorHookWorkers(owned.command, workers) }] : [];
+    });
     if (kept.length) config.hooks[event] = kept;
     else delete config.hooks[event];
   }
@@ -146,8 +149,8 @@ function hooksPath(cwd: string): string {
 
 /**
  * Puts a worker's hook entries in the hooks.json of the folder it works in, next to whatever the
- * project has there. Each entry names its worker, and the helper only speaks for that one, so
- * workers sharing a folder (the board agents, in the project itself) don't report for each other.
+ * project has there. One entry per event names all registered workers; the helper uses the
+ * calling worker's environment. Sharing a folder doesn't multiply hook processes or reports.
  * Says whether they're in: a hooks.json the office can't read is left as it is.
  */
 export function addCursorHooks(cwd: string, hook: string, workerId: string): boolean {
@@ -158,13 +161,14 @@ export function addCursorHooks(cwd: string, hook: string, workerId: string): boo
   const config: HooksConfig = found === 'none' ? { version: 1, hooks: {} } : found.config;
   const before = found === 'none' ? undefined : found.text;
   // The project's own file, untouched until now: kept to put back as it was (see removeCursorHooks).
-  if (before !== undefined && !before.includes(HOOK_FILE)) originals.set(file, before);
-  // Left behind by a run that was cut off.
-  strip(config, workerId);
+  if (before !== undefined && !Object.values(config.hooks).some((entries) => Array.isArray(entries) && entries.some((e) => isOffice(e)))) originals.set(file, before);
   for (const event of Object.keys(CURSOR_HOOK_EVENTS)) {
     const entries = Array.isArray(config.hooks[event]) ? (config.hooks[event] as unknown[]) : [];
-    const command = [process.execPath, hook, event, workerId].map(shellQuote).join(' ');
-    config.hooks[event] = [...entries, { command, timeout: HOOK_TIMEOUT_S }];
+    // Also collapse legacy per-worker entries, including registrations surviving a restart.
+    const workers = new Set(entries.filter((entry) => isOffice(entry)).flatMap((entry) => cursorHookWorkers((entry as { command: string }).command)!));
+    workers.add(workerId);
+    const command = cursorHookCommand([process.execPath, hook, event, [...workers].sort().join(',')]);
+    config.hooks[event] = [...entries.filter((entry) => !isOffice(entry)), { command, timeout: HOOK_TIMEOUT_S }];
   }
   try {
     mkdirSync(path.dirname(file), { recursive: true });
@@ -181,7 +185,7 @@ export function addCursorHooks(cwd: string, hook: string, workerId: string): boo
 export function removeCursorHooks(cwd: string, workerId: string) {
   const file = hooksPath(cwd);
   const found = readHooks(file);
-  if (!found || found === 'none' || !found.text.includes(HOOK_FILE)) return;
+  if (!found || found === 'none') return;
   const { config, text } = found;
   strip(config, workerId);
   const shared = Object.values(config.hooks).some((entries) => Array.isArray(entries) && entries.some((e) => isOffice(e)));
@@ -253,7 +257,8 @@ const hasText = (value) => typeof value === 'string' && value.trim().length > 0;
 let answered = false;
 const finish = () => { if (!answered) process.stdout.write('{}'); answered = true; };
 const event = process.argv[2];
-const worker = process.argv[3];
+const workers = (process.argv[3] || '').split(',');
+const worker = process.env.AGENT_OFFICE_WORKER_ID;
 let size = 0;
 let overflow = false;
 const chunks = [];
@@ -267,10 +272,10 @@ process.stdin.on('error', finish);
 process.stdin.on('end', async () => {
   const base = process.env.AGENT_OFFICE_HOOK_URL;
   const token = process.env.AGENT_OFFICE_HOOK_TOKEN;
-  // Every Cursor session in this folder runs this: only the worker it was written for reports.
-  if (overflow || !EVENTS.has(event) || !base || !token || !worker || process.env.AGENT_OFFICE_WORKER_ID !== worker) return finish();
+  // One invocation per event, even when several registered workers share this folder.
+  if (overflow || !EVENTS.has(event) || !base || !token || !worker || !workers.includes(worker)) return finish();
   let input;
-  try { input = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { return finish(); }
+  try { input = JSON.parse(Buffer.concat(chunks).toString('utf8').replace(/^\uFEFF/, '')); } catch { return finish(); }
   if (!input || typeof input !== 'object' || Array.isArray(input)) return finish();
   if (CHILD.some((key) => hasText(input[key])) || input.is_background_agent === true) return finish();
   const session = allowed(input.conversation_id !== undefined ? input.conversation_id : input.session_id, MAX_ID);
