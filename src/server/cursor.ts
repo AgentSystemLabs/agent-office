@@ -7,6 +7,7 @@
 // go into the hooks.json of the folder it works in as it starts, and come out again when it ends.
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmdirSync, unlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { cursorHookCommand, readableHookCommand } from './cursor-command.js';
 import { excludeFromGit } from './config.js';
 
 /** Cursor's hook events the office listens to, and the lifecycle event each one is (see workers/lifecycle.ts). */
@@ -109,8 +110,9 @@ function readHooks(file: string): { config: HooksConfig; text: string } | 'none'
 
 /** Whether a hook entry is the office's, and `workerId`'s when one is named. */
 function isOffice(entry: unknown, workerId?: string): boolean {
-  const command = isRecord(entry) ? entry.command : undefined;
-  return typeof command === 'string' && command.includes(HOOK_FILE) && (!workerId || command.endsWith(` ${shellQuote(workerId)}`));
+  const raw = isRecord(entry) ? entry.command : undefined;
+  const command = typeof raw === 'string' ? readableHookCommand(raw) : undefined;
+  return typeof command === 'string' && command.includes(HOOK_FILE) && (!workerId || (command.endsWith(` ${shellQuote(workerId)}`) || command.endsWith(` '${workerId}'`)));
 }
 
 /** Takes `workerId`'s entries out of `config`. */
@@ -158,12 +160,12 @@ export function addCursorHooks(cwd: string, hook: string, workerId: string): boo
   const config: HooksConfig = found === 'none' ? { version: 1, hooks: {} } : found.config;
   const before = found === 'none' ? undefined : found.text;
   // The project's own file, untouched until now: kept to put back as it was (see removeCursorHooks).
-  if (before !== undefined && !before.includes(HOOK_FILE)) originals.set(file, before);
+  if (before !== undefined && !Object.values(config.hooks).some((entries) => Array.isArray(entries) && entries.some((e) => isOffice(e)))) originals.set(file, before);
   // Left behind by a run that was cut off.
   strip(config, workerId);
   for (const event of Object.keys(CURSOR_HOOK_EVENTS)) {
     const entries = Array.isArray(config.hooks[event]) ? (config.hooks[event] as unknown[]) : [];
-    const command = [process.execPath, hook, event, workerId].map(shellQuote).join(' ');
+    const command = cursorHookCommand([process.execPath, hook, event, workerId]);
     config.hooks[event] = [...entries, { command, timeout: HOOK_TIMEOUT_S }];
   }
   try {
@@ -181,7 +183,7 @@ export function addCursorHooks(cwd: string, hook: string, workerId: string): boo
 export function removeCursorHooks(cwd: string, workerId: string) {
   const file = hooksPath(cwd);
   const found = readHooks(file);
-  if (!found || found === 'none' || !found.text.includes(HOOK_FILE)) return;
+  if (!found || found === 'none') return;
   const { config, text } = found;
   strip(config, workerId);
   const shared = Object.values(config.hooks).some((entries) => Array.isArray(entries) && entries.some((e) => isOffice(e)));
@@ -270,7 +272,7 @@ process.stdin.on('end', async () => {
   // Every Cursor session in this folder runs this: only the worker it was written for reports.
   if (overflow || !EVENTS.has(event) || !base || !token || !worker || process.env.AGENT_OFFICE_WORKER_ID !== worker) return finish();
   let input;
-  try { input = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { return finish(); }
+  try { input = JSON.parse(Buffer.concat(chunks).toString('utf8').replace(/^\uFEFF/, '')); } catch { return finish(); }
   if (!input || typeof input !== 'object' || Array.isArray(input)) return finish();
   if (CHILD.some((key) => hasText(input[key])) || input.is_background_agent === true) return finish();
   const session = allowed(input.conversation_id !== undefined ? input.conversation_id : input.session_id, MAX_ID);
