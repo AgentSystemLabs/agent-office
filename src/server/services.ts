@@ -3,6 +3,7 @@ import { readFile, readlink } from 'node:fs/promises';
 import http from 'node:http';
 import path from 'node:path';
 import type { ServiceInfo } from '../shared/protocol.js';
+import { windowsSnapshot } from './services/windows.js';
 
 // Finds the web servers workers start (npm run dev, python -m http.server, ...) so teammates can
 // reach them through the office: every few seconds, list the TCP ports this user's processes
@@ -103,6 +104,8 @@ async function processes(): Promise<Map<number, Proc>> {
 async function cwds(pids: number[]): Promise<Map<number, string>> {
   const out = new Map<number, string>();
   if (!pids.length) return out;
+  // Windows CIM exposes ancestry, but not another process's working directory.
+  if (process.platform === 'win32') return out;
   if (process.platform === 'linux') {
     await Promise.all(pids.map(async (pid) => out.set(pid, await readlink(`/proc/${pid}/cwd`).catch(() => ''))));
     return out;
@@ -218,7 +221,9 @@ export class Services {
 
   private async scanOnce() {
     const owners = this.owners();
-    const [ls, procs] = await Promise.all([listeners(), processes()]);
+    const [ls, procs] = process.platform === 'win32'
+      ? await windowsSnapshot().then((s) => [s.listeners, s.processes] as const)
+      : await Promise.all([listeners(), processes()]);
     const byPty = new Map(owners.filter((o) => o.pid).map((o) => [o.pid!, o]));
     const byId = new Map(owners.map((o) => [o.workerId, o]));
 
