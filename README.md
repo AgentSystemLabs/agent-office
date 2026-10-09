@@ -20,7 +20,7 @@ and jump into any of them together. Every GitHub repo is a floor of the building
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey?style=flat-square)](#run-locally)
 [![Built with TypeScript](https://img.shields.io/badge/built%20with-TypeScript-3178c6?style=flat-square)](https://www.typescriptlang.org)
 
-[**Run locally**](#run-locally) · [**Deploy to AWS**](#deploy-to-aws-ec2) · [**Azure**](#deploy-to-azure) · [**Railway**](#deploy-to-railway) · [**Fly.io**](#deploy-to-flyio) · [**Dokploy**](#deploy-to-dokploy) · [**Coolify**](#deploy-to-coolify) · [**Any server**](#deploy-to-any-ubuntu-or-debian-server) · [**Add users**](#add-users) · [**Controls**](#controls) · [**Features**](docs/features.md) · [**How it works**](docs/how-it-works.md)
+[**Run locally**](#run-locally) · [**Deploy to AWS**](#deploy-to-aws-ec2) · [**Azure**](#deploy-to-azure) · [**Google Cloud**](#deploy-to-google-cloud) · [**Railway**](#deploy-to-railway) · [**Fly.io**](#deploy-to-flyio) · [**Dokploy**](#deploy-to-dokploy) · [**Coolify**](#deploy-to-coolify) · [**Any server**](#deploy-to-any-ubuntu-or-debian-server) · [**Add users**](#add-users) · [**Controls**](#controls) · [**Features**](docs/features.md) · [**How it works**](docs/how-it-works.md)
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/AgentSystemLabs/agent-office/main/install.sh | bash
@@ -101,7 +101,7 @@ npm install -g .     # puts `agent-office` on your PATH
 agent-office
 ```
 
-> Only your computer can reach the office: it listens on `127.0.0.1`. `--host 0.0.0.0` lets your network in, but over plain http, where voice and screen sharing don't work. To share the office with a team, put it on a server: [AWS](#deploy-to-aws-ec2), [Azure](#deploy-to-azure), [Railway](#deploy-to-railway), [Fly.io](#deploy-to-flyio), [Dokploy](#deploy-to-dokploy), [Coolify](#deploy-to-coolify) or [any Ubuntu or Debian machine](#deploy-to-any-ubuntu-or-debian-server).
+> Only your computer can reach the office: it listens on `127.0.0.1`. `--host 0.0.0.0` lets your network in, but over plain http, where voice and screen sharing don't work. To share the office with a team, put it on a server: [AWS](#deploy-to-aws-ec2), [Azure](#deploy-to-azure), [Google Cloud](#deploy-to-google-cloud), [Railway](#deploy-to-railway), [Fly.io](#deploy-to-flyio), [Dokploy](#deploy-to-dokploy), [Coolify](#deploy-to-coolify) or [any Ubuntu or Debian machine](#deploy-to-any-ubuntu-or-debian-server).
 
 ## Deploy to AWS (EC2)
 
@@ -170,6 +170,19 @@ deploy/azure.sh up --project your-org/your-repo --claude-token "$(claude setup-t
 `up` puts everything in a resource group of its own, `agent-office`, and launches a **Standard_D4as_v5** VM (4 vCPU and 16 GiB, like the t3.xlarge on AWS, at about the same price) with Ubuntu 24.04, a 64 GiB Premium SSD and a static IP. Its firewall opens **only SSH, only to your IP**. Then it runs the same [`deploy/provision.sh`](deploy/provision.sh) and opens the office through an SSH tunnel at http://localhost:4600. **The first page shows the office password once. Write it down.**
 
 Every command from the AWS script works the same, with `deploy/azure.sh` in its place: `open`, `status`, `logs`, `ssh`, `update`, `invite`, `allow`, `service`, `resize Standard_D8as_v5`, `pause` (deallocates the VM, so only the disk and IP are billed), `resume` and `destroy` (deletes the resource group). One more, `connect`, lets a second computer manage the office. `--location` picks the region (default: your `az` default location, else `eastus`), `--subscription` the subscription and `--size` the VM size. The details are in [docs/azure.md](docs/azure.md).
+
+## Deploy to Google Cloud
+
+The same thing on a Compute Engine VM, using only the gcloud CLI. You need the **gcloud CLI signed in** (`gcloud auth login`) with a project that has billing, `ssh`, `curl` and a clone of this repo:
+
+```bash
+git clone https://github.com/AgentSystemLabs/agent-office && cd agent-office
+deploy/gcp.sh up --project your-org/your-repo --claude-token "$(claude setup-token)"
+```
+
+`up` gives the office a VPC network of its own with one firewall rule that opens **only SSH, only to your IP**, a static IP, and an **e2-standard-4** VM (4 vCPU and 16 GiB, like the t3.xlarge on AWS, for less) with Ubuntu 24.04, a 50 GiB disk and no service account. Then it runs the same [`deploy/provision.sh`](deploy/provision.sh) and opens the office through an SSH tunnel at http://localhost:4600. **The first page shows the office password once. Write it down.**
+
+Every command from the AWS script works the same, with `deploy/gcp.sh` in its place: `open`, `status`, `logs`, `ssh`, `update`, `invite`, `allow`, `service`, `resize e2-standard-8`, `pause` (stops the VM, so only the disk and IP are billed), `resume` and `destroy` (deletes the VM, disk, IP, firewall rule and network). One more, `connect`, lets a second computer manage the office. In a company project whose policies forbid public addresses or require OS Login, `up` makes a **private** office instead (or always, with `--private`): no public address, Cloud NAT for the VM's own internet access, and SSH through an IAP tunnel, so teammates need gcloud and an IAM role rather than an allowed IP. `--gcp-project` picks the project (default: your gcloud CLI's current one; `--project` without a slash means the same), `--zone` the zone (default: your gcloud default zone, else `us-central1-a`) and `--machine-type` the VM size. The details are in [docs/gcp.md](docs/gcp.md).
 
 ## Deploy to Railway
 
@@ -344,7 +357,7 @@ agent-office accounts role ada member
 agent-office accounts revoke ada           # signed out within seconds
 ```
 
-On the EC2 machine, run it through `deploy/aws.sh ssh` (on Azure, `deploy/azure.sh ssh`):
+On the EC2 machine, run it through `deploy/aws.sh ssh` (on Azure, `deploy/azure.sh ssh`; on Google Cloud, `deploy/gcp.sh ssh`):
 
 ```bash
 deploy/aws.sh ssh 'node /opt/agent-office/bin/agent-office.js accounts invite ada --dir "$(cat /etc/agent-office/home)"'
@@ -414,6 +427,7 @@ Every change to the app that lands on `main` is published as a GitHub release by
 - [Coolify reference](docs/coolify.md): what `deploy/coolify.sh` sets up on your Coolify, building pushed commits, and what the volume keeps
 - [Your own server](docs/self-hosting.md): the one-line setup for any Ubuntu or Debian server, or by hand behind Caddy or nginx
 - [Azure reference](docs/azure.md): picking a VM size, pausing, and everything `deploy/azure.sh` does
+- [Google Cloud reference](docs/gcp.md): the project, picking a machine type, pausing, and everything `deploy/gcp.sh` does
 - [How it works](docs/how-it-works.md): the architecture, and security notes
 - [Code layout](docs/code-layout.md): where the code lives, adding a feature or an agent provider, and the size guard
 

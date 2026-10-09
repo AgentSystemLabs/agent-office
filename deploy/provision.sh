@@ -269,8 +269,8 @@ if [[ -z "${PUBLIC_HOST:-}" ]]; then
   [[ -n "$PUBLIC_HOST" ]] || PUBLIC_HOST=$(curl -fsS --max-time 5 https://checkip.amazonaws.com 2>/dev/null | tr -d '[:space:]' || true)
   [[ -n "$PUBLIC_HOST" ]] || PUBLIC_HOST=$(hostname -I 2>/dev/null | awk '{print $1}' || true)
 fi
-# The script that deployed this server, exported as DEPLOY_SCRIPT by deploy/azure.sh ("deploy/azure.sh",
-# plus "--name <name>" for a second office), so the office names it in the commands it suggests.
+# The script that deployed this server, exported as DEPLOY_SCRIPT by deploy/azure.sh and deploy/gcp.sh
+# ("deploy/azure.sh", plus "--name <name>" for a second office), so the office names it in the commands it suggests.
 # Run again by hand, this keeps the one from before.
 [[ -n "${DEPLOY_SCRIPT:-}" ]] ||
   DEPLOY_SCRIPT=$(sudo sed -n 's/^AGENT_OFFICE_DEPLOY_SCRIPT="\(.*\)"$/\1/p' /etc/agent-office/env 2>/dev/null || true)
