@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { WebSocket } from 'ws';
 import type { FloorDef } from '../building.js';
 import { Floor, type FloorContext } from '../floor.js';
+import { JevClassifier } from '../triage/classifier.js';
 import { ROOF } from '../../shared/rooftop.js';
 import type { FloorInfo, ServerMsg } from '../../shared/protocol.js';
 import type { Ctx, FloorHelpers, FloorsOpen } from './context.js';
@@ -119,6 +120,8 @@ export async function openFloors(ctx: Ctx, hookPort: number): Promise<FloorsOpen
     locksUp: () => !!ctx.maps.plan().sendHome?.keeps,
     runAs: ctx.signins,
     ghAs: (owner) => (owner ? ctx.signins.ghAs(owner) : undefined),
+    // One for the building: every floor's triage asks the same classifier.
+    classifier: cfg.triage ? new JevClassifier(cfg.triage) : undefined,
   };
   /** Whether a worker on `from` works in `on`'s project too (see WorkerInfo.repos). */
   const worksIn = (from: Floor, on: Floor) => from.workers.list().some((w) => w.repos?.some((r) => r.floor === on.id));

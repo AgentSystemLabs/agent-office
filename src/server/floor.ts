@@ -8,7 +8,7 @@ import type { FloorDef } from './building.js';
 import { excludeFromGit } from './config.js';
 import { agentProviders, configuredProvider } from './agents.js';
 import { WorkerManager, workedMs, type HookEnv, type RunAs } from './workers.js';
-import { GitHub, MergeWatch } from './github.js';
+import { GitHub, MergeWatch, gh } from './github.js';
 import type { GhAs } from './signins.js';
 import { TaskQueue } from './queue.js';
 import { Changes } from './changes.js';
@@ -27,6 +27,8 @@ import { landedWork, landedWorkers, type Landed } from './leave-on-merge.js';
 import type { Ledger } from './usage.js';
 import type { Capacity } from './machine.js';
 import { officePrompt, type PromptSource } from './prompts.js';
+import { FloorTriage } from './triage/index.js';
+import type { Classifier } from './triage/classifier.js';
 
 type ToastLevel = 'info' | 'warn' | 'error';
 
@@ -70,6 +72,8 @@ export interface FloorContext {
   lent(floor: Floor): boolean;
   /** Whether the building's map locks up workers sent home (see MapPlan.sendHome), instead of letting them go. */
   locksUp(): boolean;
+  /** What classifies issues for triage, when the office runs with --triage (see triage/). */
+  classifier?: Classifier;
 }
 
 /** The open pull request on a floor's board whose head is `branch`. */
@@ -115,6 +119,8 @@ export class Floor {
   readonly workers: WorkerManager;
   readonly github: GitHub;
   readonly queue: TaskQueue;
+  /** Classifies the board's issues, labels them and queues the agent-ready ones (see triage/). */
+  readonly triage: FloorTriage;
   readonly changes: Changes;
   readonly decor: Decor;
   /** The signs over its desks, and how far its back office is built out. */
@@ -209,7 +215,10 @@ export class Floor {
 
     this.github = new GitHub(
       def.dir,
-      (state) => ctx.emit(this, { t: 'gh.issues', state }),
+      (state) => {
+        ctx.emit(this, { t: 'gh.issues', state });
+        this.triage?.onIssues(state);
+      },
       (state) => {
         ctx.emit(this, { t: 'gh.pulls', state });
         this.queue?.onPulls(state.items);
@@ -244,6 +253,24 @@ export class Floor {
         ctx.emit(this, { t: 'gong', why: 'queue' });
       },
       worktreeNote: () => officePrompt(ctx.prompts, 'queue.worktree'),
+    });
+
+    const issueVars = (i: { number: number; title: string; url: string }) => ({ number: i.number, title: i.title, url: i.url });
+    this.triage = new FloorTriage({
+      dir: def.dir,
+      dataDir,
+      classifier: ctx.classifier,
+      run: (args) => gh(args, def.dir),
+      issueDetail: (n) => this.github.issueDetail(n),
+      repoName: async () => (await this.github.repoInfo()).nameWithOwner,
+      repoLabels: () => this.github.repoLabels(),
+      setLabels: (n, add, remove) => this.github.setLabels('issue', n, add, remove),
+      comment: (n, body) => this.github.comment('issue', n, body),
+      queue: (issue, m, priority, area, triage) =>
+        this.queue.add(officePrompt(ctx.prompts, 'issue.work', issueVars(issue)), 'Triage', issue.title, issue.number, m.provider, m.model, m.effort, undefined, { priority, area, triage }),
+      needsDetailComment: (issue) => officePrompt(ctx.prompts, 'triage.needsDetail', { ...issueVars(issue), author: issue.author }),
+      emit: (msg) => ctx.emit(this, msg),
+      toast: (text, level) => ctx.toast(this, text, level),
     });
 
     // Meetings seat their own workers round the meeting room's table and run them round by round.
@@ -415,6 +442,7 @@ export class Floor {
     this.dog.stop();
     this.github.stop();
     this.queue.shutdown();
+    this.triage.shutdown();
     this.meetings.shutdown();
     this.changes.stop();
     this.whiteboard.flush();

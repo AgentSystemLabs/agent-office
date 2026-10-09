@@ -1,0 +1,12 @@
+/* Triage's chip on issue cards and its row in the issue window (see triage.ts). */
+.tchip { display: inline-flex; align-items: center; gap: 4px; padding: 1px 6px; border-radius: 999px; border: 1.5px solid var(--ink); background: #f4f4f5; color: var(--ink); font-size: 10px; font-weight: 900; cursor: help; }
+.tdot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: #a1a1aa; }
+.tchip.queued .tdot { background: #16a34a; }
+.tchip.held .tdot { background: #0ea5e9; }
+.tchip.needs-detail .tdot { background: #f59e0b; }
+.tchip.needs-human .tdot, .tchip.error .tdot { background: #dc2626; }
+.tchip.cross-repo .tdot, .tchip.split-me .tdot { background: #a855f7; }
+.tchip.unsure { border-style: dashed; }
+.triage-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 16px; font-size: 13px; font-weight: 700; color: var(--muted); border-bottom: 2px solid rgba(43, 45, 66, .15); }
+.triage-row > span:first-child { color: var(--ink); font-weight: 900; }
+.triage-row .btn.small { padding: 2px 8px; font-size: 12px; border-width: 2px; border-radius: 9px; }

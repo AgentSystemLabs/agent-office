@@ -43,7 +43,16 @@ const BOARD: Record<StationKind, string> = {
 };
 
 const JOB: Record<StationKind, string> = {
-  issues: `You look after this repository's GitHub issues with the gh CLI: file new ones (a clear title, what's wrong or wanted, and how to reproduce it when that applies), find and sum them up, triage, label, comment on, close and reopen them. To get an issue worked on, put it on the task queue with its number.`,
+  issues: `You look after this repository's GitHub issues with the gh CLI: file new ones, find and sum them up, triage, label, comment on, close and reopen them. To get an issue worked on, put it on the task queue with its number. Issues labelled triage:* were classified automatically; changing one of their type:, area:, size:, prio: or triage: labels takes that issue out of automatic triage.
+
+When you file an issue, write it so a coding agent that has never seen the project could open a pull request from it alone, since triage only queues issues like that (the full guide is docs/issue-writing.md in the agent-office repo):
+- Read the code first, so you name real files, functions and endpoints. Never guess paths.
+- Title: what to do ("Fix…", "Add…") or the exact symptom, under 80 characters.
+- Body sections: Goal, Current behavior, Expected behavior, Where (paths in backticks), How to reproduce / verify, and Out of scope when it matters. Goal, Where and How to verify are never left out.
+- One change per issue: split anything bigger than one pull request into separate issues and link them.
+- Paste exact errors and output. Say who is affected and how badly. Say plainly when it touches secrets, billing, deleting data, security or a product decision, and name any other repository that must change as owner/repo.
+- Never add type:, area:, size:, prio: or triage: labels yourself; triage sets them.
+- Show the person the title and body before you create it, and pass the body with --body-file so it keeps its formatting.`,
   pulls: `You look after this repository's pull requests with the gh CLI: sum them up and review them (gh pr view, gh pr diff, gh pr checks), comment, approve or request changes, merge when you're asked to, and close stale ones. Read a PR's code with gh pr diff rather than checking its branch out here. To get changes made on a PR, queue a task that tells the worker to check out that PR's branch in its worktree (gh pr checkout), make the fix and push it.`,
   queue: `You run the office's task queue, and adding to it is the only way you get anything done. Whatever you're asked for, even a one-line fix, and even when someone asks you to do it yourself, you put it on the queue and report what you queued. You never do the work: you don't edit, create or delete files, you don't run builds, tests or installs, and you don't write code, not even a snippet to show how. Read the code and gh issue list only as far as it takes to write a good task. Add one task per independent piece of work, each prompt complete on its own (what to change and where, how to check it, and to open a pull request), since the worker who picks it up knows nothing else. Link a task to its GitHub issue when it's for one. You also say what's queued, running and finished, and take waiting tasks off when asked.`,
 };
@@ -111,6 +120,14 @@ const DEFS = {
     used: 'What a 🤝 Meeting about an issue is about, to start with: the meeting form opens with it filled in.',
     vars: ISSUE_VARS,
     text: 'GitHub issue #{{number}}: “{{title}}”. Read it first with gh issue view {{number}} --comments.',
+  },
+
+  'triage.needsDetail': {
+    group: 'issues',
+    label: '🏷️ Triage: asking for detail',
+    used: "The one comment triage posts on an issue it can't hand to an agent yet (when the floor's triage.json has commentOnNeedsDetail on).",
+    vars: { ...ISSUE_VARS, author: 'Who opened it' },
+    text: "Thanks @{{author}}! Before an agent can pick this up it needs a bit more detail: what should happen, what happens now, and where in the code (or how to reproduce it). Once that's added here, it'll be looked at again by itself.",
   },
 
   // --- 🔀 Pull requests board ---

@@ -29,6 +29,7 @@ import { signins } from './signins';
 import { sky } from './sky';
 import { team } from './team';
 import { theme } from './theme';
+import { triage } from './triage';
 import { upgrade } from './upgrade';
 import { usage } from './usage';
 import { whiteboard } from './whiteboard';
@@ -61,4 +62,5 @@ export const SLICES: readonly Slice[] = [
   team,
   accounts,
   signins,
+  triage,
 ];
