@@ -23,6 +23,8 @@ export interface QueueTask {
   status: TaskStatus;
   /** The worker seated for it (it may have gone home since). */
   workerId?: string;
+  /** Assigned into an existing session; old PRs on its branch are not this task. */
+  reusedWorker?: boolean;
   workerName?: string;
   /** The worker's own branch, when it got a worktree. */
   branch?: string;
@@ -39,6 +41,8 @@ export interface QueueState {
   tasks: QueueTask[];
   /** How many workers the queue may keep busy at once; 0 pauses it. */
   maxWorkers: number;
+  /** Reuse manually seated workers without hiring or retiring anyone. */
+  existingOnly?: boolean;
 }
 
 export type QueueClientMsg =
@@ -50,7 +54,8 @@ export type QueueClientMsg =
   | { t: 'queue.retry'; taskId: string }
   /** Forget the finished tasks. */
   | { t: 'queue.clear' }
-  | { t: 'queue.limit'; maxWorkers: number };
+  | { t: 'queue.limit'; maxWorkers: number }
+  | { t: 'queue.staffing'; existingOnly: boolean };
 
 export type QueueServerMsg =
   | { t: 'queue'; state: QueueState };

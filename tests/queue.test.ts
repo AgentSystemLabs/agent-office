@@ -13,6 +13,13 @@ function fixture(defaultProvider: AgentProvider = 'claude') {
   const manager: QueueWorkers = {
     defaultProvider,
     list: () => workers,
+    ownerOf: () => undefined,
+    prompt(id, text) {
+      const w = workers.find((w) => w.id === id);
+      if (!w) return 'No worker';
+      w.prompt = text;
+      return undefined;
+    },
     deskOccupied: (desk) => workers.some((w) => w.deskId === desk),
     spawn(deskId, by, prompt, worktree, kind, provider, model, effort) {
       const id = `worker-${hired++}`;
@@ -42,7 +49,7 @@ function fixture(defaultProvider: AgentProvider = 'claude') {
     queues.push(queue);
     return queue;
   };
-  return { dir, workers, open, emptied: () => emptied, close() { queues.forEach((q) => q.shutdown()); rmSync(dir, { recursive: true, force: true }); } };
+  return { dir, workers, manager, open, emptied: () => emptied, close() { queues.forEach((q) => q.shutdown()); rmSync(dir, { recursive: true, force: true }); } };
 }
 
 test('queue seats the selected provider and preserves it through completion and retry', (t) => {
@@ -344,6 +351,13 @@ test('a worktree task waits for the fetch of what its worktree starts from, then
   const manager: QueueWorkers = {
     defaultProvider: 'claude',
     list: () => workers,
+    ownerOf: () => undefined,
+    prompt(id, text) {
+      const w = workers.find((w) => w.id === id);
+      if (!w) return 'No worker';
+      w.prompt = text;
+      return undefined;
+    },
     deskOccupied: (desk) => workers.some((w) => w.deskId === desk),
     spawn(deskId, by, prompt, worktree, kind, provider) {
       assert.equal(worktree, true);
@@ -421,4 +435,71 @@ test("a queue worker that switches to a branch of its own takes its task's branc
     headRefName: 'fix-login', baseRefName: 'main', createdAt: new Date().toISOString(), updatedAt: '', additions: 0, deletions: 0, checks: 'none', body: '', closes: [],
   }]);
   assert.equal(q.state().tasks[0].pr?.number, 242);
+});
+
+
+test('existing-only never hires, preserves the chosen model and waits for the new turn before reusing', (t) => {
+  const f = fixture(); t.after(() => f.close());
+  const seed = f.open(); seed.add('seed', 'Tester'); seed.shutdown();
+  const w = f.workers[0]; w.createdBy = 'Tester'; w.status = 'done';
+  w.provider = 'cursor'; w.model = 'chosen-model';
+  const q = f.open(() => 0); q.clear(); q.setExistingOnly(true);
+  q.add('First task', 'Tester');
+  assert.equal(q.state().tasks[0].workerId, w.id);
+  assert.equal(q.state().tasks[0].model, 'chosen-model');
+  q.add('Second task', 'Tester'); q.pump();
+  assert.equal(q.state().tasks[0].status, 'running');
+  assert.equal(q.state().tasks[1].status, 'queued');
+  assert.equal(f.workers.length, 1);
+  w.status = 'working'; q.onWorker(w);
+  w.status = 'done'; q.onWorker(w);
+  assert.equal(q.state().tasks[0].outcome, 'done');
+  assert.equal(q.state().tasks[1].status, 'running');
+  assert.equal(f.workers.length, 1);
+});
+
+test('existing-only persists and excludes board, busy, viewed, stopped and queue-hired workers', (t) => {
+  const f = fixture(); t.after(() => f.close());
+  const seed = f.open(); seed.add('seed', 'Tester'); seed.shutdown();
+  const w = f.workers[0];
+  const q = f.open(); q.clear(); q.setExistingOnly(true); q.setLimit(0);
+  q.add('waiting', 'Tester');
+  w.status = 'idle'; w.createdBy = 'Tester';
+  q.pump(); assert.equal(q.state().tasks.at(-1)?.status, 'queued');
+  w.viewers = ['Tester']; q.setLimit(1);
+  assert.equal(q.state().tasks.at(-1)?.status, 'queued');
+  w.viewers = []; w.deskId = 'station-pulls'; q.pump();
+  assert.equal(q.state().tasks.at(-1)?.status, 'queued');
+  w.deskId = 'desk-1'; w.status = 'working'; q.pump();
+  assert.equal(q.state().tasks.at(-1)?.status, 'queued');
+  w.status = 'exited'; q.pump();
+  assert.equal(q.state().tasks.at(-1)?.status, 'queued');
+  w.status = 'idle'; w.createdBy = 'Tester (queue)'; q.pump();
+  assert.equal(q.state().tasks.at(-1)?.status, 'queued');
+  q.shutdown();
+  const restored = f.open();
+  assert.equal(restored.state().existingOnly, true);
+  assert.equal(f.workers.length, 1);
+});
+
+test('existing-only leaves tasks waiting when no manual worker exists', (t) => {
+  const f = fixture(); t.after(() => f.close());
+  const q = f.open(); q.setExistingOnly(true); q.add('wait', 'Tester');
+  assert.equal(f.workers.length, 0);
+  assert.equal(q.state().tasks[0].status, 'queued');
+});
+
+
+test('existing-only enforces account ownership and never falls back to hiring on prompt failure', (t) => {
+  const f = fixture(); t.after(() => f.close());
+  const seed = f.open(); seed.add('seed', 'Tester'); seed.shutdown();
+  const w = f.workers[0]; w.createdBy = 'Tester'; w.status = 'idle';
+  const q = f.open(); q.clear(); q.setExistingOnly(true);
+  f.manager.ownerOf = () => 'someone-else';
+  q.add('private task', 'Tester', undefined, undefined, undefined, undefined, undefined, 'owner');
+  assert.equal(q.state().tasks[0].status, 'queued');
+  f.manager.ownerOf = () => 'owner';
+  f.manager.prompt = () => 'Terminal unavailable'; q.pump();
+  assert.equal(q.state().tasks[0].status, 'queued');
+  assert.equal(f.workers.length, 1);
 });

@@ -1,4 +1,5 @@
 import './queue.css';
+import { queueStaffing } from './queue-staffing';
 import type { AgentProvider, QueueTask, Usage } from '../../shared/protocol';
 import type { Net } from '../net';
 import { store } from '../state';
@@ -63,7 +64,7 @@ export function openQueue(net: Net, actions: QueueActions) {
       ta.focus();
       return;
     }
-    if (!provider.valid()) return;
+    if (!store.queue.existingOnly && !provider.valid()) return;
     net.send({ t: 'queue.add', prompt: text, provider: provider.value(), model: provider.model(), effort: provider.effort() });
     ta.value = '';
   };
@@ -145,10 +146,13 @@ export function openQueue(net: Net, actions: QueueActions) {
 
   // The form stays put and only the list below it re-renders, so worker updates don't pull focus out of the textarea.
   const list = h('div');
-  body.append(form, list);
+  const staffing = queueStaffing(net);
+  body.append(staffing.element, form, list);
 
   const render = () => {
     const q = store.queue;
+    staffing.render(!!q.existingOnly);
+    provider.element.style.display = q.existingOnly ? 'none' : '';
     limitValue.textContent = q.maxWorkers === 0 ? 'Paused' : String(q.maxWorkers);
     minus.toggleAttribute('disabled', q.maxWorkers <= 0);
     const running = q.tasks.filter((t) => t.status === 'running');
@@ -156,7 +160,7 @@ export function openQueue(net: Net, actions: QueueActions) {
     const done = q.tasks.filter((t) => t.status === 'done').slice().reverse();
     const m = store.machine;
     const parts: (HTMLElement | null)[] = [
-      h(
+      q.existingOnly ? h('p.note', {}, 'Waiting tasks use the next available existing worker. Workers at once still limits simultaneous queue tasks; 0 pauses dispatch.') : h(
         'p.note',
         {},
         'Or open the 📌 Issues board and click ',
@@ -165,7 +169,7 @@ export function openQueue(net: Net, actions: QueueActions) {
         h('b', {}, q.maxWorkers === 0 ? '0' : String(q.maxWorkers)),
         " of its tasks are running, the next task gets a fresh worker in its own git worktree (workers you hire yourself don't count). Issues are assigned on GitHub when they start, and the pull request is linked when it shows up.",
       ),
-      queued.length && officeFull(m)
+      !q.existingOnly && queued.length && officeFull(m)
         ? h('p.note', {}, `⏸ The office is at its limit of ${m.limit} worker${m.limit === 1 ? '' : 's'}, so the next task waits until one goes home. A queue worker that's finished goes home by itself to make room.`)
         : null,
       section('🤖 Working on it', running),

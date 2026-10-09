@@ -1,3 +1,4 @@
+import { existingWorker, existingPrompt } from './queue-existing.js';
 import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -13,6 +14,8 @@ export interface QueueWorkers {
   /** What a task starts on when whoever queued it didn't pick (⚙️ Settings); the default provider without it. */
   readonly officeDefault?: AgentChoice;
   list(): WorkerInfo[];
+  prompt?(id: string, text: string, by?: string): string | undefined;
+  ownerOf?(id: string): string | undefined;
   deskOccupied(deskId: string): boolean;
   /** How many rows the floor's back office is built out, for its desks (see WING). */
   wing?(): number;
@@ -56,6 +59,9 @@ const FINISHED = new Set<WorkerStatus>(['done', 'exited', 'offline']);
 export class TaskQueue {
   private tasks: QueueTask[] = [];
   private maxWorkers = DEFAULT_MAX_WORKERS;
+  private existingOnly = false;
+  // A submitted prompt may still show the preceding turn as done until its first hook.
+  private awaitingStart = new Set<string>();
   private statePath: string;
   private timer: NodeJS.Timeout;
   private pumping = false;
@@ -77,7 +83,7 @@ export class TaskQueue {
   }
 
   state(): QueueState {
-    return { tasks: this.tasks.map((t) => ({ ...t })), maxWorkers: this.maxWorkers };
+    return { tasks: this.tasks.map((t) => ({ ...t })), maxWorkers: this.maxWorkers, existingOnly: this.existingOnly };
   }
 
   get limit(): number {
@@ -169,6 +175,12 @@ export class TaskQueue {
     if (this.tasks.length !== before) this.changed();
   }
 
+  setExistingOnly(value: boolean) {
+    this.existingOnly = value;
+    this.changed();
+    this.pump();
+  }
+
   setLimit(n: number) {
     const v = Math.max(0, Math.min(SEATS.length, Math.floor(n)));
     if (!Number.isFinite(v) || v === this.maxWorkers) return;
@@ -180,8 +192,10 @@ export class TaskQueue {
   /** A worker changed. Cheap unless its status moved, which can free a slot or finish a task. */
   onWorker(info: WorkerInfo) {
     // It switched to a branch of its own (see Workers.syncBranch): its task's pull request comes from there.
+    if (info.status === 'working' || info.status === 'needs_input') this.awaitingStart.delete(info.id);
     const branch = info.worktree?.branch;
-    const moved = branch ? this.tasks.filter((t) => t.workerId === info.id && t.branch && t.branch !== branch) : [];
+    const latest = this.tasks.filter((t) => t.workerId === info.id).at(-1);
+    const moved = branch && latest?.branch && latest.branch !== branch ? [latest] : [];
     for (const t of moved) t.branch = branch;
     if (moved.length) this.changed();
     if (this.lastStatus.get(info.id) === info.status) return;
@@ -201,6 +215,7 @@ export class TaskQueue {
       if (t.status === 'queued') continue;
       const since = (t.startedAt ?? t.addedAt) - 60_000;
       const match = pulls
+        .filter((p) => !t.reusedWorker || Date.parse(p.createdAt) >= Math.floor((t.startedAt ?? t.addedAt) / 1000) * 1000)
         .filter((p) => (t.branch && p.headRefName === t.branch) || (t.issue !== undefined && p.closes.includes(t.issue) && Date.parse(p.createdAt) >= since))
         .sort((a, b) => Number(b.headRefName === t.branch) - Number(a.headRefName === t.branch) || b.createdAt.localeCompare(a.createdAt))[0];
       if (!match) continue;
@@ -246,6 +261,7 @@ export class TaskQueue {
       if (t.status !== 'running' || !t.workerId) continue;
       const w = byId.get(t.workerId);
       if (!w) this.finish(t, 'killed');
+      else if (this.awaitingStart.has(w.id) && (w.status === 'done' || w.status === 'idle')) continue;
       else if (FINISHED.has(w.status)) done = this.finish(t, w.status === 'done' ? 'done' : 'exited') || done;
       else continue;
       changed = true;
@@ -258,6 +274,7 @@ export class TaskQueue {
 
   /** Returns whether the task got done (rather than stopping short). */
   private finish(t: QueueTask, outcome: NonNullable<QueueTask['outcome']>): boolean {
+    if (t.workerId) this.awaitingStart.delete(t.workerId);
     t.status = 'done';
     t.outcome = outcome;
     t.finishedAt = Date.now();
@@ -307,7 +324,7 @@ export class TaskQueue {
     return this.tasks
       .filter((t) => t.status === 'done' && t.workerId && byId.has(t.workerId))
       .map((t) => ({ t, w: byId.get(t.workerId!)! }))
-      .filter(({ w }) => FINISHED.has(w.status) && w.viewers.length === 0)
+      .filter(({ w }) => w.createdBy.endsWith(' (queue)') && FINISHED.has(w.status) && w.viewers.length === 0)
       .sort((a, b) => Number(!!b.t.pr) - Number(!!a.t.pr) || (a.t.finishedAt ?? 0) - (b.t.finishedAt ?? 0))[0];
   }
 
@@ -320,6 +337,23 @@ export class TaskQueue {
       if (this.events.hiringPaused()) break;
       // So does an office at its worker limit (--max-workers), unless one of the queue's own finished
       // workers going home makes room. Over the limit (it was just lowered), it waits for people to send some home.
+      if (this.existingOnly) {
+        const w = existingWorker(this.workers, this.tasks, t);
+        if (!w) break;
+        this.awaitingStart.add(w.id);
+        const error = this.workers.prompt!(w.id, existingPrompt(t), `${t.addedBy} (queue)`);
+        if (error) {
+          this.awaitingStart.delete(w.id);
+          break; // No hiring fallback; a stopped or unavailable terminal waits.
+        }
+        t.reusedWorker = true;
+        t.provider = w.provider;
+        t.model = w.model;
+        t.effort = w.effort;
+        this.started(t, w);
+        changed = true;
+        continue;
+      }
       const room = this.events.room?.() ?? Infinity;
       if (room < 0) break;
       const free = room > 0 ? this.freeDesk() : undefined;
@@ -344,22 +378,26 @@ export class TaskQueue {
         this.events.toast(`📋 Couldn't start ${label(t)}: ${r}`, 'error');
         continue;
       }
-      t.status = 'running';
-      t.workerId = r.id;
-      t.workerName = r.name;
-      t.branch = r.worktree?.branch;
-      t.startedAt = Date.now();
-      t.error = undefined;
-      this.lastStatus.set(r.id, r.status);
-      this.events.toast(`📋 ${r.name} sat down at ${DESK_BY_ID.get(desk)?.label ?? 'a desk'} to work on ${label(t)}`, 'info');
-      if (t.issue !== undefined) {
-        const issue = t.issue;
-        void this.events.claimIssue(issue, t.owner).then((err) => {
-          if (err) this.events.toast(`Couldn't assign issue #${issue} on GitHub: ${err}`, 'warn');
-        });
-      }
+      this.started(t, r);
     }
     if (changed) this.changed();
+  }
+
+  private started(t: QueueTask, r: WorkerInfo) {
+    t.status = 'running';
+    t.workerId = r.id;
+    t.workerName = r.name;
+    t.branch = r.worktree?.branch;
+    t.startedAt = Date.now();
+    t.error = undefined;
+    this.lastStatus.set(r.id, r.status);
+    this.events.toast(`📋 ${r.name} sat down at ${DESK_BY_ID.get(r.deskId)?.label ?? 'a desk'} to work on ${label(t)}`, 'info');
+    if (t.issue !== undefined) {
+      const issue = t.issue;
+      void this.events.claimIssue(issue, t.owner).then((err) => {
+        if (err) this.events.toast(`Couldn't assign issue #${issue} on GitHub: ${err}`, 'warn');
+      });
+    }
   }
 
   private changed() {
@@ -369,7 +407,7 @@ export class TaskQueue {
 
   private persist() {
     try {
-      writeFileSync(this.statePath, JSON.stringify({ maxWorkers: this.maxWorkers, tasks: this.tasks }, null, 2), { mode: 0o600 });
+      writeFileSync(this.statePath, JSON.stringify({ existingOnly: this.existingOnly, maxWorkers: this.maxWorkers, tasks: this.tasks }, null, 2), { mode: 0o600 });
     } catch {
       // disk issues shouldn't take the office down
     }
@@ -378,8 +416,9 @@ export class TaskQueue {
   private restore() {
     if (!existsSync(this.statePath)) return;
     try {
-      const saved = JSON.parse(readFileSync(this.statePath, 'utf8')) as { maxWorkers?: number; tasks?: Partial<QueueTask>[] };
+      const saved = JSON.parse(readFileSync(this.statePath, 'utf8')) as { existingOnly?: boolean; maxWorkers?: number; tasks?: Partial<QueueTask>[] };
       if (typeof saved.maxWorkers === 'number' && Number.isFinite(saved.maxWorkers)) this.maxWorkers = Math.max(0, Math.min(SEATS.length, Math.floor(saved.maxWorkers)));
+      this.existingOnly = saved.existingOnly === true;
       for (const s of saved.tasks ?? []) {
         if (typeof s.id !== 'string' || typeof s.prompt !== 'string' || typeof s.title !== 'string') continue;
         const provider = isAgentProvider(s.provider) ? s.provider : this.workers.defaultProvider;
@@ -396,6 +435,7 @@ export class TaskQueue {
           addedAt: s.addedAt ?? Date.now(),
           status: s.status === 'running' || s.status === 'done' ? s.status : 'queued',
           workerId: s.workerId,
+          reusedWorker: s.reusedWorker === true,
           workerName: s.workerName,
           branch: s.branch,
           startedAt: s.startedAt,
