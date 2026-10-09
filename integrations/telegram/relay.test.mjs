@@ -69,3 +69,13 @@ test('config fails closed and office remains loopback', () => {
   assert.throws(() => configFrom({}), /BOT_TOKEN/);
   assert.throws(() => connectorConfig({ TELEGRAM_RELAY_URL: 'https://example.com', AGENT_OFFICE_TELEGRAM_OFFICE_URL: 'http://remote.example.com', TELEGRAM_RELAY_TOKEN: 'a'.repeat(40), AGENT_OFFICE_TELEGRAM_LOCAL_TOKEN: 'b'.repeat(40) }), /loopback/);
 });
+test('connector reports a leader permission gate without waiting or approving', async () => {
+  const calls = []; const cfg = { office: 'http://127.0.0.1:4600', relay: 'https://example.com', localToken: 'local', relayToken: 'relay' };
+  const job = { id: 'tg-1', status: 'queued', command: { kind: 'ask', brand: 'artiq-studio', text: 'yes' } };
+  await processJob(cfg, job, async (_origin, _token, route, data) => {
+    calls.push(route);
+    if (route.endsWith('/prompt')) return { status: 'needs_input' };
+    assert.match(data.text, /terminal Office lokal/); assert.deepEqual(data.files, []); return { status: 'completed' };
+  });
+  assert.deepEqual(calls, ['/api/telegram/prompt', '/connector/complete']);
+});

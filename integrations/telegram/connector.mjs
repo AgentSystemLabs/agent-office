@@ -32,6 +32,7 @@ export async function processJob(config, job, call = request) {
   } else if (c.kind === 'ask') {
     if (job.status === 'queued') {
       const result = await local('prompt', { id: job.id, brand: c.brand, text: c.text });
+      if (result.status === 'needs_input') return remote('complete', { id: job.id, text: 'Pixel sedang menunggu jawaban atau izin di terminal Office lokal. Selesaikan lewat Office; bot tidak dapat menjawab atau menyetujui izin tersebut. Kirim instruksi lagi setelah Pixel siap.', files: [] });
       if (result.status === 'uncertain') return remote('complete', { id: job.id, text: 'Pengiriman ke Pixel belum bisa dipastikan. Cek kantor sebelum mengirim ulang instruksi.', files: [] });
       if (result.status !== 'accepted') throw new Error('Instruction rejected');
       await remote('wait', { id: job.id });
