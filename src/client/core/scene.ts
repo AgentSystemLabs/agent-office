@@ -4,6 +4,7 @@
  */
 import * as THREE from 'three';
 import { OutlineEffect } from 'three/examples/jsm/effects/OutlineEffect.js';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { store } from '../state';
 import { Holiday } from '../world/holiday';
 import { buildOffice } from '../world/office';
@@ -54,11 +55,24 @@ export function noWebGL(): Promise<never> {
 export function createScene(canvas: HTMLCanvasElement, renderer: THREE.WebGLRenderer): Stage {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.shadowMap.enabled = true;
+  // PCFSoftShadowMap is deprecated since r186 (falls back to PCF with a warning), so stay on PCF.
   renderer.shadowMap.type = THREE.PCFShadowMap;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
-  const effect = new OutlineEffect(renderer, { defaultThickness: 0.0032, defaultColor: [0.17, 0.18, 0.26] });
+  // Filmic tone mapping for richer highlights and less clipped sun/sky; exposure compensates it.
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.06;
+  // Thinner ink: keeps the cartoon read but feels premium up close rather than marker-thick.
+  const effect = new OutlineEffect(renderer, { defaultThickness: 0.0021, defaultColor: [0.17, 0.18, 0.26] });
 
   const scene = new THREE.Scene();
+  // Soft image-based light so PBR surfaces (glass, cars, laptop lids) pick up realistic reflections.
+  // Kept low so the toon palette doesn't wash out; toon materials mostly ignore it.
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  const room = new RoomEnvironment();
+  scene.environment = pmrem.fromScene(room, 0.04).texture;
+  scene.environmentIntensity = 0.35;
+  room.dispose();
+  pmrem.dispose();
   // The sky's color and the fog change with the time of day and the weather (world/sky.ts).
   scene.background = new THREE.Color('#bfe3ff');
   scene.fog = new THREE.Fog('#bfe3ff', 40, 90);

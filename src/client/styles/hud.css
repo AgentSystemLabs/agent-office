@@ -9,7 +9,7 @@
 
 .topbar { position: absolute; top: 12px; left: 12px; right: 12px; display: flex; gap: 12px; justify-content: space-between; align-items: flex-start; pointer-events: none; }
 .topbar > * { pointer-events: auto; }
-.project { padding: 8px 14px; min-width: 0; max-width: 40vw; cursor: pointer; }
+.project { padding: 8px 14px; min-width: 0; max-width: 40vw; cursor: pointer; background: rgba(255, 250, 243, .92); backdrop-filter: blur(12px) saturate(1.15); }
 .project-name { display: flex; align-items: center; }
 .project-name #project-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .project:hover { background: var(--paper-2); }
@@ -43,11 +43,12 @@
 .side > * { pointer-events: auto; }
 .side h3 { margin: 0 0 6px; font-size: 14px; font-weight: 900; text-transform: uppercase; letter-spacing: .04em; display: flex; align-items: baseline; gap: 5px; }
 .side .count { color: var(--muted); font-weight: 700; }
-.side section { padding: 10px 12px; overflow: auto; }
+.side section { padding: 10px 12px; overflow: auto; background: rgba(255, 250, 243, .92); backdrop-filter: blur(12px) saturate(1.15); }
 .side ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .people li, .workers li { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 700; padding: 3px 4px; border-radius: 8px; }
 .workers li { cursor: pointer; }
 .workers li:hover { background: var(--paper-2); }
+.workers li:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--paper), 0 0 0 4px var(--accent); }
 .people .you { color: var(--muted); font-weight: 600; }
 .people .mic { margin-left: auto; font-size: 12px; }
 .people li.walk { cursor: pointer; }
@@ -89,8 +90,9 @@
 #waiting { display: flex; align-items: center; gap: 6px; width: 100%; margin: 0 0 8px; padding: 5px 8px; border: 2px solid var(--ink); border-radius: 10px; background: #ffe3ea; color: var(--ink); font: inherit; font-size: 13px; font-weight: 900; text-align: left; cursor: pointer; }
 #waiting:hover { background: #ffd0dc; }
 /* Someone in it needs you (features/needsyou pulses it): the count in red, and that worker's row on top, in red too. */
-#waiting.needs-you-now { background: var(--bad); color: #fff; }
-#waiting.needs-you-now:hover { background: #e23a62; }
+#waiting.needs-you-now { background: var(--bad-deep); color: #fff; }
+#waiting.needs-you-now:hover { background: #a51336; }
+#waiting:focus-visible { outline: none; box-shadow: var(--ring); }
 .workers.needs-you-panel { border-color: var(--bad); }
 .workers li.needs-you-row { flex-wrap: wrap; row-gap: 3px; padding: 6px 6px 6px 12px; border: 2px solid var(--bad); background: #ffe3ea; box-shadow: inset 5px 0 0 var(--bad); }
 .workers li.needs-you-row:hover { background: #ffd0dc; }
@@ -105,7 +107,7 @@
 #hud > .chat { pointer-events: none; }
 #chat-log { list-style: none; margin: 0; padding: 0 0 3px; max-height: 190px; width: 100%; overflow: auto; font-size: 13px; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; scrollbar-width: none; }
 #chat-log:empty { display: none; }
-#chat-log li { max-width: 100%; padding: 3px 9px; background: rgba(255, 250, 243, .94); border: 2px solid var(--ink); border-radius: 10px; box-shadow: 0 2px 0 var(--ink); overflow-wrap: anywhere; animation: chat-out .6s ease-in forwards; }
+#chat-log li { max-width: 100%; padding: 3px 9px; background: rgba(255, 250, 243, .94); backdrop-filter: blur(6px); border: 2px solid var(--ink); border-radius: 10px; box-shadow: 0 2px 0 var(--ink), 0 6px 16px rgba(43, 45, 66, .14); overflow-wrap: anywhere; animation: chat-out .6s ease-in forwards; }
 @keyframes chat-out { to { opacity: 0; visibility: hidden; } }
 .chat:is(:hover, :focus-within) #chat-log { pointer-events: auto; scrollbar-width: thin; }
 .chat:is(:hover, :focus-within) #chat-log li { animation: none; }
@@ -116,8 +118,8 @@
 
 .hint {
   position: absolute; left: 50%; bottom: 28px; transform: translateX(-50%);
-  background: var(--ink); color: var(--paper); border: 3px solid var(--paper); border-radius: 14px;
-  padding: 10px 16px; font-weight: 800; font-size: 15px; box-shadow: 0 4px 0 rgba(0,0,0,.35);
+  background: rgba(43, 45, 66, .92); backdrop-filter: blur(8px); color: var(--paper); border: 2px solid rgba(255, 250, 243, .85); border-radius: 14px;
+  padding: 10px 16px; font-weight: 800; font-size: 15px; box-shadow: 0 4px 0 rgba(0,0,0,.35), 0 12px 28px rgba(0,0,0,.3);
   display: flex; gap: 14px; align-items: center; flex-wrap: wrap; justify-content: center; max-width: min(720px, calc(100vw - 380px));
   pointer-events: none !important;
 }

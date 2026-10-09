@@ -28,8 +28,10 @@ class Preview {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.06;
     this.renderer.shadowMap.enabled = true;
-    this.effect = new OutlineEffect(this.renderer, { defaultThickness: 0.0045, defaultColor: [0.17, 0.18, 0.26] });
+    this.effect = new OutlineEffect(this.renderer, { defaultThickness: 0.0034, defaultColor: [0.17, 0.18, 0.26] });
 
     this.scene.add(new THREE.HemisphereLight('#fff5e6', '#c9a27a', 1.5));
     this.scene.add(new THREE.AmbientLight('#ffffff', 0.5));
