@@ -999,11 +999,11 @@ export class WorkerManager {
    * it once the screen moves on.
    */
   private checkBlocked(w: Worker) {
+    if (w.term && w.info.kind === 'agent') providerAdapter(w.info.provider)?.screen?.observe?.(this.handleOf(w), screenText(w.term));
     const blockedBy = w.info.kind === 'agent' ? providerAdapter(w.info.provider)?.screen?.blocked : undefined;
     if (!w.term || !blockedBy) return;
     const s = w.info.status;
     if (s !== 'starting' && s !== 'idle' && !(w.bootBlocked && s === 'needs_input')) return;
-    // Only this run's output counts: a "Not logged in" in the scrollback from before is old news.
     const text = screenText(w.term, w.term.buffer.active.type === 'normal' ? Math.max(0, w.fresh?.line ?? 0) : 0);
     const blocked = blockedBy(text, s === 'starting' || !!w.bootBlocked);
     if (blocked && s !== 'needs_input') {
