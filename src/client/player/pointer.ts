@@ -149,6 +149,9 @@ export abstract class PlayerInput {
       if (!this.locked) {
         this.letGo = this.letting;
         this.letting = false;
+        // Taken by the browser's own Esc from something else looking round with it (the telescope), which
+        // the page may not have seen go down: a lock asked for now waits for Esc to come up (see lock).
+        if (this.keepMouse && !this.letGo) this.escDownAt ||= performance.now();
         const again = this.lockAfter && this.enabled && this.canLock;
         this.lockAfter = false;
         if (again) this.lock();
@@ -161,7 +164,7 @@ export abstract class PlayerInput {
       this.settleUntil = this.settleNext ? this.movedAt + SETTLE_MAX : 0;
       this.settleNext = false;
       // A lock that lands with a window open (the one yieldMouse takes, or a relock racing the next window) is let go.
-      if (!this.enabled) this.unlock();
+      if (!this.enabled && !this.keepMouse) this.unlock();
     });
     document.addEventListener('pointerlockerror', () => this.refused());
     dom.addEventListener(
@@ -173,6 +176,9 @@ export abstract class PlayerInput {
       { passive: false },
     );
   }
+
+  /** Something else looks round with the mouse while the controls are off (the telescope): it stays captured. */
+  keepMouse = false;
 
   get locked(): boolean {
     return document.pointerLockElement === this.dom;
