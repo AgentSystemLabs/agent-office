@@ -12,6 +12,8 @@ An opt-in bridge lets one paired private Telegram owner ask the configured agenc
 4. Run `node connector.mjs` with `TELEGRAM_RELAY_URL` (HTTPS origin), `TELEGRAM_RELAY_TOKEN`, `AGENT_OFFICE_TELEGRAM_LOCAL_TOKEN`, optionally `AGENT_OFFICE_TELEGRAM_OFFICE_URL` (default `http://127.0.0.1:4600`; numeric loopback only). No bot token, worker hook token, browser cookie, SSH access, or public tunnel is needed on the connector.
 5. After deployment and pairing are approved, run `node setup-webhook.mjs` with cloud variables, `TELEGRAM_RELAY_URL`, and `TELEGRAM_EXPECTED_BOT_USERNAME`. It verifies bot identity, refuses to replace a different webhook, preserves pending updates, and checks webhook configuration. Verify real owner `/help`, `/status`, report/design delivery and leader reply before reporting connected.
 
+On Hostinger without a shell, the optional `npm run build` command performs that same setup only when `TELEGRAM_ACTIVATE_WEBHOOK=1` is explicitly configured alongside `TELEGRAM_RELAY_URL` and `TELEGRAM_EXPECTED_BOT_USERNAME`. Its default is a no-op. After the approved activation succeeds, remove the activation flag and return the build command to None. This avoids moving the bot token to the local connector. Keep the runtime entry `hostinger-entry.mjs`.
+
 | Cloud variable | Value |
 | --- | --- |
 | `TELEGRAM_BOT_TOKEN` | BotFather token |
