@@ -24,6 +24,7 @@ import type { installBookshelf } from '../features/bookshelf';
 import type { installCabinet } from '../features/cabinet';
 import type { installCarrying } from '../features/carrying';
 import type { installCars } from '../features/cars';
+import type { installChess } from '../features/chess';
 import type { installClimbing } from '../features/climbing';
 import type { installCoffee } from '../features/coffee';
 import type { installDog } from '../features/dog';
@@ -97,6 +98,7 @@ export interface Parts {
   gallery: Made<typeof installGallery>;
   tv: Made<typeof installTv>;
   arcade: Made<typeof installArcade>;
+  chess: Made<typeof installChess>;
   rooftop: Made<typeof installRooftop>;
   telescope: Made<typeof installTelescope>;
   dog: Made<typeof installDog>;

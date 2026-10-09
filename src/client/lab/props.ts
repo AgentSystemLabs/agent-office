@@ -18,7 +18,7 @@ import { buildGong } from '../features/gong/world';
 import { buildJukebox } from '../features/jukebox/world';
 import { buildKitchen } from '../world/kitchen';
 import { preloadModels } from '../world/models';
-import { DESK_BOOKS, FLOOR_PLANTS, buildDesk, coffeeTable, deskBooks, deskMug, loungeCouch, plant, pouf } from '../world/office';
+import { DESK_BOOKS, FLOOR_PLANTS, buildDesk, chessBoard, chessChair, chessTable, coffeeTable, deskBooks, deskMug, loungeCouch, plant, pouf } from '../world/office';
 import { toon } from '../world/toon';
 import { ready, stage } from './stage';
 
@@ -74,6 +74,23 @@ const SHOW: Record<string, () => Shown> = {
     const object = new THREE.Group();
     const at = [0, 3.5, 5.3, 6.6];
     [loungeCouch(), coffeeTable(), pouf('#06d6a0'), pouf('#ffd166')].forEach((o, i) => object.add(o.translateX(at[i])));
+    return { object };
+  },
+  chess: () => {
+    // The chess corner's pieces the way the lounge lays them out: the table with its board on top,
+    // and a chair in each color facing it across the table.
+    const object = new THREE.Group();
+    const table = chessTable();
+    const board = chessBoard();
+    board.position.y = 0.75;
+    board.rotation.y = -Math.PI / 2;
+    const west = chessChair('#e76f51');
+    west.position.x = -0.8;
+    west.rotation.y = Math.PI / 2;
+    const east = chessChair('#2a9d8f');
+    east.position.x = 0.85;
+    east.rotation.y = -Math.PI / 2;
+    object.add(table, board, west, east);
     return { object };
   },
   lambo: () => ({ object: supercar('lambo', '#ffd166').root }),

@@ -55,6 +55,8 @@ function obstacles(wing: number): Obstacles {
   }
   rects.push([10, 11, -2.2, 2.2]); // couch
   rects.push([12.2, 13.8, -0.8, 0.8]); // coffee table
+  rects.push([7.55, 8.65, -0.4, 0.4]); // chess table behind the couch (see the lounge in world/office/room.ts)
+  circles.push([7.3, 0, 0.32], [8.95, 0, 0.32]); // its chairs, tucked in facing each other
   circles.push([12.5, 3.5, 0.5], [14.5, -3.4, 0.5]); // beanbags
   rects.push([-17, -10.75, 11.7, 12.7]); // kitchen counter and fridge
   for (const [x, z, s] of plantsAt(wing)) circles.push([x, z, 0.3 * s]);
