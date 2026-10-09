@@ -55,7 +55,8 @@ export function installEmotes(ctx: Ctx, deps: EmotesDeps) {
       return true;
     }
     const n = /^(?:Digit|Numpad)([1-6])$/.exec(e.code);
-    if (!n) return false;
+    // With Shift, the digits go to another floor (see features/floorkeys).
+    if (!n || e.shiftKey) return false;
     emoteWheel.close();
     emote(EMOTES[Number(n[1]) - 1].id);
     return true;
