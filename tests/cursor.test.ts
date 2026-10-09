@@ -1,3 +1,4 @@
+import { readableHookCommand } from '../src/server/cursor-command.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
@@ -91,8 +92,8 @@ test('puts a worker\'s hooks in its folder and takes the file away with them', (
   assert.deepEqual(Object.keys(written.hooks), Object.keys(CURSOR_HOOK_EVENTS));
   for (const [event, entries] of Object.entries(written.hooks)) {
     assert.equal(entries.length, 1);
-    assert.ok(entries[0].command.includes(hook));
-    assert.ok(entries[0].command.endsWith(` '${event}' 'abc123'`));
+    assert.ok(readableHookCommand(entries[0].command).includes(hook));
+    assert.ok(readableHookCommand(entries[0].command).endsWith(` '${event}' 'abc123'`));
     assert.equal(entries[0].timeout, 5);
   }
   // The office made it, so it's no change of the worker's.
@@ -112,9 +113,9 @@ test('workers sharing a folder each keep their own entries', (t) => {
   const hook = writeCursorHook(path.join(dir, 'data'));
   assert.equal(addCursorHooks(dir, hook, 'worker-a'), true);
   assert.equal(addCursorHooks(dir, hook, 'worker-b'), true);
-  assert.deepEqual(readHooks(dir).hooks.stop.map((e) => e.command.split(' ').at(-1)), ["'worker-a'", "'worker-b'"]);
+  assert.deepEqual(readHooks(dir).hooks.stop.map((e) => readableHookCommand(e.command).split(' ').at(-1)), ["'worker-a'", "'worker-b'"]);
   removeCursorHooks(dir, 'worker-a');
-  assert.deepEqual(readHooks(dir).hooks.stop.map((e) => e.command.split(' ').at(-1)), ["'worker-b'"]);
+  assert.deepEqual(readHooks(dir).hooks.stop.map((e) => readableHookCommand(e.command).split(' ').at(-1)), ["'worker-b'"]);
   removeCursorHooks(dir, 'worker-b');
   assert.equal(existsSync(hooksFile(dir)), false);
 });
@@ -161,7 +162,7 @@ test('a hooks.json the office cannot read is left alone', (t) => {
 });
 
 /** Runs the helper as Cursor would for one hook, and says what the office's hook server got. */
-async function runHelper(t: { after(fn: () => void): void }, argv: string[], env: Record<string, string>, input: unknown) {
+async function runHelper(t: { after(fn: () => void): void }, argv: string[], env: Record<string, string>, input: unknown, bom = false) {
   const dir = scratch(t);
   const received: { url?: string; authorization?: string; body?: unknown }[] = [];
   const server = createServer((req, res) => {
@@ -187,7 +188,7 @@ async function runHelper(t: { after(fn: () => void): void }, argv: string[], env
       child.stdout.on('data', (chunk) => { output += chunk; });
       child.on('error', reject);
       child.on('close', () => resolve(output));
-      child.stdin.end(JSON.stringify(input));
+      child.stdin.end((bom ? '\uFEFF' : '') + JSON.stringify(input));
     });
     return { stdout, received };
   } finally {
@@ -228,4 +229,11 @@ test('helper stays quiet for another worker, a person\'s own Cursor session, a s
     assert.equal(stdout, '{}');
     assert.deepEqual(received, []);
   }
+});
+
+
+test('helper accepts the UTF-8 BOM emitted by Windows Cursor hook stdin', async (t) => {
+  const result = await runHelper(t, ['stop', 'worker-1'], { AGENT_OFFICE_WORKER_ID: 'worker-1' }, { conversation_id: 'chat-1' }, true);
+  assert.equal(result.received.length, 1);
+  assert.deepEqual(result.received[0].body, { conversation_id: 'chat-1', hook_event_name: 'stop' });
 });
