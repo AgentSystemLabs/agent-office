@@ -420,3 +420,5 @@ Every change to the app that lands on `main` is published as a GitHub release by
 ## License
 
 [MIT](LICENSE)
+
+Codex hook reports accept UTF-8 with or without the leading BOM emitted by Windows PowerShell. Hook approval remains in Codex; the next lifecycle event updates the office status.
