@@ -1,3 +1,6 @@
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { isValidGrokModel, isValidMuseModel, isValidOpenCodeModel } from '../src/shared/providers.js';
@@ -248,4 +251,16 @@ test('OpenCode catalogue errors do not expose command output', async () => {
   await assert.rejects(createModelCatalogue(() => fetchOpenCodeModels('opencode', '/project', runner)).get(), (error: unknown) => {
     return error instanceof Error && /unavailable/i.test(error.message) && !error.message.includes('secret-token');
   });
+});
+
+
+test('Cursor catalogue runs a Windows batch launcher in a path with spaces', { skip: process.platform !== 'win32' }, async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'office models & '));
+  try {
+    const file = path.join(dir, 'cursor-agent.cmd');
+    writeFileSync(file, '@echo off\r\nif not "%~1"=="models" exit /b 2\r\necho auto - Auto\r\necho grok-4.7-high - Grok 4.7 High\r\n');
+    assert.deepEqual(await fetchCursorModels(file, dir), [{ id: 'auto', name: 'Auto' }, { id: 'grok-4.7-high', name: 'Grok 4.7 High' }]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

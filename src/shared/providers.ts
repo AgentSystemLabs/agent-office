@@ -311,11 +311,11 @@ export const PROVIDER_META: Record<AgentProvider, ProviderMeta> = {
     validModel: isValidCursorModel,
     invalidModel: 'Invalid Cursor model (expected a model id such as gpt-5, with any overrides in brackets)',
     models: {
-      pick: 'typed',
+      pick: 'list',
       catalog: true,
       unset: 'Default (Cursor settings)',
       max: CURSOR_MODEL_MAX,
-      hint: 'Optional model id; suggestions come from `cursor-agent models` once Cursor is signed in on the office machine. An effort goes in brackets after it: model[effort=high].',
+      hint: 'Choose a model from Cursor, or Custom model… for an id with overrides such as model[effort=high].',
       invalid: 'Use a Cursor model id: letters, digits and . _ -, with any overrides in brackets, like model[effort=high] (up to 128 characters).',
     },
     usage: { note: 'Cursor uses the Cursor CLI login on the office machine. Usage and cost stay in its terminal and your Cursor account; the office does not meter them.' },
