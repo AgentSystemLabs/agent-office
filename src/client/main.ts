@@ -43,6 +43,7 @@ import { installDictation } from './features/dictation';
 import { installDog } from './features/dog';
 import { installEmotes } from './features/emotes';
 import { installGolf } from './features/golf';
+import { installFps } from './features/fps';
 import { installGong } from './features/gong';
 import { installGallery, installHanging } from './features/hanging';
 import { installHerald } from './features/herald';
@@ -179,6 +180,7 @@ installChat(ctx);
 parts.talk = installVoice(ctx, { tv: parts.tv });
 installDictation(ctx);
 parts.hud = installHud(ctx, core, parts);
+installFps(ctx);
 
 // ---- Main loop ---------------------------------------------------------------------------------------
 fitWindow(ctx);

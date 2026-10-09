@@ -400,7 +400,19 @@ The rules for coding agents working on this repository are in [`AGENTS.md`](AGEN
 
 Every change to the app that lands on `main` is published as a GitHub release by [`.github/workflows/release.yml`](.github/workflows/release.yml), and `install.sh` installs the newest one. Bump `package.json`'s version to start a new minor.
 
+## Two-player FPS duel
+
+Click **FPS · 1V1** (or press **F8**) in the 3D office to join Office Strike, a tactical duel in a dedicated training arena. Two players on the same office server can play; the first to win five rounds wins. Movement, hits, cover, ammunition and scores are checked by the server. See [FPS controls and rules](docs/fps.md) for joining from another computer and starting a rematch.
+
+The arena includes original generated concrete, metal and timber textures and dock lobby art. [Art sources and prompts](docs/fps-art.md) document the assets used in the game.
+
+Confirmed body hits and headshots have distinct sounds, brief directional blood particles and a hit marker; bullets striking cover produce material-specific impact sounds and small debris. These cues follow server shot results. The camera stays steady while firing and taking damage, with no hitstop or slowdown.
+
+For solo practice, choose **突击手**, **游击手** or **神枪手** in the FPS lobby and click **挑战 AI**. Four difficulty levels range from easy to expert, defaulting to hard. Each practice match is private and leaves the shared two-player arena available. Adjust aim sensitivity (0.20×–3.00×) in the lobby or Esc menu; preferences are saved in your browser. The Esc menu can also change the AI profile and difficulty during practice.
+
 ## More
+
+The combined edition includes the existing Simplified Chinese office UI and the FPS arena in the same build. The desktop shortcut can open it as an Edge app window; press **F8** to play. See [Chinese desktop edition](docs/chinese-desktop.md). Browsers without pointer lock support can still use WASD and left-click fire while dragging to aim.
 
 - [Features](docs/features.md): everything in the office, room by room
 - [Agents](docs/agents.md): Claude Code, Codex and OpenCode, models and effort, and the office's prompts

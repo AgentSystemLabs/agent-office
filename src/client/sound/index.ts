@@ -25,6 +25,7 @@ import { coffee } from '../features/coffee/sound';
 import { AudioCore, type Hall, type Listener } from './core';
 import { bark, yip } from '../features/dog/sound';
 import { airlock, cellDoor, thud } from '../features/workers/sound';
+import { fpsSound, type FpsSound } from '../features/fps/sound';
 import { golf, type GolfSound } from '../features/golf/sound';
 import { gong } from '../features/gong/sound';
 import { Jukebox, type JukeboxPlay } from '../features/jukebox/sound';
@@ -205,6 +206,8 @@ export class OfficeSound {
   }
 
   // ---- Games (features/golf, bargames, basketball and cabinet) -------------------------------------
+
+  fps(kind: FpsSound, at?: Pos) { fpsSound(this.a, kind, at); }
 
   golf(kind: GolfSound, at?: Pos, speed = 5) {
     golf(this.a, kind, at, speed);

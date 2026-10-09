@@ -1,0 +1,61 @@
+.fps-entry { position: fixed; top: 72px; right: 18px; z-index: 8; border: 1px solid #d5ad63; border-radius: 6px; background: #18272de8; color: #ffe2a2; padding: 10px 16px; font: bold 13px monospace; cursor: pointer; }
+.fps-dialog { max-width: 560px; padding: 0; background: #17232a; color: #dbe7ed; border: 1px solid #63717a; max-height: 90vh; overflow: hidden; }
+.fps-dialog > header { flex-shrink: 0; padding: 16px 24px; background: #17232a; border-bottom: 1px solid #63717a; }
+.fps-dialog > header h2 { font-size: 24px; }
+.fps-dialog-content { padding: 24px 34px; overflow-y: auto; min-height: 0; }
+.fps-setting { display: block; margin: 18px 0; font-size: 14px; }
+.fps-setting > span { display: flex; justify-content: space-between; }
+.fps-setting output { color: #ffe2a2; font: bold 14px monospace; }
+.fps-setting input[type=range] { width: 100%; accent-color: #d1a25c; margin: 12px 0 6px; }
+.fps-setting select { display: block; width: 100%; margin-top: 8px; padding: 10px; color: #e4eff6; background: #20323d; border: 1px solid #63717a; border-radius: 4px; }
+.fps-setting small, .fps-bot-settings > small { display: block; line-height: 1.6; font-size: 12px; }
+.fps-practice-section { margin-top: 24px; border-top: 1px solid #63717a; padding-top: 12px; }
+.fps-practice { width: 100%; padding: 14px; margin: 12px 0; }
+.fps-ai-level { display: block; color: #ffe2a2; font: 10px monospace; margin-top: 4px; }
+.fps-lobby-art { display: block; width: 100%; height: 165px; object-fit: cover; object-position: center 58%; border-radius: 4px; border: 1px solid #6d7f8955; margin-bottom: 24px; }
+.fps-dialog h2 { font-size: 30px; color: #fff; margin: 14px 0; }
+.fps-dialog p { line-height: 1.7; color: #c1d0d7; }
+.fps-eyebrow { color: #e9bd79; font: bold 12px monospace; letter-spacing: 3px; }
+.fps-rules { display: flex; justify-content: space-between; align-items: center; margin: 24px 0; border-block: 1px solid #3b4d57; padding: 18px 0; }
+.fps-rules strong { font: bold 32px monospace; color: #e9bd79; }
+.fps-controls { line-height: 2; font-size: 13px; margin: 20px 0; }
+.fps-dialog .fps-join { width: 100%; padding: 14px; background: #d1a25c; color: #17232a; border: 0; font-weight: bold; margin-bottom: 15px; }
+.fps-dialog small { color: #98aeb9; }
+.fps-hud { position: fixed; inset: 0; z-index: 20; pointer-events: none; color: #edf4f6; font-family: 'Segoe UI', sans-serif; background: linear-gradient(180deg, #091a2a66, transparent 23%, transparent 77%, #091a2a66); }
+.fps-hud[hidden], .fps-hud [hidden] { display: none; }
+.fps-hud.damaged { box-shadow: inset 0 0 100px 14px #e2393988; }
+body.fps-active #hud, body.fps-active #hint, body.fps-active #crosshair, body.fps-active .fps-entry, body.fps-active #chat { visibility: hidden; }
+.fps-brand { position: absolute; left: 28px; top: 22px; font: 11px monospace; letter-spacing: 4px; }
+.fps-brand strong { display: block; font: 900 29px 'Segoe UI', sans-serif; letter-spacing: 5px; }
+.fps-brand small { display: block; font-size: 8px; letter-spacing: 2px; color: #b6c8d0; margin-top: 3px; }
+.fps-radar { position: absolute; top: 108px; left: 28px; width: 160px; height: 120px; border: 1px solid #9aaebb55; border-radius: 3px; }
+.fps-score { position: absolute; top: 22px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 0; min-width: 440px; background: #15232be6; border: 1px solid #c6d7e044; border-radius: 5px; }
+.fps-score > div:nth-child(2) { text-align: center; min-width: 160px; padding: 10px; }
+.fps-team { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px; min-width: 140px; }
+.fps-team span { max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.fps-team strong { font: bold 32px monospace; }
+.fps-team.blue { border-left: 4px solid #7adaf4; color: #b4e6f3; }
+.fps-team.orange { border-right: 4px solid #ebb16c; color: #f0c798; }
+.fps-round { font: 9px monospace; color: #a6bac6; letter-spacing: 1px; }
+.fps-clock { font: bold 27px monospace; margin-top: 4px; }
+.fps-pause { position: absolute; top: 28px; right: 28px; pointer-events: auto; background: #15232be6; color: #d5e3e9; border: 1px solid #c6d7e044; border-radius: 4px; padding: 12px 18px; font: 12px monospace; cursor: pointer; }
+.fps-crosshair { position: absolute; left: 50%; top: 50%; width: 2px; height: 2px; background: #b9ffe7; filter: drop-shadow(0 1px 1px #000); }
+.fps-crosshair i { position: absolute; background: #b9ffe7; width: 2px; height: 7px; }
+.fps-crosshair i:nth-child(1) { top: -13px; } .fps-crosshair i:nth-child(2) { top: 8px; }
+.fps-crosshair i:nth-child(3) { left: -13px; top: 0; width: 7px; height: 2px; } .fps-crosshair i:nth-child(4) { left: 8px; top: 0; width: 7px; height: 2px; }
+.fps-hit { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font: 44px monospace; color: #fff3bd; }
+.fps-hit.headshot { color: #ff9b79; text-shadow: 0 0 5px #6b211b; }
+.fps-banner { position: absolute; left: 50%; top: 33%; transform: translateX(-50%); text-align: center; padding: 20px 36px; min-width: 360px; background: #12232ddd; border-top: 2px solid #e5ba7b; border-radius: 3px; }
+.fps-banner strong { display: block; font-size: 32px; letter-spacing: 3px; }
+.fps-banner span { display: block; margin-top: 10px; color: #b7cbd6; font-size: 13px; }
+.fps-bottom { position: absolute; bottom: 40px; left: 28px; right: 28px; display: flex; align-items: end; justify-content: space-between; }
+.fps-health small, .fps-ammo small { display: block; color: #adbfcb; font: 10px monospace; letter-spacing: 2px; }
+.fps-health strong, .fps-ammo strong { font: bold 46px monospace; }
+.fps-health { min-width: 150px; color: #b9f0ea; }
+.fps-healthbar { height: 3px; margin-top: 5px; background: linear-gradient(to right, #91dfd4 var(--hp), #8198a455 var(--hp)); }
+.fps-ammo { text-align: right; color: #fff0d4; } .fps-ammo span { font: 20px monospace; color: #c5cdd1; margin-left: 8px; }
+.fps-loadout { text-align: center; font: 10px monospace; color: #c1d0d7; letter-spacing: 2px; }
+.fps-loadout strong { display: block; font: bold 20px monospace; margin: 6px 0; color: #e6d4b6; }
+.fps-loadout small { letter-spacing: 1px; }
+.fps-keyguide { position: absolute; bottom: 13px; left: 50%; transform: translateX(-50%); white-space: nowrap; color: #b3c5ce; font-size: 10px; letter-spacing: 1px; }
+@media (max-width: 850px) { .fps-brand, .fps-radar { display: none; } .fps-score { left: 18px; transform: none; min-width: 0; } .fps-team { min-width: 80px; } .fps-score > div:nth-child(2) { min-width: 100px; } }
