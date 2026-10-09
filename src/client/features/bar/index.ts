@@ -36,6 +36,19 @@ export function installBar(ctx: Ctx, deps: BarDeps) {
   /** What they do to you (see player/effects.ts): how drunk you are, as drinking has it each frame. */
   const tipsy = ctx.player.effects.add();
   const drunkVision = new DrunkVision(ctx.renderer);
+  let warmDrunkVisionQueued = false;
+  const queueDrunkVisionWarmup = () => {
+    if (warmDrunkVisionQueued) return;
+    warmDrunkVisionQueued = true;
+    const warm = () => {
+      warmDrunkVisionQueued = false;
+      drunkVision.prepare();
+    };
+    if ('requestIdleCallback' in window) window.requestIdleCallback(warm, { timeout: 700 });
+    else setTimeout(warm, 0);
+  };
+  // The first drunk frame should not also pay for a render target allocation and shader compile.
+  requestAnimationFrame(() => queueDrunkVisionWarmup());
 
   /** What the bartender says as they slide it over. */
   const CHEERS: Record<string, string> = {
@@ -50,6 +63,7 @@ export function installBar(ctx: Ctx, deps: BarDeps) {
 
   /** E at the bar: the menu. */
   function showBar() {
+    queueDrunkVisionWarmup();
     openBar({ cutOff: booze.cutOff(performance.now() / 1000), order: orderDrink });
   }
 
@@ -61,9 +75,11 @@ export function installBar(ctx: Ctx, deps: BarDeps) {
     const drink = cut ? DRINK_BY_ID.get('water')! : d;
     r.serve(ctx.player.pos.z);
     ctx.sound.pour(r.pourAt);
+    queueDrunkVisionWarmup();
     if (cut) toast("🙅 The bartender slides you a water instead: you've had enough", 'warn');
     setTimeout(() => {
       if (!ctx.upTop()) return;
+      drunkVision.prepare();
       booze.drink(drink, performance.now() / 1000);
       deps.reach();
       if (ctx.player.view === 'first') ctx.hands.sip();
