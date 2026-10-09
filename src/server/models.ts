@@ -1,7 +1,8 @@
 // The models a provider's own CLI lists, for the hire dialog: what each is called and which
-// reasoning efforts it takes, where the CLI says. Each is asked without a shell, and only what
+// reasoning efforts it takes, where the CLI says. Windows batch launchers use cmd.exe; only what
 // looks like a model gets through.
 import { spawn } from 'node:child_process';
+import { resolveCommand } from './workers/process.js';
 import { closeSync, mkdtempSync, openSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -38,7 +39,13 @@ const runModelCommand: ModelCommandRunner = async (file, args, options) => {
   const fd = openSync(out, 'w', 0o600);
   try {
     await new Promise<void>((resolve, reject) => {
-      const child = spawn(file, args, { cwd: options.cwd, timeout: options.timeout, stdio: ['ignore', fd, 'ignore'] });
+      const resolved = process.platform === 'win32' ? resolveCommand(file) ?? file : file;
+      const batch = process.platform === 'win32' && /\.(cmd|bat)$/i.test(resolved);
+      // Batch launchers require cmd.exe. Only fixed catalogue arguments reach this runner.
+      if (batch && ([resolved, ...args].some((s) => /["%!\r\n]/.test(s)))) throw new Error('Unsafe batch command');
+      const command = batch ? process.env.COMSPEC || 'cmd.exe' : resolved;
+      const argv = batch ? ['/d', '/s', '/c', '"' + [resolved, ...args].map((s) => '"' + s + '"').join(' ') + '"'] : args;
+      const child = spawn(command, argv, { cwd: options.cwd, timeout: options.timeout, windowsHide: true, windowsVerbatimArguments: batch, stdio: ['ignore', fd, 'ignore'] });
       child.on('error', reject);
       child.on('close', (code, signal) => (code === 0 ? resolve() : reject(new Error(`ended with ${signal ?? code}`))));
     });
@@ -152,7 +159,7 @@ export async function fetchCodexModels(command: string, cwd: string, runner: Mod
 }
 
 /**
- * Run `cursor-agent models` without a shell and return only safe model ids, each with its name. It
+ * Run `cursor-agent models` and return only safe model ids, each with its name. It
  * prints one model a line, `<id> - <name>`, with `(current)` or `(default)` after some, under a
  * heading and over a tip.
  */

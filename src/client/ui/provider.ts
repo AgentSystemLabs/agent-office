@@ -182,7 +182,8 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
   /** Its models: the ones it always has, or the ones its CLI listed. */
   const known = () => meta().models?.fixed ?? catalogues.get(value())?.list ?? [];
   /** Typed in: for a provider whose model is, and for one whose list couldn't be had. */
-  const typed = () => meta().models?.pick === 'typed' || !!(meta().models?.catalog && catalogues.get(value())?.failed);
+  let customModel = false;
+  const typed = () => customModel || meta().models?.pick === 'typed' || !!(meta().models?.catalog && catalogues.get(value())?.failed);
   /** The model id the fields are on, whichever control is showing. */
   let chosen = '';
   /**
@@ -194,7 +195,8 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
     chosen = id;
     modelSelect.replaceChildren(h('option', { value: '' }, meta().models?.unset ?? 'Default'), ...models.map((m) => h('option', { value: m.id }, m.name ?? m.id)));
     if (id && !models.some((m) => m.id === id)) modelSelect.append(h('option', { value: id }, id));
-    modelSelect.value = id;
+    if (value() === 'cursor') modelSelect.append(h('option', { value: '__custom__' }, 'Custom model…'));
+    modelSelect.value = customModel ? '__custom__' : id;
     if (modelInput.value.trim() !== id) modelInput.value = id;
     suggestions.replaceChildren(...models.map((m) => h('option', { value: m.id, label: m.name })));
   };
@@ -213,7 +215,7 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
     const catalogue = catalogues.get(value());
     note.textContent = providerUsageNote(value());
     modelLabel.classList.toggle('hidden', !field);
-    modelSelect.classList.toggle('hidden', !field || typed());
+    modelSelect.classList.toggle('hidden', !field || (typed() && !customModel));
     modelInput.classList.toggle('hidden', !field || !typed());
     modelLabel.htmlFor = typed() ? modelInput.id : modelSelect.id;
     for (const control of [modelSelect, modelInput]) control.setAttribute('aria-label', `${m.label} model`);
@@ -244,6 +246,7 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
     });
   };
   const set = (c: AgentChoice) => {
+    customModel = false;
     select.value = options.includes(c.provider) ? c.provider : options.includes(fallback) ? fallback : options[0];
     const mine = select.value === c.provider;
     pick(mine && c.model && meta().validModel?.(c.model) ? c.model : '');
@@ -256,8 +259,10 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
   // Another provider's model and effort mean nothing to this one: it starts on its own defaults.
   select.addEventListener('change', () => set({ provider: value() }));
   modelSelect.addEventListener('change', () => {
-    pick(modelSelect.value);
-    paintEffort();
+    customModel = value() === 'cursor' && modelSelect.value === '__custom__';
+    pick(customModel ? chosen : modelSelect.value);
+    paint();
+    if (customModel) modelInput.focus();
   });
   modelInput.addEventListener('input', () => {
     chosen = modelInput.value.trim();

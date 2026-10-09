@@ -420,3 +420,5 @@ Every change to the app that lands on `main` is published as a GitHub release by
 ## License
 
 [MIT](LICENSE)
+
+Cursor models are available in the Model dropdown after choosing Cursor. The list comes from the signed-in Cursor CLI, including Windows `.cmd` launchers. Choose **Custom model…** to enter a model id with parameter overrides. If the catalogue cannot load, the field falls back to manual entry.
