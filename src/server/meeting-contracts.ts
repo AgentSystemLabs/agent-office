@@ -34,4 +34,3 @@ export interface MeetingEvents {
   /** One of the office's prompts as it has it now (rewritten in ⚙️ Settings, or the default). */
   prompt?(id: PromptId): string;
 }
-
