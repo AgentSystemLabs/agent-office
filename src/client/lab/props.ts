@@ -11,14 +11,14 @@
 // Once it has drawn, window.__ready holds each prop's size, triangles, draw calls and material names.
 
 import * as THREE from 'three';
-import { DESKS } from '../../shared/layout';
+import { DESKS, DESK_SIZE } from '../../shared/layout';
 import { buildCabinet } from '../features/cabinet/world';
 import { supercar } from '../features/cars/world';
 import { buildGong } from '../features/gong/world';
 import { buildJukebox } from '../features/jukebox/world';
 import { buildKitchen } from '../world/kitchen';
 import { preloadModels } from '../world/models';
-import { DESK_BOOKS, FLOOR_PLANTS, buildDesk, coffeeTable, deskBooks, deskMug, loungeCouch, plant, pouf } from '../world/office';
+import { DESK_BOOKS, FLOOR_PLANTS, buildDesk, coffeeTable, deskBooks, deskBlotter, deskLamp, deskMug, fileStack, filingCabinet, loungeCouch, plant, pouf, rotaryPhone, typewriter, venetianBlind } from '../world/office';
 import { toon } from '../world/toon';
 import { ready, stage } from './stage';
 
@@ -74,6 +74,43 @@ const SHOW: Record<string, () => Shown> = {
     const object = new THREE.Group();
     const at = [0, 3.5, 5.3, 6.6];
     [loungeCouch(), coffeeTable(), pouf('#06d6a0'), pouf('#ffd166')].forEach((o, i) => object.add(o.translateX(at[i])));
+    return { object };
+  },
+  noir_desk: () => {
+    // The detective desk as the office dresses it: a desk with its own top, a typewriter in the back
+    // corner its knick-knack leaves free, and the banker's lamp (see world/office/noir.ts). The desk
+    // is moved to the origin first, so the props can be placed on it in its own frame.
+    const object = new THREE.Group();
+    const desk = buildDesk(DESKS[0], 0, toon('#7a5330'));
+    desk.group.position.set(0, 0, 0);
+    desk.group.rotation.y = 0;
+    object.add(desk.group);
+    object.add(deskBlotter().translateY(DESK_SIZE.height));
+    object.add(typewriter().translateX(-0.84).translateZ(-0.32).translateY(DESK_SIZE.height));
+    object.add(deskLamp().translateX(-0.88).translateZ(0.3).translateY(DESK_SIZE.height));
+    object.add(fileStack().translateX(0.9).translateZ(-0.36).translateY(DESK_SIZE.height));
+    return { object };
+  },
+  noir_cabinets: () => {
+    // Two filing cabinets with what stands on them, as the office puts them against a wall.
+    const object = new THREE.Group();
+    const cabinet = filingCabinet();
+    object.add(cabinet.clone());
+    const withPhone = filingCabinet();
+    withPhone.position.x = 1.2;
+    object.add(withPhone);
+    const phone = rotaryPhone();
+    phone.position.set(1.2, 1.32, 0);
+    phone.rotation.y = Math.PI;
+    object.add(phone);
+    return { object };
+  },
+  noir_blind: () => ({ object: venetianBlind() }),
+  noir_row: () => {
+    // Everything at desk scale in a row, the way the lineup shot has it.
+    const object = new THREE.Group();
+    const at = [0, 0.5, 1.1, 1.7, 2.4];
+    [deskLamp(), rotaryPhone(), typewriter(), fileStack(), deskBlotter()].forEach((o, i) => object.add(o.translateX(at[i])));
     return { object };
   },
   lambo: () => ({ object: supercar('lambo', '#ffd166').root }),

@@ -11,12 +11,12 @@ export const PALETTE = {
   floorAlt: FLOOR_PALETTES[0].floorAlt,
   wall: FLOOR_PALETTES[0].wall,
   wallTrim: FLOOR_PALETTES[0].trim,
-  desk: '#f7f3ea',
-  deskLeg: '#3d405b',
-  wood: '#c98b5a',
+  desk: '#6f4a2a',
+  deskLeg: '#2b2119',
+  wood: '#7a5330',
   cork: '#d8a86a',
-  chairs: ['#ff8a5b', '#5bc0eb', '#9bc53d', '#b388eb', '#ffb400', '#f7aef8'],
-  rugs: ['#bde0fe', '#ffd6a5', '#caffbf', '#ffc6ff'],
+  chairs: ['#7a2e2e', '#4a5d3a', '#6b4a2f', '#3a3f4a', '#2f4858', '#8a6a4a'],
+  rugs: ['#b8a888', '#9a8b6f', '#7d8a72', '#a08d7a'],
   plant: '#5fb760',
   plantDark: '#3f8f45',
   pot: '#e76f51',
@@ -94,20 +94,31 @@ export function onWall(side: Side, u: number): { x: number; z: number; rotY: num
   }
 }
 
-/** Chunky planks in a floor's colors. */
+/**
+ * Worn parquet in a floor's colors: square blocks of planks laid alternately along and across, the
+ * way an office floor is laid, with the gaps between them in the floor's seam color. Two blocks to
+ * the tile, so one tile covers four by four metres.
+ */
 export function paintPlanks(c: HTMLCanvasElement, p: FloorPalette) {
   const g = c.getContext('2d')!;
   g.fillStyle = p.floor;
   g.fillRect(0, 0, 512, 512);
-  for (let row = 0; row < 8; row++) {
-    const offset = (row % 2) * 128;
-    for (let col = -1; col < 3; col++) {
-      const x = col * 256 + offset;
-      g.fillStyle = (row + col) % 3 === 0 ? p.floorAlt : p.floor;
-      g.fillRect(x + 2, row * 64 + 2, 252, 60);
+  const block = 128;
+  const plank = 32;
+  for (let by = 0; by < 512 / block; by++) {
+    for (let bx = 0; bx < 512 / block; bx++) {
+      // Every other block is laid the other way round, so the pattern reads as a parquet floor.
+      const across = (bx + by) % 2 === 0;
+      for (let i = 0; i < block / plank; i++) {
+        // A plank every so often is the floor's other color, worn a shade lighter.
+        g.fillStyle = (bx * 3 + by * 5 + i) % 4 === 0 ? p.floorAlt : p.floor;
+        const at = i * plank;
+        g.fillRect(bx * block + (across ? at : 0) + 1, by * block + (across ? 0 : at) + 1, across ? plank - 2 : block - 2, across ? block - 2 : plank - 2);
+        g.fillStyle = p.seam;
+        if (across) g.fillRect(bx * block + at, by * block, 2, block);
+        else g.fillRect(bx * block, by * block + at, block, 2);
+      }
     }
-    g.fillStyle = p.seam;
-    g.fillRect(0, row * 64, 512, 3);
   }
 }
 

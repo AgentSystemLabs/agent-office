@@ -25,6 +25,7 @@ import { balcony } from './balcony';
 import { downstairs } from './ground';
 import { wing } from './wing';
 import { beanbags, desks, kiosks } from './seats';
+import { noir } from './noir';
 import { meetingRoom } from './meeting-room';
 import { loft } from './loft';
 import type { Fixture, Gives, Site } from './fixture';
@@ -49,6 +50,7 @@ function floorPlan() {
     plug,
     tower,
     desks,
+    noir,
     beanbags,
     kiosks,
     boards,

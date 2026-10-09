@@ -10,6 +10,7 @@ import dogPomeranianUrl from '../models/dog-pomeranian.glb?url';
 import dogShibaUrl from '../models/dog-shiba.glb?url';
 import kitchenUrl from '../models/kitchen.glb?url';
 import loungeUrl from '../models/lounge.glb?url';
+import noirUrl from '../models/noir.glb?url';
 import plantsUrl from '../models/plants.glb?url';
 import { toon } from './toon';
 
@@ -27,6 +28,7 @@ const MODELS = {
   desk_props: { url: deskPropsUrl, preload: true },
   kitchen: { url: kitchenUrl, preload: true },
   lounge: { url: loungeUrl, preload: true },
+  noir: { url: noirUrl, preload: true },
   plants: { url: plantsUrl, preload: true },
 } satisfies Record<string, { url: string; preload: boolean }>;
 
