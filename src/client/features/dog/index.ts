@@ -31,10 +31,12 @@ export function installDog(ctx: Ctx): Dog {
   ctx.interactions.define('dog', {
     reach: 3.2,
     hint: () => {
-      const doing = dog.doing(
-        (id) => store.workers.get(id)?.name,
-        (id) => (id === store.you ? 'you' : store.peers.get(id)?.name),
-      );
+      const doing = dog.dance.beat !== null
+        ? '🕺 dancing'
+        : dog.doing(
+            (id) => store.workers.get(id)?.name,
+            (id) => (id === store.you ? 'you' : store.peers.get(id)?.name),
+          );
       return { k: `${dog.name}|${doing}`, parts: [hintTitle(`🐶 ${dog.name}`), doing ? aside(doing) : '', key('E', 'Pet')] };
     },
     use: onE(() => ctx.net.send({ t: 'dog.pet' })),
