@@ -88,6 +88,8 @@ export async function dispatch(ctx: Ctx, input: Record<string, unknown>) {
   if (!requestId(id) || !identifier(brand) || typeof text !== 'string' || !text.trim() || text.length > 12000) throw new Error('Invalid instruction');
   // Unknown brands cannot start production from Telegram.
   await safeFile(floor.dir, `.agent-office/artiq-studio/brands/${brand}/profile.json`, 128 * 1024);
+  // Pasting into a question or permission dialog could answer it instead of starting a turn.
+  if (worker.status === 'needs_input') return { status: 'needs_input', id };
   const key = `${floor.id}/${id}`;
   if (locks.has(key)) return { status: 'uncertain', id };
   locks.add(key);
