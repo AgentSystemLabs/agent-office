@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Claims, MergeWatch } from '../src/server/github.js';
-import type { GhIssue, GhPull } from '../src/shared/protocol.js';
+import { Claims, GitHub, MergeWatch, friendlyGhError } from '../src/server/github.js';
+import type { GhIssue, GhPull, GhState } from '../src/shared/protocol.js';
 
 const pull = (number: number, state: string): GhPull => ({
   number, title: `PR ${number}`, state, isDraft: false, url: '', author: '', labels: [], reviewDecision: '',
@@ -71,4 +71,53 @@ test('handed over twice, the first answer failing leaves the second one standing
   assert.deepEqual(taken(c.mark([issue(7)])), [7]);
   second(true, 3000);
   assert.deepEqual(taken(c.mark([issue(7, ['octocat'])], 3500)), []);
+});
+
+test('gh JSON field errors keep the field that failed', () => {
+  assert.equal(
+    friendlyGhError('Unknown JSON field: "headRefOid"\nAvailable fields:\n  title\n  updatedAt\n  url'),
+    'Unknown JSON field: "headRefOid"',
+  );
+});
+
+test('pull request listing works when older gh versions reject optional fields', async () => {
+  const unsupported = new Set(['url', 'headRefOid', 'updatedAt', 'statusCheckRollup', 'closingIssuesReferences']);
+  const calls: string[] = [];
+  const runner = async (args: string[]) => {
+    if (args[0] === 'repo') return JSON.stringify({ nameWithOwner: 'acme/app', squashMergeAllowed: true, mergeCommitAllowed: false, rebaseMergeAllowed: false });
+    assert.deepEqual(args.slice(0, 2), ['pr', 'list']);
+    const fields = String(args.at(-1)).split(',');
+    calls.push(fields.join(','));
+    const bad = fields.find((f) => unsupported.has(f));
+    if (bad) throw new Error(`Unknown JSON field: "${bad}"`);
+    if (args[args.indexOf('--state') + 1] !== 'open') return '[]';
+    return JSON.stringify([
+      {
+        number: 7,
+        title: 'Fix login',
+        state: 'OPEN',
+        isDraft: false,
+        author: { login: 'ada' },
+        labels: [{ name: 'bug', color: 'd73a4a' }],
+        reviewDecision: '',
+        headRefName: 'fix-login',
+        baseRefName: 'main',
+        createdAt: '2026-01-01T00:00:00Z',
+        additions: 4,
+        deletions: 2,
+        body: 'Closes #1',
+      },
+    ]);
+  };
+  let pulls: GhState<GhPull> | undefined;
+  const github = new GitHub('/repo', () => {}, (state) => (pulls = state), runner);
+
+  await (github as unknown as { refreshPulls(): Promise<void> }).refreshPulls();
+
+  assert.equal(pulls?.error, undefined);
+  assert.equal(pulls?.items.length, 1);
+  assert.equal(pulls?.items[0].url, 'https://github.com/acme/app/pull/7');
+  assert.equal(pulls?.items[0].updatedAt, '2026-01-01T00:00:00Z');
+  assert.equal(pulls?.items[0].checks, 'none');
+  assert.ok(calls.some((fields) => !fields.includes('url') && !fields.includes('updatedAt')));
 });
