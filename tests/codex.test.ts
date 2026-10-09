@@ -115,7 +115,7 @@ test('writes a mode-restricted helper that forwards paths without reading transc
   }
 });
 
-test('helper forwards only the bounded root event fields to the authenticated bridge', async () => {
+for (const prefix of ['', '\uFEFF']) test(`helper forwards bounded root events with ${prefix ? 'Windows BOM' : 'plain UTF-8'}`, async () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'agent-office-codex-'));
   const received: { url?: string; authorization?: string; body?: unknown } = {};
   const server = createServer((req, res) => {
@@ -147,7 +147,7 @@ test('helper forwards only the bounded root event fields to the authenticated br
       child.stdout.on('data', (chunk) => { output += chunk; });
       child.on('error', reject);
       child.on('close', () => resolve(output));
-      child.stdin.end(JSON.stringify({
+      child.stdin.end(prefix + JSON.stringify({
         session_id: 'thread-1', prompt: 'fix it', turn_id: 'turn-1',
         transcript_path: '/private/transcript.jsonl', model: 'private-model',
         tool_input: { command: 'private' }, hook_event_name: 'forged',

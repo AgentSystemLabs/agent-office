@@ -155,7 +155,7 @@ process.stdin.on('error', () => finish(false));
 process.stdin.on('end', async () => {
   if (overflow || !EVENTS.has(event)) return finish(false);
   let input;
-  try { input = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { return finish(false); }
+  try { input = JSON.parse(Buffer.concat(chunks).toString('utf8').replace(/^\uFEFF/, '')); } catch { return finish(false); }
   if (!input || typeof input !== 'object' || Array.isArray(input)) return finish(false);
   if (hasText(input.agent_id) || hasText(input.agent_type)) return finish(false);
   const session = allowed(input.session_id, MAX_ID);
