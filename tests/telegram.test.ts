@@ -3,8 +3,16 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { dispatch, exportPath, localRequest, readReply, safeFile } from '../src/server/telegram/service.js';
+import { dispatch, exportPath, localRequest, readReply, reportCampaigns, safeFile } from '../src/server/telegram/service.js';
 import type { Ctx } from '../src/server/office/context.js';
+test('report discovery stays within a known brand and never follows symlinks', async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'telegram-office-')); t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const brand = path.join(root, '.agent-office/artiq-studio/brands/viniela-design'); await fs.mkdir(path.join(brand, 'reports/camp'), { recursive: true }); await fs.writeFile(path.join(brand, 'profile.json'), '{}'); await fs.writeFile(path.join(brand, 'reports/camp/report.md'), 'report');
+  await fs.mkdir(path.join(brand, 'reports/no-report')); await fs.symlink(path.join(brand, 'reports/camp'), path.join(brand, 'reports/linked'));
+  assert.deepEqual(await reportCampaigns(root, 'viniela-design'), ['camp']); await assert.rejects(reportCampaigns(root, '../viniela-design')); await assert.rejects(reportCampaigns(root, 'other-brand'));
+  await fs.unlink(path.join(brand, 'reports/camp/report.md')); await fs.symlink(path.join(brand, 'profile.json'), path.join(brand, 'reports/camp/report.md'));
+  await assert.rejects(reportCampaigns(root, 'viniela-design'), /Symlink/);
+});
 test('leader input and permission dialogs never receive a Telegram prompt', async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'telegram-office-')); t.after(() => fs.rm(root, { recursive: true, force: true }));
   const dir = path.join(root, '.agent-office/artiq-studio/brands/artiq-studio'); await fs.mkdir(dir, { recursive: true }); await fs.writeFile(path.join(dir, 'profile.json'), '{}');
