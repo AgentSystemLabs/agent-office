@@ -420,3 +420,5 @@ Every change to the app that lands on `main` is published as a GitHub release by
 ## License
 
 [MIT](LICENSE)
+
+Cursor command approval menus trigger the usual **Needs you** status and attention alert. Approve or reject the command in the worker terminal.

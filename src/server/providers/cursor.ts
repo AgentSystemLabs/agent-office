@@ -1,8 +1,8 @@
+import { observeCursorApproval } from './cursor-approval.js';
 // Cursor CLI: its hooks go in the hooks.json of the folder each worker runs in (see ../cursor.ts),
 // since that and ~/.cursor, which the office never touches, are the only places it reads them from,
 // and report on /hooks/cursor. It runs on the machine's own Cursor login. Its spend isn't metered by
-// the office, and nothing tells the office about a permission prompt: a worker waiting on one shows
-// as working until it's answered.
+// the office. Permission prompts are detected on the current terminal screen.
 import { addCursorHooks, cursorBlocked, normalizeCursorHook, removeCursorHooks, withoutCursorLaunchArgs, writeCursorHook } from '../cursor.js';
 import { reduceLifecycle } from '../workers/lifecycle.js';
 import type { ProviderAdapter } from './types.js';
@@ -43,5 +43,5 @@ export const cursor: ProviderAdapter<undefined, CursorSetup> = {
     },
   },
   // A resumed chat fires no sessionStart, so it's idle as soon as it runs; the login screen is read off its terminal.
-  screen: { blocked: cursorBlocked },
+  screen: { blocked: cursorBlocked, observe: observeCursorApproval },
 };
