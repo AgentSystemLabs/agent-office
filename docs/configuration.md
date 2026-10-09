@@ -62,3 +62,5 @@ agent-office tunnel [office@address | url] [--port <n>] [--office-port <n>] [--n
   the worker stops it. Given an SSH address it opens the tunnel to the office too.
   See docs/tunnel.md.
 ```
+
+The building supports up to **32 project floors**. This limit is separate from `--max-workers`, which caps concurrent workers across the building.

@@ -38,7 +38,7 @@ test('rejects unknown, malformed, empty, oversized, and child-scoped events', ()
 });
 
 test('generates one stable CLI hook override per supported event', () => {
-  const args = codexHookArgs('/tmp/office data/agent-office-codex-hook.cjs');
+  const args = codexHookArgs('/tmp/office data/agent-office-codex-hook.cjs', 'linux');
   assert.equal(args.length, CODEX_HOOK_EVENTS.length * 2);
   for (let i = 0; i < CODEX_HOOK_EVENTS.length; i++) {
     assert.equal(args[i * 2], '-c');
@@ -86,6 +86,60 @@ test('writes a mode-restricted helper that forwards paths without reading transc
     assert.match(source, /AGENT_OFFICE_HOOK_TOKEN/);
     assert.doesNotMatch(source, /readFile|readSync|createReadStream/);
   } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('Windows hook commands forward stdin and authenticated events through either shell', { skip: process.platform !== 'win32' }, async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "agent office's & codex-"));
+  const received: unknown[] = [];
+  const server = createServer((req, res) => {
+    const chunks: Buffer[] = [];
+    req.on('data', (chunk: Buffer) => chunks.push(chunk));
+    req.on('end', () => {
+      assert.equal(req.headers.authorization, 'Bearer hook-token');
+      received.push(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+      res.writeHead(200).end();
+    });
+  });
+  try {
+    const file = writeCodexHook(dir);
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    assert.ok(address && typeof address === 'object');
+    const config = codexHookArgs(file, 'win32')[CODEX_HOOK_EVENTS.indexOf('PreToolUse') * 2 + 1];
+    const encodedCommand = config.match(/command=("(?:[^"\\]|\\.)*")/);
+    assert.ok(encodedCommand);
+    const command: string = JSON.parse(encodedCommand[1]);
+    for (const shell of ['cmd.exe', 'powershell.exe']) {
+      const child = spawn(shell, shell === 'cmd.exe'
+        ? ['/d', '/s', '/c', command]
+        : ['-NoProfile', '-NonInteractive', '-Command', command], {
+        env: {
+          ...process.env,
+          AGENT_OFFICE_HOOK_URL: `http://127.0.0.1:${address.port}`,
+          AGENT_OFFICE_HOOK_TOKEN: 'hook-token',
+          AGENT_OFFICE_WORKER_ID: 'worker-1',
+        },
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      let stdout = '';
+      let stderr = '';
+      child.stdout.on('data', (chunk) => { stdout += chunk; });
+      child.stderr.on('data', (chunk) => { stderr += chunk; });
+      const code = await new Promise<number | null>((resolve, reject) => {
+        child.on('error', reject);
+        child.on('close', resolve);
+        child.stdin.end(JSON.stringify({ session_id: 'thread-1', tool_name: 'Bash' }));
+      });
+      assert.equal(code, 0, `${shell}: ${stderr}`);
+      assert.equal(stdout, '{}', shell);
+    }
+    assert.deepEqual(received, Array.from({ length: 2 }, () => ({
+      session_id: 'thread-1', hook_event_name: 'PreToolUse', tool_name: 'Bash',
+    })));
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
     rmSync(dir, { recursive: true, force: true });
   }
 });
