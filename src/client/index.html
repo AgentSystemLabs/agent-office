@@ -52,6 +52,23 @@
             <button id="waiting" class="hidden" title="Go to the next worker waiting on someone: the ones that need you first (N)"></button>
             <ul id="workers"></ul>
           </section>
+          <!-- Boss Mode panel: toggled on/off by the 👔 Boss button; wired up in ui/boss-panel.ts -->
+          <section id="boss-panel" class="panel" aria-label="Boss control panel">
+            <div class="boss-header">
+              <h3>👔 Boss Mode</h3>
+              <div class="boss-actions">
+                <button id="boss-auto-assign-btn" type="button" title="Auto-assign prompt to the most idle worker">⚡ Auto-Assign</button>
+                <button id="boss-export-report-btn" type="button" title="Export Floor Report as Markdown">📥 Report</button>
+                <button id="boss-send-all-btn" type="button" class="danger" title="Send every worker home at once">Send all home</button>
+              </div>
+            </div>
+            <div id="boss-summary-bar" class="boss-summary-bar"></div>
+            <div class="boss-broadcast">
+              <input id="boss-broadcast-input" type="text" maxlength="500" placeholder="Broadcast a prompt to all workers… (Enter)" autocomplete="off" />
+              <button id="boss-broadcast-btn" type="button">Send all</button>
+            </div>
+            <ul class="boss-workers" aria-label="All workers"></ul>
+          </section>
           <section id="spend" class="panel spend">
             <h3>Spend<button class="panel-x" data-hud="spend" aria-label="Hide" title="Hide (☰ brings it back)">✕</button></h3>
             <div id="usage" class="usage hidden"></div>

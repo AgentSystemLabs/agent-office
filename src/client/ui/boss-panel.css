@@ -1,0 +1,315 @@
+/* Boss Mode — a central control panel to manage all workers from one place. */
+
+/* ── Boss mode toggle button in the workers panel header ─── */
+#boss-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  border: 1.5px solid var(--color-border, #444);
+  background: transparent;
+  color: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-left: 6px;
+  opacity: 0.7;
+  transition: opacity 0.15s, background 0.15s, border-color 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+#boss-toggle:hover {
+  opacity: 1;
+  border-color: #f5a623;
+}
+#boss-toggle.boss-on {
+  background: #f5a623;
+  border-color: #f5a623;
+  color: #1a1a1a;
+  opacity: 1;
+}
+
+/* ── Boss panel section ─── */
+#boss-panel {
+  display: none;
+  flex-direction: column;
+  gap: 0;
+  overflow: hidden;
+}
+#boss-panel.visible {
+  display: flex;
+}
+
+.boss-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px 6px;
+  border-bottom: 1px solid var(--color-border, #333);
+}
+.boss-header h3 {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #f5a623;
+  margin: 0;
+}
+.boss-actions {
+  display: flex;
+  gap: 6px;
+}
+.boss-actions button {
+  font-size: 11px;
+  padding: 3px 9px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border, #444);
+  background: var(--color-bg-2, #2a2a2a);
+  color: inherit;
+  cursor: pointer;
+  font-weight: 600;
+  transition: background 0.12s, border-color 0.12s;
+}
+.boss-actions button:hover {
+  background: var(--color-bg-3, #383838);
+  border-color: #f5a623;
+  color: #f5a623;
+}
+.boss-actions button.danger:hover {
+  border-color: #ef4444;
+  color: #ef4444;
+}
+
+/* Broadcast bar */
+.boss-broadcast {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--color-border, #333);
+}
+.boss-broadcast input {
+  flex: 1;
+  padding: 5px 9px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border, #444);
+  background: var(--color-bg-2, #222);
+  color: inherit;
+  font-size: 12px;
+  outline: none;
+  transition: border-color 0.12s;
+}
+.boss-broadcast input:focus {
+  border-color: #f5a623;
+}
+.boss-broadcast button {
+  padding: 5px 12px;
+  border-radius: 8px;
+  border: 1px solid #f5a623;
+  background: #f5a623;
+  color: #1a1a1a;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.12s;
+  white-space: nowrap;
+}
+.boss-broadcast button:hover {
+  background: #e09600;
+  border-color: #e09600;
+}
+.boss-broadcast button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Worker cards in boss panel */
+.boss-workers {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  overflow-y: auto;
+  max-height: 280px;
+}
+.arcade-screen .boss-workers {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+}
+.boss-worker-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--color-border, #2a2a2a);
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.boss-worker-card:hover {
+  background: var(--color-bg-2, #222);
+}
+.boss-worker-card:last-child {
+  border-bottom: none;
+}
+.boss-worker-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.boss-worker-info {
+  flex: 1;
+  min-width: 0;
+}
+.boss-worker-name {
+  font-weight: 600;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.boss-worker-activity {
+  font-size: 11px;
+  opacity: 0.55;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.boss-worker-status {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+}
+.boss-worker-status.working {
+  background: #166534;
+  color: #86efac;
+}
+.boss-worker-status.needs_input {
+  background: #7f1d1d;
+  color: #fca5a5;
+}
+.boss-worker-status.idle {
+  background: #374151;
+  color: #9ca3af;
+}
+.boss-worker-status.done {
+  background: #1e3a5f;
+  color: #93c5fd;
+}
+.boss-worker-send-home {
+  padding: 2px 7px;
+  border-radius: 6px;
+  border: 1px solid var(--color-border, #444);
+  background: transparent;
+  color: inherit;
+  font-size: 10px;
+  cursor: pointer;
+  opacity: 0.6;
+  flex-shrink: 0;
+  transition: opacity 0.1s, border-color 0.1s, color 0.1s;
+}
+.boss-worker-send-home:hover {
+  opacity: 1;
+  border-color: #ef4444;
+  color: #ef4444;
+}
+
+.boss-worker-terminal {
+  padding: 2px 7px;
+  border-radius: 6px;
+  border: 1px solid var(--color-border, #444);
+  background: var(--color-bg-2, #2a2a2a);
+  color: #38bdf8;
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.1s, border-color 0.1s, color 0.1s;
+}
+.boss-worker-terminal:hover {
+  background: #0284c7;
+  border-color: #38bdf8;
+  color: #ffffff;
+}
+
+/* Empty state */
+.boss-empty {
+  padding: 18px 12px;
+  font-size: 12px;
+  opacity: 0.5;
+  text-align: center;
+}
+
+/* ── Live Analytics Summary Bar ─── */
+.boss-summary-bar {
+  background: var(--color-bg-2, #181d28);
+  border-bottom: 1px solid var(--color-border, #2a3447);
+  padding: 6px 12px;
+}
+.boss-summary-bar-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.boss-stat-item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.boss-stat-item .label {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-muted, #718096);
+  font-weight: 700;
+}
+.boss-stat-item .val {
+  font-size: 12px;
+  font-weight: 800;
+  color: #f8fafc;
+  font-variant-numeric: tabular-nums;
+}
+.boss-stat-item .val.working {
+  color: #4ade80;
+}
+.boss-stat-item .val.needs {
+  color: #fca5a5;
+  animation: pulse-needs 1.5s infinite;
+}
+.boss-stat-item .val.spend {
+  color: #38bdf8;
+}
+
+@keyframes pulse-needs {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+/* Button variants in Boss Header */
+#boss-auto-assign-btn {
+  background: rgba(56, 189, 248, 0.12);
+  border-color: #38bdf8;
+  color: #38bdf8;
+}
+#boss-auto-assign-btn:hover {
+  background: #0284c7;
+  color: #ffffff;
+  border-color: #38bdf8;
+}
+
+#boss-export-report-btn {
+  background: rgba(34, 197, 94, 0.12);
+  border-color: #22c55e;
+  color: #4ade80;
+}
+#boss-export-report-btn:hover {
+  background: #166534;
+  color: #ffffff;
+  border-color: #4ade80;
+}
+
