@@ -79,6 +79,8 @@ Press Enter to skip a step: the elevator in the office asks for your first proje
 
 Walk to an empty desk, press **E** and hire a worker.
 
+Workers' HTTP servers appear on the **🌐 Services** board on macOS, Linux and Windows. On Windows, keep the server running in the worker's terminal (or a child process of it); detached processes cannot be matched by their working directory. See [Services board](docs/features.md) for details.
+
 Common options:
 
 ```bash
