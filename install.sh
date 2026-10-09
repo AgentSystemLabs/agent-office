@@ -96,7 +96,12 @@ install_release() {
   dest="$VERSIONS/$tag"
   if [ ! -f "$dest/.installed" ]; then
     step "Installing Agent Office $tag"
-    # Exactly the dependency versions the release was tested with (its npm-shrinkwrap.json).
+    # Exactly the dependency versions the release was tested with (its npm-shrinkwrap.json). npm 12's
+    # `npm ci` reads only package-lock.json and refuses a package with just a shrinkwrap (#278), so
+    # give it the same file under that name too; older npm read the shrinkwrap first either way.
+    if [ -f "$STAGE/package/npm-shrinkwrap.json" ] && [ ! -e "$STAGE/package/package-lock.json" ]; then
+      cp "$STAGE/package/npm-shrinkwrap.json" "$STAGE/package/package-lock.json"
+    fi
     (cd "$STAGE/package" && npm ci --omit=dev --no-audit --no-fund --loglevel=error >&2) ||
       die "npm couldn't install Agent Office's dependencies (see above)"
     touch "$STAGE/package/.installed"
