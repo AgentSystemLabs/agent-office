@@ -46,6 +46,56 @@ function screenMentionsEsc(term: Terminal): boolean {
   return false;
 }
 
+/**
+ * A finger dragged over the terminal scrolls it like a mouse wheel would, a notch per row's height.
+ * xterm 6 has no touch scrolling of its own (its gesture handling is never attached to the
+ * viewport), so on a phone the scrollback was out of reach. An agent that tracks the mouse (Claude
+ * Code does) scrolls its own view from wheel reports, and xterm's buffer has nothing to scroll then:
+ * each notch goes to it as a wheel event, which xterm turns into the report. Otherwise the buffer
+ * scrolls. A tap, or a second finger (zoom), is left to the browser.
+ */
+function touchScroll(term: Terminal, host: HTMLElement) {
+  let lastY: number | undefined;
+  let carry = 0;
+  host.addEventListener(
+    'touchstart',
+    (e) => {
+      lastY = e.touches.length === 1 ? e.touches[0].clientY : undefined;
+      carry = 0;
+    },
+    { passive: true },
+  );
+  host.addEventListener(
+    'touchmove',
+    (e) => {
+      if (lastY === undefined || e.touches.length !== 1) return;
+      const t = e.touches[0];
+      carry += lastY - t.clientY;
+      lastY = t.clientY;
+      const screen = host.querySelector<HTMLElement>('.xterm-screen');
+      const row = screen && term.rows ? screen.clientHeight / term.rows : 16;
+      const notches = Math.trunc(carry / row);
+      if (notches && screen) {
+        carry -= notches * row;
+        if (term.modes.mouseTrackingMode === 'none') term.scrollLines(notches);
+        else {
+          // A line's worth of wheel each: xterm reports it once, whatever the browser says a notch is.
+          const deltaY = Math.sign(notches);
+          for (let i = Math.abs(notches); i > 0; i--) {
+            screen.dispatchEvent(new WheelEvent('wheel', { deltaY, deltaMode: WheelEvent.DOM_DELTA_LINE, clientX: t.clientX, clientY: t.clientY, bubbles: true, cancelable: true }));
+          }
+        }
+      }
+      // Ours, not the page's: the 2D view's page would scroll under the terminal otherwise.
+      e.preventDefault();
+    },
+    { passive: false },
+  );
+  const done = () => (lastY = undefined);
+  host.addEventListener('touchend', done);
+  host.addEventListener('touchcancel', done);
+}
+
 /** Up to two letters for someone's face: "Sam" -> "S", "Ada Lovelace" -> "AL". */
 function initials(name: string): string {
   const words = name.trim().split(/\s+/).filter(Boolean);
@@ -367,6 +417,7 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void,
   });
 
   term.open(host);
+  touchScroll(term, host);
   const sendEsc = () => {
     sendSize(true);
     sayTyping();
