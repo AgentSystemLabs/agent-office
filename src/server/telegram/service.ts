@@ -81,6 +81,25 @@ export async function readReply(root: string, id: string) {
 
 const locks = new Set<string>();
 
+/** Discover only already-exportable reports within one explicit brand. */
+export async function reportCampaigns(root: string, brand: unknown): Promise<string[]> {
+  if (!identifier(brand)) throw new Error('Invalid brand');
+  await safeFile(root, `.agent-office/artiq-studio/brands/${brand}/profile.json`, 128 * 1024);
+  const relative = `.agent-office/artiq-studio/brands/${brand}/reports`;
+  const directory = path.join(root, relative);
+  try {
+    if ((await fs.lstat(directory)).isSymbolicLink()) throw new Error('Symlink reports are forbidden');
+    const campaigns: string[] = [];
+    for (const entry of (await fs.readdir(directory, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name))) {
+      if (!entry.isDirectory() || !identifier(entry.name)) continue;
+      try { await safeFile(root, `${relative}/${entry.name}/report.md`); campaigns.push(entry.name); }
+      catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e; }
+      if (campaigns.length === 20) break;
+    }
+    return campaigns;
+  } catch (e) { if ((e as NodeJS.ErrnoException).code === 'ENOENT') return []; throw e; }
+}
+
 /** Reserve on disk before typing a prompt. A crash is reported as uncertain, never retried blindly. */
 export async function dispatch(ctx: Ctx, input: Record<string, unknown>) {
   const { floor, worker } = target(ctx);
