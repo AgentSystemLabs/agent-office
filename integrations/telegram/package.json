@@ -3,5 +3,10 @@
   "private": true,
   "type": "module",
   "engines": { "node": ">=22" },
-  "scripts": { "start": "node relay.mjs", "connector": "node connector.mjs", "test": "node --test *.test.mjs" }
+  "scripts": {
+    "start": "node relay.mjs",
+    "connector": "node connector.mjs",
+    "test": "node --test *.test.mjs",
+    "build": "node --input-type=module -e \"if (process.env.TELEGRAM_ACTIVATE_WEBHOOK === '1') await import('./setup-webhook.mjs'); else console.log('No build required; webhook activation disabled')\""
+  }
 }

@@ -5,7 +5,7 @@ const config = configFrom(process.env);
 const origin = new URL(process.env.TELEGRAM_RELAY_URL);
 if (origin.protocol !== 'https:' || origin.pathname !== '/' || origin.username || origin.password || origin.search || origin.hash) throw new Error('Configure the HTTPS relay origin');
 const me = await telegram(config.token, 'getMe', {});
-if (me.username !== process.env.TELEGRAM_EXPECTED_BOT_USERNAME) throw new Error('Bot username differs; webhook was not changed');
+if (me.username !== process.env.TELEGRAM_EXPECTED_BOT_USERNAME) throw new Error(`Bot username differs: expected @${process.env.TELEGRAM_EXPECTED_BOT_USERNAME}, received @${me.username}; webhook was not changed`);
 const previous = await telegram(config.token, 'getWebhookInfo', {});
 const url = origin.origin + '/telegram/webhook';
 if (previous.url && previous.url !== url) throw new Error('Bot has a different webhook; explicit migration required');
