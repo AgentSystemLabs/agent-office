@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
+import { WindowsProcessCache } from './windows-process-cache.js';
 
-/** One native snapshot per scan; no Unix tools or administrator rights required. */
+/** Current TCP listeners and cached process ancestry; no Unix tools or administrator rights. */
 export interface WindowsSnapshot {
   listeners: { pid: number; host: string; port: number }[];
   processes: Map<number, { ppid: number; args: string }>;
@@ -29,15 +30,26 @@ export function parseWindowsSnapshot(text: string): WindowsSnapshot {
   };
 }
 
-export function windowsSnapshot(): Promise<WindowsSnapshot> {
-  const script = "$ErrorActionPreference='Stop'; [Console]::OutputEncoding=[System.Text.Encoding]::UTF8; " +
-    "$p=@(Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,CommandLine); " +
-    "$s=@(netstat.exe -ano -p tcp); @{processes=$p;sockets=$s} | ConvertTo-Json -Compress -Depth 3";
+function run(file: string, args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script],
-      { encoding: 'utf8', windowsHide: true, timeout: 10_000, maxBuffer: 8 * 1024 * 1024 }, (err, out) => {
-        if (err) return reject(new Error('Windows service discovery failed', { cause: err }));
-        try { resolve(parseWindowsSnapshot(out)); } catch (err) { reject(err); }
-      });
+    execFile(file, args, { encoding: 'utf8', windowsHide: true, timeout: 10_000, maxBuffer: 8 * 1024 * 1024 }, (err, out) => {
+      if (err) reject(new Error('Windows service discovery failed', { cause: err }));
+      else resolve(out);
+    });
   });
+}
+
+const processes = new WindowsProcessCache(async () => {
+  const script = "$ErrorActionPreference='Stop'; [Console]::OutputEncoding=[System.Text.Encoding]::UTF8; " +
+    "$p=@(Get-CimInstance -Query 'SELECT ProcessId,ParentProcessId,CommandLine FROM Win32_Process'); " +
+    "@{processes=@($p | Select-Object ProcessId,ParentProcessId,CommandLine)} | ConvertTo-Json -Compress -Depth 3";
+  return parseWindowsSnapshot(await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script])).processes;
+});
+
+export async function windowsSnapshot(): Promise<WindowsSnapshot> {
+  // netstat reads the sockets directly: no PowerShell or WMI on the four-second polling path.
+  const sockets = (await run('netstat.exe', ['-ano', '-p', 'tcp'])).split(/\r?\n/);
+  const snapshot = parseWindowsSnapshot(JSON.stringify({ sockets }));
+  snapshot.processes = await processes.get(snapshot.listeners.map((listener) => listener.pid));
+  return snapshot;
 }
