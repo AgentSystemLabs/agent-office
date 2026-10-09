@@ -27,6 +27,7 @@ import { prompts } from './prompts';
 import { services } from './services';
 import { signins } from './signins';
 import { sky } from './sky';
+import { smartphone } from './smartphone';
 import { team } from './team';
 import { theme } from './theme';
 import { upgrade } from './upgrade';
@@ -61,4 +62,5 @@ export const SLICES: readonly Slice[] = [
   team,
   accounts,
   signins,
+  smartphone,
 ];
