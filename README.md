@@ -421,4 +421,4 @@ Every change to the app that lands on `main` is published as a GitHub release by
 
 [MIT](LICENSE)
 
-Cursor hooks on Windows use an encoded PowerShell command so paths with spaces and hook JSON on stdin reach the Office status bridge. Existing POSIX hook entries are replaced on the next worker launch; project hooks are preserved.
+Cursor hooks on Windows use an encoded PowerShell command so paths with spaces and hook JSON on stdin reach the Office status bridge. Existing POSIX hook entries are replaced on the next worker launch; project hooks are preserved. Workers sharing a folder use one Office hook per event, avoiding a separate shell/Node process for every other worker.

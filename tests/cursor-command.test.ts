@@ -4,7 +4,20 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { cursorHookCommand } from '../src/server/cursor-command.js';
+import { cursorHookCommand, cursorHookWorkers, readableHookCommand, withCursorHookWorkers } from '../src/server/cursor-command.js';
+
+test('shared registration rewriting preserves Windows and POSIX executable/path quoting', () => {
+  for (const windows of [false, true]) {
+    const args = ["/node with spaces/node", "/it's shared/agent-office-cursor-hook.cjs", 'stop'];
+    const original = cursorHookCommand([...args, 'worker-a,worker-b'], windows);
+    const updated = withCursorHookWorkers(original, ['worker-b']);
+    assert.equal(updated, cursorHookCommand([...args, 'worker-b'], windows));
+    assert.deepEqual(cursorHookWorkers(updated), ['worker-b']);
+    assert.ok(readableHookCommand(updated).includes('agent-office-cursor-hook.cjs'));
+  }
+  assert.equal(cursorHookWorkers("'./user-hook' 'worker-a'"), undefined);
+  assert.throws(() => withCursorHookWorkers(cursorHookCommand(['agent-office-cursor-hook.cjs', 'stop', 'worker-a']), ["bad'worker"]));
+});
 
 test('Windows hook preserves JSON stdin and literal arguments through cmd', { skip: process.platform !== 'win32' }, () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'cursor hook '));
