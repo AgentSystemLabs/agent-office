@@ -42,8 +42,14 @@ export async function processJob(config, job, call = request) {
     if (reply.brand_id !== c.brand) throw new Error('Reply brand differs');
     text = reply.text; files = reply.files;
   } else if (c.kind === 'report') {
-    text = `${c.brand} / ${c.campaign} • report`;
-    files = [`.agent-office/artiq-studio/brands/${c.brand}/reports/${c.campaign}/report.md`];
+    let campaign = c.campaign;
+    if (!campaign) {
+      const { campaigns } = await local(`reports?brand=${encodeURIComponent(c.brand)}`);
+      if (campaigns.length !== 1) return remote('complete', { id: job.id, text: campaigns.length ? `Pilih report ${c.brand}:\n${campaigns.map((name) => `/report ${c.brand} ${name}`).join('\n')}` : `Belum ada report.md untuk ${c.brand}.`, files: [] });
+      campaign = campaigns[0];
+    }
+    text = `${c.brand} / ${campaign} • report`;
+    files = [`.agent-office/artiq-studio/brands/${c.brand}/reports/${campaign}/report.md`];
   } else if (c.kind === 'design') {
     text = `${c.brand} / ${c.campaign} / ${c.version} • draft, owner review diperlukan; Posting OFF`;
     const base = `.agent-office/artiq-studio/brands/${c.brand}/results/${c.campaign}/${c.version}`;
