@@ -4,7 +4,7 @@
 .prompt-list { display: flex; flex-direction: column; gap: 2px; padding: 10px; overflow: auto; background: var(--paper-2); border-right: 3px solid var(--ink); }
 .prompt-list h4 { margin: 12px 6px 4px; font-size: 12px; font-weight: 900; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
 .prompt-list h4:first-child { margin-top: 2px; }
-.prompt-item { display: flex; align-items: center; gap: 6px; width: 100%; padding: 6px 10px; text-align: left; font: inherit; font-size: 13.5px; font-weight: 700; color: var(--ink); background: none; border: 2px solid transparent; border-radius: 10px; cursor: pointer; }
+.prompt-item { display: flex; align-items: center; gap: 6px; width: 100%; padding: 6px 10px; text-align: left; font: inherit; font-size: 13.5px; font-weight: 700; color: var(--ink); background: none; border: 2px solid transparent; border-radius: var(--radius-control); cursor: pointer; }
 .prompt-item > span:first-child { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .prompt-item:hover { background: #fff; }
 .prompt-item.on { background: #fff; border-color: var(--ink); }
@@ -19,7 +19,7 @@
 .modal textarea.prompt-text[readonly] { background: var(--paper-2); }
 .prompt-vars { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .prompt-vars-head { flex-basis: 100%; font-size: 12px; font-weight: 800; color: var(--muted); }
-.prompt-var { display: inline-flex; align-items: baseline; gap: 6px; max-width: 100%; padding: 3px 8px; font: inherit; background: #fff; border: 2px solid rgba(43, 45, 66, .25); border-radius: 8px; cursor: pointer; }
+.prompt-var { display: inline-flex; align-items: baseline; gap: 6px; max-width: 100%; padding: 3px 8px; font: inherit; background: #fff; border: 2px solid rgba(43, 45, 66, .25); border-radius: var(--radius-control); cursor: pointer; }
 .prompt-var:hover:not(:disabled) { border-color: var(--accent); }
 .prompt-var:disabled { cursor: default; }
 .prompt-var code { font: 700 12px ui-monospace, Menlo, monospace; color: var(--ink); }

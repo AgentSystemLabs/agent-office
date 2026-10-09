@@ -1,0 +1,71 @@
+/* Surface treatments sit on the shared frame; feature layouts and event handling remain their own. */
+:root {
+.modal {
+  border-color: var(--ink);
+  border-width: 2px;
+  box-shadow: 5px 5px 0 var(--accent), 9px 9px 0 rgba(41, 70, 74, .24), 0 18px 48px rgba(23, 44, 43, .2);
+}
+.modal header {
+  background-color: var(--paper-2);
+  background-image: linear-gradient(90deg, rgba(138, 158, 147, .1) 1px, transparent 1px), linear-gradient(rgba(138, 158, 147, .1) 1px, transparent 1px);
+  background-size: 16px 16px;
+  border-bottom: 2px solid var(--edge);
+  min-height: 58px;
+}
+.modal header h2 { font-family: var(--font-label); font-size: 16px; letter-spacing: -.035em; }
+.modal footer { border-top: 2px solid var(--edge); background: var(--paper-2); }
+.modal :is(textarea, input[type=text], input[type=password]) { border-width: 2px; border-color: var(--edge); box-shadow: inset 2px 2px 0 #ede8dc; }
+.modal :is(textarea, input[type=text], input[type=password]):focus { border-color: var(--accent); box-shadow: inset 2px 2px 0 #e5eddf, 0 0 0 2px rgba(33, 108, 112, .15); }
+.modal .close { border-width: 2px; background: var(--paper); box-shadow: var(--button-shadow); }
+.modal .close:hover { background: var(--tile); }
+.modal .close:active { box-shadow: 0 1px 0 var(--edge); }
+.backdrop:not(.menu-backdrop) { background: rgba(26, 46, 45, .52); }
+
+.btn { border-width: 2px; box-shadow: var(--button-shadow); background: var(--paper); transition: background-color .12s, transform .08s, box-shadow .08s; }
+.btn:hover:not(:disabled) { background: var(--tile); border-color: var(--accent); }
+.btn:active:not(:disabled) { box-shadow: 1px 1px 0 var(--edge); }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); box-shadow: 2px 3px 0 #174c50; }
+.btn.primary:hover:not(:disabled) { background: #19585c; border-color: #19585c; }
+.btn.on { background: var(--good); border-color: #205e4e; color: #fff; }
+.btn.on:hover:not(:disabled) { background: #20674f; border-color: #205e4e; }
+.btn.danger { background: var(--bad); border-color: #8c3733; color: #fff; box-shadow: 2px 3px 0 #8c3733; }
+.btn.danger:hover:not(:disabled) { background: #983b36; border-color: #8c3733; }
+.btn:disabled { opacity: .55; box-shadow: none; transform: none; cursor: not-allowed; }
+.btn[aria-pressed=true]:not(.primary, .danger, .on) { background: var(--tile); border-color: var(--accent); }
+:is(button, a, input, textarea, select, [role=button], [role=menuitem], [role=option], [tabindex]):focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+
+.panel { border-width: 2px; }
+.toast { border-width: 2px; border-left: 6px solid var(--accent); box-shadow: var(--shadow); }
+.toast.warn { background: #fff0d2; border-left-color: #9b651c; }
+.toast.error { background: #fce5dc; border-left-color: var(--bad); }
+.conn { border-width: 2px; box-shadow: var(--shadow); }
+.key, kbd { font-family: var(--font-label); box-shadow: 2px 2px 0 var(--edge); }
+.pill { border-width: 1px; letter-spacing: .025em; }
+.swatch { box-shadow: inset 0 0 0 2px rgba(255, 249, 238, .4), 2px 2px 0 rgba(41, 70, 74, .2); }
+.swatch.sel { outline-offset: 3px; }
+.svc-list li { border-width: 2px; border-color: var(--edge); box-shadow: 2px 3px 0 #bdc7b9; }
+.svc-list li.on { background: var(--tile); border-color: var(--accent); }
+.charsel-stage { border-width: 2px; border-color: var(--edge); background: linear-gradient(0deg, #e0e9d8 0 23%, #f5f0e4 23%); }
+.charsel-stage .tip { background: var(--paper); padding: 5px 8px; bottom: 0; border-top: 1px solid var(--edge); }
+.modal.settings .setting { border-color: var(--edge); background: var(--paper); box-shadow: 2px 2px 0 #dedfd0; }
+.modal.settings .settings-tab.on { background: var(--tile); border-color: var(--accent); box-shadow: 2px 2px 0 var(--edge); }
+.modal.settings .scope { border-width: 1px; }
+.hud-menu { border-width: 2px; box-shadow: var(--shadow); }
+.hud-menu .menu-item:hover, .hud-menu .menu-item:focus-visible { background: var(--tile); }
+.hud-menu .menu-item.primary .mi-label { color: var(--accent); }
+.hud-menu .menu-sec, .floor-menu-head { font-family: var(--font-label); font-weight: 700; letter-spacing: .1em; }
+.hud-menu .menu-foot { border-top: 1px solid var(--edge); }
+.switch { border-width: 2px; }
+.floor-item { border-width: 2px; border-color: var(--edge); box-shadow: var(--button-shadow); }
+.floor-item.here { background: var(--tile); border-color: var(--accent); }
+.floor-item .floor-no { border-width: 2px; box-shadow: 2px 2px 0 var(--edge); }
+.dock-panel[aria-pressed=true] { background: var(--tile); border-color: var(--accent); }
+.palette-row.on { background: var(--tile); }
+.loading-card { border-width: 2px; }
+#loading { background: #dce5d6; }
+
+@media (prefers-reduced-motion: reduce) {
+  .modal, .toast, .hud-menu, .floor-menu, .backdrop { animation: none; }
+  .btn, .switch, .switch::after { transition: none; }
+}
+}
