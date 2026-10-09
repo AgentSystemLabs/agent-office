@@ -5,6 +5,15 @@ import os from 'node:os';
 import path from 'node:path';
 import { dispatch, exportPath, localRequest, readReply, safeFile } from '../src/server/telegram/service.js';
 import type { Ctx } from '../src/server/office/context.js';
+test('leader input and permission dialogs never receive a Telegram prompt', async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'telegram-office-')); t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const dir = path.join(root, '.agent-office/artiq-studio/brands/artiq-studio'); await fs.mkdir(dir, { recursive: true }); await fs.writeFile(path.join(dir, 'profile.json'), '{}');
+  const prior = process.env.AGENT_OFFICE_TELEGRAM_LEADER_ID; process.env.AGENT_OFFICE_TELEGRAM_LEADER_ID = 'leader';
+  t.after(() => { if (prior === undefined) delete process.env.AGENT_OFFICE_TELEGRAM_LEADER_ID; else process.env.AGENT_OFFICE_TELEGRAM_LEADER_ID = prior; });
+  let prompts = 0; const floor = { id: 'floor', dir: root, workers: { get: () => ({ id: 'leader', kind: 'agent', status: 'needs_input' }), prompt: () => { prompts++; } } };
+  assert.equal((await dispatch({ workerFloor: () => floor } as unknown as Ctx, { id: 'tg-124', brand: 'artiq-studio', text: 'yes' })).status, 'needs_input');
+  assert.equal(prompts, 0); await assert.rejects(fs.access(path.join(root, '.agent-office/telegram/requests/tg-124.json')));
+});
 test('connector accepts neither remote nor browser-origin requests', () => {
   assert.equal(localRequest('127.0.0.1', undefined), true); assert.equal(localRequest('::ffff:127.0.0.1', undefined), true);
   assert.equal(localRequest('192.168.1.1', undefined), false); assert.equal(localRequest('127.0.0.1', 'https://evil.example'), false);
