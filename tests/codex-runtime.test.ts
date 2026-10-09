@@ -51,6 +51,16 @@ test('a completed PR creation reaches the same ownership tracker used by Claude'
   assert.equal(normalizeCodexHook('PostToolUse', { session_id: 'root', agent_id: 'child', pr_command: command, pr_output: output }), undefined);
 });
 
+test('a resumed ready CLI clears only a startup warning, not an unanswered tool question', () => {
+  const h = { running: true, bootBlocked: true, info: { status: 'needs_input', activity: 'Review hooks' },
+    setStatus(status: string) { this.info.status = status; } };
+  observeCodexScreen(h as never, '› Ask Codex to do anything\nGPT-6-Sol medium · project');
+  assert.equal(h.info.status, 'idle');
+  h.info.status = 'needs_input';
+  observeCodexScreen(h as never, '› Ask Codex to do anything\nGPT-6-Sol medium · project');
+  assert.equal(h.info.status, 'needs_input');
+});
+
 test('Codex paste settles before a single submit, and restart cancels a pending submit', (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const writes: string[] = [];

@@ -19,5 +19,9 @@ export function observeCodexScreen(h: WorkerHandle, text: string): void {
     && ['working', 'needs_input'].includes(h.info.status)) {
     h.info.activity = undefined;
     h.setStatus('done');
+  } else if (h.bootBlocked && /› Ask Codex to do anything/.test(footer) && /GPT-\S+\s+\w+\s+·/.test(footer)) {
+    h.bootBlocked = false;
+    h.info.activity = undefined;
+    h.setStatus('idle');
   }
 }
