@@ -15,7 +15,21 @@
         <span class="lite-floor-label">Floor</span>
         <select id="floor" aria-label="Floor"></select>
       </label>
+      <button id="btn-theme" class="btn lite-theme" type="button" aria-pressed="false" aria-label="Light mode" title="Light mode. Switch the 2D view to dark.">☀️</button>
       <a id="to-3d" class="btn" href="/?3d=1" title="The 3D office, where you walk around">🏢 3D</a>
+      <script>
+        try {
+          if (localStorage.getItem('ao-lite-dark') === '1') {
+            document.body.classList.add('dark');
+            const theme = document.getElementById('btn-theme');
+            theme.textContent = '🌙';
+            theme.setAttribute('aria-pressed', 'true');
+            theme.setAttribute('aria-label', 'Dark mode');
+            theme.title = 'Dark mode. Switch the 2D view to light.';
+            document.querySelector('meta[name="theme-color"]').setAttribute('content', '#211e28');
+          }
+        } catch (e) { /* storage blocked: stay on the light page */ }
+      </script>
     </header>
     <main class="lite-main">
       <p id="floor-meta" class="lite-meta"></p>

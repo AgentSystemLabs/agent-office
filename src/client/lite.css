@@ -6,6 +6,8 @@ body.lite { min-height: 100dvh; background: var(--paper); -webkit-tap-highlight-
 
 .lite-bar { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 8px; padding: 10px 12px; padding-top: max(10px, env(safe-area-inset-top)); background: var(--paper-2); border-bottom: 3px solid var(--ink); }
 .lite-bar .btn { height: 44px; flex: none; text-decoration: none; }
+/* ☀️ while the page is light, 🌙 while it's dark (lite.ts), beside 🏢 3D. */
+.lite-theme { min-width: 44px; padding: 0 10px; justify-content: center; font-size: 18px; }
 .lite-floor { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; margin: 0; }
 .lite-floor-label { font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
 .lite-floor select {
@@ -75,4 +77,49 @@ body.lite { min-height: 100dvh; background: var(--paper); -webkit-tap-highlight-
   body.lite .modal.board .body { padding: 10px; overflow-x: auto; }
   .modal.board .column { min-width: 78vw; }
   .modal.board header .board-status { display: none; }
+}
+
+/* Dark mode (☀️/🌙 beside 🏢 3D). The same ink-and-paper office, at night: cream lines on a dark page. */
+body.lite.dark {
+  --ink: #f4efe6;
+  --paper: #14131a;
+  --paper-2: #211e28;
+  --card: #2c2836;
+  --muted: #b7aea2;
+  color-scheme: dark;
+  background: var(--paper);
+}
+body.lite.dark :is(
+  .btn:not(.primary):not(.danger):not(.on),
+  .lite-worker:not(.exited):not(.offline),
+  .modal:not(.term),
+  .modal textarea,
+  .modal input[type=text],
+  .modal input[type=password],
+  .modal select
+) {
+  background-color: var(--card);
+}
+body.lite.dark :is(.btn, .lite-worker, .modal:not(.term)) { box-shadow: 0 3px 0 #07060a; }
+body.lite.dark .btn:not(.primary):not(.danger):not(.on):hover { background: #3a3446; }
+body.lite.dark .modal:not(.term) { box-shadow: 0 6px 0 #07060a; }
+body.lite.dark .lite-nav .n { background: #f4efe6; color: #1a1820; }
+body.lite.dark .lite-nav .btn.primary .n { background: #1a1820; color: #f4efe6; }
+body.lite.dark .lite-go { background: #4a2030; }
+body.lite.dark .lite-go:hover { background: #5c2840; }
+body.lite.dark .lite-worker.exited,
+body.lite.dark .lite-worker.offline { background: #1a1820; }
+body.lite.dark .lite-floor select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%23f4efe6' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+body.lite.dark .column { background: rgba(244, 239, 230, .06); }
+body.lite.dark .modal.term { background: #1e1f2e; box-shadow: none; }
+body.lite.dark .pill.starting,
+body.lite.dark .pill.idle,
+body.lite.dark .pill.working,
+body.lite.dark .pill.exited,
+body.lite.dark .pill.offline,
+body.lite.dark .pill.lost { color: #1a1820; }
+@media (max-width: 640px) {
+  body.lite.dark :is(.modal.term, .modal.board, .modal.gh-window, .modal.desk-changes, .modal.meeting-window, .modal[aria-label="Task queue"]) { box-shadow: none; }
 }

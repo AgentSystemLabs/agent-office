@@ -30,6 +30,32 @@ import { repoChoices } from './shared/hiring';
 // The tab title counts the workers waiting on someone, on every floor, as the 3D office's does.
 import { renderTitle } from './shared/title';
 
+/** Dark mode for this page, kept in the browser. ☀️ is light, 🌙 is dark (the button beside 🏢 3D). */
+const LITE_DARK_KEY = 'ao-lite-dark';
+
+function applyLiteTheme(dark: boolean) {
+  document.body.classList.toggle('dark', dark);
+  const btn = document.getElementById('btn-theme');
+  if (btn) {
+    btn.textContent = dark ? '🌙' : '☀️';
+    btn.title = dark ? 'Dark mode. Switch the 2D view to light.' : 'Light mode. Switch the 2D view to dark.';
+    btn.setAttribute('aria-pressed', dark ? 'true' : 'false');
+    btn.setAttribute('aria-label', dark ? 'Dark mode' : 'Light mode');
+  }
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#211e28' : '#fff1de');
+}
+
+applyLiteTheme(document.body.classList.contains('dark'));
+document.getElementById('btn-theme')?.addEventListener('click', () => {
+  const dark = !document.body.classList.contains('dark');
+  try {
+    localStorage.setItem(LITE_DARK_KEY, dark ? '1' : '0');
+  } catch {
+    // storage blocked: the page still switches until it's reloaded
+  }
+  applyLiteTheme(dark);
+});
+
 // Sent here because this browser can't draw the 3D office (see noWebGL in core/scene.ts).
 if (new URLSearchParams(location.search).get('why') === 'webgl') {
   history.replaceState(null, '', location.pathname);
