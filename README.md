@@ -9,7 +9,7 @@
 
 # 🏢 Agent Office
 
-An optional [Telegram owner bridge](docs/telegram.md) connects one private owner to an existing local agency leader, campaign reports, and design exports. The office stays on the local machine; hosting the relay alone does not make workers available 24/7. Hostinger can activate its webhook through an explicitly enabled, otherwise inert build command; keep the bot token in hosting secrets.
+An optional [Telegram owner bridge](docs/telegram.md) connects one private owner to an existing local agency leader, campaign reports, and design exports. The office stays on the local machine; hosting the relay alone does not make workers available 24/7. Hostinger can activate its webhook through an explicitly enabled, otherwise inert build command; keep the bot token in hosting secrets. Questions and permission prompts need answers in the local office before the bot can dispatch more instructions.
 
 **A 3D office your team shares with its coding agents.**
 
