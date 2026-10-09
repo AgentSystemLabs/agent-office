@@ -59,6 +59,7 @@ const uniforms = {
   /** How wet the ground is, and how much snow lies on it: 0–1. */
   skyWet: { value: 0 },
   skySnow: { value: 0 },
+  skyClearRooms: { value: 1 },
   /** How much further down the garage is than from the bottom floor: a storey for each floor below yours. */
   skyDrop: { value: 0 },
   /** Where the street is, which the haze thins out with height over. */
@@ -82,7 +83,7 @@ uniform vec3 skyLampMin;
 uniform vec3 skyLampMax;
 uniform float skyWet;
 uniform float skySnow;
-uniform float skyDrop;
+uniform float skyClearRooms, skyDrop, skyStreet;
 uniform vec4 skyWing;
 
 // Inside the office's walls (and up through its open top), or the back office's, up to its ceiling
@@ -164,22 +165,21 @@ const HAZE_VERTEX = /* glsl */ `
 #endif
 `;
 
-const HAZE_PARS = /* glsl */ `
-#ifdef USE_FOG
+const HAZE_PARS = /* glsl */ `#ifdef USE_FOG
   varying float vSkyFogY;
-  uniform float skyStreet;
-#endif
-`;
+#endif`;
 
 const HAZE = /* glsl */ `
 #ifdef USE_FOG
+  float skyRoom = skyClearRooms * max( skyInOffice( vSkyWorld ), skyInGarage( vSkyWorld ) );
+  float skyFogDepth = vFogDepth * ( 1.0 - skyRoom );
   #ifdef FOG_EXP2
-    float fogFactor = 1.0 - exp( - fogDensity * fogDensity * vFogDepth * vFogDepth );
+    float fogFactor = 1.0 - exp( - fogDensity * fogDensity * skyFogDepth * skyFogDepth );
   #else
     // How many times as far off the haze is as down on the street; and past HAZE_MAX, from 45% of
     // the way there, as the haze on the roof always went.
     float skyReach = 1.0 + max( max( cameraPosition.y, vSkyFogY ) - skyStreet - ${HAZE_CLEAR.toFixed(1)}, 0.0 ) / ${HAZE_ABOVE.toFixed(1)};
-    float fogFactor = max( smoothstep( fogNear, fogFar, vFogDepth / skyReach ), smoothstep( ${(HAZE_MAX * 0.45).toFixed(1)}, ${HAZE_MAX.toFixed(1)}, vFogDepth ) );
+    float fogFactor = max( smoothstep( fogNear, fogFar, skyFogDepth / skyReach ), smoothstep( ${(HAZE_MAX * 0.45).toFixed(1)}, ${HAZE_MAX.toFixed(1)}, skyFogDepth ) );
   #endif
   gl_FragColor.rgb = mix( gl_FragColor.rgb, fogColor, fogFactor );
 #endif
@@ -189,18 +189,17 @@ const HAZE = /* glsl */ `
 // sharing one set of uniforms. Nothing else in the office uses onBeforeCompile, so this is its
 // default; unlit ones (glass, signs, outlines) only get the haze.
 THREE.Material.prototype.onBeforeCompile = function (shader) {
-  if (shader.fragmentShader.includes('#include <fog_fragment>')) {
-    shader.uniforms.skyStreet = uniforms.skyStreet;
+  const fogged = shader.fragmentShader.includes('#include <fog_fragment>'), lit = shader.fragmentShader.includes('#include <lights_fragment_end>');
+  if (fogged || lit) {
     shader.vertexShader = shader.vertexShader.replace('#include <fog_pars_vertex>', `#include <fog_pars_vertex>\n${HAZE_PARS_VERTEX}`).replace('#include <fog_vertex>', `#include <fog_vertex>\n${HAZE_VERTEX}`);
+    Object.assign(shader.uniforms, uniforms);
+    shader.vertexShader = shader.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vSkyWorld;').replace('#include <project_vertex>', `#include <project_vertex>\n${WORLD}`);
+    shader.fragmentShader = shader.fragmentShader.replace('#include <common>', `#include <common>\n${PARS}`);
+  }
+  if (fogged) {
     shader.fragmentShader = shader.fragmentShader.replace('#include <fog_pars_fragment>', `#include <fog_pars_fragment>\n${HAZE_PARS}`).replace('#include <fog_fragment>', HAZE);
   }
-  if (!shader.fragmentShader.includes('#include <lights_fragment_end>')) return;
-  Object.assign(shader.uniforms, uniforms);
-  shader.vertexShader = shader.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 vSkyWorld;').replace('#include <project_vertex>', `#include <project_vertex>\n${WORLD}`);
-  shader.fragmentShader = shader.fragmentShader
-    .replace('#include <common>', `#include <common>\n${PARS}`)
-    .replace('#include <lights_fragment_begin>', `${SURFACE}\n#include <lights_fragment_begin>`)
-    .replace('#include <lights_fragment_end>', `#include <lights_fragment_end>\n${LIGHT}`);
+  if (lit) shader.fragmentShader = shader.fragmentShader.replace('#include <lights_fragment_begin>', `${SURFACE}\n#include <lights_fragment_begin>`).replace('#include <lights_fragment_end>', `#include <lights_fragment_end>\n${LIGHT}`);
 };
 
 // ---- The sky ------------------------------------------------------------------------------------
@@ -582,7 +581,7 @@ export class Sky {
   setRoof(on: boolean, drop = 0) {
     this.roof = on;
     this.roofStreet = -drop;
-    uniforms.skyInside.value = on || this.indoors ? 0 : 1;
+    uniforms.skyInside.value = uniforms.skyClearRooms.value = on || this.indoors ? 0 : 1;
   }
 
   /**
@@ -592,7 +591,7 @@ export class Sky {
    */
   setIndoors(on: boolean) {
     this.indoors = on;
-    uniforms.skyInside.value = on || this.roof ? 0 : 1;
+    uniforms.skyInside.value = uniforms.skyClearRooms.value = on || this.roof ? 0 : 1;
   }
 
   /**
