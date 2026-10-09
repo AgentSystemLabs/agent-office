@@ -30,6 +30,8 @@ curl -fsSL https://raw.githubusercontent.com/AgentSystemLabs/agent-office/main/i
 
 ---
 
+Already running the office on your PC? Publish it through a server with an [SSH reverse tunnel, HTTPS and an extra nginx password](docs/self-hosting.md#publish-an-office-running-on-your-pc).
+
 ## What it is
 
 - **A floor per project.** Ride the elevator, pick one of your GitHub repos, and the office clones it (showing how far along it is) and opens a floor for it. Every worker, board and queue on that floor works in that checkout.
