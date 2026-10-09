@@ -1,4 +1,4 @@
-import { dispatch, equalSecret, exportPath, localRequest, readReply, safeFile, target } from '../../telegram/service.js';
+import { dispatch, equalSecret, exportPath, localRequest, readReply, reportCampaigns, safeFile, target } from '../../telegram/service.js';
 import { readBody, send } from '../util.js';
 import type { Route } from '../router.js';
 
@@ -24,6 +24,7 @@ export const telegramRoute: Route = {
         const reply = await readReply(floor.dir, url.searchParams.get('id') ?? '');
         return send(res, 200, { reply: reply ?? null });
       }
+      if (req.method === 'GET' && path === '/api/telegram/reports') return send(res, 200, { campaigns: await reportCampaigns(floor.dir, url.searchParams.get('brand')) });
       if (req.method === 'GET' && path === '/api/telegram/export') {
         const file = exportPath(url.searchParams.get('path'));
         const body = await safeFile(floor.dir, file);
