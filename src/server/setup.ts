@@ -9,6 +9,7 @@ import { normalizeRepo, sameRepo } from '../shared/floors.js';
 import type { RepoChoice } from '../shared/protocol.js';
 import { Building, tildify } from './building.js';
 import { officeHome, type Config } from './config.js';
+import { githubCli } from './github-cli.js';
 
 // Setting up an office from its terminal: where projects are cloned, signing the GitHub CLI in, and
 // picking the first repositories to clone as floors. A new office walks you through it the first time
@@ -206,13 +207,13 @@ async function githubLogin(cwd: string): Promise<string | undefined> {
     }
     console.log("\n  🐙 The office clones projects with the GitHub CLI (gh), and it isn't signed in.");
     if (/^n/i.test(await ask('     Sign in to GitHub now? [Y/n] '))) return undefined;
-    spawnSync('gh', ['auth', 'login'], { stdio: 'inherit' });
+    spawnSync(githubCli(), ['auth', 'login'], { stdio: 'inherit' });
   }
 }
 
 function ghUser(cwd: string): Promise<{ login?: string; missing?: boolean; signedOut?: boolean; error?: string }> {
   return new Promise((resolve) => {
-    execFile('gh', ['api', 'user', '--jq', '.login'], { cwd, timeout: 30_000 }, (err, stdout, stderr) => {
+    execFile(githubCli(), ['api', 'user', '--jq', '.login'], { cwd, timeout: 30_000 }, (err, stdout, stderr) => {
       if (!err && stdout.trim()) return resolve({ login: stdout.trim() });
       if ((err as NodeJS.ErrnoException | null)?.code === 'ENOENT') return resolve({ missing: true });
       const why = String(stderr || err?.message || '').trim();
