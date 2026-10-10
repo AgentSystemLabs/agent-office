@@ -24,7 +24,7 @@ const TASK_CHIP: Record<string, [string, string, string]> = {
   idle: ['💬 READY', STATUS_BULB.idle, '#2b2d42'],
   working: ['⌨️ WORKING', STATUS_BULB.working, '#2b2d42'],
   needs_input: [NEEDS_YOU.text, STATUS_BULB.needs_input, '#ffffff'],
-  done: ['✅ DONE', STATUS_BULB.done, '#2b2d42'],
+  done: ['💬 TURN ENDED', STATUS_BULB.done, '#2b2d42'],
   exited: ['💤 ASLEEP', STATUS_BULB.exited, '#ffffff'],
   offline: ['💤 ASLEEP', STATUS_BULB.offline, '#ffffff'],
 };
@@ -45,21 +45,21 @@ export function bubbleFor(status: WorkerStatus, bounce: boolean, task: WorkerTas
   const asking = status === 'needs_input' && !lost;
   const bg = hot ? (status === 'done' ? '#caffbf' : NEEDS_YOU.card) : status === 'working' ? '#ffec99' : '#fffaf3';
   const border = pr ? PR_INK[pr.state] : asking ? NEEDS_YOU.bg : undefined;
-  // Not working on or waiting for something more: its pull request in place of ready / done / asleep.
-  const prLabel = pr && status !== 'working' && status !== 'needs_input' && status !== 'starting' ? `${PR_ICON[pr.state]} PR #${pr.number} ${pr.state}` : undefined;
+  // A linked PR is historical context, never a replacement for current activity.
+  const prLabel = pr ? `${PR_ICON[pr.state]} PR #${pr.number} ${pr.state}` : undefined;
   const bubble = lost
     ? '🌿 worktree deleted'
-    : prLabel ?? (status === 'needs_input' ? NEEDS_YOU.text : status === 'done' && bounce ? '✅ done!' : status === 'working' ? '⌨️ working' : isAsleep(status) ? '💤' : '');
+    : status === 'needs_input' ? NEEDS_YOU.text : status === 'done' ? '💬 turn ended' : status === 'working' ? '⌨️ working' : isAsleep(status) ? '💤 asleep' : status === 'starting' ? '⏳ starting' : prLabel ? '💬 ready' : '';
   const key = `${lost}|${border}|${prLabel}|${task ? `${status}|${bounce}|${task.name}|${task.summary}` : bubble}`;
   return {
     key,
     draw: () => {
       if (task) {
-        const [text, chipBg, color] = lost ? LOST_CHIP : prLabel ? [prLabel.toUpperCase(), border!, '#ffffff'] : (TASK_CHIP[status] ?? TASK_CHIP.idle);
-        return cardSprite({ chip: { text, bg: chipBg, color }, title: task.name, body: task.summary, bg: isAsleep(status) ? '#e9ecef' : bg, border });
+        const [text, chipBg, color] = lost ? LOST_CHIP : (TASK_CHIP[status] ?? TASK_CHIP.idle);
+        return cardSprite({ chip: { text, bg: chipBg, color }, title: task.name, body: [prLabel, task.summary && `${status === 'working' || status === 'needs_input' ? '' : 'Last report: '}${task.summary}`].filter(Boolean).join(' · '), bg: isAsleep(status) ? '#e9ecef' : bg, border });
       }
       if (asking) return textSprite(bubble, { bg: NEEDS_YOU.bg, color: NEEDS_YOU.color, size: NEEDS_YOU.size, border: pr && border });
-      return bubble ? textSprite(bubble, { bg: lost ? LOST_CHIP[1] : bg, size: 38, border }) : null;
+      return bubble ? textSprite([bubble, prLabel].filter(Boolean).join(' · '), { bg: lost ? LOST_CHIP[1] : bg, size: 38, border }) : null;
     },
   };
 }
