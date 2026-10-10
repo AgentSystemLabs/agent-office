@@ -3,6 +3,7 @@ import { existsSync, readdirSync, realpathSync, statSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
+import { checkoutWorktree } from './worktree-checkout.js';
 import type { LostBranch, WorktreeState } from '../shared/protocol.js';
 
 export type { WorktreeCleanup, WorktreeState } from '../shared/protocol.js';
@@ -68,6 +69,20 @@ export class Worktrees {
       return { path: rel, branch, base, from, note };
     } catch (err) {
       return `Could not create a git worktree: ${gitError(err)}`;
+    }
+  }
+
+  /** Desk hires use a non-blocking checkout with a deadline suitable for large asset repositories. */
+  async prepareCheckout(slug: string, sub?: string, root = this.dir, signal?: AbortSignal): Promise<Exclude<ReturnType<Worktrees['create']>, string> | string> {
+    try {
+      const from = this.currentBranch();
+      const { base, note } = this.startPoint(from);
+      const rel = path.join(WORKTREES_DIR, slug, sub ?? '');
+      const branch = `${BRANCH_PREFIX}${slug}`;
+      await checkoutWorktree(this.dir, ['worktree', 'add', '-b', branch, path.resolve(root, rel), base], signal);
+      return { path: rel, branch, base, from, note };
+    } catch (err) {
+      return `Could not create a git worktree: ${(err as Error).message}. Any partial checkout is kept at ${path.resolve(root, WORKTREES_DIR, slug)}; no worker was started.`;
     }
   }
 
