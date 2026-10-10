@@ -9,6 +9,8 @@ import { Worktrees } from '../src/server/worktrees.js';
 import type { AgentChoice, MeetingRequest, WorkerInfo } from '../src/shared/protocol.js';
 import { MEETING_PATTERNS, MEETING_PATTERN_IDS, fixedRounds, isMeetingPattern } from '../src/shared/meetings.js';
 import { PROMPTS, type PromptId } from '../src/shared/prompts.js';
+import { reconcileCursorScreen } from '../src/server/providers/cursor-screen.js';
+import type { WorkerHandle } from '../src/server/workers/types.js';
 
 function fixture(opts: { git?: boolean; rewritten?: Partial<Record<PromptId, string>>; officeDefault?: AgentChoice } = {}) {
   const dir = mkdtempSync(path.join(tmpdir(), 'office-meeting-'));
@@ -337,4 +339,29 @@ test('a pattern with a set number of rounds says so, and names them; a range is 
   const f = fixture(); t.after(() => f.close());
   assert.equal(f.start({ pattern: 'lead', rounds: 5 }), undefined);
   assert.equal(f.room.state().current!.rounds, 3);
+});
+
+test('a debate advances with existing contributions after two missing Cursor stop events are reconciled', (t) => {
+  const f = fixture(); t.after(() => f.close());
+  assert.equal(f.start({ provider: 'cursor', rounds: 3 }), undefined);
+  const m = f.room.state().current!;
+  for (const turn of m.turns) {
+    const w = f.workers[turn.seat];
+    w.status = 'working'; w.sessionId = `chat-${turn.seat}`;
+    f.room.onWorker(w);
+    const file = path.join(f.cwd(), turn.file);
+    mkdirSync(path.dirname(file), { recursive: true });
+    writeFileSync(file, `Contribution ${turn.seat}`);
+  }
+  f.workers[1].status = 'done'; f.room.onWorker(f.workers[1]);
+  assert.equal(f.room.state().current!.round, 1);
+  for (const i of [0, 2]) {
+    const w = f.workers[i];
+    const h = { info: w, running: true, setStatus(s) { w.status = s; }, emit() { f.room.onWorker(w); }, persist() {} } as WorkerHandle;
+    const screen = '→ Add a follow-up\nGrok 4.7 · 13% · 1 file editedRun Everything\n~/project · main';
+    reconcileCursorScreen(h, screen, 0);
+    reconcileCursorScreen(h, screen, 6000);
+  }
+  assert.equal(f.room.state().current!.round, 2);
+  assert.equal(f.prompts.filter(p => p.text.startsWith('Round 2')).length, 3);
 });

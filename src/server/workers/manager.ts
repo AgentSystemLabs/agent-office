@@ -993,12 +993,9 @@ export class WorkerManager {
     return fullScreens(this.workers.values());
   }
 
-  /**
-   * An agent can sit at its prompt without being usable: Claude stuck on a first-run screen, or not
-   * signed in on this machine (see ProviderAdapter.screen). Flag that as needing a human, and clear
-   * it once the screen moves on.
-   */
+  /** Reconcile the current terminal's provider state and first-run blockers. */
   private checkBlocked(w: Worker) {
+    if (w.term && w.info.kind === 'agent') providerAdapter(w.info.provider)?.screen?.reconcile?.(this.handleOf(w), screenText(w.term, w.term.buffer.active.type === 'normal' ? Math.max(0, w.fresh?.line ?? 0) : 0));
     const blockedBy = w.info.kind === 'agent' ? providerAdapter(w.info.provider)?.screen?.blocked : undefined;
     if (!w.term || !blockedBy) return;
     const s = w.info.status;
