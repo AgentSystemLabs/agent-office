@@ -11,9 +11,11 @@
 
 **A 3D office your team shares with its coding agents.**
 
-**Personal playtests:** open **☰ → Playtest checklist** to collect gameplay and headset checks, keep notes
-and check them off when you play. Each project keeps its own saved list. Workers can contribute tests
-without adding queue work or blocking PRs. See [Playtest checklist](docs/playtests.md).
+**Personal playtests:** the rolling checklist board and **☰ → Playtest checklist** organize checks by
+Allgemein, RB, RIFT, Rooftop, Safe Zone and Gas Station, with play-style filters and build-specific results.
+Use **Issues aussortieren** in the checklist or Issue agent terminal to preview transferring human checks
+out of open issues. Implementation and documentation stay in issues; manual checks do not block workers
+or merges. See [Playtest checklist](docs/playtests.md).
 
 Sit **Claude Code**, **Codex**, **OpenCode**, **Grok**, **Muse**, **DeepSeek Harness** and **Cursor** workers at desks, watch each one's terminal on the laptop in front of it,
 and jump into any of them together. Every GitHub repo is a floor of the building.
