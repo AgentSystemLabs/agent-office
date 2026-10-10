@@ -15,3 +15,19 @@ test('incidental mentions and number prefixes cannot attach an unrelated PR', ()
     assert.equal(referencesQueueIssue({ body, closes: [] }, 70), false, body);
   }
 });
+
+test('explicit partial references retain their explanatory suffix without completing the issue', () => {
+  for (const body of [
+    'Refs #285 (part 1: the shove. The visible knockdown follows as part 2, so this PR does not close the issue).',
+    'Refs #286 (not Closes: it is not confirmed on hardware that this was the reported offset).',
+    '- References #285: follow-up implementation is still pending',
+    'Refs #285 — part 1 only',
+  ]) {
+    const issue = body.includes('#286') ? 286 : 285;
+    const pull = { body, closes: [] };
+    assert.equal(referencesQueueIssue(pull, issue), true, body);
+    assert.equal(referencesQueueIssue(pull, issue + 1), false, body);
+    assert.deepEqual(pull.closes, []);
+  }
+  assert.equal(referencesQueueIssue({ body: 'Refs #285\n(See unrelated #286)', closes: [] }, 286), false);
+});
