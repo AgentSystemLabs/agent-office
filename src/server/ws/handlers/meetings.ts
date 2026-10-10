@@ -38,6 +38,12 @@ export const meetingHandlers = {
     const floor = here(ctx, c);
     if (floor) ctx.warn(c, floor.meetings.stop(who));
   },
+  'meeting.resume'(ctx, c) {
+    const floor = here(ctx, c);
+    const meeting = floor?.meetings.state().current;
+    if (meeting?.owner && meeting.owner !== c.accountId) return ctx.warn(c, 'Only the meeting owner can continue it');
+    if (floor) ctx.warn(c, floor.meetings.resume());
+  },
   'meeting.clear'(ctx, c) {
     const who = c.peer.name;
     const floor = here(ctx, c);

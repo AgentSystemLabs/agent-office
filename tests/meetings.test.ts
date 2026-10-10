@@ -169,6 +169,28 @@ test('a worker that ends its part without writing the file is reminded once, the
   assert.match(m.reason!, /round limit without writing decision\.md/);
 });
 
+test('a stopped round resumes existing seats, keeps written parts and sends context to an empty session', (t) => {
+  const f = fixture(); t.after(() => f.close());
+  assert.equal(f.start({ rounds: 3 }), undefined);
+  f.take(2, 'Keep my completed proposal.');
+  f.workers[1].status = 'exited'; f.room.onWorker(f.workers[1]);
+  assert.equal(f.room.state().current!.status, 'stopped');
+  const before = f.prompts.length;
+  assert.match(f.room.resume()!, /terminal first/);
+  assert.equal(f.prompts.length, before);
+  for (const w of f.workers) w.status = 'idle';
+  assert.equal(f.room.resume(), undefined);
+  assert.equal(f.workers.length, 3);
+  assert.equal(f.room.state().current!.status, 'running');
+  assert.equal(f.room.state().current!.turns[2].state, 'done');
+  assert.equal(f.prompts.length, before + 2);
+  assert.match(f.prompts.at(-1)!.text, /Which cache should we use/);
+  assert.match(f.prompts.at(-1)!.text, /Pragmatist/);
+  assert.match(f.room.resume()!, /no stopped meeting/);
+  f.take(0); f.take(1);
+  assert.equal(f.room.state().current!.round, 2);
+});
+
 test('sending a worker home stops the meeting and names who left', async (t) => {
   const f = fixture(); t.after(() => f.close());
   assert.equal(f.start({}), undefined);
@@ -176,6 +198,8 @@ test('sending a worker home stops the meeting and names who left', async (t) => 
   const m = f.room.state().current!;
   assert.equal(m.status, 'stopped');
   assert.match(m.reason!, /the Skeptic \(Worker 3\) was sent home/);
+  assert.match(f.room.resume()!, /no longer at the table/);
+  assert.equal(m.status, 'stopped');
 });
 
 test('red / blue ends early when red finds nothing more', (t) => {
