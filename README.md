@@ -11,6 +11,10 @@
 
 **A 3D office your team shares with its coding agents.**
 
+**Personal playtests:** open **☰ → Playtest checklist** to collect gameplay and headset checks, keep notes
+and check them off when you play. Each project keeps its own saved list. Workers can contribute tests
+without adding queue work or blocking PRs. See [Playtest checklist](docs/playtests.md).
+
 Sit **Claude Code**, **Codex**, **OpenCode**, **Grok**, **Muse**, **DeepSeek Harness** and **Cursor** workers at desks, watch each one's terminal on the laptop in front of it,
 and jump into any of them together. Every GitHub repo is a floor of the building.
 
@@ -420,3 +424,17 @@ Every change to the app that lands on `main` is published as a GitHub release by
 ## License
 
 [MIT](LICENSE)
+
+The **Playtest checklist** also stands on a rolling board left of the lounge couch: press **E** to check off tests and add notes. Stopped meetings show **MEETING STOPPED** independently of terminal status; open **Meeting room → Continue meeting** once the original participants are ready to reuse their saved round notes. See [Playtests](docs/playtests.md) and [Meetings](docs/meetings.md).
+
+### Failed playtests and current project copies
+
+Office Codex workers always launch with full filesystem access and no command approval prompts,
+including meeting participants and resumed sessions. See [Agents](docs/agents.md).
+
+In an expanded Playtest checklist entry, **Create Bug Issue** asks for a required failure description
+and sends the test and notes to the Issue agent. It leaves scheduling to you; see [Playtests](docs/playtests.md).
+Shared-checkout coding workers verify the remote before starting and wait for active shared turns
+before updating automatically. Idle agent terminals and unrelated local edits do not block updates.
+Git preserves local files and blocks only conflicting updates or divergent history; existing turns
+are preserved. See [Checkout safety](docs/checkout-safety.md).

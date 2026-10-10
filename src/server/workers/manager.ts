@@ -1,3 +1,5 @@
+import { prepareCheckout, readyCheckout } from './checkout-safety.js';
+import { sendWorkerPrompt } from './checkout-prompt.js';
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import type { AgentChoice, AgentEffort, AgentProvider, TerminalHit, WorkerInfo, WorkerKind, WorkerRepo, WorkerStatus } from '../../shared/protocol.js';
@@ -500,27 +502,9 @@ export class WorkerManager {
   prompt(id: string, text: string, by?: string): string | undefined {
     const w = this.workers.get(id);
     if (!w) return 'No such worker';
-    if (w.dsh) {
-      const clean = text.replace(/\r\n?/g, '\n').trim();
-      if (!clean) return 'Empty prompt';
-      w.dsh.prompt(clean);
-      w.info.activity = truncate(clean, 80);
-      this.tasks.notePrompt(w, clean);
-      if (by) w.info.lastInput = { by, at: Date.now() };
-      this.emitUpdate(w);
-      return undefined;
-    }
-    if (!w.pty) return 'Worker is not running';
-    const clean = text.replace(/\r\n?/g, '\n').trim();
-    if (!clean) return 'Empty prompt';
-    // Bracketed paste keeps multi-line prompts in one message, then Enter submits.
-    w.pty.write(`\x1b[200~${clean}\x1b[201~`);
-    setTimeout(() => w.pty?.write('\r'), 120);
-    w.info.activity = truncate(clean, 80);
-    this.tasks.notePrompt(w, clean);
-    if (by) w.info.lastInput = { by, at: Date.now() };
-    this.emitUpdate(w);
-    return undefined;
+    const safety = w.info.kind === 'agent' && !w.info.worktree && !DESK_BY_ID.get(w.info.deskId)?.station && !midTurn(w)
+      ? readyCheckout(this.dir, () => [...this.workers.values()].some(x => x !== w && !x.info.worktree && (midTurn(x) || (x.info.kind === 'shell' && !!x.pty)))) : undefined;
+    return safety ?? sendWorkerPrompt(w, text, by, this.tasks, () => this.emitUpdate(w));
   }
 
   /** Pushes a worktree worker's branch and opens a pull request for it, as `as` or else the office (see WorkerPrs.openPr). */
@@ -634,6 +618,13 @@ export class WorkerManager {
   // ---------------------------------------------------------------------------
 
   private launch(w: Worker, prompt: string | undefined, resumeSessionId: string | undefined) {
+    if (w.info.kind !== 'agent' || w.info.worktree || DESK_BY_ID.get(w.info.deskId)?.station) return this.launchReady(w, prompt, resumeSessionId);
+    void prepareCheckout(this.dir, () => [...this.workers.values()].some(x => x !== w && !x.info.worktree && (midTurn(x) || (x.info.kind === 'shell' && !!x.pty)))).then(error => {
+      if (this.workers.get(w.info.id) !== w || this.stopping || w.pty || w.dsh || w.info.status !== 'starting') return;
+      if (error) this.startFailed(w, error); else this.launchReady(w, prompt, resumeSessionId);
+    });
+  }
+  private launchReady(w: Worker, prompt: string | undefined, resumeSessionId: string | undefined) {
     const { info } = w;
     // Its folder was deleted meanwhile: it waits, marked lost, for someone to rebuild it or send it home.
     if (this.worktrees.checkLost(w)) {

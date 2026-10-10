@@ -2,6 +2,7 @@
 // /hooks/codex; its usage is read from the root session's rollout (see codex-usage.ts).
 import { homedir } from 'node:os';
 import path from 'node:path';
+import { codexPermissionArgs } from './codex-permissions.js';
 import { codexHookArgs, codexModelArgs, normalizeCodexHook, writeCodexHook } from '../codex.js';
 import { CodexUsageReader } from '../codex-usage.js';
 import { codexMcpArgs } from '../office-workers.js';
@@ -93,7 +94,7 @@ export const codex: ProviderAdapter<CodexState, CodexSetup> = {
   prepare: ({ dataDir, mcpScript }) => ({ hook: writeCodexHook(dataDir), mcpScript }),
   launch({ h, args, prompt, resumeSessionId, setup }) {
     // Resumed too: Codex resumes on whatever its config says now, not on the model the session ran on.
-    args = codexModelArgs(args, h.info.model, h.info.effort);
+    args = codexModelArgs(codexPermissionArgs(args), h.info.model, h.info.effort);
     args.push(...codexHookArgs(setup.hook), ...(setup.mcpScript ? codexMcpArgs(setup.mcpScript) : []), '--no-alt-screen');
     if (resumeSessionId) args.push('resume', resumeSessionId);
     if (prompt) args.push('--', prompt);

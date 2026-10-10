@@ -7,6 +7,7 @@
 import * as THREE from 'three';
 import { FLOOR, WING, beanbagsOut, deskBuilt, vacantSeats, wingMinZ, wingRowZ } from '../../../shared/layout';
 import { OFFICE_PLAN } from '../../../shared/maps';
+import { endedMeetingTask } from '../meeting/card';
 import { MEETING_PATTERNS } from '../../../shared/meetings';
 import type { WorkerInfo, WorkerTask } from '../../../shared/protocol';
 import { workerPr } from '../../../shared/status';
@@ -264,7 +265,7 @@ export function installWorkerViews(ctx: Ctx, core: CoreState, parts: WorkerViews
     if (i < 0) return undefined;
     const role = m.seats[i].role;
     const p = MEETING_PATTERNS[m.pattern];
-    if (m.status !== 'running') return { name: `${role} · ${p.icon} ${p.label}`, summary: m.status === 'done' ? `✅ The meeting wrote ${m.output}` : `⛔ Stopped: ${m.reason ?? 'stopped'}` };
+    if (m.status !== 'running') return endedMeetingTask(m, role, w.status);
     const t = m.turns.find((x) => x.seat === i);
     if (!t || t.state === 'done') return { name: `👂 ${role} · round ${m.round} of ${m.rounds}`, summary: t ? 'Part written: listening' : 'Listening' };
     return { name: `💬 ${role} · round ${m.round} of ${m.rounds}`, summary: t.state === 'working' ? t.doing : `${t.doing} (up next)` };
