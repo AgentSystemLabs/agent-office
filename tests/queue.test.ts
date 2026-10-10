@@ -60,6 +60,8 @@ test('queue seats the selected provider and preserves it through completion and 
   f.workers[0].status = 'needs_input'; q.onWorker(f.workers[0]);
   assert.equal(q.state().tasks[0].status, 'running');
   f.workers[0].status = 'done'; q.onWorker(f.workers[0]);
+  assert.equal(q.state().tasks[0].status, 'waiting');
+  q.confirm(q.state().tasks[0].id, 'Tester');
   assert.equal(q.state().tasks[0].outcome, 'done');
   q.retry(q.state().tasks[0].id);
   assert.equal(f.workers[1].provider, 'opencode');
@@ -267,9 +269,9 @@ test('the queue says it emptied once, when its last task gets done', (t) => {
   const f = fixture(); t.after(() => f.close());
   const q = f.open();
   q.add('First', 'Tester'); q.add('Second', 'Tester');
-  f.workers[0].status = 'done'; q.onWorker(f.workers[0]);
+  f.workers[0].status = 'done'; q.onWorker(f.workers[0]); q.confirm(q.state().tasks[0].id, 'Tester');
   assert.equal(f.emptied(), 0, 'the second task is still running');
-  f.workers[1].status = 'done'; q.onWorker(f.workers[1]);
+  f.workers[1].status = 'done'; q.onWorker(f.workers[1]); q.confirm(q.state().tasks[1].id, 'Tester');
   assert.equal(f.emptied(), 1);
   q.onWorker({ ...f.workers[1], status: 'idle' }); q.onWorker(f.workers[1]);
   assert.equal(f.emptied(), 1, 'finished tasks never empty it again');
@@ -315,7 +317,7 @@ test('workers hired by hand, or left at their prompt after a restart, do not hol
   assert.deepEqual(q.state().tasks.map((t) => t.status), ['running', 'running', 'queued']);
   assert.deepEqual(f.workers.slice(6).map((w) => w.deskId), ['desk-7', 'desk-8']);
   // One of its tasks finishes: the third takes the slot, whatever the other workers are up to.
-  f.workers[6].status = 'done'; q.onWorker(f.workers[6]);
+  f.workers[6].status = 'done'; q.onWorker(f.workers[6]); q.confirm(q.state().tasks[0].id, 'Tester');
   assert.deepEqual(q.state().tasks.map((t) => t.status), ['done', 'running', 'running']);
 });
 
@@ -327,13 +329,13 @@ test('an office at its worker limit holds the queue, and a finished queue worker
   assert.deepEqual(q.state().tasks.map((t) => t.status), ['running', 'queued']);
   assert.equal(f.workers.length, 1);
   // The first finishes: its worker goes home to make room, and the second task gets the seat.
-  f.workers[0].status = 'done'; q.onWorker(f.workers[0]);
+  f.workers[0].status = 'done'; q.onWorker(f.workers[0]); q.confirm(q.state().tasks[0].id, 'Tester');
   assert.deepEqual(q.state().tasks.map((t) => t.status), ['done', 'running']);
   assert.deepEqual(f.workers.map((w) => w.id), ['worker-1']);
   // The limit lowered past who's there: nobody is sent home and nothing fails, the queue just waits.
   q.add('Third', 'Tester');
   limit = 0;
-  f.workers[0].status = 'done'; q.onWorker(f.workers[0]);
+  f.workers[0].status = 'done'; q.onWorker(f.workers[0]); q.confirm(q.state().tasks[1].id, 'Tester');
   assert.deepEqual(q.state().tasks.map((t) => [t.status, t.outcome]), [['done', 'done'], ['done', 'done'], ['queued', undefined]]);
   assert.equal(f.workers.length, 1);
   // Room again: it carries on.
@@ -425,7 +427,7 @@ test("a queue worker that switches to a branch of its own takes its task's branc
   assert.equal(q.state().tasks[0].branch, 'office/worker-0');
   w.status = 'done';
   q.onWorker(w);
-  assert.equal(q.state().tasks[0].outcome, 'done');
+  assert.equal(q.state().tasks[0].status, 'waiting');
   // The office noticed it had run `git checkout -b fix-login` (see Workers.syncBranch).
   w.worktree = { ...w.worktree!, branch: 'fix-login', made: 'office/worker-0' };
   q.onWorker(w);
@@ -440,7 +442,7 @@ test("a queue worker that switches to a branch of its own takes its task's branc
 
 test('existing-only never hires, preserves the chosen model and waits for the new turn before reusing', (t) => {
   const f = fixture(); t.after(() => f.close());
-  const seed = f.open(); seed.add('seed', 'Tester'); seed.shutdown();
+  const seed = f.open(); seed.add('seed', 'Tester'); f.workers[0].status = 'done'; seed.onWorker(f.workers[0]); seed.confirm(seed.state().tasks[0].id, 'Tester'); seed.shutdown();
   const w = f.workers[0]; w.createdBy = 'Tester'; w.status = 'done';
   w.provider = 'cursor'; w.model = 'chosen-model';
   const q = f.open(() => 0); q.clear(); q.setExistingOnly(true);
@@ -453,14 +455,16 @@ test('existing-only never hires, preserves the chosen model and waits for the ne
   assert.equal(f.workers.length, 1);
   w.status = 'working'; q.onWorker(w);
   w.status = 'done'; q.onWorker(w);
-  assert.equal(q.state().tasks[0].outcome, 'done');
+  assert.equal(q.state().tasks[0].status, 'waiting');
+  assert.equal(q.state().tasks[1].status, 'queued', 'blocked work is not silently replaced');
+  q.confirm(q.state().tasks[0].id, 'Tester');
   assert.equal(q.state().tasks[1].status, 'running');
   assert.equal(f.workers.length, 1);
 });
 
 test('existing-only persists and excludes board, busy, viewed, stopped and queue-hired workers', (t) => {
   const f = fixture(); t.after(() => f.close());
-  const seed = f.open(); seed.add('seed', 'Tester'); seed.shutdown();
+  const seed = f.open(); seed.add('seed', 'Tester'); f.workers[0].status = 'done'; seed.onWorker(f.workers[0]); seed.confirm(seed.state().tasks[0].id, 'Tester'); seed.shutdown();
   const w = f.workers[0];
   const q = f.open(); q.clear(); q.setExistingOnly(true); q.setLimit(0);
   q.add('waiting', 'Tester');
@@ -494,6 +498,7 @@ test('unchecked existing workers keep three independent queue tasks running in p
   const seed = f.open();
   seed.setLimit(3);
   for (let n = 0; n < 3; n++) seed.add(`seed ${n}`, 'Tester');
+  for (const w of f.workers) { w.status = 'done'; seed.onWorker(w); const task = seed.state().tasks.find((t) => t.workerId === w.id)!; seed.confirm(task.id, 'Tester'); }
   seed.shutdown();
   for (const w of f.workers) { w.createdBy = 'Tester'; w.status = 'done'; }
   const q = f.open(); q.clear(); q.setExistingOnly(true); q.setLimit(3);
@@ -508,7 +513,7 @@ test('unchecked existing workers keep three independent queue tasks running in p
 
 test('existing-only enforces account ownership and never falls back to hiring on prompt failure', (t) => {
   const f = fixture(); t.after(() => f.close());
-  const seed = f.open(); seed.add('seed', 'Tester'); seed.shutdown();
+  const seed = f.open(); seed.add('seed', 'Tester'); f.workers[0].status = 'done'; seed.onWorker(f.workers[0]); seed.confirm(seed.state().tasks[0].id, 'Tester'); seed.shutdown();
   const w = f.workers[0]; w.createdBy = 'Tester'; w.status = 'idle';
   const q = f.open(); q.clear(); q.setExistingOnly(true);
   f.manager.ownerOf = () => 'someone-else';
@@ -518,4 +523,20 @@ test('existing-only enforces account ownership and never falls back to hiring on
   f.manager.prompt = () => 'Terminal unavailable'; q.pump();
   assert.equal(q.state().tasks[0].status, 'queued');
   assert.equal(f.workers.length, 1);
+});
+
+
+test('an old finished task never lets the queue recycle a worker with unfinished reused work', (t) => {
+  const f = fixture(); t.after(() => f.close());
+  const q = f.open(() => 0); q.setExistingOnly(true); q.setLimit(0);
+  const seed = f.manager.spawn('desk-1', 'Tester', 'manual', false, 'agent', 'claude') as WorkerInfo;
+  seed.status = 'done';
+  q.add('First', 'Tester'); q.setLimit(1);
+  seed.status = 'working'; q.onWorker(seed); seed.status = 'done'; q.onWorker(seed);
+  q.confirm(q.state().tasks[0].id, 'Tester');
+  q.add('Second', 'Tester'); seed.status = 'working'; q.onWorker(seed); seed.status = 'done'; q.onWorker(seed);
+  assert.equal(q.state().tasks[1].status, 'waiting');
+  q.setExistingOnly(false); q.add('Third', 'Tester');
+  assert.equal(f.workers.length, 1, 'the manually hired worker and unfinished result survive');
+  assert.equal(q.state().tasks[2].status, 'queued');
 });
