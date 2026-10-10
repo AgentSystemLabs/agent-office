@@ -34,10 +34,28 @@ test('dirty and active shared copies remain untouched and cannot silently accept
   assert.equal(git(office, 'rev-parse', 'HEAD'), head); assert.equal(readFileSync(path.join(office, 'file'), 'utf8'), 'human changes');
   assert.equal(readFileSync(path.join(office, 'untracked'), 'utf8'), 'keep me');
   assert.match(readyCheckout(office, () => false)!, /No new task was started/);
-  // A second clean copy must also be left alone while another worker has it open.
+  // A start waits while another worker is actively editing, then continues without another click.
   git(office, 'checkout', '--', 'file'); rmSync(path.join(office, 'untracked'));
-  assert.match((await prepareCheckout(office, () => true))!, /1 commits behind/);
+  let active = true;
+  const pending = prepareCheckout(office, () => active);
+  await new Promise(resolve => setTimeout(resolve, 100));
   assert.equal(git(office, 'rev-parse', 'HEAD'), head);
+  active = false;
+  assert.equal(await pending, undefined);
+  assert.equal(checkoutState(office).behind, 0);
+});
+
+test('unrelated tracked edits and untracked notes survive an automatic update', async t => {
+  const { office, writer } = repos(t);
+  writeFileSync(path.join(writer, 'independent'), 'base'); git(writer, 'add', '.'); git(writer, 'commit', '-m', 'independent'); git(writer, 'push');
+  assert.equal(await prepareCheckout(office, () => false), undefined);
+  writeFileSync(path.join(office, 'independent'), 'human work');
+  writeFileSync(path.join(office, 'notes'), 'keep these');
+  writeFileSync(path.join(writer, 'file'), 'third'); git(writer, 'commit', '-am', 'third'); git(writer, 'push');
+  assert.equal(await prepareCheckout(office, () => false), undefined);
+  assert.equal(checkoutState(office).behind, 0);
+  assert.equal(readFileSync(path.join(office, 'independent'), 'utf8'), 'human work');
+  assert.equal(readFileSync(path.join(office, 'notes'), 'utf8'), 'keep these');
 });
 
 test('divergence, detached HEAD and network failures block instead of resetting local work', async t => {

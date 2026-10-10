@@ -431,6 +431,7 @@ The **Playtest checklist** also stands on a rolling board left of the lounge cou
 
 In an expanded Playtest checklist entry, **Create Bug Issue** asks for a required failure description
 and sends the test and notes to the Issue agent. It leaves scheduling to you; see [Playtests](docs/playtests.md).
-Shared-checkout coding workers now verify the remote before starting. Only a clean, unused checkout
-can fast-forward automatically. Dirty, divergent or busy copies that are behind block new work with
-a concrete explanation; existing turns and local work are preserved. See [Checkout safety](docs/checkout-safety.md).
+Shared-checkout coding workers verify the remote before starting and wait for active shared turns
+before updating automatically. Idle agent terminals and unrelated local edits do not block updates.
+Git preserves local files and blocks only conflicting updates or divergent history; existing turns
+are preserved. See [Checkout safety](docs/checkout-safety.md).

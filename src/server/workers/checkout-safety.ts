@@ -28,7 +28,7 @@ export function checkoutProblem(state: CheckoutState): string | undefined {
   return `Office checkout is ${state.behind} commits behind ${state.remote}${state.ahead ? ` and has ${state.ahead} local commits` : ''}${state.dirty ? ', with uncommitted changes' : ''}. No new task was started. Finish the current work and safely update this copy, or use an up-to-date worktree. Local work was preserved.`;
 }
 
-/** Refresh and fast-forward only a clean, unused shared checkout. Never stash, reset or merge divergent history. */
+/** Wait for active turns, then let Git preserve unrelated edits during a fast-forward. Never stash or reset. */
 export function prepareCheckout(dir: string, busy: () => boolean): Promise<string | undefined> {
   const old = checks.get(dir);
   if (old?.pending) return old.pending;
@@ -44,9 +44,14 @@ export function prepareCheckout(dir: string, busy: () => boolean): Promise<strin
     catch { return 'Could not fetch the latest Office checkout. No new shared-checkout task was started; retry when GitHub is reachable.'; }
     let current = checkoutState(dir);
     if (current.branch !== initial.branch) return 'The Office branch changed during the check. Retry; local work was preserved.';
-    if (current.behind && !current.ahead && !current.dirty && !current.error && !busy()) {
+    while (current.behind && !current.ahead && !current.error && busy()) {
+      await new Promise(resolve => setTimeout(resolve, 250));
+      current = checkoutState(dir);
+      if (current.branch !== initial.branch) return 'The Office branch changed while waiting. Local work was preserved.';
+    }
+    if (current.behind && !current.ahead && !current.error) {
       try { await run('git', ['merge', '--ff-only', `refs/remotes/${current.remote}`], dir, 15000); }
-      catch { return 'Could not safely fast-forward the Office checkout. Local work was preserved.'; }
+      catch { return `${checkoutProblem(checkoutState(dir))} Git could not update without overwriting local files. Resolve the overlapping edits; unrelated local changes do not block updates.`; }
       current = checkoutState(dir);
     }
     return checkoutProblem(current);

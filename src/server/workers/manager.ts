@@ -503,7 +503,7 @@ export class WorkerManager {
     const w = this.workers.get(id);
     if (!w) return 'No such worker';
     const safety = w.info.kind === 'agent' && !w.info.worktree && !DESK_BY_ID.get(w.info.deskId)?.station && !midTurn(w)
-      ? readyCheckout(this.dir, () => [...this.workers.values()].some(x => x !== w && !x.info.worktree && !!(x.pty || x.dsh))) : undefined;
+      ? readyCheckout(this.dir, () => [...this.workers.values()].some(x => x !== w && !x.info.worktree && (midTurn(x) || (x.info.kind === 'shell' && !!x.pty)))) : undefined;
     return safety ?? sendWorkerPrompt(w, text, by, this.tasks, () => this.emitUpdate(w));
   }
 
@@ -619,7 +619,7 @@ export class WorkerManager {
 
   private launch(w: Worker, prompt: string | undefined, resumeSessionId: string | undefined) {
     if (w.info.kind !== 'agent' || w.info.worktree || DESK_BY_ID.get(w.info.deskId)?.station) return this.launchReady(w, prompt, resumeSessionId);
-    void prepareCheckout(this.dir, () => [...this.workers.values()].some(x => x !== w && !x.info.worktree && !!(x.pty || x.dsh))).then(error => {
+    void prepareCheckout(this.dir, () => [...this.workers.values()].some(x => x !== w && !x.info.worktree && (midTurn(x) || (x.info.kind === 'shell' && !!x.pty)))).then(error => {
       if (this.workers.get(w.info.id) !== w || this.stopping || w.pty || w.dsh || w.info.status !== 'starting') return;
       if (error) this.startFailed(w, error); else this.launchReady(w, prompt, resumeSessionId);
     });
