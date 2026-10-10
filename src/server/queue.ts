@@ -1,5 +1,6 @@
 import { existingWorker, existingPrompt } from './queue-existing.js';
 import { randomBytes } from 'node:crypto';
+import { referencesQueueIssue } from './queue-pr-reference.js';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { isAgentProvider, type AgentChoice, type AgentEffort, type AgentProvider, type GhPull, type QueueState, type QueueTask, type WorkerInfo, type WorkerStatus } from '../shared/protocol.js';
@@ -216,7 +217,7 @@ export class TaskQueue {
       const since = (t.startedAt ?? t.addedAt) - 60_000;
       const match = pulls
         .filter((p) => !t.reusedWorker || Date.parse(p.createdAt) >= Math.floor((t.startedAt ?? t.addedAt) / 1000) * 1000)
-        .filter((p) => (t.branch && p.headRefName === t.branch) || (t.issue !== undefined && p.closes.includes(t.issue) && Date.parse(p.createdAt) >= since))
+        .filter((p) => (t.branch && p.headRefName === t.branch) || (t.issue !== undefined && referencesQueueIssue(p, t.issue) && Date.parse(p.createdAt) >= since))
         .sort((a, b) => Number(b.headRefName === t.branch) - Number(a.headRefName === t.branch) || b.createdAt.localeCompare(a.createdAt))[0];
       if (!match) continue;
       const pr = { number: match.number, url: match.url, state: match.isDraft ? 'DRAFT' : match.state, title: match.title };
