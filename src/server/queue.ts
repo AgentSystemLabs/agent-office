@@ -251,8 +251,10 @@ export class TaskQueue {
         .sort((a, b) => Number(deliveryPull(t, b)) - Number(deliveryPull(t, a)) || Number(b.headRefName === t.branch) - Number(a.headRefName === t.branch) || b.createdAt.localeCompare(a.createdAt))[0];
       if (!match) continue;
       const pr = { number: match.number, url: match.url, state: match.isDraft ? 'DRAFT' : match.state, title: match.title, coversTask: deliveryPull(t, match), checks: match.checks };
-      if (t.pr && t.pr.number === pr.number && t.pr.state === pr.state && t.pr.title === pr.title && t.pr.coversTask === pr.coversTask && t.pr.checks === pr.checks) continue;
+      const reason = t.status === 'waiting' && !delivered({ ...t, pr }) ? undeliveredReason({ ...t, pr }) : t.waitingReason;
+      if (t.pr && t.pr.number === pr.number && t.pr.state === pr.state && t.pr.title === pr.title && t.pr.coversTask === pr.coversTask && t.pr.checks === pr.checks && t.waitingReason === reason) continue;
       t.pr = pr;
+      if (t.status === 'waiting') t.waitingReason = reason;
       changed = true;
     }
     if (changed) { this.changed(); this.pump(); }
