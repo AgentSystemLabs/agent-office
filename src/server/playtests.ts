@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
+import { PLAYTEST_MODES, PLAY_STYLES, TEST_OUTCOMES, testModes, testStyles, testOutcome, type TestOutcome } from '../shared/playtest-categories.js';
 import type { Playtest, PlaytestInput, PlaytestState } from '../shared/playtests.js';
 
 export class PlaytestError extends Error {
@@ -21,7 +22,14 @@ export function readPlaytest(value: unknown): PlaytestInput {
     try { url = new URL(source); } catch { throw new PlaytestError('Source must be an HTTPS URL'); }
     if (url.protocol !== 'https:' || url.username || url.password) throw new PlaytestError('Source must be an HTTPS URL');
   }
+  const tags = <T extends string>(value: unknown, allowed: readonly T[], name: string): T[] | undefined => {
+    if (value === undefined) return undefined;
+    if (!Array.isArray(value) || value.length > allowed.length || value.some(v => !allowed.includes(v))) throw new PlaytestError(`Invalid ${name}`);
+    return [...new Set(value)] as T[];
+  };
   return {
+    modes: tags(b.modes, PLAYTEST_MODES, 'modes'), playStyles: tags(b.playStyles, PLAY_STYLES, 'play styles'),
+    setup: text(b.setup ?? '', 3000, 'preparation'),
     title: text(b.title, 180, 'title', true), steps: text(b.steps, 6000, 'steps', true),
     expected: text(b.expected, 3000, 'expected result', true), category: text(b.category ?? 'General', 60, 'category', true), source,
   };
@@ -43,16 +51,16 @@ export class Playtests {
       if (typeof t.id !== 'string' || ids.has(t.id) || !Number.isSafeInteger(t.revision) || t.revision < 1 || typeof t.done !== 'boolean' || typeof t.notes !== 'string') throw new Error('Invalid playtest record');
       ids.add(t.id);
     }
-    this.items = data.items;
+    this.items = data.items.map(t => ({ ...t, modes: testModes(t), playStyles: testStyles(t), outcome: testOutcome(t) }));
   }
-  state(): PlaytestState { return { items: this.items.map(t => ({ ...t })) }; }
+  state(): PlaytestState { return structuredClone({ items: this.items.map(t => ({ ...t, modes: testModes(t), playStyles: testStyles(t), outcome: testOutcome(t) })) }); }
   add(value: unknown, actor: string): Playtest {
     const input = readPlaytest(value);
     const key = (t: PlaytestInput) => `${t.source.replace(/\/$/, '').toLowerCase()}|${t.title.toLocaleLowerCase().replace(/\s+/g, ' ')}`;
     const existing = this.items.find(t => key(t) === key(input));
     if (existing) return { ...existing }; // Retried agent handoffs cannot reset a human's checkmarks or notes.
     if (this.items.length >= 2000) throw new PlaytestError('Checklist is full', 409);
-    const item: Playtest = { ...input, id: randomUUID(), revision: 1, notes: '', done: false, createdAt: new Date().toISOString(), createdBy: actor };
+    const item: Playtest = { ...input, modes: testModes(input), playStyles: testStyles(input), outcome: 'open', id: randomUUID(), revision: 1, notes: '', done: false, createdAt: new Date().toISOString(), createdBy: actor };
     this.save([...this.items, item]);
     return { ...item };
   }
@@ -71,6 +79,16 @@ export class Playtests {
       next.checkedAt = b.done ? new Date().toISOString() : undefined;
       next.checkedBy = b.done ? actor : undefined;
     }
+    if ('outcome' in b) {
+      if (!TEST_OUTCOMES.includes(b.outcome as TestOutcome)) throw new PlaytestError('Invalid result');
+      const outcome = b.outcome as TestOutcome;
+      const build = text(b.build ?? '', 120, 'tested build');
+      if ((outcome === 'passed' || outcome === 'failed') && !build) throw new PlaytestError('Enter the build you actually tested, or explicitly use "unknown".');
+      next.outcome = outcome; next.done = outcome === 'passed'; next.build = build;
+      const at = new Date().toISOString();
+      next.checkedAt = next.done ? at : undefined; next.checkedBy = next.done ? actor : undefined;
+      next.results = [...(old.results ?? []), { outcome, build, at, by: actor }].slice(-200);
+    } else if ('done' in b) next.outcome = next.done ? 'passed' : 'open';
     if ('test' in b) Object.assign(next, readPlaytest(b.test));
     const items = [...this.items]; items[index] = next; this.save(items);
     return { ...next };

@@ -1,3 +1,4 @@
+import { DESK_BY_ID } from '../../shared/layout.js';
 import type http from 'node:http';
 import { notLeaving } from '../leave-on-merge.js';
 import { findWorker, readHireRequest, readHomeRequest, readPrRequest, workerRow, type PullsView } from '../office-workers.js';
@@ -44,6 +45,7 @@ export async function officeWorkers(ctx: Ctx, req: http.IncomingMessage, res: ht
   const floor = ctx.workerFloor(workerId);
   const me = floor?.workers.authenticate(workerId, token);
   if (!floor || !me) return send(res, 401, { error: 'Send your own AGENT_OFFICE_WORKER_ID as ?worker= and AGENT_OFFICE_HOOK_TOKEN as the bearer token' });
+  if (req.method !== 'GET' && DESK_BY_ID.get(me.deskId)?.station === 'issues') return send(res, 403, { error: 'The Issues agent cannot dispatch or change workers. Only the human chooses when issues run.' });
   const who = me.name;
   const view: PullsView = { pulls: floor.github.pulls.items, tasks: floor.queue.state().tasks, pullsOf: (id) => ctx.floors.get(id)?.github.pulls.items };
   const row = (id: string) => {
