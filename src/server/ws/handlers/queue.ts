@@ -45,4 +45,4 @@ export const queueHandlers = {
   'queue.limit'(ctx, c, msg) {
     ctx.floorOf(c)?.queue.setLimit(num(msg.maxWorkers));
   },
-} satisfies HandlerMap<Exclude<QueueClientMsg, { t: 'queue.staffing' }>>;
+} satisfies HandlerMap<Exclude<QueueClientMsg, { t: 'queue.staffing' | 'queue.confirm' | 'queue.continue' }>>;

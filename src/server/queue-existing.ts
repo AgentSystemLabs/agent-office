@@ -10,7 +10,7 @@ export function existingWorker(workers: QueueWorkers, tasks: QueueTask[], task: 
     !w.meeting && !w.lost && !w.prOpening && !w.createdBy.endsWith(' (queue)') &&
     (w.status === 'idle' || w.status === 'done') && w.viewers.length === 0 &&
     workers.ownerOf!(w.id) === task.owner &&
-    !tasks.some((t) => t.status === 'running' && t.workerId === w.id));
+    !tasks.some((t) => (t.status === 'running' || t.status === 'waiting') && t.workerId === w.id));
 }
 
 export function existingPrompt(task: QueueTask): string {

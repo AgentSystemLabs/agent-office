@@ -1,3 +1,4 @@
+import { attentionActions } from './queue-completion';
 import './queue.css';
 import { queueStaffing } from './queue-staffing';
 import type { AgentProvider, QueueTask, Usage } from '../../shared/protocol';
@@ -24,7 +25,7 @@ function taskTitle(t: QueueTask): HTMLElement {
 function outcome(t: QueueTask): string {
   switch (t.outcome) {
     case 'done':
-      return t.pr ? 'finished' : 'finished, no PR found yet';
+      return t.confirmedBy ? `completed, confirmed by ${t.confirmedBy.name}` : 'delivered';
     case 'exited':
       return t.error ? `stopped: ${t.error}` : 'stopped before finishing';
     case 'killed':
@@ -126,7 +127,8 @@ export function openQueue(net: Net, actions: QueueActions) {
       buttons.push(h('button.btn', { type: 'button', title: 'Remove from the queue', 'aria-label': 'Remove', onclick: () => net.send({ t: 'queue.remove', taskId: t.id }) }, '✕'));
     } else {
       meta.push(`⚙️ ${providerLabel(t.provider, store.project)}${model}${usageSuffix(t.provider, w?.usage)}`);
-      meta.push(outcome(t));
+      meta.push(t.status === 'waiting' ? `Needs attention: ${t.waitingReason ?? 'No delivered result verified'}` : outcome(t));
+      if (t.status === 'waiting') buttons.push(...attentionActions(t, net));
       if (t.workerName) meta.push(t.workerName);
       if (t.branch) meta.push(`🌿 ${t.branch}`);
       if (t.finishedAt) meta.push(timeAgo(t.finishedAt));
@@ -157,7 +159,8 @@ export function openQueue(net: Net, actions: QueueActions) {
     minus.toggleAttribute('disabled', q.maxWorkers <= 0);
     const running = q.tasks.filter((t) => t.status === 'running');
     const queued = q.tasks.filter((t) => t.status === 'queued');
-    const done = q.tasks.filter((t) => t.status === 'done').slice().reverse();
+    const waiting = q.tasks.filter((t) => t.status === 'waiting');
+    const done = q.tasks.filter((t) => t.status === 'done' && t.outcome === 'done').slice().reverse();
     const m = store.machine;
     const parts: (HTMLElement | null)[] = [
       q.existingOnly ? h('p.note', {}, 'Waiting tasks use the next available existing worker. Workers at once still limits simultaneous queue tasks; 0 pauses dispatch.') : h(
@@ -174,8 +177,9 @@ export function openQueue(net: Net, actions: QueueActions) {
         : null,
       section('🤖 Working on it', running),
       section('⏳ Up next', queued),
+      section('⚠ Needs attention', waiting),
       section('✅ Finished', done, h('button.btn', { type: 'button', onclick: () => net.send({ t: 'queue.clear' }) }, 'Clear')),
-      running.length + queued.length + done.length ? null : h('div.queue-empty', {}, 'Nothing on the queue yet.'),
+      running.length + queued.length + waiting.length + done.length ? null : h('div.queue-empty', {}, 'Nothing on the queue yet.'),
     ];
     list.replaceChildren(...parts.filter((n): n is HTMLElement => n !== null));
   };
