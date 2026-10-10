@@ -27,6 +27,7 @@ import { providerLabel, resolvedProvider } from '../../ui/provider';
 import { openPull } from '../../ui/pull';
 import { openRepoPulls, workerRepos } from '../../ui/repos';
 import { openTerminal } from '../../ui/terminal';
+import { openStationPrompt } from '../../ui/station-actions';
 import { hiringPaused, usageLabel, usageTitle } from '../../ui/usage';
 
 // The kinds of thing you can use that this defines (see InteractKinds in world/types.ts).
@@ -197,7 +198,7 @@ export function installWorkerActions(ctx: Ctx, core: CoreState, parts: WorkerAct
         : isBusy(w.status)
           ? `The ${name} is busy. Your prompt waits in its input box until it's done.`
           : undefined;
-    openPrompt({
+    openStationPrompt(kind, {
       title: `${info.icon} Ask the ${name}`,
       subtitle,
       placeholder: `e.g. ${info.example}`,

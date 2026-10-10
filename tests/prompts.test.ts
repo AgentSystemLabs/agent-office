@@ -4,6 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { PROMPTS, PROMPT_IDS, PROMPT_MAX, fillPrompt, placeholders, promptText } from '../src/shared/prompts.js';
+import { PLAYTEST_HANDOFF } from '../src/shared/issue-reconciliation.js';
 import { OfficePrompts, officePrompt, type PromptSource } from '../src/server/prompts.js';
 import { stationBrief } from '../src/server/stations.js';
 import { TaskQueue, type QueueWorkers } from '../src/server/queue.js';
@@ -38,7 +39,7 @@ test('every default only uses placeholders it says it has, and names the ones th
 test('the boards send what they always did', () => {
   assert.equal(
     fillPrompt(PROMPTS['issue.work'].text, { number: 7, title: 'Dog barks', url: 'u' }),
-    'Work on GitHub issue #7: "Dog barks".\n\nRead it first with `gh issue view 7 --comments`. Create a new branch, implement the change, verify it, then open a pull request that closes #7.',
+    'Work on GitHub issue #7: "Dog barks".\n\nRead it first with `gh issue view 7 --comments`. Create a new branch, implement the change, verify it, then open a pull request that closes #7.' + '\n\n' + PLAYTEST_HANDOFF,
   );
   const merge = fillPrompt(PROMPTS['pull.fixMerge'].text, { number: 5, title: 'T', url: 'https://github.com/o/r/pull/5', branch: 'feat', base: 'main', repo: 'o/r', merge: 'gh pr merge 5 --squash --repo o/r' });
   assert.match(merge, /^Get pull request #5 "T" \(https:\/\/github\.com\/o\/r\/pull\/5\) ready and merge it\.\n\n1\. Get onto its branch: `gh pr checkout 5`\. If git says `feat` is already checked out/);

@@ -1,3 +1,4 @@
+import { issueHandoffs } from '../issue-handoffs.js';
 import { existsSync } from 'node:fs';
 import { WebSocket } from 'ws';
 import type { FloorDef } from '../building.js';
@@ -97,6 +98,7 @@ export async function openFloors(ctx: Ctx, hookPort: number): Promise<FloorsOpen
       }
     },
     workerChanged: (floor, w) => {
+      issueHandoffs(floor).changed(w);
       if (typeof w === 'string') {
         ctx.webhook.onWorkerGone(w);
         ctx.pumpQueues(floor);

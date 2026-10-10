@@ -1,4 +1,6 @@
 import type http from 'node:http';
+import { issueHandoffs } from '../issue-handoffs.js';
+import { queueWriteAllowed } from '../queue-permissions.js';
 import { DESK_BY_ID } from '../../shared/layout.js';
 import type { Ctx } from '../office/context.js';
 import { str } from '../office/input.js';
@@ -19,10 +21,12 @@ export async function officeQueue(ctx: Ctx, req: http.IncomingMessage, res: http
     const q = floor.queue.state();
     return {
       maxWorkers: q.maxWorkers,
+      directHandoffs: issueHandoffs(floor).list(floor.workers.list()),
       tasks: q.tasks.map((t) => ({ id: t.id, title: t.title, status: t.status, outcome: t.outcome, issue: t.issue, addedBy: t.addedBy, worker: t.workerName, branch: t.branch, pr: t.pr, error: t.error })),
     };
   };
   if (req.method === 'GET') return send(res, 200, view());
+  if (!queueWriteAllowed(DESK_BY_ID.get(agent.deskId)?.station)) return send(res, 403, { error: 'The Issues agent cannot change the queue. Only the human chooses which issues run and when; use the Issues board or Task queue controls.' });
   if (req.method === 'DELETE') {
     const err = floor.queue.remove(url.searchParams.get('task') ?? '');
     return err ? send(res, 400, { error: err }) : send(res, 200, view());

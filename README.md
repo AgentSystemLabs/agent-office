@@ -420,3 +420,12 @@ Every change to the app that lands on `main` is published as a GitHub release by
 ## License
 
 [MIT](LICENSE)
+
+
+### Reconcile issues with the Issues agent
+
+Press **E** at the Issues agent, choose **🧹 Reconcile issues**, then **Send ✨**. The button fills in an editable request for the current project. Customize it under **Settings → Prompts → Board agents → Reconcile issues**. The agent compares issue requirements with merged PRs, main and current queue/workers, closes completed issues with evidence, clears stale assignments only when work is inactive, and reports remaining coding work for the human to choose. It never adds or requeues tasks. The agent first clears proven stale In progress entries, then audits the backlog. An Office-created GitHub assignment alone does not prove someone is still working. Incomplete inactive issues return to Open; manual-test-only issues move to the checklist. Every changed issue is read back and its board classification verified before cleanup is reported complete. Active work and ambiguous implementation requirements are preserved.
+
+Manual gameplay, headset and device checks always belong in the person's **Playtest checklist**, never in the coding queue. Board-agent briefs and issue-worker requests include this handoff policy. The agent lists existing checks before adding instructions, expected results and issue/PR links through `office-playtests`; only a person checks them off. This integration uses the Playtest checklist feature (PR #335). If its CLI is unavailable or saving fails, the agent reports the missing handoff instead of claiming success. Existing customized prompts remain unchanged; reset their defaults or add the policy to adopt it.
+
+Direct issue handoffs (carrying a board card to a chosen worker) are tracked separately from queued tasks, with the issue number, worker and handoff status persisted across restarts. `office-queue list` shows these records so reconciliation can protect active direct assignments and review finished ones. The Issues agent can read the queue but cannot add or remove tasks; use the Issues board or Task queue controls to choose what runs and when.
