@@ -2,7 +2,7 @@
 
 import type { AgentEffort, AgentProvider } from './agents.js';
 
-export type TaskStatus = 'queued' | 'running' | 'done';
+export type TaskStatus = 'queued' | 'running' | 'waiting' | 'done';
 
 /** A task on the 📋 queue whiteboard: a GitHub issue or free text, seated to a worker by itself. */
 export interface QueueTask {
@@ -23,22 +23,30 @@ export interface QueueTask {
   status: TaskStatus;
   /** The worker seated for it (it may have gone home since). */
   workerId?: string;
+  /** Assigned into an existing session; old PRs on its branch are not this task. */
+  reusedWorker?: boolean;
   workerName?: string;
   /** The worker's own branch, when it got a worktree. */
   branch?: string;
   startedAt?: number;
   finishedAt?: number;
+  /** Unfinished turn, question, missing delivery or stopped process. Never auto-requeued. */
+  waitingReason?: string;
+  /** Explicit completion confirmation by a person, for results that need no PR. */
+  confirmedBy?: { name: string; at: number };
   /** How it ended: the worker finished its turn, stopped or fell asleep, was sent home, or never started. */
   outcome?: 'done' | 'exited' | 'killed' | 'failed';
   error?: string;
   /** The pull request that closes the issue, or was opened from the worker's branch. */
-  pr?: { number: number; url: string; state: string; title: string };
+  pr?: { number: number; url: string; state: string; title: string; coversTask?: boolean; checks?: 'pass' | 'fail' | 'pending' | 'none' };
 }
 
 export interface QueueState {
   tasks: QueueTask[];
   /** How many workers the queue may keep busy at once; 0 pauses it. */
   maxWorkers: number;
+  /** Reuse manually seated workers without hiring or retiring anyone. */
+  existingOnly?: boolean;
 }
 
 export type QueueClientMsg =
@@ -50,7 +58,10 @@ export type QueueClientMsg =
   | { t: 'queue.retry'; taskId: string }
   /** Forget the finished tasks. */
   | { t: 'queue.clear' }
-  | { t: 'queue.limit'; maxWorkers: number };
+  | { t: 'queue.continue'; taskId: string }
+  | { t: 'queue.confirm'; taskId: string }
+  | { t: 'queue.limit'; maxWorkers: number }
+  | { t: 'queue.staffing'; existingOnly: boolean };
 
 export type QueueServerMsg =
   | { t: 'queue'; state: QueueState };

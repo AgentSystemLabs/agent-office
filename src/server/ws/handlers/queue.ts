@@ -20,11 +20,13 @@ export const queueHandlers = {
     const model = msg.model === undefined ? undefined : str(msg.model, OPEN_CODE_MODEL_MAX + 1);
     const effort = isAgentEffort(msg.effort) ? msg.effort : undefined;
     // Its worker runs on the sign-ins of whoever queued it, whenever it gets a desk.
-    ctx.withSignIn(c, ctx.claudeFor(msg.provider ?? floor.workers.officeDefault.provider), () => {
+    const add = () => {
       const err = floor.queue.add(str(msg.prompt, 20000), who, str(msg.title, 200), issue, msg.provider, model, effort, c.accountId);
       if (err) ctx.warn(c, err);
       else ctx.toastFloor(floor, `📋 ${who} queued ${issue !== undefined ? `issue #${issue}` : 'a task'}`);
-    });
+    };
+    if (floor.queue.state().existingOnly) add();
+    else ctx.withSignIn(c, ctx.claudeFor(msg.provider ?? floor.workers.officeDefault.provider), add);
   },
   'queue.remove'(ctx, c, msg) {
     const floor = here(ctx, c);
@@ -43,4 +45,4 @@ export const queueHandlers = {
   'queue.limit'(ctx, c, msg) {
     ctx.floorOf(c)?.queue.setLimit(num(msg.maxWorkers));
   },
-} satisfies HandlerMap<QueueClientMsg>;
+} satisfies HandlerMap<Exclude<QueueClientMsg, { t: 'queue.staffing' | 'queue.confirm' | 'queue.continue' }>>;

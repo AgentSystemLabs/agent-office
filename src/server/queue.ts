@@ -1,4 +1,7 @@
+import { delivered, deliveryPull, needsAttention, undeliveredReason } from './queue-completion.js';
+import { existingWorker, existingPrompt } from './queue-existing.js';
 import { randomBytes } from 'node:crypto';
+import { referencesQueueIssue } from './queue-pr-reference.js';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { isAgentProvider, type AgentChoice, type AgentEffort, type AgentProvider, type GhPull, type QueueState, type QueueTask, type WorkerInfo, type WorkerStatus } from '../shared/protocol.js';
@@ -13,6 +16,8 @@ export interface QueueWorkers {
   /** What a task starts on when whoever queued it didn't pick (⚙️ Settings); the default provider without it. */
   readonly officeDefault?: AgentChoice;
   list(): WorkerInfo[];
+  prompt?(id: string, text: string, by?: string): string | undefined;
+  ownerOf?(id: string): string | undefined;
   deskOccupied(deskId: string): boolean;
   /** How many rows the floor's back office is built out, for its desks (see WING). */
   wing?(): number;
@@ -50,12 +55,15 @@ const FINISHED = new Set<WorkerStatus>(['done', 'exited', 'offline']);
 /**
  * The 📋 task queue. Tasks (GitHub issues or free text) wait in order; whenever a desk is free and
  * fewer than `maxWorkers` of them are running, the next one is seated as a worktree worker. A running
- * task finishes when its worker ends its turn, stops, or is sent home. Finished workers stay at
+ * task finishes only after task-specific delivery or an explicit human confirmation. Finished workers stay at
  * their desks to be looked at, until the queue needs the desk for the next task.
  */
 export class TaskQueue {
   private tasks: QueueTask[] = [];
   private maxWorkers = DEFAULT_MAX_WORKERS;
+  private existingOnly = false;
+  // A submitted prompt may still show the preceding turn as done until its first hook.
+  private awaitingStart = new Set<string>();
   private statePath: string;
   private timer: NodeJS.Timeout;
   private pumping = false;
@@ -77,7 +85,7 @@ export class TaskQueue {
   }
 
   state(): QueueState {
-    return { tasks: this.tasks.map((t) => ({ ...t })), maxWorkers: this.maxWorkers };
+    return { tasks: this.tasks.map((t) => ({ ...t })), maxWorkers: this.maxWorkers, existingOnly: this.existingOnly };
   }
 
   get limit(): number {
@@ -152,7 +160,7 @@ export class TaskQueue {
   retry(taskId: string): string | undefined {
     const t = this.tasks.find((x) => x.id === taskId);
     if (!t) return 'No such task';
-    if (t.status !== 'done') return 'That task is still on the queue';
+    if (t.status !== 'done' && t.status !== 'waiting') return 'That task is still running or queued';
     if (t.issue !== undefined && this.tasks.some((x) => x !== t && x.issue === t.issue && x.status !== 'done')) return `Issue #${t.issue} is already on the queue`;
     this.tasks.splice(this.tasks.indexOf(t), 1);
     const fresh: QueueTask = { id: t.id, provider: t.provider, model: t.model, effort: t.effort, issue: t.issue, title: t.title, prompt: t.prompt, addedBy: t.addedBy, owner: t.owner, addedAt: Date.now(), status: 'queued' };
@@ -162,11 +170,46 @@ export class TaskQueue {
     return undefined;
   }
 
+  /** Continue only the selected task, without choosing any additional work. */
+  continue(taskId: string, by: string): string | undefined {
+    const task = this.tasks.find((t) => t.id === taskId);
+    if (!task || task.status !== 'waiting') return 'That task is not waiting for attention';
+    const worker = this.workers.list().find((w) => w.id === task.workerId);
+    if (!worker || !this.workers.prompt || !['done', 'idle'].includes(worker.status)) return 'The assigned worker is busy or stopped. Open its terminal or explicitly requeue this task.';
+    if (this.tasks.some((t) => t !== task && t.status === 'running' && t.workerId === worker.id)) return 'That worker is running another task';
+    this.awaitingStart.add(worker.id);
+    task.status = 'running';
+    const error = this.workers.prompt(worker.id, `Continue the unfinished task: ${task.prompt}\n\nPrevious blocker: ${task.waitingReason ?? 'No delivery verified'}. Preserve existing changes. Deliver the complete result or state the exact blocker; a response alone is not completion.`, by);
+    if (error) { task.status = 'waiting'; this.awaitingStart.delete(worker.id); return error; }
+    delete task.waitingReason;
+    this.changed();
+    return undefined;
+  }
+
+  /** The person explicitly verified an outcome which may not need a pull request. */
+  confirm(taskId: string, by: string): string | undefined {
+    const task = this.tasks.find((t) => t.id === taskId);
+    if (!task || task.status !== 'waiting') return 'Only a task waiting for attention can be confirmed';
+    if (!by.trim()) return 'Completion must name the person confirming it';
+    task.confirmedBy = { name: by, at: Date.now() };
+    this.finish(task, 'done');
+    this.changed();
+    this.pump();
+    if (this.tasks.every((t) => t.status === 'done')) this.events.emptied();
+    return undefined;
+  }
+
   /** Forgets the finished tasks. */
   clear() {
     const before = this.tasks.length;
     this.tasks = this.tasks.filter((t) => t.status !== 'done');
     if (this.tasks.length !== before) this.changed();
+  }
+
+  setExistingOnly(value: boolean) {
+    this.existingOnly = value;
+    this.changed();
+    this.pump();
   }
 
   setLimit(n: number) {
@@ -180,8 +223,10 @@ export class TaskQueue {
   /** A worker changed. Cheap unless its status moved, which can free a slot or finish a task. */
   onWorker(info: WorkerInfo) {
     // It switched to a branch of its own (see Workers.syncBranch): its task's pull request comes from there.
+    if (info.status === 'working' || info.status === 'needs_input') this.awaitingStart.delete(info.id);
     const branch = info.worktree?.branch;
-    const moved = branch ? this.tasks.filter((t) => t.workerId === info.id && t.branch && t.branch !== branch) : [];
+    const latest = this.tasks.filter((t) => t.workerId === info.id).at(-1);
+    const moved = branch && latest?.branch && latest.branch !== branch ? [latest] : [];
     for (const t of moved) t.branch = branch;
     if (moved.length) this.changed();
     if (this.lastStatus.get(info.id) === info.status) return;
@@ -201,15 +246,18 @@ export class TaskQueue {
       if (t.status === 'queued') continue;
       const since = (t.startedAt ?? t.addedAt) - 60_000;
       const match = pulls
-        .filter((p) => (t.branch && p.headRefName === t.branch) || (t.issue !== undefined && p.closes.includes(t.issue) && Date.parse(p.createdAt) >= since))
-        .sort((a, b) => Number(b.headRefName === t.branch) - Number(a.headRefName === t.branch) || b.createdAt.localeCompare(a.createdAt))[0];
+        .filter((p) => !t.reusedWorker || Date.parse(p.createdAt) >= Math.floor((t.startedAt ?? t.addedAt) / 1000) * 1000)
+        .filter((p) => (t.branch && p.headRefName === t.branch) || (t.issue !== undefined && referencesQueueIssue(p, t.issue) && Date.parse(p.createdAt) >= since))
+        .sort((a, b) => Number(deliveryPull(t, b)) - Number(deliveryPull(t, a)) || Number(b.headRefName === t.branch) - Number(a.headRefName === t.branch) || b.createdAt.localeCompare(a.createdAt))[0];
       if (!match) continue;
-      const pr = { number: match.number, url: match.url, state: match.isDraft ? 'DRAFT' : match.state, title: match.title };
-      if (t.pr && t.pr.number === pr.number && t.pr.state === pr.state && t.pr.title === pr.title) continue;
+      const pr = { number: match.number, url: match.url, state: match.isDraft ? 'DRAFT' : match.state, title: match.title, coversTask: deliveryPull(t, match), checks: match.checks };
+      const reason = t.status === 'waiting' && !delivered({ ...t, pr }) ? undeliveredReason({ ...t, pr }) : t.waitingReason;
+      if (t.pr && t.pr.number === pr.number && t.pr.state === pr.state && t.pr.title === pr.title && t.pr.coversTask === pr.coversTask && t.pr.checks === pr.checks && t.waitingReason === reason) continue;
       t.pr = pr;
+      if (t.status === 'waiting') t.waitingReason = reason;
       changed = true;
     }
-    if (changed) this.changed();
+    if (changed) { this.changed(); this.pump(); }
   }
 
   /** Finishes tasks whose worker stopped, then seats queued tasks while there's room. */
@@ -243,9 +291,15 @@ export class TaskQueue {
     let changed = false;
     let done = false;
     for (const t of this.tasks) {
+      if (t.status === 'done' && !delivered(t)) { needsAttention(t, undeliveredReason(t)); changed = true; }
+      if (t.status === 'waiting') {
+        if (delivered(t)) { done = this.finish(t, 'done') || done; changed = true; }
+        continue;
+      }
       if (t.status !== 'running' || !t.workerId) continue;
       const w = byId.get(t.workerId);
       if (!w) this.finish(t, 'killed');
+      else if (this.awaitingStart.has(w.id) && (w.status === 'done' || w.status === 'idle')) continue;
       else if (FINISHED.has(w.status)) done = this.finish(t, w.status === 'done' ? 'done' : 'exited') || done;
       else continue;
       changed = true;
@@ -258,15 +312,19 @@ export class TaskQueue {
 
   /** Returns whether the task got done (rather than stopping short). */
   private finish(t: QueueTask, outcome: NonNullable<QueueTask['outcome']>): boolean {
+    if (t.workerId) this.awaitingStart.delete(t.workerId);
+    if (outcome !== 'done' || !delivered(t)) {
+      t.outcome = outcome === 'done' ? undefined : outcome;
+      needsAttention(t, outcome === 'done' ? undeliveredReason(t) : 'The worker stopped before delivering the result.');
+      this.events.toast(`📋 ${whoName(t)} needs attention for ${label(t)}`, 'warn');
+      if (outcome === 'done') this.events.refreshGitHub();
+      return false;
+    }
     t.status = 'done';
-    t.outcome = outcome;
+    t.outcome = 'done';
     t.finishedAt = Date.now();
-    const who = t.workerName ?? 'Its worker';
-    if (outcome === 'done') {
-      this.events.toast(`📋 ${who} finished ${label(t)}`, 'info');
-      // The worker most likely just opened the PR; go and link it.
-      this.events.refreshGitHub();
-    } else if (outcome === 'exited') this.events.toast(`📋 ${who} stopped before finishing ${label(t)} — requeue it from the queue board`, 'warn');
+    delete t.waitingReason;
+    this.events.toast(`📋 ${whoName(t)} delivered ${label(t)}`, 'info');
     return outcome === 'done';
   }
 
@@ -307,7 +365,7 @@ export class TaskQueue {
     return this.tasks
       .filter((t) => t.status === 'done' && t.workerId && byId.has(t.workerId))
       .map((t) => ({ t, w: byId.get(t.workerId!)! }))
-      .filter(({ w }) => FINISHED.has(w.status) && w.viewers.length === 0)
+      .filter(({ w }) => w.createdBy.endsWith(' (queue)') && FINISHED.has(w.status) && w.viewers.length === 0)
       .sort((a, b) => Number(!!b.t.pr) - Number(!!a.t.pr) || (a.t.finishedAt ?? 0) - (b.t.finishedAt ?? 0))[0];
   }
 
@@ -320,6 +378,23 @@ export class TaskQueue {
       if (this.events.hiringPaused()) break;
       // So does an office at its worker limit (--max-workers), unless one of the queue's own finished
       // workers going home makes room. Over the limit (it was just lowered), it waits for people to send some home.
+      if (this.existingOnly) {
+        const w = existingWorker(this.workers, this.tasks, t);
+        if (!w) break;
+        this.awaitingStart.add(w.id);
+        const error = this.workers.prompt!(w.id, existingPrompt(t), `${t.addedBy} (queue)`);
+        if (error) {
+          this.awaitingStart.delete(w.id);
+          break; // No hiring fallback; a stopped or unavailable terminal waits.
+        }
+        t.reusedWorker = true;
+        t.provider = w.provider;
+        t.model = w.model;
+        t.effort = w.effort;
+        this.started(t, w);
+        changed = true;
+        continue;
+      }
       const room = this.events.room?.() ?? Infinity;
       if (room < 0) break;
       const free = room > 0 ? this.freeDesk() : undefined;
@@ -337,29 +412,34 @@ export class TaskQueue {
       const r = this.workers.spawn(desk, `${t.addedBy} (queue)`, note ? `${t.prompt}\n\n${note}` : t.prompt, this.useWorktree, 'agent', t.provider ?? this.workers.defaultProvider, t.model, t.effort, undefined, t.owner);
       changed = true;
       if (typeof r === 'string') {
-        t.status = 'done';
+        t.status = 'waiting';
+        t.waitingReason = 'The task could not start.';
         t.outcome = 'failed';
         t.error = r;
         t.finishedAt = Date.now();
         this.events.toast(`📋 Couldn't start ${label(t)}: ${r}`, 'error');
         continue;
       }
-      t.status = 'running';
-      t.workerId = r.id;
-      t.workerName = r.name;
-      t.branch = r.worktree?.branch;
-      t.startedAt = Date.now();
-      t.error = undefined;
-      this.lastStatus.set(r.id, r.status);
-      this.events.toast(`📋 ${r.name} sat down at ${DESK_BY_ID.get(desk)?.label ?? 'a desk'} to work on ${label(t)}`, 'info');
-      if (t.issue !== undefined) {
-        const issue = t.issue;
-        void this.events.claimIssue(issue, t.owner).then((err) => {
-          if (err) this.events.toast(`Couldn't assign issue #${issue} on GitHub: ${err}`, 'warn');
-        });
-      }
+      this.started(t, r);
     }
     if (changed) this.changed();
+  }
+
+  private started(t: QueueTask, r: WorkerInfo) {
+    t.status = 'running';
+    t.workerId = r.id;
+    t.workerName = r.name;
+    t.branch = r.worktree?.branch;
+    t.startedAt = Date.now();
+    t.error = undefined;
+    this.lastStatus.set(r.id, r.status);
+    this.events.toast(`📋 ${r.name} sat down at ${DESK_BY_ID.get(r.deskId)?.label ?? 'a desk'} to work on ${label(t)}`, 'info');
+    if (t.issue !== undefined) {
+      const issue = t.issue;
+      void this.events.claimIssue(issue, t.owner).then((err) => {
+        if (err) this.events.toast(`Couldn't assign issue #${issue} on GitHub: ${err}`, 'warn');
+      });
+    }
   }
 
   private changed() {
@@ -369,7 +449,7 @@ export class TaskQueue {
 
   private persist() {
     try {
-      writeFileSync(this.statePath, JSON.stringify({ maxWorkers: this.maxWorkers, tasks: this.tasks }, null, 2), { mode: 0o600 });
+      writeFileSync(this.statePath, JSON.stringify({ existingOnly: this.existingOnly, maxWorkers: this.maxWorkers, tasks: this.tasks }, null, 2), { mode: 0o600 });
     } catch {
       // disk issues shouldn't take the office down
     }
@@ -378,8 +458,9 @@ export class TaskQueue {
   private restore() {
     if (!existsSync(this.statePath)) return;
     try {
-      const saved = JSON.parse(readFileSync(this.statePath, 'utf8')) as { maxWorkers?: number; tasks?: Partial<QueueTask>[] };
+      const saved = JSON.parse(readFileSync(this.statePath, 'utf8')) as { existingOnly?: boolean; maxWorkers?: number; tasks?: Partial<QueueTask>[] };
       if (typeof saved.maxWorkers === 'number' && Number.isFinite(saved.maxWorkers)) this.maxWorkers = Math.max(0, Math.min(SEATS.length, Math.floor(saved.maxWorkers)));
+      this.existingOnly = saved.existingOnly === true;
       for (const s of saved.tasks ?? []) {
         if (typeof s.id !== 'string' || typeof s.prompt !== 'string' || typeof s.title !== 'string') continue;
         const provider = isAgentProvider(s.provider) ? s.provider : this.workers.defaultProvider;
@@ -394,23 +475,26 @@ export class TaskQueue {
           addedBy: s.addedBy ?? '?',
           owner: typeof s.owner === 'string' && s.owner ? s.owner : undefined,
           addedAt: s.addedAt ?? Date.now(),
-          status: s.status === 'running' || s.status === 'done' ? s.status : 'queued',
+          status: ['running', 'done', 'waiting'].includes(s.status ?? '') ? s.status! : 'queued',
           workerId: s.workerId,
+          reusedWorker: s.reusedWorker === true,
           workerName: s.workerName,
           branch: s.branch,
           startedAt: s.startedAt,
           finishedAt: s.finishedAt,
+          waitingReason: s.waitingReason,
+          confirmedBy: s.confirmedBy,
           outcome: s.outcome,
           error: s.error,
           pr: s.pr,
         };
         // Whatever was running died with the old office process; its worker comes back asleep at best.
         if (t.status === 'running') {
-          t.status = 'done';
+          needsAttention(t, 'The office restarted. Review the resumed worker before continuing.');
           t.outcome = 'exited';
-          t.finishedAt = Date.now();
           t.error = 'The office restarted while it was running';
         }
+        if (t.status === 'done' && !delivered(t)) needsAttention(t, undeliveredReason(t));
         this.tasks.push(t);
       }
     } catch {
@@ -426,3 +510,5 @@ function label(t: QueueTask): string {
 function firstLine(s: string): string {
   return s.split('\n')[0].trim();
 }
+
+function whoName(t: QueueTask): string { return t.workerName ?? 'Its worker'; }
