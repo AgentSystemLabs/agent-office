@@ -5,6 +5,7 @@
 // A {{name}} in one is filled in by the office when it's sent.
 
 import { STATION_AGENT, type StationKind } from './layout.js';
+import { ISSUE_RECONCILIATION_PROMPTS, PLAYTEST_HANDOFF } from './issue-reconciliation.js';
 
 export type PromptGroup = 'issues' | 'pulls' | 'queue' | 'repos' | 'stations' | 'meetings' | 'office';
 
@@ -65,6 +66,7 @@ function stationDefault(kind: StationKind): string {
     JOB[kind],
     `You're in the project's main checkout, which other people and workers use too: don't switch branches, commit, or leave edits in it. Work that needs code changed goes on the task queue, ${queue ? 'always' : 'unless the person asks you for something else'}.`,
     QUEUE_API,
+    PLAYTEST_HANDOFF,
     `${queue ? "When you've queued it, say in a few lines what you queued: each task's id and title." : "When you've done what was asked, say in a few lines what you did, with links."} Then wait: the next request may come from someone else.`,
     `The request:`,
   ].join('\n\n');
@@ -89,13 +91,14 @@ const FILE_NOTE = 'The note this part is written to, which the meeting waits for
 const OUTPUT_NOTE = "The meeting's output file, which ends it";
 
 const DEFS = {
+  ...ISSUE_RECONCILIATION_PROMPTS,
   // --- 📌 Issues board ---
   'issue.work': {
     group: 'issues',
     label: '🤖 Hand to a worker',
     used: 'The task a worker gets for an issue: 🤖 Hand to a worker, 📋 Add to queue, and a card carried to a desk or the queue.',
     vars: ISSUE_VARS,
-    text: 'Work on GitHub issue #{{number}}: "{{title}}".\n\nRead it first with `gh issue view {{number}} --comments`. Create a new branch, implement the change, verify it, then open a pull request that closes #{{number}}.',
+    text: 'Work on GitHub issue #{{number}}: "{{title}}".\n\nRead it first with `gh issue view {{number}} --comments`. Create a new branch, implement the change, verify it, then open a pull request that closes #{{number}}.' + '\n\n' + PLAYTEST_HANDOFF,
   },
   'issue.ask': {
     group: 'issues',

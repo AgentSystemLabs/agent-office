@@ -13,6 +13,8 @@ export interface PromptOptions {
   placeholder?: string;
   initial?: string;
   submitLabel?: string;
+  /** Ready-made requests, loaded for editing before the person sends them. */
+  presets?: { label: string; text: string }[];
   /** Allow hiring a worker without an initial prompt (the direct hire flow). */
   allowEmpty?: boolean;
   /** Offer the "own git worktree" option (only when hiring a new worker). */
@@ -57,6 +59,9 @@ export function repoPicker(options: { id: string; name: string }[] | undefined, 
 export function openPrompt(opts: PromptOptions) {
   const ta = h('textarea', { rows: 7, placeholder: opts.placeholder ?? 'What should the worker work on?', 'aria-label': 'Prompt' }) as HTMLTextAreaElement;
   ta.value = opts.initial ?? '';
+  const presets = opts.presets?.length ? h('div', { role: 'group', 'aria-label': 'Suggested requests', style: 'margin-bottom:10px' }, ...opts.presets.map((p) =>
+    h('button.btn', { type: 'button', onclick: () => { ta.value = p.text; ta.focus(); ta.setSelectionRange(0, 0); ta.scrollTop = 0; } }, p.label),
+  )) : null;
   const wtBox = h('input', { type: 'checkbox', id: 'wt-toggle' }) as HTMLInputElement;
   wtBox.checked = worktreePref();
   const wtRow = opts.worktreeOption
@@ -75,7 +80,7 @@ export function openPrompt(opts: PromptOptions) {
     'form.modal',
     { role: 'dialog', 'aria-label': opts.title },
     h('header', {}, h('h2', {}, opts.title)),
-    h('div.body', {}, opts.warning ? h('p.setting-note.bad', { style: 'margin:0 0 10px', role: 'alert' }, opts.warning) : null, opts.subtitle ? h('p', { style: 'margin:0 0 10px;font-weight:700;color:var(--muted)' }, opts.subtitle) : null, dictateField(ta), provider?.element ?? null, wtRow, repos.element),
+    h('div.body', {}, opts.warning ? h('p.setting-note.bad', { style: 'margin:0 0 10px', role: 'alert' }, opts.warning) : null, opts.subtitle ? h('p', { style: 'margin:0 0 10px;font-weight:700;color:var(--muted)' }, opts.subtitle) : null, presets, dictateField(ta), provider?.element ?? null, wtRow, repos.element),
     h('footer', {}, h('span.grow', {}, 'Enter to send · Shift+Enter for a new line'), cancel, submit),
   ) as HTMLFormElement;
   form.noValidate = true;

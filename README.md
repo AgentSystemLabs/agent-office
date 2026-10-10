@@ -420,3 +420,10 @@ Every change to the app that lands on `main` is published as a GitHub release by
 ## License
 
 [MIT](LICENSE)
+
+
+### Reconcile issues with the Issues agent
+
+Press **E** at the Issues agent, choose **🧹 Reconcile issues**, then **Send ✨**. The button fills in an editable request for the current project. Customize it under **Settings → Prompts → Board agents → Reconcile issues**. The agent compares issue requirements with merged PRs, main and current queue/workers, closes completed issues with evidence, clears stale assignments only when work is inactive, and queues genuine remaining coding work without duplicates. A running task or human assignment is not proof that work is stale; uncertain items are reported and preserved.
+
+Manual gameplay, headset and device checks always belong in the person's **Playtest checklist**, never in the coding queue. Board-agent briefs and issue-worker requests include this handoff policy. The agent lists existing checks before adding instructions, expected results and issue/PR links through `office-playtests`; only a person checks them off. This integration uses the Playtest checklist feature (PR #335). If its CLI is unavailable or saving fails, the agent reports the missing handoff instead of claiming success. Existing customized prompts remain unchanged; reset their defaults or add the policy to adopt it.
