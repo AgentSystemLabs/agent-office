@@ -1,3 +1,4 @@
+import { withIssueDeliveryPolicy } from '../../shared/issue-delivery.js';
 import type http from 'node:http';
 import { notLeaving } from '../leave-on-merge.js';
 import { findWorker, readHireRequest, readHomeRequest, readPrRequest, workerRow, type PullsView } from '../office-workers.js';
@@ -120,9 +121,10 @@ export async function officeWorkers(ctx: Ctx, req: http.IncomingMessage, res: ht
     if (w.kind !== 'agent') return send(res, 400, { error: `${w.name} is a shell, not an agent` });
     const text = str(b.prompt, 20000).replace(/\r\n?/g, '\n').trim();
     if (!text) return send(res, 400, { error: 'Say what to tell it: prompt' });
-    let err = floor.workers.prompt(w.id, text, who);
+    const prompt = withIssueDeliveryPolicy(w.deskId, text);
+    let err = floor.workers.prompt(w.id, prompt, who);
     // Stopped or asleep: it wakes up with this as its next message.
-    if (err === 'Worker is not running') err = floor.workers.resume(w.id, text);
+    if (err === 'Worker is not running') err = floor.workers.resume(w.id, prompt);
     if (err) return send(res, 400, { error: err });
     return send(res, 200, { ok: true, worker: row(w.id) });
   }

@@ -1,3 +1,4 @@
+import { ISSUE_DELIVERY_POLICY } from './issue-delivery.js';
 // Every prompt the office writes for a worker by itself: what 🤖 Hand to a worker, 🔍 Review and the
 // boards' other buttons send, what the queue adds to a task, the board agents' briefs, the meeting
 // room's parts and the sign-writer's instructions. Each can be rewritten in ⚙️ Settings (kept by
@@ -66,6 +67,7 @@ function stationDefault(kind: StationKind): string {
     `You're in the project's main checkout, which other people and workers use too: don't switch branches, commit, or leave edits in it. Work that needs code changed goes on the task queue, ${queue ? 'always' : 'unless the person asks you for something else'}.`,
     QUEUE_API,
     `${queue ? "When you've queued it, say in a few lines what you queued: each task's id and title." : "When you've done what was asked, say in a few lines what you did, with links."} Then wait: the next request may come from someone else.`,
+    ...(kind === 'pulls' || kind === 'issues' ? [ISSUE_DELIVERY_POLICY] : []),
     `The request:`,
   ].join('\n\n');
 }

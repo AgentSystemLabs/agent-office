@@ -1,3 +1,4 @@
+import { officeDeliver } from './office-deliver.js';
 // The loopback-only server for the workers' own calls: their agents' hook events, and the office's
 // queue and workers for the board agents and the office-workers command.
 import http from 'node:http';
@@ -19,6 +20,7 @@ export async function startHookServer(ctx: Ctx): Promise<{ hookServer: http.Serv
     } catch {
       return send(res, 400, {});
     }
+    if (url.pathname === '/office/deliver') return officeDeliver(ctx, req, res, url);
     if (url.pathname === '/office/queue') return officeQueue(ctx, req, res, url);
     if (url.pathname === '/office/workers' || url.pathname.startsWith('/office/workers/')) return officeWorkers(ctx, req, res, url);
     // Each provider with hooks has its route, /hooks/<provider> (see providers/).
