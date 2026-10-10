@@ -10,6 +10,7 @@ import { gong } from '../../features/gong/world';
 import { jukebox } from '../../features/jukebox/world';
 import { bookshelf } from '../../features/bookshelf/world';
 import { cabinet } from '../../features/cabinet/world';
+import { playtestBoard } from '../../features/playtests/world';
 import { whiteboard } from '../../features/whiteboard/world';
 import { green, tee } from '../../features/golf/world';
 import { stack } from '../stack';
@@ -71,6 +72,7 @@ function floorPlan() {
     gong,
     hoop,
     whiteboard,
+    playtestBoard,
     clearOfStairs,
   ] as const;
 }

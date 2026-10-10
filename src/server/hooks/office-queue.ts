@@ -1,3 +1,4 @@
+import { queueWriteAllowed } from '../queue-permissions.js';
 import type http from 'node:http';
 import { DESK_BY_ID } from '../../shared/layout.js';
 import type { Ctx } from '../office/context.js';
@@ -23,6 +24,7 @@ export async function officeQueue(ctx: Ctx, req: http.IncomingMessage, res: http
     };
   };
   if (req.method === 'GET') return send(res, 200, view());
+  if (!queueWriteAllowed(DESK_BY_ID.get(agent.deskId)?.station)) return send(res, 403, { error: 'The Issues agent cannot change the queue. Only the human chooses which issues run and when; use the Issues board or Task queue controls.' });
   if (req.method === 'DELETE') {
     const err = floor.queue.remove(url.searchParams.get('task') ?? '');
     return err ? send(res, 400, { error: err }) : send(res, 200, view());

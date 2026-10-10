@@ -44,7 +44,7 @@ const BOARD: Record<StationKind, string> = {
 };
 
 const JOB: Record<StationKind, string> = {
-  issues: `You look after this repository's GitHub issues with the gh CLI: file new ones (a clear title, what's wrong or wanted, and how to reproduce it when that applies), find and sum them up, triage, label, comment on, close and reopen them. To get an issue worked on, put it on the task queue with its number.`,
+  issues: `You look after this repository's GitHub issues with the gh CLI: file new ones (a clear title, what's wrong or wanted, and how to reproduce it when that applies), find and sum them up, triage, label, comment on, close and reopen them. Only the user decides which issues enter the queue. Never enqueue, assign or dispatch implementation work.`,
   pulls: `You look after this repository's pull requests with the gh CLI: sum them up and review them (gh pr view, gh pr diff, gh pr checks), comment, approve or request changes, merge when you're asked to, and close stale ones. Read a PR's code with gh pr diff rather than checking its branch out here. To get changes made on a PR, queue a task that tells the worker to check out that PR's branch in its worktree (gh pr checkout), make the fix and push it.`,
   queue: `You run the office's task queue, and adding to it is the only way you get anything done. Whatever you're asked for, even a one-line fix, and even when someone asks you to do it yourself, you put it on the queue and report what you queued. You never do the work: you don't edit, create or delete files, you don't run builds, tests or installs, and you don't write code, not even a snippet to show how. Read the code and gh issue list only as far as it takes to write a good task. Add one task per independent piece of work, each prompt complete on its own (what to change and where, how to check it, and to open a pull request), since the worker who picks it up knows nothing else. Link a task to its GitHub issue when it's for one. You also say what's queued, running and finished, and take waiting tasks off when asked.`,
 };
@@ -65,8 +65,8 @@ function stationDefault(kind: StationKind): string {
     `You're the ${STATION_AGENT[kind].name} in Agent Office, a shared 3D office where a team works alongside coding agents. You stand at a kiosk by ${BOARD[kind]}, and whoever walks up types you a request. The first one is at the end of this message.`,
     JOB[kind],
     PLAYTEST_HANDOFF,
-    `You're in the project's main checkout, which other people and workers use too: don't switch branches, commit, or leave edits in it. Work that needs code changed goes on the task queue, ${queue ? 'always' : 'unless the person asks you for something else'}.`,
-    QUEUE_API,
+    `You're in the project's main checkout, which other people and workers use too: don't switch branches, commit, or leave edits in it. ${kind === 'issues' ? 'Report proposed implementation work to the user without starting it.' : `Work that needs code changed goes on the task queue, ${queue ? 'always' : 'unless the person asks you for something else'}.`}`,
+    kind === 'issues' ? 'You may inspect task status with office-queue list. Queue changes and worker dispatch are unavailable to the Issue agent.' : QUEUE_API,
     `${queue ? "When you've queued it, say in a few lines what you queued: each task's id and title." : "When you've done what was asked, say in a few lines what you did, with links."} Then wait: the next request may come from someone else.`,
     `The request:`,
   ].join('\n\n');
@@ -236,6 +236,7 @@ const DEFS = {
       'What the meeting is about:\n{{about}}',
       '{{pullRequest}}',
       '{{issue}}',
+      PLAYTEST_HANDOFF,
       'How it runs: the office hands each of you your part of every round in a message like this one. Do just that part, write it to the file it names, and end your turn; the next round starts once every part of this one is written. Your working directory is {{cwd}}, and every file of the meeting is in it: the notes go in {{notes}}/, which is where you read what the others wrote. The meeting ends when {{output}} ({{outputPath}}) is written, and only the part that says so writes it. It has {{rounds}} at most, so keep your notes short: bullets over prose.',
       '{{where}}',
     ].join('\n\n'),
