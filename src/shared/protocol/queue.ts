@@ -2,7 +2,7 @@
 
 import type { AgentEffort, AgentProvider } from './agents.js';
 
-export type TaskStatus = 'queued' | 'running' | 'done';
+export type TaskStatus = 'queued' | 'running' | 'waiting' | 'done';
 
 /** A task on the 📋 queue whiteboard: a GitHub issue or free text, seated to a worker by itself. */
 export interface QueueTask {
@@ -30,11 +30,15 @@ export interface QueueTask {
   branch?: string;
   startedAt?: number;
   finishedAt?: number;
+  /** Unfinished turn, question, missing delivery or stopped process. Never auto-requeued. */
+  waitingReason?: string;
+  /** Explicit completion confirmation by a person, for results that need no PR. */
+  confirmedBy?: { name: string; at: number };
   /** How it ended: the worker finished its turn, stopped or fell asleep, was sent home, or never started. */
   outcome?: 'done' | 'exited' | 'killed' | 'failed';
   error?: string;
   /** The pull request that closes the issue, or was opened from the worker's branch. */
-  pr?: { number: number; url: string; state: string; title: string };
+  pr?: { number: number; url: string; state: string; title: string; coversTask?: boolean; checks?: 'pass' | 'fail' | 'pending' | 'none' };
 }
 
 export interface QueueState {
@@ -54,6 +58,8 @@ export type QueueClientMsg =
   | { t: 'queue.retry'; taskId: string }
   /** Forget the finished tasks. */
   | { t: 'queue.clear' }
+  | { t: 'queue.continue'; taskId: string }
+  | { t: 'queue.confirm'; taskId: string }
   | { t: 'queue.limit'; maxWorkers: number }
   | { t: 'queue.staffing'; existingOnly: boolean };
 

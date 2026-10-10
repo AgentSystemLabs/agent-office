@@ -1,3 +1,4 @@
+import { queueCompletionHandlers } from './queue-completion.js';
 // Every message a browser can send, by type, and the features that keep something per person on a
 // floor. A new feature adds its handler file and a line here.
 import type { ClientMsg } from '../../../shared/protocol.js';
@@ -41,6 +42,7 @@ export const handlers: HandlerMap<ClientMsg> = {
   ...planHandlers,
   ...presenceHandlers,
   ...queueHandlers,
+  ...queueCompletionHandlers,
   ...queueStaffingHandlers,
   ...rooftopHandlers,
   ...settingsHandlers,
