@@ -63,6 +63,17 @@ test('existing PR delivery cannot finish a worker that is still working or needs
   assert.equal(q.state().tasks[0].status, 'done');
 });
 
+test('a late partial PR updates the missing-delivery explanation but keeps the task unfinished', (t) => {
+  const f = fixture(t); const q = f.open(); q.add('Fix guest pistol', 'Kajo', undefined, 286);
+  f.workers[0].status = 'done'; q.onWorker(f.workers[0]);
+  assert.match(q.state().tasks[0].waitingReason!, /without a delivered result/);
+  q.onPulls([pull({ closes: [], body: 'Refs #286 (hardware confirmation pending).', state: 'MERGED' })]);
+  const task = q.state().tasks[0];
+  assert.equal(task.status, 'waiting'); assert.equal(task.pr?.number, 300);
+  assert.match(task.waitingReason!, /partial/);
+  q.clear(); assert.equal(q.state().tasks.length, 1);
+});
+
 test('continue requires the person, preserves the task and waits for the new worker turn', (t) => {
   const f = fixture(t); const q = f.open(); q.add('Fix guest pistol', 'Kajo', undefined, 286);
   const w = f.workers[0]; w.status = 'done'; q.onWorker(w);
