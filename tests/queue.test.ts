@@ -489,6 +489,22 @@ test('existing-only leaves tasks waiting when no manual worker exists', (t) => {
   assert.equal(q.state().tasks[0].status, 'queued');
 });
 
+test('unchecked existing workers keep three independent queue tasks running in parallel', (t) => {
+  const f = fixture(); t.after(() => f.close());
+  const seed = f.open();
+  seed.setLimit(3);
+  for (let n = 0; n < 3; n++) seed.add(`seed ${n}`, 'Tester');
+  seed.shutdown();
+  for (const w of f.workers) { w.createdBy = 'Tester'; w.status = 'done'; }
+  const q = f.open(); q.clear(); q.setExistingOnly(true); q.setLimit(3);
+  for (let n = 0; n < 3; n++) q.add(`Independent task ${n}`, 'Tester');
+  assert.equal(q.state().maxWorkers, 3);
+  assert.equal(q.state().tasks.filter((task) => task.status === 'running').length, 3);
+  assert.equal(new Set(q.state().tasks.map((task) => task.workerId)).size, 3);
+  assert.equal(f.workers.length, 3);
+  assert.ok(f.workers.every((w) => !w.worktree));
+});
+
 
 test('existing-only enforces account ownership and never falls back to hiring on prompt failure', (t) => {
   const f = fixture(); t.after(() => f.close());

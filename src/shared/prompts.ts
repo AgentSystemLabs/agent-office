@@ -95,7 +95,7 @@ const DEFS = {
     label: '🤖 Hand to a worker',
     used: 'The task a worker gets for an issue: 🤖 Hand to a worker, 📋 Add to queue, and a card carried to a desk or the queue.',
     vars: ISSUE_VARS,
-    text: 'Work on GitHub issue #{{number}}: "{{title}}".\n\nRead it first with `gh issue view {{number}} --comments`. Create a new branch, implement the change, verify it, then open a pull request that closes #{{number}}.',
+    text: 'Work on GitHub issue #{{number}}: "{{title}}".\n\nRead it first with `gh issue view {{number}} --comments`. Use the workspace selected when this worker was hired, implement the change and verify it. Deliver a pull request (through the PR coordinator for a shared checkout) and close #{{number}} only when all its acceptance criteria are met.',
   },
   'issue.ask': {
     group: 'issues',

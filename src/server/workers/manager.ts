@@ -29,7 +29,7 @@ import type { HookEnv, OpenedPr, RepoSource, RunAs, Worker, WorkerContext, Worke
 import { clamp, safeEq, truncate } from './util.js';
 import { COLORS, NAMES, newWorker } from './worker.js';
 import { WorkerTrees, lostMessage } from './worktree.js';
-
+import { workspacePrompt } from './workspace-policy.js';
 const SCREEN_INTERVAL_MS = 250;
 /** How often a steady typist's "last typed" time is refreshed for everyone. */
 const TYPED_REFRESH_MS = 15_000;
@@ -503,7 +503,7 @@ export class WorkerManager {
     if (w.dsh) {
       const clean = text.replace(/\r\n?/g, '\n').trim();
       if (!clean) return 'Empty prompt';
-      w.dsh.prompt(clean);
+      w.dsh.prompt(workspacePrompt(w.info, this.cwd(w.info), clean)!);
       w.info.activity = truncate(clean, 80);
       this.tasks.notePrompt(w, clean);
       if (by) w.info.lastInput = { by, at: Date.now() };
@@ -514,7 +514,7 @@ export class WorkerManager {
     const clean = text.replace(/\r\n?/g, '\n').trim();
     if (!clean) return 'Empty prompt';
     // Bracketed paste keeps multi-line prompts in one message, then Enter submits.
-    w.pty.write(`\x1b[200~${clean}\x1b[201~`);
+    w.pty.write(`\x1b[200~${workspacePrompt(w.info, this.cwd(w.info), clean)}\x1b[201~`);
     setTimeout(() => w.pty?.write('\r'), 120);
     w.info.activity = truncate(clean, 80);
     this.tasks.notePrompt(w, clean);
@@ -632,9 +632,9 @@ export class WorkerManager {
   }
 
   // ---------------------------------------------------------------------------
-
   private launch(w: Worker, prompt: string | undefined, resumeSessionId: string | undefined) {
     const { info } = w;
+    prompt = workspacePrompt(info, this.cwd(info), prompt);
     // Its folder was deleted meanwhile: it waits, marked lost, for someone to rebuild it or send it home.
     if (this.worktrees.checkLost(w)) {
       clockWork(info, 'exited');

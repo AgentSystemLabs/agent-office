@@ -14,5 +14,5 @@ export function existingWorker(workers: QueueWorkers, tasks: QueueTask[], task: 
 }
 
 export function existingPrompt(task: QueueTask): string {
-  return `${task.prompt}\n\nContinue this queue task in your existing session and workspace. Preserve previous work and local changes. Follow the user's explicit branch/worktree policy; reusing a worker does not authorize creating another branch or worktree. In a shared checkout, serialize edits and keep each task's changes separate from unrelated local edits. A completed response or background launcher is not proof that the task or its tests finished: verify results and deliver the requested artifact, or identify the concrete remaining blocker.`;
+  return `${task.prompt}\n\nContinue this queue task in your existing session and workspace. Preserve previous work and local changes. Follow the user's explicit branch/worktree policy; reusing a worker does not authorize creating another branch or worktree. Keep each task's changes separate from unrelated local edits; coordinate only overlapping files and Git index operations, without blocking independent parallel tasks. A completed response or background launcher is not proof that the task or its tests finished: verify results and deliver the requested artifact, or identify the concrete remaining blocker.`;
 }
