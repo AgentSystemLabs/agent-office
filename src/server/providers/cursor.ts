@@ -5,6 +5,7 @@
 // as working until it's answered.
 import { addCursorHooks, cursorBlocked, normalizeCursorHook, removeCursorHooks, withoutCursorLaunchArgs, writeCursorHook } from '../cursor.js';
 import { reduceLifecycle } from '../workers/lifecycle.js';
+import { reconcileCursorScreen, resetCursorScreen } from './cursor-screen.js';
 import type { ProviderAdapter } from './types.js';
 
 interface CursorSetup {
@@ -35,6 +36,7 @@ export const cursor: ProviderAdapter<undefined, CursorSetup> = {
     handle(h, event, payload) {
       const report = normalizeCursorHook(event, payload);
       if (!report) return false;
+      resetCursorScreen(h);
       // A chat started over inside the terminal fires no sessionStart: its first prompt is the first the office hears of it.
       if (report.event === 'UserPromptSubmit' && h.info.sessionId && h.info.sessionId !== report.sessionId) {
         reduceLifecycle(h, { sessionId: report.sessionId, event: 'SessionStart', source: 'clear' });
@@ -43,5 +45,5 @@ export const cursor: ProviderAdapter<undefined, CursorSetup> = {
     },
   },
   // A resumed chat fires no sessionStart, so it's idle as soon as it runs; the login screen is read off its terminal.
-  screen: { blocked: cursorBlocked },
+  screen: { blocked: cursorBlocked, reconcile: reconcileCursorScreen },
 };

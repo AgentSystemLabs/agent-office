@@ -100,6 +100,8 @@ export interface ProviderAdapter<S = undefined, P = undefined> {
   /** The provider whose hook route its workers report on, when not their own (a custom --agent speaks Claude Code's). */
   hooksAs?: AgentProvider;
   screen?: {
+    /** Reconcile provider-specific idle UI when a lifecycle hook was missed. Current screen only. */
+    reconcile?(h: WorkerHandle<S>, text: string): void;
     /** It reports progress with OSC 9;4 (0 = idle): that catches a turn ending without a hook (Esc). */
     progress?: boolean;
     /**
