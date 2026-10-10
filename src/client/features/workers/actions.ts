@@ -22,6 +22,7 @@ import { openAsk } from '../../ui/ask';
 import { STATUS_LABEL, clip, closeAllModals, h, toast } from '../../ui/dom';
 import { openDeskLabel } from '../../ui/floorplan';
 import type { MeetingPreset } from '../../ui/meeting';
+import { requestWorkerHome } from '../../ui/worker-home';
 import { confirmDialog, lostWorktreeDialog, openPrompt, routeWorktreeMessage, sendHomeDialog } from '../../ui/prompt';
 import { providerLabel, resolvedProvider } from '../../ui/provider';
 import { openPull } from '../../ui/pull';
@@ -154,7 +155,7 @@ export function installWorkerActions(ctx: Ctx, core: CoreState, parts: WorkerAct
       // The meeting's worktree is the whole table's: it's tidied away once they've all gone.
       const m = store.meeting.current;
       const on = m?.id === w.meeting && m.status === 'running';
-      confirmDialog(`Send ${w.name} home?`, on ? `${w.name} is in the meeting on “${m.title}”, which stops without it.` : `${w.name} leaves the meeting room.`, 'Send home', () => net.send({ t: 'worker.kill', workerId: id }));
+      confirmDialog(`Send ${w.name} home?`, on ? `${w.name} is in the meeting on “${m.title}”, which stops without it.` : `${w.name} leaves the meeting room.`, 'Send home', () => requestWorkerHome(net, { t: 'worker.kill', workerId: id }));
       return;
     }
     if (w.worktree) {
@@ -166,14 +167,14 @@ export function installWorkerActions(ctx: Ctx, core: CoreState, parts: WorkerAct
         worktree: w.worktree,
         repos: w.repos?.length ? [w.worktree.path.split('/').pop() ?? 'its own', ...w.repos.map((r) => r.name)] : undefined,
         ask: () => net.send({ t: 'worker.worktree', workerId: id }),
-        onConfirm: (cleanup) => net.send({ t: 'worker.kill', workerId: id, cleanup }),
+        onConfirm: (cleanup) => requestWorkerHome(net, { t: 'worker.kill', workerId: id, cleanup }),
       });
       return;
     }
     const body = plan().byId.get(w.deskId)?.station
       ? `This stops its ${session} for everyone, and it forgets what it was asked. The next prompt at the ${where} starts a fresh one.`
       : `This stops the ${session} at ${where} for everyone and frees the desk.`;
-    confirmDialog(`Send ${w.name} home?`, body, 'Send home', () => net.send({ t: 'worker.kill', workerId: id }));
+    confirmDialog(`Send ${w.name} home?`, body, 'Send home', () => requestWorkerHome(net, { t: 'worker.kill', workerId: id }));
   }
 
   /** E at a board agent: type it a request. It's hired with it when nobody is there yet. */

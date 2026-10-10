@@ -13,7 +13,7 @@ Back to the [README](../README.md).
 | C | Changes: the files the worker at this desk changed and their diff; commit, discard or open a PR |
 | B | Open a shared shell at an empty desk |
 | R | Resume a sleeping worker (or restart a shell) |
-| X | Send a worker home (frees the desk; a worker with its own worktree asks what to do with it). In the [castle](maps.md#the-castle), the Kingsguard takes it down to the dungeon; on the [space station](maps.md#the-space-station), Security puts it out of the airlock |
+| X | Send a worker home (frees the desk; a worker with its own worktree asks what to do with it). Open work requires an extra confirmation (see below). In the [castle](maps.md#the-castle), the Kingsguard takes it down to the dungeon; on the [space station](maps.md#the-space-station), Security puts it out of the airlock |
 | L | Hang a big sign over the desk you face (*Operations*, *Code cleanup*), in one of seven colors; again to change it or take it down |
 | O | Open a pull request for a worker on its own branch, or see the one it has (a worker across several projects gets one in each) |
 | N | Go to the worker that has waited longest on someone; again for the next one |
@@ -47,3 +47,11 @@ The prompt edits the way it does in your own terminal (iTerm2's *Natural Text Ed
 | ⌘ + ⌫ | Delete to the start of the line (Mac) |
 | ⌘ + ⌦ | Delete to the end of the line (Mac) |
 | ⌘ + ← / → | Jump to the start / end of the line (Mac) |
+
+## Sending a worker home with open work
+
+The desk's Send home action (including X), the queue's Stop action and the lite view's lost-worktree Send home action check the current floor's assignment data before removing a worker. The additional warning lists its unfinished queue tasks, known open issues from queue assignments or a direct issue handoff, and its open PRs. A finished agent turn does not mean an issue is closed. Active sessions without a queue assignment also warn.
+
+**Keep worker here**, the top-right **✕**, or **Esc** cancels without stopping the worker. **Send home anyway** explicitly accepts leaving the work unresolved. Sending home does not close issues, complete tasks, merge PRs or automatically reassign work: continue or requeue it yourself. The worktree cleanup choice still applies; keep the worktree and branch if unfinished local changes need to be recovered. Newly assigned work arriving while the warning is open requires confirmation again.
+
+The warning uses the floor's latest received task and GitHub data; it is not a fresh GitHub audit. It only considers this worker's associations, not all issues assigned to the same human GitHub account. Agent MCP/CLI send-home commands are unchanged.
