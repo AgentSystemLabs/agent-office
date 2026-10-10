@@ -36,8 +36,9 @@ export function openPlaytests(initialMode = '') {
     h('header', {}, h('h2', {}, '☑ Playtest-Checkliste')),
     h('div.playtest-intro', {}, h('strong', {}, 'Für deine nächste Spielrunde'), h('p', {}, 'Modus auswählen und Tests durchgehen. Offene Spieltests blockieren keine Worker oder Merges. Ergebnisse beziehen sich auf den tatsächlich getesteten Build.')),
     tabs, h('div.playtest-toolbar', {}, search, style, outcome, refresh, add, scan, download), progress, error, list);
-  const modal = openModal(root, { doing: 'reviewing playtests', onClose: () => { alive = false; off(); } });
+  const modal = openModal(root, { doing: 'reviewing playtests', onClose: () => { alive = false; off(); offUpdates(); } });
   const off = store.on('floor', () => { if (store.floor !== floor) modal.close(); });
+  const offUpdates = playtestUpdates.on((id, data) => { if (alive && id === floor) { state = data; render(); } });
   for (const field of [search, style, outcome]) field.addEventListener('input', render);
   const url = `/api/playtests?floor=${encodeURIComponent(floor ?? '')}`;
   async function request(body?: unknown): Promise<boolean> {
