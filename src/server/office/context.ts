@@ -157,7 +157,7 @@ export interface Gates {
    * it moves to In progress on the board and is assigned on GitHub (see GitHub.claim), and comes off
    * the queue so nobody else is seated for it.
    */
-  takeIssue(c: Client, floor: Floor, n: number): void;
+  takeIssue(c: Client, floor: Floor, n: number, workerId: string): void;
   /**
    * Runs `go` once `c` has a sign-in of their own to `which` (only accounts need one: on the shared
    * password it's the office's own). Without one it looks again, since they may have just signed

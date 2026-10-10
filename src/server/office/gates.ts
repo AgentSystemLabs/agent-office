@@ -1,4 +1,5 @@
 import { WebSocket } from 'ws';
+import { issueHandoffs } from '../issue-handoffs.js';
 import type { GhAs } from '../signins.js';
 import type { Floor } from '../floor.js';
 import type { SignInKind } from '../../shared/protocol.js';
@@ -12,7 +13,9 @@ export function gates(ctx: Ctx): Gates {
    * it moves to In progress on the board and is assigned on GitHub (see GitHub.claim), and comes off
    * the queue so nobody else is seated for it.
    */
-  const takeIssue = (c: Client, floor: Floor, n: number) => {
+  const takeIssue = (c: Client, floor: Floor, n: number, workerId: string) => {
+    const worker = floor.workers.get(workerId);
+    if (worker) issueHandoffs(floor).take(n, worker, c.peer.name);
     floor.queue.dropIssue(n);
     const as = c.accountId ? ctx.signins.ghAs(c.accountId) : undefined;
     if (typeof as === 'string') return ctx.warn(c, `Couldn't assign issue #${n} on GitHub: ${as}`);

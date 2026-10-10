@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { formatDirectHandoffs } from './issue-handoffs.js';
 // office-queue: the task queue from inside Agent Office, for the agents standing by the boards (see
 // src/server/stations.ts). The office puts it on their PATH and gives them their own address and token
 // in AGENT_OFFICE_HOOK_URL, AGENT_OFFICE_WORKER_ID and AGENT_OFFICE_HOOK_TOKEN; this talks to the
@@ -199,7 +200,7 @@ export async function main(argv, io = {}) {
       err(`office-queue: ${refusal(res.status, res.body)}`);
       return 1;
     }
-    if (cmd.cmd === 'list') out(formatQueue(res.body));
+    if (cmd.cmd === 'list') out(formatQueue(res.body) + formatDirectHandoffs(res.body?.directHandoffs));
     else if (cmd.cmd === 'remove') out(`Took ${cmd.id} off the queue.`);
     else {
       const task = res.body?.task ?? {};

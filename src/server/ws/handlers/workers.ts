@@ -41,7 +41,7 @@ export const workerHandlers = {
       const across = repos.length ? ` across ${[floor.def.name, ...repos.map((x) => x.name)].join(' + ')}` : '';
       if (typeof r === 'string') ctx.warn(c, r);
       else ctx.toastFloor(floor, kind === 'shell' ? `${who} opened a shell at a desk` : `${who} hired ${r.name}${issue ? ` for issue #${issue}` : r.prompt ? ' with a task' : ''}${across}`);
-      if (typeof r !== 'string' && issue) ctx.takeIssue(c, floor, issue);
+      if (typeof r !== 'string' && issue) ctx.takeIssue(c, floor, issue, r.id);
     };
     // Every project it gets a worktree of starts from what's on GitHub.
     const fresh = [floor, ...repos.map((x) => ctx.floors.get(x.floor)!)];
@@ -121,7 +121,7 @@ export const workerHandlers = {
     const issue = w?.info.kind === 'agent' ? issueNumber(msg.issue) : undefined;
     if (w && !err && issue) {
       ctx.toastFloor(w.floor, `${who} handed issue #${issue} to ${w.info.name}`);
-      ctx.takeIssue(c, w.floor, issue);
+      ctx.takeIssue(c, w.floor, issue, w.wid);
     }
   },
   'station.prompt'(ctx, c, msg) {
