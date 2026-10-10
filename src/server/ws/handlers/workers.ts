@@ -1,3 +1,4 @@
+import { withIssueDeliveryPolicy } from '../../../shared/issue-delivery.js';
 // Workers at their desks and the board agents at their kiosks: hiring them, their terminals, their
 // worktrees and pull requests.
 import { MAX_REPOS, type RepoSource } from '../../workers.js';
@@ -116,7 +117,7 @@ export const workerHandlers = {
   'worker.prompt'(ctx, c, msg) {
     const who = c.peer.name;
     const w = workerOf(ctx, msg.workerId);
-    const err = w ? w.floor.workers.prompt(w.wid, str(msg.prompt, 20000), who) : 'No such worker';
+    const err = w ? w.floor.workers.prompt(w.wid, withIssueDeliveryPolicy(w.info.deskId, str(msg.prompt, 20000)), who) : 'No such worker';
     ctx.warn(c, err);
     const issue = w?.info.kind === 'agent' ? issueNumber(msg.issue) : undefined;
     if (w && !err && issue) {
@@ -132,7 +133,7 @@ export const workerHandlers = {
     // Nobody there yet: whoever asks first hires it, on their own sign-ins.
     const hires = !floor.workers.deskOccupied(deskId);
     ctx.withSignIn(c, hires ? ctx.claudeFor(floor.workers.officeDefault.provider) : undefined, () => {
-      const r = floor.workers.station(deskId, who, str(msg.prompt, 20000), c.accountId);
+      const r = floor.workers.station(deskId, who, withIssueDeliveryPolicy(deskId, str(msg.prompt, 20000)), c.accountId);
       if (typeof r === 'string') ctx.warn(c, r);
       else if (r.hired) ctx.toastFloor(floor, `${who} asked the ${r.info.name} something`);
     });

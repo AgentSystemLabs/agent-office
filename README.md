@@ -420,3 +420,5 @@ Every change to the app that lands on `main` is published as a GitHub release by
 ## License
 
 [MIT](LICENSE)
+
+Issue completion: the PR/Issues coordinator uses `office-deliver` after merging fully implemented work. It saves personal playtests unchecked, closes the GitHub issue, and reconciles existing queue tasks; manual headset checks no longer hold completed coding work in progress. See [completion handoff](docs/issue-delivery.md).

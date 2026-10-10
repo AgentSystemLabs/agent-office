@@ -1,3 +1,4 @@
+import { IssueDeliveries } from './issue-delivery.js';
 import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -209,6 +210,7 @@ export class TaskQueue {
       t.pr = pr;
       changed = true;
     }
+    this.reconcileDeliveries();
     if (changed) this.changed();
   }
 
@@ -238,7 +240,13 @@ export class TaskQueue {
 
   // ---------------------------------------------------------------------------
 
+  /** Apply verified issue-completion receipts without scheduling or removing tasks. */
+  reconcileDeliveries() {
+    if (new IssueDeliveries(path.dirname(this.statePath)).reconcile(this.tasks)) this.changed();
+  }
+
   private reconcile() {
+    this.reconcileDeliveries();
     const byId = new Map(this.workers.list().map((w) => [w.id, w]));
     let changed = false;
     let done = false;
