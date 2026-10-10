@@ -1,16 +1,18 @@
+import { validateHireRequest } from './hire-validation.js';
+import { PendingHires, prepareHire, type PreparedHire } from './hiring.js';
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import type { AgentChoice, AgentEffort, AgentProvider, TerminalHit, WorkerInfo, WorkerKind, WorkerRepo, WorkerStatus } from '../../shared/protocol.js';
 import { AGENT_PROVIDERS, takesEffort, takesModel } from '../../shared/providers.js';
 import { Worktrees, workspaceOf, type WorktreeCleanup, type WorktreeState } from '../worktrees.js';
-import { DESK_BY_ID, STATION_AGENT, deskBuilt } from '../../shared/layout.js';
+import { DESK_BY_ID, STATION_AGENT } from '../../shared/layout.js';
 import { stationBrief } from '../stations.js';
 import type { PromptSource } from '../prompts.js';
 import type { GhAs } from '../signins.js';
 import type { ServiceOwner } from '../services.js';
 import { addUsage, newTracker, scanTracker, trackerUsage, zeroUsage, type Ledger } from '../usage.js';
 import { PtyHost, SCROLLBACK, type Adopted, type Pty } from '../ptys.js';
-import { configuredProvider, providerCommand, validateWorkerEffort, validateWorkerModel } from '../agents.js';
+import { configuredProvider, providerCommand } from '../agents.js';
 import { ScrollbackStore, searchTerminal, terminalTail } from '../history.js';
 import { DSH_PROFILE_DEFAULT } from '../dsh.js';
 import { DropStore } from '../drops.js';
@@ -34,7 +36,7 @@ const SCREEN_INTERVAL_MS = 250;
 /** How often a steady typist's "last typed" time is refreshed for everyone. */
 const TYPED_REFRESH_MS = 15_000;
 /** The most other repositories one worker can take on (see WorkerInfo.repos). */
-export const MAX_REPOS = 8;
+export { MAX_REPOS } from './hire-validation.js';
 /** How often every worker's transcript is checked for new spend, on top of the hook-driven checks. */
 const USAGE_SCAN_MS = 10_000;
 /** How often a terminal with new output is saved to disk, so even a crash loses at most this much. */
@@ -43,6 +45,7 @@ const SAVE_SCROLLBACK_MS = 15_000;
 const RESTORED_NOTE = '\x1b[2m──── the office restarted · earlier output above ────\x1b[0m\r\n';
 
 export class WorkerManager {
+  private hires = new PendingHires();
   private workers = new Map<string, Worker>();
   private statePath: string;
   private trees: Worktrees;
@@ -210,6 +213,7 @@ export class WorkerManager {
   }
 
   deskOccupied(deskId: string): boolean {
+    if (this.hires.has(deskId)) return true;
     for (const w of this.workers.values()) if (w.info.deskId === deskId) return true;
     return false;
   }
@@ -217,36 +221,14 @@ export class WorkerManager {
   /**
    * Hires a worker at a desk. `meeting` seats one at the meeting room's table instead, for that meeting
    * (see meetings.ts), in the meeting's own worktree, which everyone at the table shares. `repos` are
-   * other floors' repositories a worker in its own worktree works in too (see makeWorkspace).
+   * other floors' repositories a worker in its own worktree works in too (see WorkerTrees).
    */
-  spawn(deskId: string, by: string, prompt?: string, worktree = false, kind: WorkerKind = 'agent', provider?: AgentProvider, model?: string, effort?: AgentEffort, meeting?: { id: string; worktree?: WorkerInfo['worktree'] }, owner?: string, repos: RepoSource[] = [], via?: 'herald'): WorkerInfo | string {
-    // Nobody picked (a board agent, say): the office's default worker, model and effort included.
+  spawn(deskId: string, by: string, prompt?: string, worktree = false, kind: WorkerKind = 'agent', provider?: AgentProvider, model?: string, effort?: AgentEffort, meeting?: { id: string; worktree?: WorkerInfo['worktree'] }, owner?: string, repos: RepoSource[] = [], via?: 'herald', prepared?: PreparedHire): WorkerInfo | string {
+    const error = this.validateHire(deskId, prompt, worktree, kind, provider, model, effort, meeting, owner, repos);
+    if (error) return error;
     if (kind === 'agent' && provider === undefined) ({ provider, model, effort } = this.officeDefault);
     const selectedProvider = kind === 'agent' ? provider : undefined;
-    const modelError = validateWorkerModel(kind, selectedProvider, model);
-    if (modelError) return modelError;
-    const effortError = validateWorkerEffort(kind, selectedProvider, effort);
-    if (effortError) return effortError;
-    const seat = DESK_BY_ID.get(deskId);
-    if (!seat) return 'Unknown desk';
-    if (!deskBuilt(seat, this.wing())) return `${seat.label} isn't built yet: expand the back office first`;
-    if (this.deskOccupied(deskId)) return seat.station ? `The ${STATION_AGENT[seat.station].name} is already there` : `That ${seat.beanbag ? 'bean bag' : 'desk'} is taken`;
-    if (kind === 'shell' && seat.station) return 'A board agent is always an agent, not a shell';
-    if (seat.station && !prompt?.trim()) return 'Tell the board agent what to do';
-    if (!seat.room !== !meeting) return seat.room ? 'Only a meeting seats workers at the meeting table: call one in the meeting room' : 'A meeting seats its workers at the meeting table';
-    if (meeting && (kind !== 'agent' || worktree)) return 'A meeting seats agents, in its own worktree';
-    if (repos.length && (kind !== 'agent' || !worktree || seat.station || meeting)) return 'Only a worker in its own worktree can work in other repositories too';
-    if (repos.length > MAX_REPOS) return `A worker can take on at most ${MAX_REPOS} other repositories`;
-    if (kind === 'shell' && provider !== undefined) return 'Shell workers do not have an agent provider';
-    if (kind === 'agent' && selectedProvider === 'custom' && this.defaultProvider !== 'custom') return 'Custom is not the configured agent provider';
-    if (kind === 'agent') {
-      const paused = this.ledger.hiringPaused;
-      if (paused) return paused;
-    }
-    const signIn = providerAdapter(selectedProvider)?.signIn;
-    if (owner && signIn && this.runAs && !this.runAs.claudeReady(owner)) return this.runAs.why(signIn);
-    const full = this.capacity?.full();
-    if (full) return full;
+    const seat = DESK_BY_ID.get(deskId)!;
     const used = new Set([...this.workers.values()].map((w) => w.info.name.replace(/ 🐚$/, '')));
     const agent = seat.station && STATION_AGENT[seat.station];
     const name = agent ? agent.name : (NAMES.find((n) => !used.has(n)) ?? `Worker ${this.workers.size + 1}`);
@@ -255,9 +237,9 @@ export class WorkerManager {
     let others: WorkerRepo[] | undefined;
     if (worktree) {
       const slug = `${name.toLowerCase()}-${id.slice(0, 4)}`;
-      const made = repos.length ? this.makeWorkspace(slug, repos) : this.trees.create(slug);
+      const made = prepared ?? (repos.length ? this.worktrees.makeWorkspace(slug, repos) : this.trees.create(slug));
       if (typeof made === 'string') return made;
-      if ('repos' in made) {
+      if ('worktree' in made) {
         ({ worktree: wt, repos: others } = made);
         for (const note of made.notes) this.events.toast(`🌿 ${name}'s worktree of ${note}`, 'info');
       } else {
@@ -300,9 +282,18 @@ export class WorkerManager {
     return info;
   }
 
-  /** The workspace of a worker across repositories (see WorkerTrees.makeWorkspace). */
-  private makeWorkspace(slug: string, repos: RepoSource[]): { worktree: NonNullable<WorkerInfo['worktree']>; repos: WorkerRepo[]; notes: string[] } | string {
-    return this.worktrees.makeWorkspace(slug, repos);
+  private validateHire(deskId: string, prompt: string | undefined, worktree: boolean, kind: WorkerKind, provider?: AgentProvider, model?: string, effort?: AgentEffort, meeting?: { id: string; worktree?: WorkerInfo['worktree'] }, owner?: string, repos: RepoSource[] = []): string | undefined {
+    return validateHireRequest({ officeDefault: this.officeDefault, wing: this.wing(), occupied: this.deskOccupied(deskId),
+      defaultProvider: this.defaultProvider, paused: this.ledger.hiringPaused, runAs: this.runAs, full: this.capacity?.full() },
+      deskId, prompt, worktree, kind, provider, model, effort, meeting, owner, repos);
+  }
+
+  /** Desk and API hires prepare large worktrees without blocking the office. */
+  hire(...args: Parameters<WorkerManager['spawn']>): Promise<WorkerInfo | string> {
+    return prepareHire(this.hires, args, {
+      validate: () => this.validateHire(args[0], args[2], !!args[3], args[4] ?? 'agent', args[5], args[6], args[7], args[8], args[9], args[10]),
+      spawn: (params) => this.spawn(...params), trees: this.trees, worktrees: this.worktrees, events: this.events,
+    });
   }
 
   /** Starts a worker that isn't running again, carrying on its session, with `prompt` as its next message. */
@@ -596,6 +587,7 @@ export class WorkerManager {
    */
   shutdown(keep = false) {
     this.closing = true;
+    this.hires.close();
     this.stopping = !keep;
     clearInterval(this.screenTimer);
     clearInterval(this.usageTimer);

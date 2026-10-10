@@ -75,6 +75,26 @@ export class WorkerTrees {
    * can't have its worktree, the ones already made are taken out again.
    */
   makeWorkspace(slug: string, repos: RepoSource[]): { worktree: NonNullable<WorkerInfo['worktree']>; repos: WorkerRepo[]; notes: string[] } | string {
+    const plan = this.workspacePlan(slug, repos);
+    let step = plan.next();
+    while (!step.done) {
+      const { trees, slug, sub, root } = step.value;
+      step = plan.next(trees.create(slug, sub, root));
+    }
+    return step.value;
+  }
+
+  async prepareWorkspace(slug: string, repos: RepoSource[], signal?: AbortSignal): Promise<ReturnType<WorkerTrees['makeWorkspace']>> {
+    const plan = this.workspacePlan(slug, repos);
+    let step = plan.next();
+    while (!step.done) {
+      const { trees, slug, sub, root } = step.value;
+      step = plan.next(await trees.prepareCheckout(slug, sub, root, signal));
+    }
+    return step.value;
+  }
+
+  private *workspacePlan(slug: string, repos: RepoSource[]): Generator<{ trees: Worktrees; slug: string; sub: string; root: string }, ReturnType<WorkerTrees['makeWorkspace']>, ReturnType<Worktrees['create']>> {
     // A branch can only be checked out once per repository, and two floors can be checkouts of the same one.
     const seen = new Map<string, string>();
     const own = this.ctx.trees.commonDir();
@@ -97,7 +117,7 @@ export class WorkerTrees {
       })();
       return why;
     };
-    const first = this.ctx.trees.create(slug, names[0]);
+    const first = yield { trees: this.ctx.trees, slug, sub: names[0], root: this.ctx.dir };
     if (typeof first === 'string') return fail(first);
     const { note, ...primary } = first;
     const notes = note ? [`${names[0]} ${note}`] : [];
@@ -105,7 +125,7 @@ export class WorkerTrees {
     const others: WorkerRepo[] = [];
     for (const [i, r] of repos.entries()) {
       const trees = new Worktrees(r.dir);
-      const wt = trees.create(slug, names[i + 1], this.ctx.dir);
+      const wt = yield { trees, slug, sub: names[i + 1], root: this.ctx.dir };
       if (typeof wt === 'string') return fail(`${r.name}: ${wt}`);
       if (wt.note) notes.push(`${names[i + 1]} ${wt.note}`);
       made.push({ trees, ref: { ...wt, path: path.relative(r.dir, path.join(this.ctx.dir, wt.path)) } });
