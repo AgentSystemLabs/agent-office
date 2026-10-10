@@ -1,3 +1,4 @@
+import { requestWorkerHome } from './worker-home';
 import './queue.css';
 import type { AgentProvider, QueueTask, Usage } from '../../shared/protocol';
 import type { Net } from '../net';
@@ -110,7 +111,7 @@ export function openQueue(net: Net, actions: QueueActions) {
           h('button.btn', {
             type: 'button',
             title: 'Send the worker home; the task counts as stopped',
-            onclick: () => confirmDialog(`Stop ${w.name}?`, `This sends ${w.name} home and stops the task. You can requeue it afterwards.`, 'Stop', () => net.send({ t: 'worker.kill', workerId: w.id })),
+            onclick: () => confirmDialog(`Stop ${w.name}?`, `This sends ${w.name} home and stops the task. You can requeue it afterwards.`, 'Stop', () => requestWorkerHome(net, { t: 'worker.kill', workerId: w.id })),
           }, '⏹ Stop'),
         );
       }

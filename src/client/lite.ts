@@ -15,6 +15,7 @@ import type { AgentEffort, AgentProvider, FloorInfo, WorkerInfo } from '../share
 import { $, clip, closeAllModals, doingNow, h, onDoingChange, onModalChange, openModal, readingNow, STATUS_LABEL, timeAgo, toast } from './ui/dom';
 import { openTerminal, openTerminalFor, routeTerminalMessage } from './ui/terminal';
 import { openChanges, openChangesFor, routeChangesMessage } from './ui/changes';
+import { requestWorkerHome } from './ui/worker-home';
 import { lostWorktreeDialog, openPrompt, routeWorktreeMessage, sendHomeDialog } from './ui/prompt';
 import { openBoard } from './ui/boards';
 import type { BoardActions } from './ui/github/prompts';
@@ -238,7 +239,7 @@ function fixLostWorktree(w: WorkerInfo) {
         worktree,
         repos: w.repos?.length ? [worktree.path.split(/[\\/]/).pop() ?? 'its own', ...w.repos.map((r) => r.name)] : undefined,
         ask: () => net.send({ t: 'worker.worktree', workerId: w.id }),
-        onConfirm: (cleanup) => net.send({ t: 'worker.kill', workerId: w.id, cleanup }),
+        onConfirm: (cleanup) => requestWorkerHome(net, { t: 'worker.kill', workerId: w.id, cleanup }),
       }),
   });
 }
