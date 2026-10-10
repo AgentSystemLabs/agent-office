@@ -429,6 +429,9 @@ The **Playtest checklist** also stands on a rolling board left of the lounge cou
 
 ### Failed playtests and current project copies
 
+Office Codex workers always launch with full filesystem access and no command approval prompts,
+including meeting participants and resumed sessions. See [Agents](docs/agents.md).
+
 In an expanded Playtest checklist entry, **Create Bug Issue** asks for a required failure description
 and sends the test and notes to the Issue agent. It leaves scheduling to you; see [Playtests](docs/playtests.md).
 Shared-checkout coding workers verify the remote before starting and wait for active shared turns

@@ -1,5 +1,10 @@
 # Choosing an agent
 
+Office Codex workers always launch and resume with `--yolo`: full filesystem access and no command
+approval prompts. This also covers meeting participants and floors with another default provider.
+Conflicting sandbox/approval launch options are removed. Running processes retain their existing
+settings until resumed. This policy does not grant Windows administrator rights.
+
 Back to the [README](../README.md).
 
 Every new worker starts on the office's **Default worker**: a provider, model and effort an admin picks in ⚙️ Settings → **🤖 Workers** (the `--agent` with its own default model until someone does). The hire, ask, queue, issue and meeting windows show it on one line; click **✏️ Edit** there to pick **Claude Code**, **OpenCode**, **Codex**, **Grok**, **Muse**, **DeepSeek Harness**, **Pi** or **Cursor**, a model and an effort for just that worker or task, and **↺ Use the default** to go back. Board agents and tasks the Queue agent adds, which nobody picks for, start on the default too. Existing workers keep their provider when prompted or resumed, and queued tasks keep their choice when retried or restored after a restart.
