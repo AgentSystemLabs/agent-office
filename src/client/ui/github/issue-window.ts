@@ -1,3 +1,4 @@
+import { openPlaytestTriage } from '../playtests/triage';
 import './windows.css';
 import type { GhIssue, GhIssueDetail } from '../../../shared/protocol';
 import type { Net } from '../../net';
@@ -55,6 +56,7 @@ export function openIssue(first: GhIssue, net: Net, actions: BoardActions) {
       h('button.btn', { type: 'button', title: 'Send a worker your own prompt about this issue', onclick: () => actions.ask(issueContext(it), `Ask about issue #${it.number}`) }, '✍️ Ask a worker…'),
       h('button.btn', { type: 'button', title: 'Workers take it on together in the meeting room: a debate, lead & team, map-reduce or red / blue', onclick: () => actions.meeting(issueMeeting(it.number, it.title)) }, '🤝 Meeting…'),
       closeIssue,
+      h('button.btn', { type: 'button', onclick: () => openPlaytestTriage(it.number) }, '☑ Playtests aussortieren'),
       queueProvider.element,
       queue,
       pickUp,

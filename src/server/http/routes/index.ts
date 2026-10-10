@@ -1,3 +1,4 @@
+import { playtestTriageRoute } from './playtest-triage.js';
 // Every HTTP route the office answers, in the order they're tried: a new route goes where it has to
 // come in that order (see http/router.ts). The public ones are tried first, then the sign-in check,
 // then the rest; the last one answers every path left with the client bundle, or a 404.
@@ -9,6 +10,8 @@ import { githubRoutes } from './github.js';
 import { pageRoutes } from './pages.js';
 import { searchRoutes } from './search.js';
 import { serviceRoutes } from './services.js';
+import { playtestBugRoute } from './playtest-bugs.js';
+import { playtestRoute } from './playtests.js';
 
 export const routes: readonly Route[] = [
   // Anyone.
@@ -35,6 +38,9 @@ export const routes: readonly Route[] = [
   fileRoutes.docs,
   searchRoutes.search,
   serviceRoutes.forwards,
+  playtestRoute,
+  playtestBugRoute,
+  playtestTriageRoute,
   githubRoutes.github,
   pageRoutes.office,
   pageRoutes.lite,
