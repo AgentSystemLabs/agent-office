@@ -5,6 +5,7 @@
 // A {{name}} in one is filled in by the office when it's sent.
 
 import { STATION_AGENT, type StationKind } from './layout.js';
+import { PR_MAINTENANCE } from './pr-maintenance.js';
 
 export type PromptGroup = 'issues' | 'pulls' | 'queue' | 'repos' | 'stations' | 'meetings' | 'office';
 
@@ -65,6 +66,7 @@ function stationDefault(kind: StationKind): string {
     JOB[kind],
     `You're in the project's main checkout, which other people and workers use too: don't switch branches, commit, or leave edits in it. Work that needs code changed goes on the task queue, ${queue ? 'always' : 'unless the person asks you for something else'}.`,
     QUEUE_API,
+    ...(kind === 'pulls' ? [PR_MAINTENANCE] : []),
     `${queue ? "When you've queued it, say in a few lines what you queued: each task's id and title." : "When you've done what was asked, say in a few lines what you did, with links."} Then wait: the next request may come from someone else.`,
     `The request:`,
   ].join('\n\n');
