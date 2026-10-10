@@ -1,3 +1,4 @@
+import { meetingTaskStatus } from '../../features/meeting/card';
 import type * as THREE from 'three';
 import type { WorkerStatus, WorkerTask } from '../../../shared/protocol';
 import { isAsleep, type WorkerPr } from '../../../shared/status';
@@ -41,6 +42,11 @@ const PR_ICON: Record<WorkerPr['state'], string> = { open: '🔀', merged: '🎉
  * different: `draw` makes it, or null for none.
  */
 export function bubbleFor(status: WorkerStatus, bounce: boolean, task: WorkerTask | undefined, pr: WorkerPr | undefined, lost: boolean): { key: string; draw(): THREE.Sprite | null } {
+  const meeting = meetingTaskStatus(task);
+  if (meeting && task) return {
+    key: `meeting|${meeting}|${task.name}|${task.summary}`,
+    draw: () => cardSprite({ chip: { text: meeting === 'stopped' ? '⛔ MEETING STOPPED' : '✅ MEETING COMPLETE', bg: meeting === 'stopped' ? '#ef476f' : '#06d6a0', color: '#fff' }, title: task.name, body: task.summary, bg: '#fffaf3' }),
+  };
   const hot = status === 'needs_input' || (status === 'done' && bounce);
   const asking = status === 'needs_input' && !lost;
   const bg = hot ? (status === 'done' ? '#caffbf' : NEEDS_YOU.card) : status === 'working' ? '#ffec99' : '#fffaf3';

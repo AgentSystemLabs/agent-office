@@ -139,6 +139,8 @@ export type MeetingClientMsg =
   | ({ t: 'meeting.start' } & MeetingRequest)
   /** Stop the meeting that's running; its workers stay at the table. */
   | { t: 'meeting.stop' }
+  /** Continue the same stopped round with existing ready workers and saved notes. */
+  | { t: 'meeting.resume' }
   /** Send the last meeting's workers home and clear the table. */
   | { t: 'meeting.clear' };
 

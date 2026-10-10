@@ -1,0 +1,31 @@
+.playtest-modal { width: min(940px, 94vw); max-height: 90vh; display: flex; flex-direction: column; }
+.playtest-modal > header { display: flex; align-items: center; gap: 12px; padding: 16px 20px; border-bottom: 3px solid var(--ink, #2b2d42); }
+.playtest-modal > header h2 { flex: 1; margin: 0; font-size: 22px; }
+.playtest-intro { padding: 16px 20px 6px; }
+.playtest-intro strong { font-size: 18px; }
+.playtest-intro p { color: #676158; margin: 6px 0; line-height: 1.45; }
+.playtest-toolbar { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 20px; }
+.playtest-toolbar input { flex: 1; min-width: 170px; }
+.playtest-modal input:not([type=checkbox]), .playtest-modal textarea, .playtest-modal select { border: 2px solid #2b2d42; border-radius: 8px; background: white; padding: 8px; color: #2b2d42; font: inherit; }
+.playtest-progress { padding: 0 20px; margin: 0 0 10px; font-weight: bold; }
+.playtest-error { color: #a31736; padding: 0 20px; white-space: pre-wrap; }
+.playtest-error:empty { display: none; }
+.playtest-list { padding: 0 20px 20px; overflow-y: auto; min-height: 120px; }
+.playtest-card { background: #fffaf1; border: 2px solid #2b2d42; border-radius: 12px; margin-bottom: 10px; padding: 14px; box-shadow: 0 3px 0 #2b2d42; }
+.playtest-card.checked { background: #e7f6e9; }
+.playtest-card-head { display: flex; align-items: flex-start; gap: 12px; }
+.playtest-card-head input { width: 23px; height: 23px; margin: 2px 0; accent-color: #168b69; flex-shrink: 0; cursor: pointer; }
+.playtest-card-head h3 { font-size: 16px; margin: 0 0 8px; overflow-wrap: anywhere; }
+.playtest-category { display: inline-block; border-radius: 6px; padding: 3px 8px; margin-right: 10px; background: #e5e9fc; font-size: 12px; }
+.playtest-card a { color: #45569e; font-size: 13px; }
+.playtest-card details { margin: 10px 0 0 35px; }
+.playtest-card summary { cursor: pointer; font-size: 14px; }
+.playtest-card h4 { margin: 12px 0 4px; font-size: 13px; }
+.playtest-text { white-space: pre-wrap; line-height: 1.45; margin: 0 0 12px; overflow-wrap: anywhere; }
+.playtest-card textarea { width: 100%; box-sizing: border-box; resize: vertical; }
+.playtest-row-actions { display: flex; gap: 8px; margin: 8px 0; }
+.playtest-editor { overflow-y: auto; padding: 20px; }
+.playtest-editor label { display: block; margin: 0 0 14px; font-weight: bold; }
+.playtest-editor input, .playtest-editor textarea { display: block; width: 100%; box-sizing: border-box; margin-top: 5px; font-weight: normal; }
+.playtest-empty { padding: 26px 10px; color: #676158; text-align: center; }
+@media(max-width: 560px) { .playtest-modal { max-height: 94vh; } .playtest-toolbar { padding: 10px; } .playtest-card details { margin-left: 0; } .playtest-list { padding: 0 10px 12px; } }

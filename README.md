@@ -11,6 +11,10 @@
 
 **A 3D office your team shares with its coding agents.**
 
+**Personal playtests:** open **☰ → Playtest checklist** to collect gameplay and headset checks, keep notes
+and check them off when you play. Each project keeps its own saved list. Workers can contribute tests
+without adding queue work or blocking PRs. See [Playtest checklist](docs/playtests.md).
+
 Sit **Claude Code**, **Codex**, **OpenCode**, **Grok**, **Muse**, **DeepSeek Harness** and **Cursor** workers at desks, watch each one's terminal on the laptop in front of it,
 and jump into any of them together. Every GitHub repo is a floor of the building.
 
@@ -420,3 +424,5 @@ Every change to the app that lands on `main` is published as a GitHub release by
 ## License
 
 [MIT](LICENSE)
+
+The **Playtest checklist** also stands on a rolling board left of the lounge couch: press **E** to check off tests and add notes. Stopped meetings show **MEETING STOPPED** independently of terminal status; open **Meeting room → Continue meeting** once the original participants are ready to reuse their saved round notes. See [Playtests](docs/playtests.md) and [Meetings](docs/meetings.md).

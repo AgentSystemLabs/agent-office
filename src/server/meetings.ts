@@ -1,3 +1,4 @@
+import { recoverMeeting } from './meeting-recovery.js';
 import { execFile } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { closeSync, cpSync, existsSync, mkdirSync, openSync, readFileSync, readSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -72,18 +73,7 @@ interface Part {
   ask: string;
 }
 
-/**
- * The meeting room. A meeting seats 2–5 agents round the table, each with a role, and runs them
- * through the rounds of its pattern (shared/meetings.ts): in each step every worker with a part gets
- * it as a prompt, and the step is over when each of them has ended its turn with its part written to
- * the file it names. Checking the files, not the talk, is what moves a meeting on. It ends when the
- * output file is written, and stops early, saying why, when a worker won't write its part or when a
- * worker leaves. What the table has used is added up to be shown, and never stops it.
- *
- * Everyone at the table shares the meeting's own git worktree (in a git project). When it's done,
- * the office commits the output there, or for a review panel posts it on the pull request. The
- * workers stay at the table to be looked at until the room is cleared or the next meeting is called.
- */
+/** Runs the meeting rounds, saving notes and preserving stopped rounds for explicit recovery. */
 export class MeetingRoom {
   private current: Meeting | null = null;
   private past: MeetingRecord[] = [];
@@ -227,6 +217,15 @@ export class MeetingRoom {
     return undefined;
   }
 
+  /** Continue an interrupted round, reusing files already written. */
+  resume(): string | undefined {
+    const m = this.current;
+    if (m?.worktree && !existsSync(this.cwd(m))) return 'The meeting worktree is missing; restore it before continuing';
+    const error = this.events.hiringPaused() ?? recoverMeeting(m, this.workers.list(), t => this.written(m!, t));
+    if (error) return error;
+    this.readySince.clear(); this.changed(); this.pump();
+  }
+
   /** Sends the last meeting's workers home and clears the table. */
   clear(by: string): string | undefined {
     const m = this.current;
@@ -322,7 +321,7 @@ export class MeetingRoom {
       case 'waiting': {
         if (!ready(w.status)) return false;
         const part = this.plan(m, m.round, m.step)?.find((p) => p.seat === t.seat);
-        if (!part || this.workers.prompt(w.id, this.ask(m, part), BY)) return false;
+        if (!part || this.workers.prompt(w.id, `${w.sessionId ? '' : this.brief(m, t.seat) + '\n\n'}${this.ask(m, part)}`, BY)) return false;
         t.state = 'sent';
         t.sentAt = now;
         return true;
