@@ -420,3 +420,5 @@ Every change to the app that lands on `main` is published as a GitHub release by
 ## License
 
 [MIT](LICENSE)
+
+Shared-checkout workers can continue independent tasks while a colleague is active; see [checkout coordination](docs/checkout-safety.md).
