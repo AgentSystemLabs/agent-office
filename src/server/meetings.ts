@@ -1,3 +1,6 @@
+import { MeetingPreparation } from './meeting-preparation.js';
+import type { MeetingWorkers, MeetingTrees, MeetingEvents } from './meeting-contracts.js';
+export type { MeetingWorkers, MeetingTrees, MeetingEvents } from './meeting-contracts.js';
 import { execFile } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { closeSync, cpSync, existsSync, mkdirSync, openSync, readFileSync, readSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -5,46 +8,13 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { MEETING_SEATS } from '../shared/layout.js';
 import { MEETING_NOTES_DIR, MEETING_PATTERNS, isMeetingPattern, meetingRecord, outputProblem, slugify } from '../shared/meetings.js';
-import { isAgentEffort, isAgentProvider, tokensOf, type AgentChoice, type AgentEffort, type AgentProvider, type Meeting, type MeetingRecord, type MeetingRequest, type MeetingState, type MeetingTurn, type WorkerInfo, type WorkerStatus } from '../shared/protocol.js';
+import { isAgentEffort, isAgentProvider, tokensOf, type AgentProvider, type Meeting, type MeetingRecord, type MeetingRequest, type MeetingState, type MeetingTurn, type WorkerInfo, type WorkerStatus } from '../shared/protocol.js';
 import { validateWorkerEffort, validateWorkerModel } from './agents.js';
 import { providerMeta, takesEffort, takesModel } from '../shared/providers.js';
-import { gitError, type WorktreeRef, type WorktreeState } from './worktrees.js';
+import { gitError } from './worktrees.js';
 import { PROMPTS, fillPrompt, type PromptId, type PromptVars } from '../shared/prompts.js';
 
 const execFileP = promisify(execFile);
-
-/** What the meeting room needs from the worker manager. Narrow on purpose, so a test can fake it. */
-export interface MeetingWorkers {
-  readonly defaultProvider: AgentProvider;
-  /** What a meeting seats when whoever calls it doesn't pick (⚙️ Settings); the default provider without it. */
-  readonly officeDefault?: AgentChoice;
-  list(): WorkerInfo[];
-  /** Seats an agent at a chair of the meeting table, for meeting `meeting`, in its worktree when it has one. */
-  seat(deskId: string, by: string, prompt: string, provider: AgentProvider, model: string | undefined, effort: AgentEffort | undefined, meeting: { id: string; worktree?: Meeting['worktree'] }, owner?: string): WorkerInfo | string;
-  prompt(id: string, text: string, by?: string): string | undefined;
-  /** Keys into its terminal: Esc, to stop what it's doing. */
-  write(id: string, data: string, by: string): void;
-  kill(id: string): Promise<{ note?: string; error?: string }>;
-}
-
-/** Git for the meeting's own worktree: made when it starts, tidied away once everyone has gone home. */
-export interface MeetingTrees {
-  /** `note` says when commits the project has were left out of it (see Worktrees.create). */
-  create(slug: string): (Required<Omit<WorktreeRef, 'made'>> & { from?: string; note?: string }) | string;
-  inspect(wt: WorktreeRef): Promise<WorktreeState>;
-  remove(wt: WorktreeRef, cleanup: 'worktree' | 'all'): Promise<string | undefined>;
-}
-
-export interface MeetingEvents {
-  update(state: MeetingState): void;
-  toast(text: string, level: 'info' | 'warn' | 'error'): void;
-  /** Why nobody may be hired right now (today's budget is spent), if that's so. */
-  hiringPaused(): string | undefined;
-  /** Posts the review panel's review on its pull request. Resolves to the review's URL. */
-  postReview(pr: number, file: string, owner?: string): Promise<string>;
-  /** One of the office's prompts as it has it now (rewritten in ⚙️ Settings, or the default). */
-  prompt?(id: PromptId): string;
-}
 
 const PUMP_MS = 3000;
 /** A part handed to a worker that sits ready this long without starting on it is handed over again, once. */
@@ -94,6 +64,7 @@ export class MeetingRoom {
   /** Token counts changed: told everyone on the next tick rather than on every worker update. */
   private dirty = false;
   private closing = false;
+  private preparation = new MeetingPreparation();
   /** When each handed-over part's worker was first seen ready without having started on it. */
   private readySince = new Map<MeetingTurn, number>();
 
@@ -117,7 +88,11 @@ export class MeetingRoom {
 
   /** Calls a meeting. Returns why it couldn't, or undefined once everyone is sitting down. */
   /** `owner` is the account calling it: the workers run on its sign-ins, and a review panel's review is posted as it. */
-  start(req: MeetingRequest, by: string, owner?: string): string | undefined {
+  start(req: MeetingRequest, by: string, owner?: string): Promise<string | undefined> {
+    return this.preparation.run((signal) => this.startPrepared(req, by, owner, signal));
+  }
+
+  private async startPrepared(req: MeetingRequest, by: string, owner: string | undefined, signal: AbortSignal): Promise<string | undefined> {
     if (this.current?.status === 'running') return `The meeting room is busy with “${this.current.title}”: stop that meeting first`;
     if (!isMeetingPattern(req.pattern)) return 'Unknown meeting pattern';
     const pattern = MEETING_PATTERNS[req.pattern];
@@ -156,18 +131,22 @@ export class MeetingRoom {
 
     // The last meeting's workers make room: they go home, and their worktree is tidied away after them.
     const last = this.current;
-    if (last) void this.dismiss(last);
+    if (last) await this.dismiss(last);
     const busy = MEETING_SEATS.slice(0, count).find((d) => this.workers.list().some((w) => w.deskId === d.id));
     if (busy) return 'Someone is still sitting at the meeting table';
 
     let worktree: Meeting['worktree'];
     if (this.trees) {
-      const made = this.trees.create(`meeting-${slug}-${id.slice(0, 4)}`);
+      this.events.toast('Preparing the meeting worktree; large projects can take several minutes.', 'info');
+      const made = await this.trees.createAsync(`meeting-${slug}-${id.slice(0, 4)}`, signal);
       if (typeof made === 'string') return made;
       const { note, ...ref } = made;
       worktree = ref;
       if (note) this.events.toast(`🌿 The meeting's worktree ${note}`, 'info');
     }
+    if (signal.aborted || this.closing) return 'Meeting start cancelled; its worktree was preserved.';
+    const pausedAfterCheckout = this.events.hiringPaused();
+    if (pausedAfterCheckout) return pausedAfterCheckout;
     const m: Meeting = {
       id,
       pattern: req.pattern,
@@ -221,6 +200,7 @@ export class MeetingRoom {
 
   /** Stops the meeting that's running. Its workers stay at the table. */
   stop(by: string): string | undefined {
+    if (this.preparation.cancel()) return undefined;
     const m = this.current;
     if (!m || m.status !== 'running') return 'No meeting is on';
     this.halt(m, `stopped by ${by}`);
@@ -229,6 +209,7 @@ export class MeetingRoom {
 
   /** Sends the last meeting's workers home and clears the table. */
   clear(by: string): string | undefined {
+    if (this.preparation.busy) return 'The meeting worktree is being prepared: stop it first';
     const m = this.current;
     if (!m) return 'Nobody is in the meeting room';
     if (m.status === 'running') return 'The meeting is still on: stop it first';
@@ -268,6 +249,7 @@ export class MeetingRoom {
 
   shutdown() {
     this.closing = true;
+    this.preparation.cancel();
     clearInterval(this.timer);
     this.persist();
   }

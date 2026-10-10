@@ -21,6 +21,7 @@ import { clockWork } from './clock.js';
 import { childEnv } from './env.js';
 import { midTurn } from './lifecycle.js';
 import { restoreWorkers, saveWorkers } from './persist.js';
+import { WorkerPreparation } from './preparation.js';
 import { WorkerPrs } from './pr.js';
 import { WIN, binScript, defaultShell, resolveCommand, shellRun, shq, writeOfficeCommands } from './process.js';
 import { CARRY_ON_PROMPT, WorkerTasks } from './tasks.js';
@@ -62,6 +63,7 @@ export class WorkerManager {
   private tasks: WorkerTasks;
   private worktrees: WorkerTrees;
   private prs: WorkerPrs;
+  private preparation: WorkerPreparation;
   private usageTimer: NodeJS.Timeout;
   /** Runs the workers' terminals outside the office, so they outlive a restart of it (see ptys.ts). */
   private host: PtyHost;
@@ -121,6 +123,7 @@ export class WorkerManager {
     this.tasks = new WorkerTasks(this.ctx, claude, childEnv());
     this.worktrees = new WorkerTrees(this.ctx);
     this.prs = new WorkerPrs(this.ctx);
+    this.preparation = new WorkerPreparation(this.ctx);
     this.host = new PtyHost(dataDir, () => this.events.toast("The workers' terminal host stopped — resuming them", 'warn'));
     this.scrollback = new ScrollbackStore(dataDir);
     this.drops = new DropStore(dataDir);
@@ -140,7 +143,6 @@ export class WorkerManager {
       for (const w of this.workers.values()) if (w.unsaved) this.saveScrollback(w);
     }, SAVE_SCROLLBACK_MS);
   }
-
   /**
    * Picks every worker whose terminal outlived the last office (a dev-server reload, an upgrade)
    * back up where it is, mid-turn or not. Whoever else was at a desk when the office stopped (a
@@ -169,7 +171,6 @@ export class WorkerManager {
   get resolvedAgent(): string | null {
     return this.agentPath;
   }
-
   /** What an agent starts on when whoever starts it doesn't pick: the one set in ⚙️ Settings, or the office's --agent. */
   get officeDefault(): AgentChoice {
     const picked = this.prompts?.agent();
@@ -184,12 +185,10 @@ export class WorkerManager {
   get(id: string): WorkerInfo | undefined {
     return this.workers.get(id)?.info;
   }
-
   /** The account a worker runs as (see RunAs), if not the office. */
   ownerOf(id: string): string | undefined {
     return this.workers.get(id)?.owner;
   }
-
   /** Each worker's terminal process and directory, to tell whose servers are whose. */
   owners(): ServiceOwner[] {
     return [...this.workers.values()].map((w) => ({
@@ -200,7 +199,6 @@ export class WorkerManager {
       root: this.dir,
     }));
   }
-
   /**
    * Fetches the branch the project is on, so a worktree made next starts from what's on GitHub now
    * (see Worktrees.fetch). Undefined when there's nothing to wait for.
@@ -213,7 +211,6 @@ export class WorkerManager {
     for (const w of this.workers.values()) if (w.info.deskId === deskId) return true;
     return false;
   }
-
   /**
    * Hires a worker at a desk. `meeting` seats one at the meeting room's table instead, for that meeting
    * (see meetings.ts), in the meeting's own worktree, which everyone at the table shares. `repos` are
@@ -253,17 +250,13 @@ export class WorkerManager {
     const id = randomBytes(6).toString('hex');
     let wt: WorkerInfo['worktree'] = meeting?.worktree;
     let others: WorkerRepo[] | undefined;
-    if (worktree) {
+    if (worktree && repos.length) {
       const slug = `${name.toLowerCase()}-${id.slice(0, 4)}`;
-      const made = repos.length ? this.makeWorkspace(slug, repos) : this.trees.create(slug);
+      const made = this.makeWorkspace(slug, repos);
       if (typeof made === 'string') return made;
       if ('repos' in made) {
         ({ worktree: wt, repos: others } = made);
         for (const note of made.notes) this.events.toast(`🌿 ${name}'s worktree of ${note}`, 'info');
-      } else {
-        const { note, ...ref } = made;
-        wt = ref;
-        if (note) this.events.toast(`🌿 ${name}'s worktree ${note}`, 'info');
       }
     }
     const info: WorkerInfo = {
@@ -295,20 +288,22 @@ export class WorkerManager {
     this.workers.set(id, w);
     if (info.prompt) this.tasks.notePrompt(w, info.prompt);
     // A board agent is told what it's there for ahead of its first request (which is what shows).
-    this.launch(w, seat.station && info.prompt ? `${stationBrief(seat.station, this.prompts)}\n\n${info.prompt}` : info.prompt, undefined);
+    const launch = () => this.launch(w, seat.station && info.prompt ? `${stationBrief(seat.station, this.prompts)}\n\n${info.prompt}` : info.prompt, undefined);
+    if (worktree && !repos.length) this.preparation.start(w, this.trees, `${name.toLowerCase()}-${id.slice(0, 4)}`, launch);
+    else launch();
     this.persist();
     return info;
   }
-
   /** The workspace of a worker across repositories (see WorkerTrees.makeWorkspace). */
   private makeWorkspace(slug: string, repos: RepoSource[]): { worktree: NonNullable<WorkerInfo['worktree']>; repos: WorkerRepo[]; notes: string[] } | string {
     return this.worktrees.makeWorkspace(slug, repos);
   }
-
   /** Starts a worker that isn't running again, carrying on its session, with `prompt` as its next message. */
   resume(id: string, prompt?: string): string | undefined {
     const w = this.workers.get(id);
     if (!w) return 'No such worker';
+    const preparing = this.preparation.blocked(id);
+    if (preparing) return preparing;
     if (w.pty || w.dsh) return 'Worker is already running';
     if (this.worktrees.checkLost(w, true)) return lostMessage(w.info);
     clockWork(w.info, 'starting');
@@ -327,7 +322,6 @@ export class WorkerManager {
     this.launch(w, carryOn ? CARRY_ON_PROMPT : first, w.info.sessionId);
     return undefined;
   }
-
   /**
    * A request for the agent standing by a board (see STATIONS): typed into its session, which is woken
    * up with it if it's asleep, or it's hired there with it when nobody is. Returns what went wrong, or
@@ -349,19 +343,16 @@ export class WorkerManager {
     const err = running ? this.prompt(w.info.id, clean, by) : this.resume(w.info.id, clean);
     return err ?? { info: w.info, hired: false };
   }
-
   /** The worker whose terminal holds this hook token: how a worker proves it's asking for itself. */
   authenticate(id: string, token: string): WorkerInfo | undefined {
     const w = this.workers.get(id);
     return (w?.pty || w?.dsh) && token && safeEq(token, w.hookToken) ? w.info : undefined;
   }
-
   /** Starts every worker that isn't running: nobody should be found asleep at their desk. */
   wakeAll() {
     // A DeepSeek Harness worker has no PTY but is still running: only the ones that are gone wake up.
     for (const w of this.workers.values()) if (!w.pty && !w.dsh) this.resume(w.info.id);
   }
-
   /**
    * Sends a worker home. For one with its own worktree, `cleanup` says what becomes of it; with no
    * choice given, the worktree and branch go only when they hold no work, where `landed` (its merged
@@ -372,6 +363,7 @@ export class WorkerManager {
     const w = this.workers.get(id);
     if (!w) return {};
     this.workers.delete(id);
+    const preserve = await this.preparation.cancel(id, !!w.preparingWorktree);
     this.tasks.forget(id);
     clearTimeout(w.scanTimer);
     const proc = w.pty;
@@ -389,9 +381,9 @@ export class WorkerManager {
     this.drops.remove(id);
     this.events.remove(id, w.info);
     this.persist();
+    if (preserve) return { note: `Kept partial checkout at ${w.preparingWorktree} for inspection` };
     return this.worktrees.sendHome(w.info, cleanup, landed, landedRepos);
   }
-
   /**
    * Whether any worktree of a worker across repositories holds work its merged pull requests didn't
    * deliver (`landed` and `landedRepos`, as for kill): then it doesn't go home by itself yet.
@@ -399,12 +391,10 @@ export class WorkerManager {
   holdsWork(id: string, landed?: string, landedRepos?: Record<string, string | undefined>): Promise<boolean> {
     return this.worktrees.holdsWork(id, landed, landedRepos);
   }
-
   /** What a worker's worktree holds, so whoever sends it home knows what deleting it would lose. */
   inspectWorktree(id: string): Promise<WorktreeState | undefined> {
     return this.worktrees.inspect(id);
   }
-
   /** Every worker's worktree branch, looked at again (see WorkerTrees.syncBranch): for when new pull requests may have come in. */
   syncBranches(): Promise<void> {
     return this.worktrees.syncAll();
@@ -596,6 +586,7 @@ export class WorkerManager {
    */
   shutdown(keep = false) {
     this.closing = true;
+    this.preparation.shutdown();
     this.stopping = !keep;
     clearInterval(this.screenTimer);
     clearInterval(this.usageTimer);
