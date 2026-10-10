@@ -9,6 +9,9 @@
 
 # 🏢 Agent Office
 
+Codex workers can use a persistent, per-project permission setting for unattended work.
+See [Codex permissions](docs/agents.md#codex-permissions); the default preserves native approvals.
+
 **A 3D office your team shares with its coding agents.**
 
 Sit **Claude Code**, **Codex**, **OpenCode**, **Grok**, **Muse**, **DeepSeek Harness** and **Cursor** workers at desks, watch each one's terminal on the laptop in front of it,
