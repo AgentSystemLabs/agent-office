@@ -52,6 +52,8 @@ export interface RunAs {
 }
 
 export interface Worker {
+  /** Incomplete checkout: never resume this worker in the shared project after a restart. */
+  preparingWorktree?: string;
   info: WorkerInfo;
   /** The account that hired it, whose sign-ins it runs on. None: the office's own. */
   owner?: string;

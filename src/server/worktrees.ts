@@ -72,11 +72,11 @@ export class Worktrees {
     }
   }
 
-  /** Meeting checkouts run off the event loop, with a budget suitable for large LFS projects. */
+  /** Checkouts run off the event loop, with a budget suitable for large LFS projects. */
   async createAsync(slug: string, signal?: AbortSignal): Promise<(Required<Omit<WorktreeRef, 'made'>> & { from?: string; note?: string }) | string> {
     const rel = path.join(WORKTREES_DIR, slug);
     try {
-      if (signal?.aborted) throw new Error('Meeting start cancelled');
+      if (signal?.aborted) throw new Error('Worktree preparation cancelled');
       const from = this.currentBranch();
       const { base, note } = this.startPoint(from);
       const branch = `${BRANCH_PREFIX}${slug}`;

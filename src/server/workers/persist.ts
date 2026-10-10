@@ -17,7 +17,7 @@ const RUNNING = new Set<unknown>(['starting', 'idle', 'working', 'done', 'needs_
 
 /** Saves every worker; `stopping`: the office is closing for good, so nobody is in the middle of anything. */
 export function saveWorkers(file: string, workers: Iterable<Worker>, stopping: boolean) {
-  const saved = [...workers].map(({ info, owner, tracker, state, hookToken, pty, bootBlocked, interrupted }) => ({
+  const saved = [...workers].map(({ info, owner, tracker, state, hookToken, pty, bootBlocked, interrupted, preparingWorktree }) => ({
     id: info.id,
     owner,
     kind: info.kind,
@@ -31,6 +31,7 @@ export function saveWorkers(file: string, workers: Iterable<Worker>, stopping: b
     createdAt: info.createdAt,
     prompt: info.prompt,
     worktree: info.worktree,
+    preparingWorktree,
     repos: info.repos,
     title: info.title,
     sessionId: info.sessionId,
@@ -104,6 +105,7 @@ export function restoreWorkers(file: string, workers: Map<string, Worker>, defau
       };
       const w = newWorker(info, tracker, typeof s.hookToken === 'string' && s.hookToken ? s.hookToken : undefined);
       if (typeof s.owner === 'string' && s.owner) w.owner = s.owner;
+      if (typeof s.preparingWorktree === 'string') w.preparingWorktree = s.preparingWorktree;
       usage?.restore?.(w.state, s);
       w.screenDirty = false;
       if (typeof s.pty?.id === 'string') {

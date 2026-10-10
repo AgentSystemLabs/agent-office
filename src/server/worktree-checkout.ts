@@ -8,7 +8,7 @@ export function checkoutWorktree(cwd: string, args: string[], signal?: AbortSign
 /** Exported separately so timeout and event-loop behavior can be checked without a huge repository. */
 export function runCheckout(file: string, args: string[], cwd: string, signal?: AbortSignal, timeoutMs = 20 * 60_000): Promise<void> {
   return new Promise((resolve, reject) => {
-    if (signal?.aborted) { reject(new Error('Meeting start cancelled')); return; }
+    if (signal?.aborted) { reject(new Error('Worktree preparation cancelled')); return; }
     const child = spawn(file, args, { cwd, windowsHide: true, detached: process.platform !== 'win32', stdio: ['ignore', 'ignore', 'pipe'], env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } });
     let stderr = '';
     let reason: string | undefined;
@@ -25,7 +25,7 @@ export function runCheckout(file: string, args: string[], cwd: string, signal?: 
         else { try { process.kill(-pid, 'SIGKILL'); } catch { /* already exited */ } done(); }
       });
     };
-    const abort = () => stop('Meeting start cancelled');
+    const abort = () => stop('Worktree preparation cancelled');
     const timer = setTimeout(() => stop(`Git checkout timed out after ${Math.round(timeoutMs / 1000)} seconds`), timeoutMs);
     signal?.addEventListener('abort', abort, { once: true });
     if (signal?.aborted) abort();
