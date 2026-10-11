@@ -84,3 +84,7 @@ Browser API: `/api/playtests?floor=<id>` (GET, POST `add`/`update`),
 `/api/playtests/bug?floor=<id>` (POST). Session authentication and same-origin checks protect writes.
 Triage uses the signed-in person's GitHub identity and that floor's repository. Worker API:
 `/office/playtests`, GET or POST `add`, authenticated by worker ID/token on the loopback hook server.
+
+## XR session selection preview
+
+See [XR implementation plan](xr-playtest-plan.md). POST /api/playtests/session-preview?floor=<id> accepts context (mode, style, phase, build, focused, connected, sampledAt in Unix milliseconds) and optional requirements keyed by test ID with phases. Authentication and same-origin checks apply. Responses contain preview=true, deviceVerified=false, active test IDs/revisions and exclusion reasons. Explicit stored mode/style tags are required; display inference is not trusted. Context older than five seconds, offline or unfocused pauses selection. No results are written and no hardware commands run.

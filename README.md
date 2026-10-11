@@ -426,3 +426,5 @@ Every change to the app that lands on `main` is published as a GitHub release by
 ## License
 
 [MIT](LICENSE)
+
+The [XR playtest plan](docs/xr-playtest-plan.md) describes session-wide Quest assistance. An initial read-only selection preview is implemented; device transport and headset UI are forthcoming.
