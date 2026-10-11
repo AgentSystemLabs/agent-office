@@ -44,7 +44,7 @@ They're in `core/registry.ts`, and each is a field of `ctx`. Every registration 
 - **`ui/`** is the app shell: the HUD, the menu and the windows (settings, the palette, terminals, changes, the queue, and the GitHub windows in `ui/github/`). Each module imports its own stylesheet (`import './palette.css'`), as a feature's `ui.ts` does (`import './ui.css'`).
 - **`world/`** is the engine and the scenery: toon materials and shapes (`toon.ts`), the characters (`world/character/`), the office floor (`world/office/`), the castle (`world/castle/`), the space station (`world/station/`), the scenic loop, the sky and the city. The types they share (what you bump into, what you can use, the seats, `Office`) are in `world/types.ts`.
 - **`sound/`** is the office's sound. `OfficeSound` (`sound/index.ts`, the `ctx.sound` every part uses) is a facade over `AudioCore` (`sound/core.ts`: the audio context, its buses, where your ears are) and the recipes, each in a file of its own, here (`weather.ts`, `steps.ts`) or in its feature's folder (`features/gong/sound.ts`).
-- **`shared/`** (`src/client/shared/`) is what the 3D office and the 2D view at `/lite` both use: the tab title and hiring. The 2D view loads no three.js and nothing from `core/`, `features/`, `input/`, `world/` or `player/`; `tests/client-structure.test.ts` follows `lite.ts`'s imports to check.
+- **`shared/`** (`src/client/shared/`) is what the 3D office and the 2D view at `/lite` both use: the tab title and hiring. The 2D view reuses the feature dialogs for Entscheidungen, Playtests and APK through its navigation bar, while remaining free of three.js and world rendering. `tests/client-structure.test.ts` follows `lite.ts`'s imports to check.
 
 ### Stylesheets
 

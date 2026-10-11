@@ -15,7 +15,7 @@ body.lite { min-height: 100dvh; background: var(--paper); -webkit-tap-highlight-
 }
 .lite-floor select:disabled { background-image: none; opacity: 1; cursor: default; }
 
-.lite-main { width: 100%; max-width: 760px; margin: 0 auto; padding: 12px 12px calc(96px + env(safe-area-inset-bottom)); }
+.lite-main { width: 100%; max-width: 760px; margin: 0 auto; padding: 12px 12px calc(166px + env(safe-area-inset-bottom)); }
 .lite-meta { margin: 0 0 10px; font-size: 12px; font-weight: 700; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .lite-meta:empty { display: none; }
 .lite-elsewhere { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
@@ -47,6 +47,9 @@ body.lite { min-height: 100dvh; background: var(--paper); -webkit-tap-highlight-
 
 .lite-nav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; padding: 10px 12px; padding-bottom: max(10px, env(safe-area-inset-bottom)); background: var(--paper-2); border-top: 3px solid var(--ink); }
 .lite-nav .btn { min-height: 48px; padding: 6px; justify-content: center; flex-wrap: wrap; gap: 4px; white-space: normal; text-align: center; line-height: 1.15; font-size: 14px; }
+.lite-nav .btn { overflow-wrap: anywhere; }
+@media (max-width: 480px) { .lite-nav .btn { font-size: 12px; } }
+@media (max-width: 480px) { .lite-nav #btn-decisions { font-size: 10px; } }
 .lite-nav .n:empty { display: none; }
 .lite-nav .n { min-width: 20px; padding: 0 5px; border-radius: 999px; background: var(--ink); color: #fff; font-size: 12px; line-height: 20px; font-variant-numeric: tabular-nums; }
 .lite-nav .btn.primary .n { background: #fff; color: var(--ink); }
@@ -66,10 +69,10 @@ body.lite { min-height: 100dvh; background: var(--paper); -webkit-tap-highlight-
 /* On a phone, the big windows take the whole screen; the small ones stay dialogs. */
 @media (max-width: 640px) {
   .backdrop { padding: 8px; }
-  .backdrop:has(> .modal.term, > .modal.board, > .modal.gh-window, > .modal.desk-changes, > .modal.meeting-window, > .modal[aria-label="Task queue"]) { padding: 0; }
+  .backdrop:has(> .modal.term, > .modal.board, > .modal.gh-window, > .modal.desk-changes, > .modal.meeting-window, > .modal[aria-label="Task queue"], > .decisions-dialog, > .playtest-modal, > .dev-apk-dialog) { padding: 0; }
   /* body.lite outranks the windows' own sizes and padding, whatever order the sheets load in. */
   body.lite .modal.term, body.lite .modal.board, body.lite .modal.gh-window, body.lite .modal.desk-changes, body.lite .modal.meeting-window,
-  body.lite .modal[aria-label="Task queue"] { width: 100%; height: 100dvh; max-height: 100dvh; border: 0; border-radius: 0; box-shadow: none; }
+  body.lite .modal[aria-label="Task queue"], body.lite .decisions-dialog, body.lite .playtest-modal, body.lite .dev-apk-dialog { width: 100%; height: 100dvh; max-height: 100dvh; border: 0; border-radius: 0; box-shadow: none; }
   .modal { max-height: calc(100dvh - 16px); }
   body.lite .modal.term .term-host { padding: 6px 2px 2px 6px; }
   body.lite .modal.board .body { padding: 10px; overflow-x: auto; }
