@@ -1,4 +1,5 @@
 import './ui.css';
+import { playtestToolbarExtensions } from './extensions';
 import { playtestUpdates } from '../../features/playtests/updates';
 import { playtestBugButton } from './bug';
 import { editPlaytest } from './editor';
@@ -35,6 +36,7 @@ export function openPlaytests(initialMode = '') {
   const root = h('div.modal.playtest-modal', { role: 'dialog', 'aria-label': 'Playtest checklist' },
     h('header', {}, h('h2', {}, '☑ Playtest-Checkliste')),
     h('div.playtest-intro', {}, h('strong', {}, 'Für deine nächste Spielrunde'), h('p', {}, 'Modus auswählen und Tests durchgehen. Offene Spieltests blockieren keine Worker oder Merges. Ergebnisse beziehen sich auf den tatsächlich getesteten Build.')),
+    h('div.playtest-toolbar', {}, ...playtestToolbarExtensions.map(mount => mount())),
     tabs, h('div.playtest-toolbar', {}, search, style, outcome, refresh, add, scan, download), progress, error, list);
   const modal = openModal(root, { doing: 'reviewing playtests', onClose: () => { alive = false; off(); offUpdates(); } });
   const off = store.on('floor', () => { if (store.floor !== floor) modal.close(); });

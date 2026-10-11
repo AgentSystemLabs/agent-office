@@ -4,7 +4,8 @@
   "description": "A cartoon 3D multiplayer office where your team spawns Claude Code workers at desks, shares live terminals, talks over voice, and tracks GitHub issues and PRs.",
   "type": "module",
   "bin": {
-    "agent-office": "bin/agent-office.js"
+    "agent-office": "bin/agent-office.js",
+    "office-xr": "bin/office-xr.js"
   },
   "imports": {
     "#tests/css": "./tests/support/css.mjs"

@@ -87,4 +87,6 @@ Triage uses the signed-in person's GitHub identity and that floor's repository. 
 
 ## XR session selection preview
 
+The global **Headset-Testbegleitung** button starts a session across all applicable tests, independent of the current card or tab. Setup, device pairing, observations and explicitly requested test preparation: [XR playtest sessions](xr-playtests.md).
+
 See [XR implementation plan](xr-playtest-plan.md). POST /api/playtests/session-preview?floor=<id> accepts context (mode, style, phase, build, focused, connected, sampledAt in Unix milliseconds) and optional requirements keyed by test ID with phases. Authentication and same-origin checks apply. Responses contain preview=true, deviceVerified=false, active test IDs/revisions and exclusion reasons. Explicit stored mode/style tags are required; display inference is not trusted. Context older than five seconds, offline or unfocused pauses selection. No results are written and no hardware commands run.
