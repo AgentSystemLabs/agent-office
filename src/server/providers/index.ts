@@ -18,12 +18,12 @@ export type { LaunchPlan, ProviderAdapter, ProviderFloor, SomeAdapter } from './
 export const PROVIDERS: Record<AgentProvider, SomeAdapter> = {
   claude: withTesting(claude),
   opencode,
-  codex,
+  codex: withTesting(codex),
   grok,
   muse,
   dsh,
   pi,
-  cursor,
+  cursor: withTesting(cursor),
   custom,
 };
 

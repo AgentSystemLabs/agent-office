@@ -1,4 +1,6 @@
 import { delivered, deliveryPull, needsAttention, undeliveredReason } from './queue-completion.js';
+import { QueueRecovery, RECOVERY_NOTE } from './queue-recovery.js';
+import { testingStopped } from './workers/testing.js';
 import { existingWorker, existingPrompt } from './queue-existing.js';
 import { randomBytes } from 'node:crypto';
 import { referencesQueueIssue } from './queue-pr-reference.js';
@@ -17,6 +19,7 @@ export interface QueueWorkers {
   readonly officeDefault?: AgentChoice;
   list(): WorkerInfo[];
   prompt?(id: string, text: string, by?: string): string | undefined;
+  recovery?(id: string, reason?: string): boolean;
   ownerOf?(id: string): string | undefined;
   deskOccupied(deskId: string): boolean;
   /** How many rows the floor's back office is built out, for its desks (see WING). */
@@ -71,6 +74,7 @@ export class TaskQueue {
   /** Set on shutdown: the workers' exit events must not seat anyone into a dying office. */
   private stopped = false;
   private lastStatus = new Map<string, WorkerStatus>();
+  private recovery: QueueRecovery;
 
   constructor(
     dataDir: string,
@@ -81,6 +85,13 @@ export class TaskQueue {
   ) {
     this.statePath = path.join(dataDir, 'queue.json');
     this.restore();
+    this.recovery = new QueueRecovery(dataDir, {
+      tasks: () => this.tasks, workers: () => this.workers.list(),
+      hold: (id, reason) => this.workers.recovery?.(id, reason) ?? false,
+      continue: id => this.continue(id, 'Office automatic continuation'),
+      prompt: (id, message) => this.workers.prompt?.(id, message, 'Office automatic continuation') ?? (this.workers.prompt ? undefined : 'No prompt support'),
+      paused: () => this.stopped || !!this.events.hiringPaused(), changed: () => this.changed(),
+    });
     this.timer = setInterval(() => this.pump(), PUMP_MS);
   }
 
@@ -175,11 +186,11 @@ export class TaskQueue {
     const task = this.tasks.find((t) => t.id === taskId);
     if (!task || task.status !== 'waiting') return 'That task is not waiting for attention';
     const worker = this.workers.list().find((w) => w.id === task.workerId);
-    if (!worker || !this.workers.prompt || !['done', 'idle'].includes(worker.status)) return 'The assigned worker is busy or stopped. Open its terminal or explicitly requeue this task.';
+    if (!worker || !this.workers.prompt || (!['done', 'idle', 'waiting'].includes(worker.status) && !testingStopped(worker))) return 'The assigned worker is busy or stopped. Open its terminal or explicitly requeue this task.';
     if (this.tasks.some((t) => t !== task && t.status === 'running' && t.workerId === worker.id)) return 'That worker is running another task';
     this.awaitingStart.add(worker.id);
     task.status = 'running';
-    const error = this.workers.prompt(worker.id, `Continue the unfinished task: ${task.prompt}\n\nPrevious blocker: ${task.waitingReason ?? 'No delivery verified'}. Preserve existing changes. Deliver the complete result or state the exact blocker; a response alone is not completion.`, by);
+    const error = this.workers.prompt(worker.id, `Continue the unfinished task: ${task.prompt}\n\nPrevious blocker: ${task.waitingReason ?? 'No delivery verified'}. Preserve existing changes. Deliver the complete result or state the exact blocker; a response alone is not completion.\n\n${RECOVERY_NOTE}`, by);
     if (error) { task.status = 'waiting'; this.awaitingStart.delete(worker.id); return error; }
     delete task.waitingReason;
     this.changed();
@@ -223,7 +234,7 @@ export class TaskQueue {
   /** A worker changed. Cheap unless its status moved, which can free a slot or finish a task. */
   onWorker(info: WorkerInfo) {
     // It switched to a branch of its own (see Workers.syncBranch): its task's pull request comes from there.
-    if (info.status === 'working' || info.status === 'needs_input') this.awaitingStart.delete(info.id);
+    if (info.status === 'working' || info.status === 'testing' || info.status === 'needs_input') this.awaitingStart.delete(info.id);
     const branch = info.worktree?.branch;
     const latest = this.tasks.filter((t) => t.workerId === info.id).at(-1);
     const moved = branch && latest?.branch && latest.branch !== branch ? [latest] : [];
@@ -276,12 +287,14 @@ export class TaskQueue {
       } while (this.again);
     } finally {
       this.pumping = false;
+      void this.recovery.tick().catch(() => this.events.toast('Automatic continuation could not check workers; open the queue to retry.', 'warn'));
     }
   }
 
   shutdown() {
     this.stopped = true;
     clearInterval(this.timer);
+    this.recovery.shutdown();
   }
 
   // ---------------------------------------------------------------------------

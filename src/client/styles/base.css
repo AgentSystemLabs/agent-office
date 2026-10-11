@@ -53,6 +53,7 @@ button { font-family: inherit; }
 .pill.starting, .pill.idle { background: #e0f2fe; }
 .pill.working { background: var(--warn); }
 .pill.testing { background: #bde0fe; color: #123b63; }
+.pill.waiting { background: #ffd8a8; color: #593b14; }
 .pill.needs_input { background: var(--bad); color: #fff; animation: pulse 1s infinite; }
 .pill.done { background: var(--good); color: #fff; }
 .pill.exited, .pill.offline { background: #dee2e6; }

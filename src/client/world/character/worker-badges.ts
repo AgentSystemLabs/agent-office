@@ -10,6 +10,7 @@ export const STATUS_BULB: Record<string, string> = {
   idle: '#8ecae6',
   working: '#ffd166',
   testing: '#90caf9',
+  waiting: '#ffd8a8',
   needs_input: '#ef476f',
   done: '#06d6a0',
   exited: '#6c757d',
@@ -25,6 +26,7 @@ const TASK_CHIP: Record<string, [string, string, string]> = {
   idle: ['💬 READY', STATUS_BULB.idle, '#2b2d42'],
   working: ['⌨️ WORKING', STATUS_BULB.working, '#2b2d42'],
   testing: ['🧪 TESTING', STATUS_BULB.testing, '#123b63'],
+  waiting: ['⏳ WAITING', STATUS_BULB.waiting, '#593b14'],
   needs_input: [NEEDS_YOU.text, STATUS_BULB.needs_input, '#ffffff'],
   done: ['💬 TURN ENDED', STATUS_BULB.done, '#2b2d42'],
   exited: ['💤 ASLEEP', STATUS_BULB.exited, '#ffffff'],
@@ -51,7 +53,7 @@ export function bubbleFor(status: WorkerStatus, bounce: boolean, task: WorkerTas
   const prLabel = pr ? `${PR_ICON[pr.state]} PR #${pr.number} ${pr.state}` : undefined;
   const bubble = lost
     ? '🌿 worktree deleted'
-    : status === 'needs_input' ? NEEDS_YOU.text : status === 'done' ? '💬 turn ended' : status === 'testing' ? '🧪 TESTING' : status === 'working' ? '⌨️ working' : isAsleep(status) ? '💤 asleep' : status === 'starting' ? '⏳ starting' : prLabel ? '💬 ready' : '';
+    : status === 'needs_input' ? NEEDS_YOU.text : status === 'done' ? '💬 turn ended' : status === 'waiting' ? '⏳ WAITING' : status === 'testing' ? '🧪 TESTING' : status === 'working' ? '⌨️ working' : isAsleep(status) ? '💤 asleep' : status === 'starting' ? '⏳ starting' : prLabel ? '💬 ready' : '';
   const key = `${lost}|${border}|${prLabel}|${task ? `${status}|${bounce}|${task.name}|${task.summary}` : bubble}`;
   return {
     key,

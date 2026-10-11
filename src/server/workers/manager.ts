@@ -18,6 +18,7 @@ import type { Capacity } from '../machine.js';
 import { PROVIDERS, providerAdapter, titleNoise, type LaunchPlan, type ProviderFloor } from '../providers/index.js';
 import { launchAcp } from './acp.js';
 import { testingIdle, testingStatus } from './testing.js';
+import { recoveryStatus } from './recovery-port.js';
 import { clockWork } from './clock.js';
 import { childEnv } from './env.js';
 import { midTurn } from './lifecycle.js';
@@ -185,6 +186,7 @@ export class WorkerManager {
   get(id: string): WorkerInfo | undefined {
     return this.workers.get(id)?.info;
   }
+  recovery(id: string, reason?: string): boolean { return recoveryStatus(this.ctx, id, reason); }
 
   /** The account a worker runs as (see RunAs), if not the office. */
   ownerOf(id: string): string | undefined {
@@ -911,8 +913,6 @@ export class WorkerManager {
     clockWork(w.info, status);
     w.info.status = status;
     if (status !== 'working' && status !== 'testing' && status !== 'needs_input') w.info.action = undefined;
-    // Nobody is looking at the terminal right now -> raise the flag (the worker jumps). A worker at the
-    // meeting table that ends its part is waiting on the meeting, not on anyone, so it stays quiet.
     if (status === 'done' || status === 'needs_input') {
       w.info.acked = status === 'done' && (w.viewers.size > 0 || !!w.info.meeting);
       w.info.waitingSince = Date.now();

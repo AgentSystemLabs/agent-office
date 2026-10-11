@@ -74,11 +74,23 @@ DeepSeek Harness metrics come from ACP `usage_update`: tokens in context and the
 
 ## Test status
 
-Claude Code workers show **🧪 TESTING** in a light-blue speech bubble, with a blue status light and a matching label in the worker list, terminal and queue. This includes tests, builds, type checks and linters, plus Unity checks launched through `Build-Quest.ps1` or `run-tests.ps1`. A test waiting for another worker's build lock is still testing. An open or merged PR does not replace this badge.
+Claude Code, Codex and Cursor workers show **🧪 TESTING** while their hooks report running tests/builds. A reported queued background test shows **⏳ WAITING**. These badges appear in speech bubbles, worker lists, terminals and the queue; an old open or merged PR never replaces them. Native Codex/Cursor helpers forward test classifications and job IDs, not shell commands or output. Existing native helper files must be regenerated when installing this change.
 
 The office tracks tool starts and results, and Claude Code's `Stop.background_tasks` snapshot (available from 2.1.145). A finished response with active test tasks keeps the worker busy; it does not announce completion or release the worker to the queue. As results arrive, the agent returns to working to inspect them. Only a finished turn without active tests becomes done. **TESTING does not mean the checks have passed.** Permission requests and agent errors still take priority as **Needs you**.
 
-On older Claude CLIs, explicitly reported background task IDs remain active until a `TaskOutput` or `TaskStop` result settles them. Updating Claude is recommended for authoritative snapshots, especially when tasks finish without an explicit result read. Other providers keep their existing status reporting; the office does not infer background-test liveness from a task title or an old terminal message. Exiting or restarting a worker clears its tracked tests; a subsequent hook must report the new run.
+On older Claude CLIs, explicitly reported background task IDs remain active until a result read settles them. A missing hook cannot prove that a test finished. The office never infers successful checks from a task title. Exiting or restarting a worker clears tracked tests; terminal-preserving restores retain the job IDs for the same session.
+
+### Automatic continuation
+
+Already-started queue assignments without a complete delivery (including partial or draft PRs) and ended turns with tracked background tests are checked again after **60 seconds**. The worker shows **WAITING** with the reason. If a test was already launched, the continuation explicitly asks the worker to inspect that job/result first and not launch a duplicate. Completed automated checks still need result inspection; manual headset/playtests remain separate and unchecked.
+
+Resource polling repeats every minute without consuming an agent turn. The local check requires 4 GiB available memory; on Windows it also checks batch Unity processes and the `Global\zrb-build-folder` mutex. An unavailable probe keeps the worker waiting. This is advisory: the test launcher still owns the atomic build lock. Independent machines need their own resource check.
+
+Recovery never starts a queued/unassigned issue, hires a worker, approves a permission prompt, revives a stopped worker or interrupts a meeting or viewed terminal. A spent budget pauses it. Setting the queue limit to zero pauses new assignments; already-started assignments may still finish. Retry deadlines and submission guards survive an Office restart in `.agent-office/worker-recovery.json`.
+
+If a continuation receives no acknowledgement, the office shows that blocker instead of repeatedly pasting prompts. Three unchanged continuations also stop with an explicit review message to avoid an expensive loop. Hardware waiting has no such attempt limit. The user can still use **Continue** or **Requeue** after resolving the blocker. No automatic merge, closure or successful-test claim is created by recovery.
+
+Installation must include both the server modules and the matching browser assets; restarting an old build cannot activate these badges. For a normal install, build the updated checkout, restart the Office, and reload the browser. Preserve cumulative local features when updating a locally patched Office.
 
 ## The office's prompts
 

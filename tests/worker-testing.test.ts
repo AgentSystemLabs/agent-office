@@ -101,3 +101,22 @@ test('an idle terminal cancels foreground tests while retained background IDs su
   testingStatus(restored, 'starting');
   assert.equal(testingStatus(restored, 'idle'), 'idle');
 });
+
+test('queued tests show WAITING and become TESTING only when the snapshot reports execution', () => {
+  const f = fixture();
+  f.event('Stop', { background_tasks: [{ ...run('t'), status: 'queued' }] });
+  assert.equal(f.info.status, 'waiting');
+  f.status('done'); assert.equal(f.info.status, 'waiting');
+  f.event('Stop', { background_tasks: [run('t')] }); assert.equal(f.info.status, 'testing');
+  f.event('Stop', { background_tasks: [] }); assert.equal(f.info.status, 'done');
+});
+
+test('native helper classifications track background sessions without carrying commands', () => {
+  const f = fixture();
+  f.event('PreToolUse', { tool_name: 'exec_command', tool_use_id: 'native', office_test: true });
+  assert.equal(f.info.status, 'testing');
+  f.event('PostToolUse', { tool_use_id: 'native', office_test_job: '123', office_test_waiting: true });
+  f.event('Stop'); assert.equal(f.info.status, 'waiting');
+  f.event('PostToolUse', { office_test_poll: '123', office_test_exit: 0 });
+  assert.equal(f.info.status, 'working');
+});
