@@ -1,4 +1,6 @@
+export type ApkKind = 'development' | 'store';
 export interface DevApkBuild {
+  kind?: ApkKind;
   id: string;
   status: 'starting' | 'waiting' | 'building' | 'publishing' | 'ready' | 'failed' | 'interrupted';
   requestedBy: string;

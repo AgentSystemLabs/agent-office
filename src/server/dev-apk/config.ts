@@ -1,15 +1,22 @@
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
+import type { ApkKind } from '../../shared/dev-apk.js';
 export interface DevApkConfig {
   repo: string;
   sourceDir: string;
   buildDir: string;
   ref: string;
   apkName: string;
+  storeApkName?: string;
   launcher?: string;
   builders?: string[];
 }
 export class BuildError extends Error { constructor(message: string, public status = 400) { super(message); } }
+export function parseKind(value: string | null): ApkKind {
+  if (value === null || value === 'development') return 'development';
+  if (value === 'store') return 'store';
+  throw new BuildError('Unbekannte APK-Auswahl.');
+}
 export function configFor(dataDir: string, repo: string | undefined): DevApkConfig | undefined {
   const file = path.join(dataDir, 'dev-apk.json');
   if (!repo || !existsSync(file)) return;
@@ -20,6 +27,7 @@ export function configFor(dataDir: string, repo: string | undefined): DevApkConf
   if (!path.isAbsolute(c.sourceDir ?? '') || !path.isAbsolute(c.buildDir ?? '') ||
     !/^origin\/[a-zA-Z0-9][a-zA-Z0-9._/-]{0,180}$/.test(c.ref ?? '') || c.ref.includes('..') ||
     !/^[a-zA-Z0-9_-]+\.apk$/.test(c.apkName ?? '') || (c.launcher && !path.isAbsolute(c.launcher)) ||
+    (c.storeApkName !== undefined && (!/^[a-zA-Z0-9_-]+\.apk$/.test(c.storeApkName) || c.storeApkName.toLowerCase() === c.apkName.toLowerCase())) ||
     (c.builders !== undefined && (!Array.isArray(c.builders) || c.builders.some((b: unknown) => typeof b !== 'string')))) throw new BuildError('Dev-APK-Konfiguration prüfen: absolute Ordner und gültiger origin-Branch erforderlich.', 503);
   const source = path.resolve(c.sourceDir), build = path.resolve(c.buildDir);
   const relative = path.relative(build, source);

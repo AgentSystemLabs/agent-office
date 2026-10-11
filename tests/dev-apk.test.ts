@@ -8,7 +8,8 @@ import http from 'node:http';
 import { configFor } from '../src/server/dev-apk/config.js';
 import { start, view } from '../src/server/dev-apk/manager.js';
 import { activeJob, atomic, jobDir, projectFor, release, rootFor, saveJob, type Job } from '../src/server/dev-apk/storage.js';
-import { publish } from '../src/server/dev-apk/runner.js';
+import { publish, run } from '../src/server/dev-apk/runner.js';
+import type { ApkKind } from '../src/shared/dev-apk.js';
 import { byteRange } from '../src/server/dev-apk/download.js';
 import { devApkRoute } from '../src/server/http/routes/dev-apk.js';
 import { requestHandler } from '../src/server/http/router.js';
@@ -17,12 +18,12 @@ function fixture(t: any) {
   const dir = mkdtempSync(path.join(tmpdir(), 'office-apk-')); t.after(() => rmSync(dir, { recursive: true, force: true }));
   const source = path.join(dir, 'source'); mkdirSync(path.join(source, 'Tools'), { recursive: true });
   for (const file of ['Build-Quest.ps1', 'BuildLock.ps1']) writeFileSync(path.join(source, 'Tools', file), '# test fixture');
-  const config = { repo, sourceDir: source, buildDir: path.join(dir, 'build'), ref: 'origin/main', apkName: 'Game-dev.apk', builders: ['builder'] };
+  const config = { repo, sourceDir: source, buildDir: path.join(dir, 'build'), ref: 'origin/main', apkName: 'Game-dev.apk', storeApkName: 'Game.apk', builders: ['builder'] };
   atomic(path.join(dir, 'dev-apk.json'), { projects: [config] });
   return { dir, config, root: rootFor(dir), project: projectFor(repo) };
 }
-async function ready(f: ReturnType<typeof fixture>, bytes = Buffer.from('PK\x03\x04first apk'), finishedOffset = 0) {
-  const job: Job = { id: randomUUID(), project: f.project, config: f.config, pid: process.pid, requestedBy: 'Tester', ref: 'origin/main', startedAt: Date.now(), status: 'publishing' };
+async function ready(f: ReturnType<typeof fixture>, bytes = Buffer.from('PK\x03\x04first apk'), finishedOffset = 0, kind?: ApkKind) {
+  const job: Job = { id: randomUUID(), kind, project: f.project, config: f.config, pid: process.pid, requestedBy: 'Tester', ref: 'origin/main', startedAt: Date.now(), status: 'publishing' };
   saveJob(f.root, job); const folder = jobDir(f.root, f.project, job.id);
   writeFileSync(path.join(folder, 'app.apk.part'), bytes); writeFileSync(path.join(folder, 'revision.txt'), 'a'.repeat(40));
   await publish(f.root, job); job.finishedAt! += finishedOffset; saveJob(f.root, job); return job;
@@ -36,6 +37,7 @@ test('builds use local config only, enforce permission and reject duplicate star
   const j = start(f.dir, repo, admin, (_, job) => { launched = job; })!;
   assert.equal(launched?.config.ref, 'origin/main'); assert.equal(view(f.dir, repo, admin).busy, true);
   assert.throws(() => start(f.dir, repo, admin, () => {}), /läuft bereits/);
+  assert.throws(() => start(f.dir, repo, admin, () => {}, 'store'), /läuft bereits/);
   assert.equal(readFileSync(path.join(f.config.sourceDir, 'Tools/Build-Quest.ps1'), 'utf8'), '# test fixture');
   release(f.root, j.id);
 });
@@ -44,6 +46,8 @@ test('unsafe config cannot designate a parent of the source checkout as disposab
   atomic(path.join(f.dir, 'dev-apk.json'), { projects: [{ ...f.config, buildDir: f.dir }] });
   assert.throws(() => configFor(f.dir, repo), /nicht enthalten/);
   atomic(path.join(f.dir, 'dev-apk.json'), { projects: [{ ...f.config, ref: 'origin/main; bad' }] });
+  assert.throws(() => configFor(f.dir, repo), /Konfiguration prüfen/);
+  atomic(path.join(f.dir, 'dev-apk.json'), { projects: [{ ...f.config, storeApkName: 'game-DEV.apk' }] });
   assert.throws(() => configFor(f.dir, repo), /Konfiguration prüfen/);
 });
 test('previous download survives invalid or failed publication, exact artifact gets hash and commit', async t => {
@@ -83,6 +87,9 @@ test('HTTP download requires office login, streams ranges and pins versions whil
   t.after(() => { server.closeAllConnections(); server.close(); });
   const origin = `http://127.0.0.1:${(server.address() as any).port}`, url = origin + '/api/dev-apk/download?floor=game', headers = { cookie: 'signed-in' };
   assert.equal((await fetch(url)).status, 401);
+  assert.equal((await fetch(url + '&kind=store', { headers })).status, 404);
+  assert.equal((await fetch(url + '&kind=invalid', { headers })).status, 400);
+  assert.equal((await fetch(origin + '/api/dev-apk?floor=game&kind=invalid', { method: 'POST', headers: { ...headers, origin } })).status, 400);
   assert.equal((await fetch(origin + '/api/dev-apk?floor=game', { method: 'POST', headers })).status, 403);
   assert.equal((await fetch(origin + '/api/dev-apk?floor=game', { method: 'POST', headers: { ...headers, origin } })).status, 403);
   const response = await fetch(url, { headers }); assert.equal(response.status, 200); const etag = response.headers.get('etag')!;
@@ -95,4 +102,64 @@ test('HTTP download requires office login, streams ranges and pins versions whil
   const pinned = await fetch(url + '&id=' + first.id, { headers }); assert.equal(await pinned.text(), 'PK\x03\x04first apk');
   assert.equal((await fetch(url + '&id=../../escape', { headers })).status, 404);
   assert.equal((await fetch(origin + '/api/dev-apk?floor=missing', { headers })).status, 404);
+  const store = await ready(f, Buffer.from('PK\x03\x04store apk'), 0, 'store');
+  const release = await fetch(url + '&kind=store', { headers });
+  assert.equal(await release.text(), 'PK\x03\x04store apk');
+  assert.match(release.headers.get('content-disposition')!, /store-/);
+  assert.equal((await fetch(url + '&id=' + store.id, { headers })).status, 404);
+  assert.equal((await fetch(url + '&kind=store&id=' + first.id, { headers })).status, 404);
+  assert.equal((await fetch(url + '&id=' + first.id, { headers })).status, 200);
+});
+
+test('Store and legacy Development have independent latest, failures, recent jobs and retention', async t => {
+  const f = fixture(t), legacy = await ready(f);
+  const stores: Job[] = [];
+  for (let i = 0; i < 4; i++) stores.push(await ready(f, undefined, i * 1000, 'store'));
+  assert.equal(view(f.dir, repo, admin).latest?.id, legacy.id);
+  assert.equal(view(f.dir, repo, admin, 'store').latest?.id, stores[3].id);
+  assert.equal(existsSync(path.join(jobDir(f.root, f.project, legacy.id), 'app.apk')), true);
+  assert.equal(existsSync(path.join(jobDir(f.root, f.project, stores[0].id), 'app.apk')), false);
+  await assert.rejects(ready(f, Buffer.from('invalid'), 0, 'store'));
+  assert.equal(view(f.dir, repo, admin, 'store').latest?.id, stores[3].id);
+  const current = start(f.dir, repo, admin, () => {}, 'store')!;
+  assert.equal(current.kind, 'store');
+  assert.equal(view(f.dir, repo, admin, 'store').current?.id, current.id);
+  assert.equal(view(f.dir, repo, admin).current, undefined);
+  assert.equal(view(f.dir, repo, admin).busy, true);
+  release(f.root, current.id);
+});
+
+test('existing development-only config keeps downloads without enabling an unconfigured Store build', t => {
+  const f = fixture(t);
+  const { storeApkName: _, ...legacy } = f.config;
+  atomic(path.join(f.dir, 'dev-apk.json'), { projects: [legacy] });
+  assert.equal(view(f.dir, repo, admin).canBuild, true);
+  assert.equal(view(f.dir, repo, admin, 'store').canBuild, false);
+  assert.throws(() => start(f.dir, repo, admin, () => {}, 'store'), /Dateiname/);
+});
+
+test('real PowerShell dispatch chooses only the requested switch and APK filename', { skip: process.platform !== 'win32' }, async t => {
+  const f = fixture(t);
+  // Fixture mutex and Git avoid sharing Unity resources or accessing the network.
+  writeFileSync(path.join(f.config.sourceDir, 'Tools/BuildLock.ps1'), `
+function Enter-BuildLock { $m = [Threading.Mutex]::new($false); [void]$m.WaitOne(); return $m }
+function git { $global:LASTEXITCODE = 0; if ($args -contains 'rev-parse') { '${'b'.repeat(40)}' } }
+`);
+  writeFileSync(path.join(f.config.sourceDir, 'Tools/Build-Quest.ps1'), `
+param([switch]$Development,[switch]$Store,[string]$Ref,[string]$Main,[string]$Folder)
+if ($Development -eq $Store) { throw 'Exactly one build kind required' }
+$out = Join-Path $Main 'Builds/Quest'
+[void](New-Item -ItemType Directory -Force $out)
+$file = if ($Store) { 'Game.apk' } else { 'Game-dev.apk' }
+$content = if ($Store) { 'store' } else { 'development' }
+[IO.File]::WriteAllBytes((Join-Path $out $file), [byte[]](80,75,3,4) + [Text.Encoding]::UTF8.GetBytes($content))
+$global:LASTEXITCODE = 0
+`);
+  for (const kind of ['development', 'store'] as const) {
+    const job = start(f.dir, repo, admin, () => {}, kind)!;
+    await run(f.root, f.project, job.id);
+    const result = view(f.dir, repo, admin, kind);
+    assert.equal(result.current?.status, 'ready', result.log);
+    assert.equal(readFileSync(path.join(jobDir(f.root, f.project, job.id), 'app.apk'), 'utf8'), 'PK\x03\x04' + kind);
+  }
 });
