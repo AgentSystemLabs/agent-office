@@ -17,6 +17,7 @@ import { DropStore } from '../drops.js';
 import type { Capacity } from '../machine.js';
 import { PROVIDERS, providerAdapter, titleNoise, type LaunchPlan, type ProviderFloor } from '../providers/index.js';
 import { launchAcp } from './acp.js';
+import { testingIdle, testingStatus } from './testing.js';
 import { clockWork } from './clock.js';
 import { childEnv } from './env.js';
 import { midTurn } from './lifecycle.js';
@@ -897,19 +898,19 @@ export class WorkerManager {
 
   private onProgress(w: Worker, busy: boolean) {
     const s = w.info.status;
+    if (!busy) testingIdle(w.info);
     if (busy && (s === 'idle' || s === 'done' || s === 'starting')) this.setStatus(w, 'working');
-    // Progress stays busy while a permission prompt is open, so going idle from needs_input means the
-    // turn ended without a Stop hook (the prompt was rejected or Esc'd).
-    else if (!busy && (s === 'working' || (s === 'needs_input' && !w.bootBlocked))) this.setStatus(w, 'done');
+    // Idle clears a cancelled foreground turn; tracked background tests still prevent done.
+    else if (!busy && (s === 'working' || s === 'testing' || (s === 'needs_input' && !w.bootBlocked))) this.setStatus(w, 'done');
   }
 
   private setStatus(w: Worker, status: WorkerStatus) {
+    status = testingStatus(w.info, status);
     if (w.info.status === status) return;
     if (w.info.status === 'needs_input') w.leftNeedsInputAt = Date.now();
     clockWork(w.info, status);
     w.info.status = status;
-    // Done, idle or asleep: it's not acting anything out any more.
-    if (status !== 'working' && status !== 'needs_input') w.info.action = undefined;
+    if (status !== 'working' && status !== 'testing' && status !== 'needs_input') w.info.action = undefined;
     // Nobody is looking at the terminal right now -> raise the flag (the worker jumps). A worker at the
     // meeting table that ends its part is waiting on the meeting, not on anyone, so it stays quiet.
     if (status === 'done' || status === 'needs_input') {
@@ -917,7 +918,6 @@ export class WorkerManager {
       w.info.waitingSince = Date.now();
     } else w.info.acked = true;
     this.emitUpdate(w);
-    // What a restarted office picks the worker back up as, should its terminal outlive this one.
     if (w.pty?.id || w.dsh) this.persist();
     // At rest: it may have made a branch of its own this turn, and opened its PR from there.
     if (status === 'done' || status === 'idle') void this.worktrees.syncBranch(w);

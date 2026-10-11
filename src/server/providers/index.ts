@@ -1,6 +1,7 @@
 // Every agent provider's adapter (see types.ts). Adding a provider: its adapter file, one line here
 // and its entry in shared/providers.ts.
 import type { AgentProvider } from '../../shared/providers.js';
+import { withTesting } from '../workers/testing.js';
 import { claude } from './claude.js';
 import { codex } from './codex.js';
 import { cursor } from './cursor.js';
@@ -15,7 +16,7 @@ import type { SomeAdapter } from './types.js';
 export type { LaunchPlan, ProviderAdapter, ProviderFloor, SomeAdapter } from './types.js';
 
 export const PROVIDERS: Record<AgentProvider, SomeAdapter> = {
-  claude,
+  claude: withTesting(claude),
   opencode,
   codex,
   grok,

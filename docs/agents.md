@@ -72,6 +72,14 @@ OpenCode metrics come from assistant-message token/cost records exposed by its p
 
 DeepSeek Harness metrics come from ACP `usage_update`: tokens in context and the window's size, shown per worker and for the current desks, plus a session cost only when the harness reports one. The daily budget and historical ledger remain Claude-only.
 
+## Test status
+
+Claude Code workers show **🧪 TESTING** in a light-blue speech bubble, with a blue status light and a matching label in the worker list, terminal and queue. This includes tests, builds, type checks and linters, plus Unity checks launched through `Build-Quest.ps1` or `run-tests.ps1`. A test waiting for another worker's build lock is still testing. An open or merged PR does not replace this badge.
+
+The office tracks tool starts and results, and Claude Code's `Stop.background_tasks` snapshot (available from 2.1.145). A finished response with active test tasks keeps the worker busy; it does not announce completion or release the worker to the queue. As results arrive, the agent returns to working to inspect them. Only a finished turn without active tests becomes done. **TESTING does not mean the checks have passed.** Permission requests and agent errors still take priority as **Needs you**.
+
+On older Claude CLIs, explicitly reported background task IDs remain active until a `TaskOutput` or `TaskStop` result settles them. Updating Claude is recommended for authoritative snapshots, especially when tasks finish without an explicit result read. Other providers keep their existing status reporting; the office does not infer background-test liveness from a task title or an old terminal message. Exiting or restarting a worker clears its tracked tests; a subsequent hook must report the new run.
+
 ## The office's prompts
 
 Everything the office tells a worker by itself can be rewritten in ⚙️ Settings → **🤖 Workers** → **📝 Edit the prompts…**: what **🤖 Hand to a worker**, **🔍 Review**, **Fix up & merge**, **Fix conflicts & merge** and **✍️ Ask a worker** send from the boards, what a meeting about an issue or a review panel starts with, the note the queue adds to a worktree task, the three board agents' briefs, every part the meeting room hands out, and the instructions for the model that writes the signs over workers' heads. Each one lists its `{{placeholders}}` (the issue number, the PR's branch, the file a meeting waits for…), which the office fills in when it sends it, and warns when one the office counts on is missing. **↺ Default** puts the office's own wording back. Admins edit them; they're the same on every floor and kept in `.agent-office/prompts.json` with the Default worker.
