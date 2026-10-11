@@ -1,6 +1,6 @@
 # XR Operator und automatische Playtest-Begleitung
 
-Stand: 11.10.2026. Abgestimmter Plan; Umsetzung begonnen.
+Stand: 11.10.2026. Office-Begleitung und Unity-Anbindung implementiert; Hardware-Abnahme offen.
 
 ## Ziel und Bedienung
 

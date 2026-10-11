@@ -6,7 +6,11 @@ export class OperatorClient {
   private pending = new Map<number, { resolve: (v: any) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }>();
   constructor(private base: string) {}
   async connect() {
-    const response = await fetch(this.base + '/sse', { signal: this.abort.signal });
+    // Bound the initial HTTP handshake too; the SSE stream itself remains long-lived.
+    const headersTimer = setTimeout(() => this.close(), 4000);
+    let response: Response;
+    try { response = await fetch(this.base + '/sse', { signal: this.abort.signal, redirect: 'error' }); }
+    finally { clearTimeout(headersTimer); }
     if (!response.ok || !response.body) throw new Error('Operator SSE nicht erreichbar');
     let ready!: () => void, fail!: (e: Error) => void;
     const connected = new Promise<void>((resolve, reject) => { ready = resolve; fail = reject; });
@@ -45,7 +49,7 @@ export class OperatorClient {
   }
   private async post(body: unknown) {
     if (!this.endpoint) throw new Error('Operator nicht verbunden');
-    const response = await fetch(this.endpoint, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.any([this.abort.signal, AbortSignal.timeout(4000)]) });
+    const response = await fetch(this.endpoint, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.any([this.abort.signal, AbortSignal.timeout(4000)]), redirect: 'error' });
     if (!response.ok) throw new Error(`Operator HTTP ${response.status}`);
   }
   private rpc(method: string, params: unknown): Promise<any> {
