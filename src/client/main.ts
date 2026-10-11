@@ -27,6 +27,7 @@ import { installHintBar } from './core/hintbar';
 import { installKeyboard, installKeyGuards } from './input/keyboard';
 import { installFocus } from './input/focus';
 import { installPointer } from './input/pointer';
+import { installDecisions } from './features/decisions';
 import { installArcade } from './features/arcade';
 import { installBar } from './features/bar';
 import { installBarGames } from './features/bargames';
@@ -102,6 +103,7 @@ parts.confetti = new Confetti((x, z, y) => groundAt(ctx.player.colliders, x, z, 
 ctx.scene.add(parts.confetti.mesh);
 parts.tv = installTv(ctx, { shares: () => parts.talk.currentShares(), watch: () => parts.talk.watchShare() });
 parts.arcade = installArcade(ctx);
+installDecisions(ctx);
 parts.rooftop = installRooftop(ctx, { ambient: parts.stage.ambient, hemi: parts.stage.hemi });
 
 // You, and how you talk to the office.

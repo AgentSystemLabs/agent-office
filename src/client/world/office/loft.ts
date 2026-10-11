@@ -1,3 +1,4 @@
+import { bossMonitor } from './boss-monitor';
 import * as THREE from 'three';
 import { LOFT, STAIRS, WALL_T } from '../../../shared/layout';
 import { mesh, roundedBox, textPlane, toon } from '../toon';
@@ -120,11 +121,9 @@ export function buildLoft(group: THREE.Group, colliders: Collider[], interactabl
   desk.add(mesh(roundedBox(2.6, 0.1, 1.2, 0.1), woodMat, 0, 0.78, 0));
   desk.add(mesh(box(2.4, 0.66, 0.08), toon('#8a5a3b'), 0, 0.4, -0.5));
   for (const sx of [-1, 1]) desk.add(mesh(box(0.1, 0.72, 1.0), toon('#8a5a3b'), sx * 1.15, 0.37, 0));
-  desk.add(mesh(roundedBox(0.9, 0.55, 0.06, 0.03), toon(PALETTE.ink), 0, 1.18, -0.2));
-  desk.add(mesh(box(0.08, 0.2, 0.08), toon(PALETTE.ink), 0, 0.93, -0.2));
-  // Minesweeper plays on it (features/arcade/ui.ts).
-  const screen = mesh(new THREE.PlaneGeometry(0.8, 0.45), new THREE.MeshBasicMaterial({ color: '#4cc9f0' }), 0, 1.18, -0.165, false);
-  desk.add(screen);
+  const monitor = bossMonitor(0.52);
+  const screen = monitor.screen;
+  desk.add(monitor.group);
   desk.add(mesh(new THREE.CylinderGeometry(0.06, 0.05, 0.12, 10), toon('#ffd166'), 0.9, 0.89, 0.15));
   const plate = textPlane('👑 BOSS', { bg: '#ffd166', size: 48 });
   plate.scale.multiplyScalar(0.55);

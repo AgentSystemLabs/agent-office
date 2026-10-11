@@ -1,3 +1,4 @@
+import { workerPrompt, stationRequest } from './prompt-extensions.js';
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import type { AgentChoice, AgentEffort, AgentProvider, TerminalHit, WorkerInfo, WorkerKind, WorkerRepo, WorkerStatus } from '../../shared/protocol.js';
@@ -335,7 +336,7 @@ export class WorkerManager {
    */
   station(deskId: string, by: string, text: string, owner?: string): { info: WorkerInfo; hired: boolean } | string {
     if (!DESK_BY_ID.get(deskId)?.station) return 'There is no agent to ask there';
-    const clean = text.replace(/\r\n?/g, '\n').trim();
+    const clean = stationRequest(deskId, text.replace(/\r\n?/g, '\n').trim());
     if (!clean) return 'Empty prompt';
     const w = [...this.workers.values()].find((x) => x.info.deskId === deskId);
     if (!w) {
@@ -500,6 +501,7 @@ export class WorkerManager {
   prompt(id: string, text: string, by?: string): string | undefined {
     const w = this.workers.get(id);
     if (!w) return 'No such worker';
+    if (w.info.kind === 'agent') text = workerPrompt(text)!;
     if (w.dsh) {
       const clean = text.replace(/\r\n?/g, '\n').trim();
       if (!clean) return 'Empty prompt';
@@ -522,7 +524,6 @@ export class WorkerManager {
     this.emitUpdate(w);
     return undefined;
   }
-
   /** Pushes a worktree worker's branch and opens a pull request for it, as `as` or else the office (see WorkerPrs.openPr). */
   openPr(id: string, by: string, as?: GhAs): Promise<{ prs: OpenedPr[]; failed: string[] } | string> {
     return this.prs.openPr(id, by, as);
@@ -635,15 +636,14 @@ export class WorkerManager {
 
   private launch(w: Worker, prompt: string | undefined, resumeSessionId: string | undefined) {
     const { info } = w;
-    // Its folder was deleted meanwhile: it waits, marked lost, for someone to rebuild it or send it home.
+    if (w.info.kind === 'agent') prompt = workerPrompt(prompt);
     if (this.worktrees.checkLost(w)) {
       clockWork(info, 'exited');
       info.status = 'exited';
       this.emitUpdate(w);
       return;
     }
-    // The new terminal starts with what the last one showed (on a resume), or with what was saved
-    // when the office last stopped, so earlier output is still there to scroll back to and search.
+    // Keep earlier terminal output when resuming.
     const restarted = !w.term;
     const before = w.term && w.ser ? terminalTail(w.term, w.ser, SCROLLBACK) : this.scrollback.load(info.id);
     const prelude = before ? `${before}\r\n${restarted ? RESTORED_NOTE : ''}` : undefined;
