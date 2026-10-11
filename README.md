@@ -3,6 +3,8 @@
 > Expect breaking changes between releases: keys that move, screens that get redrawn, features that come and go
 > without notice. If it's close to what you want, fork or clone it and bend it into what you need it to be.
 
+Headset-Testbegleitung für die gesamte Spielsession: [Einrichtung und Bedienung](docs/xr-playtests.md). Der globale Einstieg liegt oben in der Playtest-Checkliste; passende Tests folgen dem tatsächlichen Spielmodus und Solo/Koop-Kontext.
+
 <div align="center">
 
 *"Whatever you do, work heartily, as for the Lord and not for men."* — Colossians 3:23 (ESV)
@@ -427,4 +429,4 @@ Every change to the app that lands on `main` is published as a GitHub release by
 
 [MIT](LICENSE)
 
-The [XR playtest plan](docs/xr-playtest-plan.md) describes session-wide Quest assistance. An initial read-only selection preview is implemented; device transport and headset UI are forthcoming.
+The [XR playtest plan](docs/xr-playtest-plan.md) describes session-wide Quest assistance. The [session guide](docs/xr-playtests.md) covers the global checklist entry, local Quest bridge, headset hints and evidence, including the required development game build.
