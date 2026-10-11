@@ -4,6 +4,7 @@ import { store } from '../../state';
 import type { HudAction } from '../menu';
 import type { ApkKind, DevApkBuild, DevApkView } from '../../../shared/dev-apk';
 import { APK_EXTENSIONS } from './extensions';
+import { downloadAddress, findLocalOffice } from './local-download';
 const labels: Record<DevApkBuild['status'], string> = { starting: 'Build wird gestartet', waiting: 'Warte auf freien Build-Platz', building: 'APK wird gebaut', publishing: 'Download wird vorbereitet', ready: 'Build erfolgreich', failed: 'Build fehlgeschlagen', interrupted: 'Build unterbrochen' };
 let modal: Modal | undefined;
 export const devApkAction: HudAction = { id: 'dev-apk', icon: '📦', label: 'APK', section: 'Open', run: () => openDevApk() };
@@ -18,7 +19,7 @@ export function openDevApk() {
   const latest = h('section.dev-apk-card'), current = h('section.dev-apk-card');
   const log = h('pre.dev-apk-log'), error = h('p.dev-apk-error', { role: 'alert' });
   const logDetails = h('details', {}, h('summary', {}, 'Build-Protokoll'), log);
-  let stopped = false, pending = false;
+  let stopped = false, pending = false, localOffice: string | undefined;
   const choices = (['development', 'store'] as const).map(value => h('button.btn', { type: 'button', 'aria-pressed': String(kind === value), onclick: () => {
     if (pending || kind === value) return;
     kind = value; choices.forEach((button, i) => button.setAttribute('aria-pressed', String(i === (kind === 'store' ? 1 : 0))));
@@ -53,7 +54,10 @@ export function openDevApk() {
       if (data.latest) {
         const apk = data.latest;
         latest.append(h('p', {}, `${new Date(apk.finishedAt!).toLocaleString()} · ${Math.round(apk.bytes! / 1048576)} MB · Commit ${apk.revision?.slice(0, 12)}`),
-          h('div.dev-apk-actions', {}, h('a.btn.primary', { href: link(apk.id) }, 'APK herunterladen'), copyLink),
+          h('div.dev-apk-actions', {}, h('a.btn.primary', { href: downloadAddress(link(apk.id), localOffice) }, localOffice ? 'APK lokal herunterladen' : 'APK herunterladen'), copyLink,
+            !localOffice && location.hostname !== '127.0.0.1' && location.hostname !== 'localhost'
+              ? h('a.btn', { href: 'http://127.0.0.1:4600/lite', target: '_blank', rel: 'noopener noreferrer' }, 'Auf dem Office-PC? Lokal öffnen') : null),
+          ...(localOffice ? [h('p', {}, 'Download direkt vom Office-Rechner. Falls du dort noch nicht angemeldet bist, öffne zuerst das Office über localhost:4600 und melde dich an.')] : []),
           h('details', {}, h('summary', {}, 'SHA-256 prüfen'), h('code', {}, apk.sha256 ?? '')));
       } else latest.append(h('p', {}, 'Noch keine APK vorhanden. Nach dem ersten erfolgreichen Build erscheint hier der Download.'));
       log.textContent = data.log || 'Noch kein Build-Protokoll.';
@@ -67,4 +71,5 @@ export function openDevApk() {
   const timer = setInterval(() => { void refresh(); }, 2500);
   const off = store.on('floor', () => { if (store.floor !== floor) modal?.close(); });
   void refresh();
+  void findLocalOffice().then(origin => { if (!stopped) { localOffice = origin; void refresh(); } });
 }
