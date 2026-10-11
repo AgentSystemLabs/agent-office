@@ -3,6 +3,7 @@ import { h, openModal, type Modal } from '../dom';
 import { store } from '../../state';
 import type { HudAction } from '../menu';
 import type { ApkKind, DevApkBuild, DevApkView } from '../../../shared/dev-apk';
+import { APK_EXTENSIONS } from './extensions';
 const labels: Record<DevApkBuild['status'], string> = { starting: 'Build wird gestartet', waiting: 'Warte auf freien Build-Platz', building: 'APK wird gebaut', publishing: 'Download wird vorbereitet', ready: 'Build erfolgreich', failed: 'Build fehlgeschlagen', interrupted: 'Build unterbrochen' };
 let modal: Modal | undefined;
 export const devApkAction: HudAction = { id: 'dev-apk', icon: '📦', label: 'APK', section: 'Open', run: () => openDevApk() };
@@ -10,6 +11,7 @@ export function openDevApk() {
   if (modal) return;
   const floor = store.floor; if (!floor) return;
   let kind: ApkKind = 'development', request = 0;
+  const extensions = APK_EXTENSIONS.map(mount => mount());
   const name = () => kind === 'store' ? 'Store-APK' : 'Dev-APK';
   const url = () => '/api/dev-apk?floor=' + encodeURIComponent(floor) + '&kind=' + kind;
   const status = h('div.dev-apk-status', { role: 'status' }, 'Lade Build-Status…');
@@ -21,6 +23,7 @@ export function openDevApk() {
     if (pending || kind === value) return;
     kind = value; choices.forEach((button, i) => button.setAttribute('aria-pressed', String(i === (kind === 'store' ? 1 : 0))));
     latest.replaceChildren(); current.replaceChildren(); log.textContent = ''; error.textContent = ''; status.textContent = 'Lade Build-Status…'; startButton.disabled = true; void refresh();
+    extensions.forEach(extension => extension.update());
   } }, value === 'store' ? 'Store-APK' : 'Dev-APK'));
   const startButton = h('button.btn.primary', { type: 'button', disabled: true, onclick: async () => {
     pending = true; startButton.disabled = true; choices.forEach(b => { b.disabled = true; }); error.textContent = '';
@@ -54,13 +57,13 @@ export function openDevApk() {
           h('details', {}, h('summary', {}, 'SHA-256 prüfen'), h('code', {}, apk.sha256 ?? '')));
       } else latest.append(h('p', {}, 'Noch keine APK vorhanden. Nach dem ersten erfolgreichen Build erscheint hier der Download.'));
       log.textContent = data.log || 'Noch kein Build-Protokoll.';
+      extensions.forEach(extension => extension.update(data.latest ? { name: name(), url: link(data.latest.id), bytes: data.latest.bytes!, sha256: data.latest.sha256! } : undefined));
     } catch (e) { if (!stopped && selected === kind && sequence === request) { error.textContent = (e as Error).message; startButton.disabled = true; } }
   }
   modal = openModal(h('section.dev-apk-dialog', { role: 'dialog', 'aria-label': 'APK', 'aria-modal': 'true' },
     h('header', {}, h('h2', {}, '📦 APK')), h('div.dev-apk-body', {},
       h('p', {}, 'Dev- und Store-Versionen bauen und herunterladen. Unity wird nur auf dem Build-Rechner benötigt.'), h('div.dev-apk-actions', { role: 'group', 'aria-label': 'APK-Variante' }, ...choices), status, latest, current, error, logDetails,
-      h('details', {}, h('summary', {}, 'Auf der Quest installieren'), h('p', {}, 'APK auf dem eigenen PC herunterladen. Quest im Entwicklermodus per USB verbinden und die Datei mit Meta Quest Developer Hub oder ADB installieren. Unity ist dafür nicht nötig.'),
-        h('p', {}, 'Bei unterschiedlicher Signatur zur Store-Version ist kein direktes Update möglich. Eine vorhandene App nicht ohne Sicherung ihrer Daten deinstallieren.')))), { onClose: () => { stopped = true; clearInterval(timer); off(); modal = undefined; } });
+      ...extensions.map(extension => extension.element))), { onClose: () => { stopped = true; clearInterval(timer); off(); extensions.forEach(extension => extension.dispose()); modal = undefined; } });
   const timer = setInterval(() => { void refresh(); }, 2500);
   const off = store.on('floor', () => { if (store.floor !== floor) modal?.close(); });
   void refresh();
