@@ -163,6 +163,7 @@ export const STATUS_LABEL: Record<string, string> = {
   idle: 'ready',
   working: 'working',
   testing: 'testing',
+  waiting: 'waiting',
   needs_input: 'needs input',
   done: 'turn ended',
   exited: 'exited',

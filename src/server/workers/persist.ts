@@ -14,7 +14,7 @@ import { COLORS, newWorker } from './worker.js';
 import { validRepos } from './worktree.js';
 
 /** What a worker with a live terminal can be doing. */
-const RUNNING = new Set<unknown>(['starting', 'idle', 'working', 'testing', 'done', 'needs_input'] satisfies WorkerStatus[]);
+const RUNNING = new Set<unknown>(['starting', 'idle', 'working', 'testing', 'waiting', 'done', 'needs_input'] satisfies WorkerStatus[]);
 
 /** Saves every worker; `stopping`: the office is closing for good, so nobody is in the middle of anything. */
 export function saveWorkers(file: string, workers: Iterable<Worker>, stopping: boolean) {

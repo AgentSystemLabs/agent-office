@@ -1,5 +1,6 @@
 import { chmodSync, mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { TEST_HOOK_SOURCE } from './workers/testing-wire.js';
 import type { AgentEffort } from '../shared/providers.js';
 
 export const CODEX_HOOK_EVENTS = [
@@ -167,6 +168,7 @@ process.stdin.on('end', async () => {
   if (toolUseId) body.tool_use_id = toolUseId;
   if (turn) body.turn_id = turn;
   if (transcript) body.transcript_path = transcript;
+${TEST_HOOK_SOURCE}
   const base = process.env.AGENT_OFFICE_HOOK_URL;
   const token = process.env.AGENT_OFFICE_HOOK_TOKEN;
   const worker = process.env.AGENT_OFFICE_WORKER_ID;

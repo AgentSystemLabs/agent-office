@@ -7,6 +7,7 @@
 // go into the hooks.json of the folder it works in as it starts, and come out again when it ends.
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmdirSync, unlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { TEST_HOOK_SOURCE } from './workers/testing-wire.js';
 import { excludeFromGit } from './config.js';
 
 /** Cursor's hook events the office listens to, and the lifecycle event each one is (see workers/lifecycle.ts). */
@@ -283,6 +284,7 @@ process.stdin.on('end', async () => {
     if (tool) body.tool_name = tool;
     if (toolUseId) body.tool_use_id = toolUseId;
   }
+${TEST_HOOK_SOURCE}
   try {
     const url = new URL('/hooks/cursor', base);
     url.searchParams.set('worker', worker);

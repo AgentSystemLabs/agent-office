@@ -9,7 +9,7 @@ export function isAsleep(status: WorkerStatus): boolean {
 
 /** In the middle of a turn: booting, working, or waiting on an answer. */
 export function isBusy(status: WorkerStatus): boolean {
-  return status === 'starting' || status === 'working' || status === 'testing' || status === 'needs_input';
+  return status === 'starting' || status === 'working' || status === 'testing' || status === 'waiting' || status === 'needs_input';
 }
 
 /**
