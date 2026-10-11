@@ -2,6 +2,16 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { OperatorClient } from '../src/server/xr-playtests/mcp.js';
+test('operator that never sends HTTP headers cannot block device reconnection indefinitely', async t => {
+  const server = http.createServer(() => {});
+  await new Promise<void>(r => server.listen(0, '127.0.0.1', r));
+  t.after(() => { server.closeAllConnections(); server.close(); });
+  const client = new OperatorClient(`http://127.0.0.1:${(server.address() as any).port}`);
+  t.after(() => client.close());
+  const started = Date.now();
+  await assert.rejects(client.connect(), /abort/i);
+  assert.ok(Date.now() - started < 6500);
+});
 test('real SSE handshake discovers tools and returns typed snapshot JSON without any control calls', async t => {
   let stream: http.ServerResponse | undefined; const calls: string[] = [];
   const server = http.createServer(async (req, res) => {

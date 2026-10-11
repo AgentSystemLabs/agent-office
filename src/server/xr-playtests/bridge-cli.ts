@@ -27,7 +27,7 @@ export async function runBridge(argv = process.argv.slice(2)) {
     await adb('-s', serial, 'forward', '--remove', `tcp:${c.port}`).catch(() => {});
   }
   try {
-    console.log('Begleitung verbunden. Headsets im Office auswählen. Strg+C beendet den Helfer.');
+    console.log('Verbinde Testbegleitung. Headsets anschließend im Office auswählen. Strg+C beendet den Helfer.');
     while (!stopping) {
       try {
         const lines = (await adb('devices', '-l')).split(/\r?\n/).slice(1);
