@@ -35,6 +35,7 @@ function writeHookSettings(dataDir: string): string {
     ['SessionStart', undefined],
     ['UserPromptSubmit', undefined],
     ['Stop', undefined],
+    ['StopFailure', undefined],
     ['Notification', undefined],
     ['PermissionRequest', undefined],
     ['PreToolUse', undefined],

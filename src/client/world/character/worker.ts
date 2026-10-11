@@ -458,7 +458,7 @@ export class Worker {
     const act: Act =
       hopping || (this.bouncing && this.status === 'done') ? 'up'
       : this.status === 'needs_input' ? 'waiting'
-      : this.status === 'working' ? (this.action ?? 'type')
+      : this.status === 'testing' ? 'test' : this.status === 'working' ? (this.action ?? 'type')
       : 'rest';
     const s = this.pose(act, dt, t);
     // A zombie at rest stands with its arms out in front of it, groping, listing to one side and swaying.

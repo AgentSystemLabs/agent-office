@@ -52,6 +52,7 @@ button { font-family: inherit; }
 .pill { font-size: 11px; font-weight: 900; padding: 2px 7px; border-radius: 999px; border: 2px solid var(--ink); white-space: nowrap; }
 .pill.starting, .pill.idle { background: #e0f2fe; }
 .pill.working { background: var(--warn); }
+.pill.testing { background: #bde0fe; color: #123b63; }
 .pill.needs_input { background: var(--bad); color: #fff; animation: pulse 1s infinite; }
 .pill.done { background: var(--good); color: #fff; }
 .pill.exited, .pill.offline { background: #dee2e6; }

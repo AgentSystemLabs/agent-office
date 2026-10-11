@@ -7,6 +7,7 @@ export type WorkerStatus =
   | 'starting' // PTY launched, agent booting
   | 'idle' // waiting for a first prompt
   | 'working' // agent is busy
+  | 'testing' // a test/build is running or waiting in the background
   | 'needs_input' // permission prompt / question open
   | 'done' // finished its turn
   | 'exited' // process ended (can be resumed if it had a session)
