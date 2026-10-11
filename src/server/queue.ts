@@ -3,6 +3,7 @@ import { QueueRecovery, RECOVERY_NOTE } from './queue-recovery.js';
 import { testingStopped } from './workers/testing.js';
 import { existingWorker, existingPrompt } from './queue-existing.js';
 import { randomBytes } from 'node:crypto';
+import { queuedAssignment, requestQueueIssue } from './queue-assignment.js';
 import { referencesQueueIssue } from './queue-pr-reference.js';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -233,6 +234,7 @@ export class TaskQueue {
 
   /** A worker changed. Cheap unless its status moved, which can free a slot or finish a task. */
   onWorker(info: WorkerInfo) {
+    this.adoptIssue(info);
     // It switched to a branch of its own (see Workers.syncBranch): its task's pull request comes from there.
     if (info.status === 'working' || info.status === 'testing' || info.status === 'needs_input') this.awaitingStart.delete(info.id);
     const branch = info.worktree?.branch;
@@ -248,6 +250,20 @@ export class TaskQueue {
   onWorkerGone(workerId: string) {
     this.lastStatus.delete(workerId);
     this.pump();
+  }
+
+  /** A direct user instruction started an issue that was already queued. Do not submit it again. */
+  adoptIssue(info: WorkerInfo, issue?: number) {
+    info = this.workers.list().find(w => w.id === info.id) ?? info;
+    if (issue !== undefined) requestQueueIssue(info, issue);
+    const task = queuedAssignment(this.tasks, info, this.workers.ownerOf?.(info.id));
+    if (!task) return;
+    task.reusedWorker = true;
+    task.provider = info.provider ?? task.provider;
+    task.model = info.model;
+    task.effort = info.effort;
+    this.started(task, info);
+    this.changed();
   }
 
   /** Fresh pull requests from GitHub: link each task to the PR that closes its issue (or came from its branch). */

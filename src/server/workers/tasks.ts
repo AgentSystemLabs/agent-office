@@ -1,6 +1,7 @@
 // What each worker is working on (WorkerInfo.task): named from its latest prompts and tool calls,
 // by Claude for the providers the office names tasks for (see TaskNamer and ProviderAdapter.namesTasks).
 import { officePrompt } from '../prompts.js';
+import { noteQueueAssignment } from '../queue-assignment.js';
 import { providerAdapter } from '../providers/index.js';
 import { TaskNamer, fallbackTask } from '../tasks.js';
 import type { Worker, WorkerContext } from './types.js';
@@ -43,6 +44,7 @@ export class WorkerTasks {
     const clean = prompt.replace(/\s+/g, ' ').trim();
     // Bare slash commands (/model, /compact), repeats and the office's own carry-on aren't new work.
     if (!clean || /^\/\S+$/.test(clean) || w.prompts.at(-1) === clean || clean === CARRY_ON_PROMPT) return;
+    noteQueueAssignment(w.info, clean);
     w.prompts = [...w.prompts, clean].slice(-TASK_PROMPTS);
     const hadTask = !!w.info.task;
     if (!hadTask) w.info.task = fallbackTask(clean);

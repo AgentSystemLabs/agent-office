@@ -4,6 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { TaskQueue, type QueueWorkers } from '../src/server/queue.js';
+import { noteQueueAssignment } from '../src/server/queue-assignment.js';
 import type { AgentEffort, AgentProvider, WorkerInfo } from '../src/shared/protocol.js';
 
 function fixture(defaultProvider: AgentProvider = 'claude') {
@@ -51,6 +52,39 @@ function fixture(defaultProvider: AgentProvider = 'claude') {
   };
   return { dir, workers, manager, open, emptied: () => emptied, close() { queues.forEach((q) => q.shutdown()); rmSync(dir, { recursive: true, force: true }); } };
 }
+
+test('direct start adopts the queued issue without a duplicate worker', (t) => {
+  const f = fixture(); t.after(() => f.close());
+  const q = f.open(); q.setLimit(0);
+  q.add('Fix the test', 'Tester', 'Issue 364', 364);
+  const w = f.manager.spawn('desk-2', 'Tester', 'Start issue #364', false, 'agent', 'claude') as WorkerInfo;
+  noteQueueAssignment(w, 'Start issue #364');
+  q.onWorker({ ...w });
+  assert.equal(q.state().tasks[0].status, 'running');
+  assert.equal(q.state().tasks[0].workerId, w.id);
+  q.onWorker({ ...w });
+  assert.equal(f.workers.length, 1);
+  assert.equal(JSON.parse(readFileSync(path.join(f.dir, 'queue.json'), 'utf8')).tasks[0].workerId, w.id);
+});
+
+test('mentions, negative instructions, other accounts and occupied workers cannot claim queued issues', (t) => {
+  const f = fixture(); t.after(() => f.close());
+  const q = f.open(); q.setLimit(0);
+  q.add('Fix test', 'Tester', 'Issue 364', 364);
+  const w = f.manager.spawn('desk-2', 'Tester', '', false, 'agent', 'claude') as WorkerInfo;
+  for (const text of ['Review PR #364', 'Why is issue #364 open?', 'Starte Issue #364 nicht', 'Start issue #364 and #365']) {
+    noteQueueAssignment(w, text); q.onWorker({ ...w });
+    assert.equal(q.state().tasks[0].status, 'queued');
+  }
+  f.manager.ownerOf = () => 'another-account';
+  noteQueueAssignment(w, 'Start issue #364'); q.onWorker({ ...w });
+  assert.equal(q.state().tasks[0].status, 'queued');
+  f.manager.ownerOf = () => undefined;
+  q.onWorker({ ...w });
+  q.add('Another', 'Tester', 'Issue 365', 365);
+  noteQueueAssignment(w, 'Start issue #365'); q.onWorker({ ...w });
+  assert.equal(q.state().tasks[1].status, 'queued');
+});
 
 test('queue seats the selected provider and preserves it through completion and retry', (t) => {
   const f = fixture(); t.after(() => f.close());

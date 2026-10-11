@@ -1,3 +1,5 @@
+Worker speech bubbles and the Workers list show **Testing in blue** and **Waiting in yellow**. A direct `Start issue #364` instruction claims that already queued issue when work begins, without starting a duplicate worker. See [agent workflow](docs/agents.md).
+
 > [!WARNING]
 > **Work in progress.** Agent Office is built for one person's workflow — mine — and it changes fast as I iterate on it.
 > Expect breaking changes between releases: keys that move, screens that get redrawn, features that come and go

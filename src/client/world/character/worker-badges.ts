@@ -5,12 +5,12 @@ import { cardSprite, textSprite } from '../toon';
 
 // What a worker shows of how it's getting on: its status light, and the bubble or task card over its head.
 
-export const STATUS_BULB: Record<string, string> = {
+export const STATUS_BULB: Record<WorkerStatus, string> = {
   starting: '#adb5bd',
   idle: '#8ecae6',
   working: '#ffd166',
   testing: '#90caf9',
-  waiting: '#ffd8a8',
+  waiting: '#ffd166',
   needs_input: '#ef476f',
   done: '#06d6a0',
   exited: '#6c757d',
@@ -21,7 +21,7 @@ export const STATUS_BULB: Record<string, string> = {
 const NEEDS_YOU = { text: '🙋 NEEDS YOU', bg: STATUS_BULB.needs_input, color: '#ffffff', size: 46, card: '#ffc2d1' };
 
 /** Status pill on a worker's task card: [text, background, text color]. */
-const TASK_CHIP: Record<string, [string, string, string]> = {
+const TASK_CHIP: Record<WorkerStatus, [string, string, string]> = {
   starting: ['⏳ STARTING', STATUS_BULB.starting, '#2b2d42'],
   idle: ['💬 READY', STATUS_BULB.idle, '#2b2d42'],
   working: ['⌨️ WORKING', STATUS_BULB.working, '#2b2d42'],
@@ -59,7 +59,7 @@ export function bubbleFor(status: WorkerStatus, bounce: boolean, task: WorkerTas
     key,
     draw: () => {
       if (task) {
-        const [text, chipBg, color] = lost ? LOST_CHIP : (TASK_CHIP[status] ?? TASK_CHIP.idle);
+        const [text, chipBg, color] = lost ? LOST_CHIP : TASK_CHIP[status];
         return cardSprite({ chip: { text, bg: chipBg, color }, title: task.name, body: [prLabel, task.summary && `${status === 'working' || status === 'needs_input' ? '' : 'Last report: '}${task.summary}`].filter(Boolean).join(' · '), bg: isAsleep(status) ? '#e9ecef' : bg, border });
       }
       if (asking) return textSprite(bubble, { bg: NEEDS_YOU.bg, color: NEEDS_YOU.color, size: NEEDS_YOU.size, border: pr && border });

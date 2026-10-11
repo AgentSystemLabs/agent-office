@@ -120,6 +120,7 @@ export const workerHandlers = {
     ctx.warn(c, err);
     const issue = w?.info.kind === 'agent' ? issueNumber(msg.issue) : undefined;
     if (w && !err && issue) {
+      w.floor.queue.adoptIssue(w.info, issue);
       ctx.toastFloor(w.floor, `${who} handed issue #${issue} to ${w.info.name}`);
       ctx.takeIssue(c, w.floor, issue);
     }

@@ -1,3 +1,4 @@
+import type { WorkerStatus } from '../../shared/protocol';
 type Attrs = Record<string, string | number | boolean | EventListener | undefined | null>;
 type Child = Node | string | number | null | undefined | false;
 
@@ -158,7 +159,7 @@ export function clip(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
 
-export const STATUS_LABEL: Record<string, string> = {
+export const STATUS_LABEL: Record<WorkerStatus, string> = {
   starting: 'starting',
   idle: 'ready',
   working: 'working',
