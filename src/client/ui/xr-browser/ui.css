@@ -1,0 +1,3 @@
+.xr-browser-modal [hidden] { display:none !important; }
+.xr-browser-modal progress { width:100%; }
+.xr-browser-modal .quest-actions .btn { white-space:normal; overflow-wrap:anywhere; }

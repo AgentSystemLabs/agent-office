@@ -1,3 +1,4 @@
+import { xrBrowserRoute } from './xr-browser.js';
 import { playtestTriageRoute } from './playtest-triage.js';
 import { xrPlaytestRoute } from './xr-playtests.js';
 import { xrBridgeRoute, xrSessionRoute } from './xr-sessions.js';
@@ -45,6 +46,7 @@ export const routes: readonly Route[] = [
   playtestRoute,
   xrPlaytestRoute,
   xrSessionRoute,
+  xrBrowserRoute,
   playtestBugRoute,
   playtestTriageRoute,
   devApkRoute,
