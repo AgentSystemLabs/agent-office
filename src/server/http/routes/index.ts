@@ -15,6 +15,7 @@ import { searchRoutes } from './search.js';
 import { serviceRoutes } from './services.js';
 import { playtestBugRoute } from './playtest-bugs.js';
 import { playtestRoute } from './playtests.js';
+import { devApkRoute } from './dev-apk.js';
 
 export const routes: readonly Route[] = [
   // Anyone.
@@ -48,6 +49,7 @@ export const routes: readonly Route[] = [
   xrSessionRoute,
   playtestBugRoute,
   playtestTriageRoute,
+  devApkRoute,
   githubRoutes.github,
   pageRoutes.office,
   pageRoutes.lite,
