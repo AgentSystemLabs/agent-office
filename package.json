@@ -32,6 +32,11 @@
     "@lydell/node-pty": "^1.2.0-beta.15",
     "@xterm/addon-serialize": "^0.14.0",
     "@xterm/headless": "^6.0.0",
+    "@yume-chan/adb": "2.6.4",
+    "@yume-chan/adb-credential-web": "2.1.0",
+    "@yume-chan/adb-daemon-webusb": "2.3.2",
+    "@yume-chan/stream-extra": "2.6.1",
+    "fflate": "0.8.3",
     "selfsigned": "^5.5.0",
     "ws": "^8.21.3"
   },

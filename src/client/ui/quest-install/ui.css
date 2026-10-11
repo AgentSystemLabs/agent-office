@@ -1,0 +1,9 @@
+.quest-installer { border:2px solid #303048; border-radius:12px; padding:16px; background:#edf4ff; }
+.quest-installer h3 { margin:0 0 12px; }
+.quest-installer p,.quest-installer li { overflow-wrap:anywhere; }
+.quest-installer details { margin-bottom:16px; }
+.quest-actions { display:flex; flex-wrap:wrap; gap:10px; margin:12px 0; }
+.quest-progress { display:flex; align-items:center; gap:12px; }
+.quest-progress progress { flex:1; min-width:80px; }
+.quest-error { color:#9a2538; }
+.quest-installer [hidden] { display:none !important; }
