@@ -17,6 +17,20 @@ export function availability(): string | undefined {
   if (!AdbDaemonWebUsbDeviceManager.BROWSER) return 'USB-Installation benötigt Chrome oder Edge auf deinem Rechner. Firefox und Safari unterstützen diese Verbindung nicht.';
 }
 const quote = (s: string) => "'" + s.replaceAll("'", "'\\''") + "'";
+const CONNECT_TIMEOUT_MS = 45000;
+export async function connectWithin<T>(operation: Promise<T>, signal: AbortSignal, onLate: (value: T) => void, timeoutMs = CONNECT_TIMEOUT_MS): Promise<T> {
+  let abandoned = false, timer: ReturnType<typeof setTimeout> | undefined;
+  let onAbort = () => {};
+  const interrupted = new Promise<never>((_, reject) => {
+    onAbort = () => reject(signal.reason ?? Error('Verbindung abgebrochen.'));
+    if (signal.aborted) onAbort(); else signal.addEventListener('abort', onAbort, { once: true });
+    timer = setTimeout(() => reject(Error('Keine Antwort von der Quest nach 45 Sekunden. USB-Debugging im Headset bestätigen und erneut verbinden.')), timeoutMs);
+  });
+  void operation.then(value => { if (abandoned) onLate(value); }, () => {});
+  try { return await Promise.race([operation, interrupted]); }
+  catch (error) { abandoned = true; throw error; }
+  finally { clearTimeout(timer); signal.removeEventListener('abort', onAbort); }
+}
 export async function requestQuest(signal: AbortSignal, status: (text: string) => void): Promise<QuestDevice> {
   const unavailable = availability(); if (unavailable) throw Error(unavailable);
   // Must run immediately in the connect button's user gesture, before any network request or lazy import.
@@ -25,13 +39,13 @@ export async function requestQuest(signal: AbortSignal, status: (text: string) =
   const cancel = () => { void device.raw.close().catch(() => {}); };
   signal.addEventListener('abort', cancel, { once: true });
   try {
-    status('Verbindung wird geöffnet…'); const connection = await device.connect(); signal.throwIfAborted();
+    status('Verbindung wird geöffnet…'); const connection = await connectWithin(device.connect(), signal, cancel); signal.throwIfAborted();
     status('Bitte im Headset „USB-Debugging zulassen“ bestätigen.');
-    const transport = await AdbDaemonTransport.authenticate({ serial: device.serial, connection, credentialStore: new AdbWebCredentialStore('Agent Office'), readTimeLimit: 120000 });
+    const transport = await connectWithin(AdbDaemonTransport.authenticate({ serial: device.serial, connection, credentialStore: new AdbWebCredentialStore('Agent Office'), readTimeLimit: CONNECT_TIMEOUT_MS }), signal, value => { void new Adb(value).close().catch(() => {}); });
     const adb = new Adb(transport);
     if (signal.aborted) { await adb.close(); signal.throwIfAborted(); }
     return new UsbQuest(adb, device.name || adb.banner.model || 'Meta Quest', device.serial);
-  } catch (e) { cancel(); throw e; }
+  } catch (e) { await device.raw.close().catch(() => {}); throw e; }
   finally { signal.removeEventListener('abort', cancel); }
 }
 class UsbQuest implements QuestDevice {

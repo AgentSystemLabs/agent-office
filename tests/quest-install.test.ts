@@ -7,7 +7,7 @@ import { apkPackage, manifestPackage } from '../src/client/ui/quest-install/mani
 import { localApk, officeApk, type ApkSource } from '../src/client/ui/quest-install/source.js';
 import { installApk, launchInstalled, explain } from '../src/client/ui/quest-install/install.js';
 import { QuestInstaller } from '../src/client/ui/quest-install/controller.js';
-import type { QuestDevice } from '../src/client/ui/quest-install/device.js';
+import { connectWithin, type QuestDevice } from '../src/client/ui/quest-install/device.js';
 const signal=()=>new AbortController().signal;
 const local=(data=apkFixture())=>localApk(new File([data as Uint8Array<ArrayBuffer>],'game.apk'));
 function fakeDevice(output='Success\n') {
@@ -52,4 +52,14 @@ test('cancel/dispose abort an active upload, suppress Android install and close 
   const f=fakeDevice();let started!:()=>void;const ready=new Promise<void>(r=>started=r);
   f.device.push=async(_p,_source,s)=>{started();await new Promise((_,reject)=>{s.addEventListener('abort',()=>reject(s.reason),{once:true});});};
   const c=new QuestInstaller(()=>{},async()=>f.device);await c.connect();const first=c.install(local());await ready;await c.install(local());c.cancel();await first;assert.equal(c.state.installed,undefined);assert.ok(!f.commands.some(c=>c[0]==='pm'));assert.match(c.state.error!,/Abgebrochen/);await c.dispose();assert.equal(f.closed,1);
+});
+test('stalled Quest connection times out, releases late connection and permits retry',async()=>{
+  let resolve!: (value:string)=>void;
+  const stalled=new Promise<string>(r=>{resolve=r;});const late:string[]=[];
+  await assert.rejects(connectWithin(stalled,signal(),value=>late.push(value),10),/Keine Antwort/);
+  resolve('old connection');await new Promise(r=>setTimeout(r,0));assert.deepEqual(late,['old connection']);
+  assert.equal(await connectWithin(Promise.resolve('new connection'),signal(),()=>{},10),'new connection');
+  const aborted=new AbortController();let abandon!:()=>void;
+  const pending=new Promise<void>(r=>{abandon=r;});const waiting=connectWithin(pending,aborted.signal,()=>{},1000);
+  aborted.abort();await assert.rejects(waiting);abandon();
 });

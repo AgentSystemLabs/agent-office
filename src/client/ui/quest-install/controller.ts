@@ -23,7 +23,7 @@ export class QuestInstaller {
   connect() {
     return this.run(async signal => {
       const old = this.device; this.device = undefined; this.update({connected:undefined,installed:undefined,source:undefined});
-      if (old) void old.close().catch(() => {});
+      if (old) await old.close().catch(() => {});
       const device = await this.connectDevice(signal, message => this.update({message}));
       if (signal.aborted || this.disposed) { await device.close(); signal.throwIfAborted(); return; }
       this.device = device; this.update({connected:device.name,message:'Quest verbunden. Wähle die APK zum Installieren.'});

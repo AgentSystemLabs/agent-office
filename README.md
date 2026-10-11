@@ -17,6 +17,8 @@ APKs für entfernte Tester: **☰ → APK** bietet getrennte Quest-Development- 
 
 Direkt auf die Quest installieren: Im APK-Fenster **Quest verbinden** wählen. Chrome oder Edge verbindet sich per USB mit der Quest am Rechner des jeweiligen Testers. Die neueste Dev-/Store-APK oder eine ausgewählte Datei lässt sich mit Fortschrittsanzeige installieren und anschließend starten. [Browser-Installation](docs/quest-browser-install.md).
 
+In der 2D-Ansicht nutzt die Playtest-Checkliste auf Desktop-Bildschirmen mehr Platz. Bei ausbleibender Quest-Antwort endet der Verbindungsversuch nach 45 Sekunden; **Abbrechen** und ein neuer Verbindungsversuch sind möglich.
+
 **A 3D office your team shares with its coding agents.**
 
 **Personal playtests:** the rolling checklist board and **☰ → Playtest checklist** organize checks by

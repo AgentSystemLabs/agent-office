@@ -16,6 +16,7 @@ Für die neueste Office-APK ist kein vorheriger Download nötig. Der vorhandene 
 
 - Firefox und Safari bieten den benötigten WebUSB-Zugriff nicht. Bei fehlender Unterstützung bleibt der Download nutzbar und die Installation deaktiviert.
 - Bei belegter USB-Verbindung SideQuest, Meta Quest Developer Hub und andere ADB-Verbindungen schließen. Ein im Hintergrund laufender ADB-Server muss gegebenenfalls ebenfalls beendet werden. Treiber und Datenkabel prüfen.
+- Bleibt die Bestätigung im Headset aus oder hängt die USB-Verbindung, endet der Versuch nach 45 Sekunden mit einer Meldung. **Abbrechen** löst die wartende Verbindung ebenfalls; danach lässt sich **Quest verbinden** erneut wählen. Bei weiterhin belegtem Gerät konkurrierende ADB-Programme schließen und das USB-Kabel neu verbinden.
 - Bei unterschiedlicher App-Signatur bleibt die vorhandene Installation erhalten. Eine passend signierte APK verwenden. Die Funktion deinstalliert keine App und löscht keine Spieldaten, um einen Signaturkonflikt zu umgehen.
 - Versions-Downgrades werden nicht erzwungen. Speicherfehler, fehlende Anmeldung, unterbrochene Downloads und abgezogene Kabel erscheinen als Fehler, ohne Startfreigabe.
 - **Abbrechen**, **✕** oder **Esc** bricht den laufenden Vorgang ab. ✕ und Esc schließen das Fenster unmittelbar und geben die Maussteuerung zurück. Falls Android bereits mit der Installation begonnen hat, kann es diese trotzdem abschließen: den App-Stand im Headset prüfen.

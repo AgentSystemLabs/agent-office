@@ -61,6 +61,9 @@ body.lite { min-height: 100dvh; background: var(--paper); -webkit-tap-highlight-
 .toast { text-align: center; }
 .conn { position: fixed; top: 84px; z-index: 60; }
 .backdrop { z-index: 50; }
+@media (min-width: 641px) {
+  body.lite .playtest-modal { width: min(1180px, calc(100vw - 32px)); max-width: none; }
+}
 
 /* No zooming in on a box as you tap it (iOS does, for text under 16px). */
 .modal textarea, .modal input[type=text], .modal input[type=password], .modal select { font-size: 16px; }

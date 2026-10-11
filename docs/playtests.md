@@ -1,5 +1,7 @@
 # Playtest checklist
 
+In der 2D-Ansicht nutzt die Checkliste auf Desktop-Bildschirmen ein breiteres Fenster, damit Modusfilter und Testkarten nebeneinander Platz haben. Auf schmalen Geräten bleibt sie bildschirmfüllend.
+
 The rolling board left of the couch shows six sections: **Allgemein, RB, RIFT, Rooftop,
 Safe Zone, Gas Station**. Press **E** at the board or open **☰ → Playtest checklist**.
 Each project has a shared checklist for people's next play session. These entries never hire
