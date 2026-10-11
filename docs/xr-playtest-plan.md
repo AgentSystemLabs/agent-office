@@ -79,4 +79,8 @@ Eigene Unity-Werkzeuge werden einmal pro XR-Sitzung registriert. Ihre Aufrufe bl
 ## Umsetzungsstand
 
 - Plan erstellt.
-- Schritt 1 ist in diesem PR implementiert und mit automatisierten Tests geprüft; eine reale Headset-Verbindung, UI und Unity-Werkzeuge sind noch nicht implementiert oder auf Hardware verifiziert.
+- Office-Sitzung, globaler Einstieg, lokale ADB/MCP-Brücke, automatische Auswahl, persistente Beobachtungen, Kriterieneditor, Screenshots und Fehlerübergabe sind implementiert.
+- Spielwerkzeuge und ausblendbare Headset-Hinweise stehen im separaten Spiel-PR #361. Sie gehören in einen Development-Build.
+- Als ausdrücklich ausgelöste Testvorbereitung ist das begrenzte Auffüllen von Reserve-Munition implementiert. Beliebige Controllersteuerung, Änderungen an Geld/Spielständen und automatische Wellen-/Gegner-Manipulationen sind keine freigegebenen Begleitwerkzeuge.
+- Automatisierte Prüfungen und Hardware-Abnahme werden getrennt berichtet. Die implementierte Verbindung ist kein Beleg, dass ein Headset-Playtest bestanden wurde.
+- Bedienung und Einrichtung: [XR-Playtests](xr-playtests.md).

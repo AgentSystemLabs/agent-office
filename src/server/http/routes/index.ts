@@ -1,5 +1,6 @@
 import { playtestTriageRoute } from './playtest-triage.js';
 import { xrPlaytestRoute } from './xr-playtests.js';
+import { xrBridgeRoute, xrSessionRoute } from './xr-sessions.js';
 // Every HTTP route the office answers, in the order they're tried: a new route goes where it has to
 // come in that order (see http/router.ts). The public ones are tried first, then the sign-in check,
 // then the rest; the last one answers every path left with the client bundle, or a 404.
@@ -17,6 +18,7 @@ import { playtestRoute } from './playtests.js';
 export const routes: readonly Route[] = [
   // Anyone.
   authRoutes.login,
+  xrBridgeRoute,
   authRoutes.loginOptions,
   authRoutes.join,
   authRoutes.claimable,
@@ -41,6 +43,7 @@ export const routes: readonly Route[] = [
   serviceRoutes.forwards,
   playtestRoute,
   xrPlaytestRoute,
+  xrSessionRoute,
   playtestBugRoute,
   playtestTriageRoute,
   githubRoutes.github,

@@ -1,0 +1,20 @@
+.xr-modal { width:min(940px,94vw); max-height:90vh; display:flex; flex-direction:column; }
+.xr-modal > header { display:flex; align-items:center; padding:16px 20px; border-bottom:3px solid var(--ink); gap:12px; }
+.xr-modal h2 { flex:1; margin:0; font-size:22px; }
+.xr-body { padding:20px; overflow:auto; }
+.xr-status { padding:14px; background:#d5f4dc; border:2px solid var(--ink); border-radius:10px; font-weight:bold; }
+.xr-controls { display:flex; gap:8px; flex-wrap:wrap; }
+.xr-error { color:#a31736; white-space:pre-wrap; }
+.xr-error:empty,.xr-pairing:empty { display:none; }
+.xr-pairing,.xr-test { margin:16px 0; padding:14px; border:2px solid var(--ink); border-radius:12px; background:var(--paper,#fffaf1); }
+.xr-modal pre { white-space:pre-wrap; overflow-wrap:anywhere; max-height:220px; overflow:auto; font-size:12px; }
+.xr-modal input:not([type=checkbox]),.xr-modal select { max-width:100%; padding:8px; border:2px solid var(--ink); border-radius:8px; background:white; color:#2b2d42; }
+.xr-pairing input { display:block; width:100%; box-sizing:border-box; margin:10px 0; }
+.xr-devices label,.xr-rule label { display:block; padding:6px 0; }
+.xr-devices { margin:18px 0; }
+.xr-test summary { cursor:pointer; font-weight:bold; }
+.xr-rule { display:flex; flex-wrap:wrap; gap:8px; padding:10px 0; }
+.xr-rule h4,.xr-rule p { flex-basis:100%; margin:5px 0; }
+.xr-text { white-space:pre-wrap; }
+.xr-test textarea { width:100%; box-sizing:border-box; min-height:80px; }
+@media(max-width:560px) { .xr-body { padding:12px; } .xr-modal { max-height:94vh; } .xr-modal > header { padding:12px; } }
