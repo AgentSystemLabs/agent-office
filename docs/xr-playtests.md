@@ -4,6 +4,18 @@ Die Begleitung wird **oben in der gesamten Playtest-Checkliste** gestartet. Sie 
 
 ## Einrichtung
 
+### Direkt im Browser (ein Headset)
+
+Oben in der gesamten Playtest-Checkliste **XR Operator & Dev-APK** öffnen. Chrome/Edge, HTTPS (oder localhost), Quest-Entwicklermodus und ein USB-Datenkabel sind erforderlich. Mit **Quest verbinden & Dev-APK vorbereiten** die USB-Auswahl und Debugging-Freigabe bestätigen. Der Browser liest den Paketnamen der neuesten veröffentlichten Dev-APK und vergleicht die SHA-256 der installierten APK. Ein identischer Build wird nicht erneut installiert; bei fehlendem oder anderem Build wird die ausgewählte Dev-APK installiert und der tatsächlich installierte Stand anschließend nochmals geprüft. Eine reine Versionsnummer genügt nicht. Unlesbare oder mehrteilige Installationen werden nicht blind ersetzt.
+
+Der XR Operator ist Bestandteil des instrumentierten Dev-Builds, keine zweite zu installierende App. **Spiel & Testbegleitung starten** prüft den aktuellen Dev-Build erneut, startet das Spiel und verlangt eine erfolgreiche Operator-Werkzeugerkennung. Eine APK ohne `ZRB_PlaytestSnapshot` und `ZRB_PlaytestOverlay` wird ausdrücklich als ungeeignet gemeldet. Bei unterschiedlichen Signaturen wird nichts deinstalliert; ein Downgrade wird nicht erzwungen.
+
+Die Begleitung läuft über WebADB und den Operator-Port 8720 auf dem angeschlossenen Gerät. Es gibt keinen zusätzlichen öffentlichen Geräteport oder lokalen Helfer. Der Browser übermittelt Daten über die bestehende Office-Anmeldung mit zusätzlichem, laufgebundenem Token. Das funktioniert auch hinter der HTTPS-/Basic-Auth-Vorschaltung des Office. Andere Konten können den Lauf nicht übernehmen.
+
+**Testlauf & Beobachtungen öffnen** zeigt den globalen Lauf. Modus, Solo/Koop und Spielphase des Spiels bestimmen die aktiven Tests, nicht der vorher sichtbare Checklistenfilter. Screenshot und bestätigte Solo-Testvorbereitung bleiben explizite Aktionen. Schließen des Fensters beendet einen gestarteten Lauf nicht; das Browser-Tab und die USB-Verbindung müssen offen bleiben. Browser-Schließen, Etagenwechsel oder Geräteverlust unterbrechen die Begleitung, veraltete Daten zählen nicht als frischer Nachweis. Beenden entfernt die Hinweise nach Möglichkeit sofort, ansonsten greift deren Ablaufzeit. Für zwei Headsets bleibt der folgende PC-Helfer verfügbar. Er kann die USB-Verbindung erst übernehmen, nachdem die Browser-Begleitung beendet wurde.
+
+### PC-Helfer (auch zwei Headsets)
+
 - Auf dem PC: Node 20+, Android Platform Tools (`adb` im Suchpfad; alternativ Umgebungsvariable `ADB` mit dem vollständigen Pfad).
 - Auf der Quest: Entwicklermodus, freigegebenes USB-Debugging und ein Development-Build mit Meta XR Operator und den ZRB-Playtest-Werkzeugen. Die normale Store-Version enthält diese Werkzeuge nicht.
 - Der lokale Helfer gehört zum Office-Paket (`office-xr`). Beim Start aus einem Git-Checkout zuerst `npm ci` und `npm run build`; statt `office-xr` kann `node <Office-Verzeichnis>/bin/office-xr.js` verwendet werden. Keine öffentliche Headset-Adresse nötig.
@@ -11,7 +23,7 @@ Die Begleitung wird **oben in der gesamten Playtest-Checkliste** gestartet. Sie 
 
 ## Nutzung
 
-1. Playtest-Checkliste → **Headset-Testbegleitung** → **Headset-Testbegleitung starten**.
+1. Playtest-Checkliste → **XR Operator & Dev-APK** → **Testlauf & Beobachtungen öffnen** → **Headset-Testbegleitung starten**.
 2. Angezeigten Befehl auf dem PC mit den angeschlossenen Headsets ausführen. Den Kopplungscode aus der Oberfläche in den Helfer eingeben. Er wird nicht als Kommandozeilenargument oder in der URL gespeichert.
 3. Ein oder zwei Headsets wählen und **Mit ausgewählten Headsets begleiten** drücken. Unautorisierte/offline Geräte und fehlende Operator-Werkzeuge werden ausdrücklich gemeldet.
 4. Spielen. Passende Tests werden automatisch aktiv. Im Headset wechseln die ausblendbaren Hinweise durch die Schritte. Host/Gast, Modus und Build werden angezeigt.

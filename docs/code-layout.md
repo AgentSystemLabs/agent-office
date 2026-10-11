@@ -1,5 +1,7 @@
 # Code layout
 
+The global playtest toolbar registers browser setup in `client/ui/xr-browser`. It reuses the APK USB adapter, exposes only the fixed on-device Operator endpoint, and shares the bounded MCP client in `shared/xr-operator.ts` with the optional PC bridge. `xr-browser.ts` in the HTTP registry validates the signed-in run owner, origin and per-run token before accepting browser telemetry.
+
 The APK dialog mounts its extensions through `src/client/ui/dev-apk/extensions.ts`. Browser-to-Quest installation lives in `src/client/ui/quest-install/`: source streaming, bounded APK manifest parsing, USB adapter, installation lifecycle and UI stay separate. It requires no server-side ADB endpoint and does not add device state to the shared office store.
 
 Back to the [README](../README.md).

@@ -33,7 +33,8 @@ try {
   page.on('console', message => { if (message.type() === 'error') console.error(message.text()); });
   page.on('response', response => { if (response.status() >= 400) console.error(response.status(), response.url()); });
   await page.goto(`http://127.0.0.1:${port}/__xr-test`);
-  await page.getByRole('button', { name: '🥽 Headset-Testbegleitung', exact: true }).click();
+  await page.getByRole('button', { name: '🥽 XR Operator & Dev-APK', exact: true }).click();
+  await page.getByRole('button', { name: 'Testlauf & Beobachtungen öffnen', exact: true }).click();
   assert.equal(await page.getByRole('dialog').count(), 1, 'global session replaces checklist; closing returns to game');
   const started = page.waitForResponse(r => r.url().includes('xr-session') && r.request().method() === 'POST');
   await page.getByRole('button', { name: 'Headset-Testbegleitung starten', exact: true }).click();
