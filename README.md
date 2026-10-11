@@ -9,6 +9,8 @@
 
 # 🏢 Agent Office
 
+Dev-APKs für entfernte Tester: **☰ → Dev-APK** startet den eingerichteten Quest-Development-Build und bietet die neueste erfolgreiche APK hinter dem Office-Login zum Download an, auch über den bestehenden HTTPS-Tunnel. [Einrichtung und Bedienung](docs/dev-apk.md).
+
 **A 3D office your team shares with its coding agents.**
 
 Sit **Claude Code**, **Codex**, **OpenCode**, **Grok**, **Muse**, **DeepSeek Harness** and **Cursor** workers at desks, watch each one's terminal on the laptop in front of it,

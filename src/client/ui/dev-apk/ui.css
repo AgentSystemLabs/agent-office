@@ -1,0 +1,15 @@
+.dev-apk-dialog { width: min(820px, 95vw); max-height: 92vh; display: flex; flex-direction: column; background: #fffaf0; color: #303048; border: 3px solid #303048; border-radius: 20px; overflow: hidden; }
+.dev-apk-dialog > header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 3px solid #303048; background: #fff2d9; }
+.dev-apk-dialog h2 { margin: 0; }
+.dev-apk-body { padding: 20px; overflow: auto; display: grid; gap: 16px; }
+.dev-apk-body p { margin: 0 0 12px; line-height: 1.5; }
+.dev-apk-status { background: #d6f4df; border: 2px solid #303048; border-radius: 10px; padding: 12px; font-weight: bold; }
+.dev-apk-card { border: 2px solid #303048; border-radius: 12px; padding: 16px; }
+.dev-apk-card h3 { margin: 0 0 14px; }
+.dev-apk-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+.dev-apk-dialog .btn { white-space: normal; text-decoration: none; }
+.dev-apk-dialog code { overflow-wrap: anywhere; }
+.dev-apk-dialog summary { cursor: pointer; }
+.dev-apk-log { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 220px; overflow: auto; font-size: 12px; background: #222231; color: #f8f8ff; padding: 12px; }
+.dev-apk-error { color: #9a2538; }
+@media (max-width: 500px) { .dev-apk-body { padding: 12px; } .dev-apk-card { padding: 12px; } }
