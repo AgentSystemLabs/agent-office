@@ -51,7 +51,9 @@ Der Proxy muss Cookies und Range-Header weiterleiten, die API darf nicht öffent
 
 ## Installation beim Tester
 
-APK auf dem eigenen PC speichern, Quest-Entwicklermodus aktivieren, USB-Debugging freigeben und mit **Meta Quest Developer Hub** oder `adb install -r <Datei.apk>` installieren. Unity ist nicht nötig. Der Quest-Browser installiert eine heruntergeladene APK nicht automatisch.
+Im APK-Fenster **Quest verbinden** wählen, das USB-Gerät auswählen und USB-Debugging im Headset bestätigen. Anschließend die neueste Dev-/Store-APK oder eine zuvor heruntergeladene Datei installieren. **Spiel starten** wird nach bestätigter Installation freigeschaltet. Das funktioniert am Rechner des Testers auch über das entfernte Office. Voraussetzungen und Fehlerhilfe: [Auf Quest installieren](quest-browser-install.md).
+
+Alternativ bleibt die Installation mit **Meta Quest Developer Hub** oder `adb install -r <Datei.apk>` möglich. Unity ist nicht nötig. Der Quest-Browser selbst installiert eine heruntergeladene APK nicht automatisch.
 
 Bei anderer Signatur als der Store-Version kann Android das Update ablehnen. Nicht automatisch deinstallieren: Lokale Spieldaten könnten verloren gehen.
 
