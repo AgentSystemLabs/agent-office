@@ -9,6 +9,7 @@ export const STATUS_BULB: Record<string, string> = {
   starting: '#adb5bd',
   idle: '#8ecae6',
   working: '#ffd166',
+  testing: '#90caf9',
   needs_input: '#ef476f',
   done: '#06d6a0',
   exited: '#6c757d',
@@ -23,6 +24,7 @@ const TASK_CHIP: Record<string, [string, string, string]> = {
   starting: ['⏳ STARTING', STATUS_BULB.starting, '#2b2d42'],
   idle: ['💬 READY', STATUS_BULB.idle, '#2b2d42'],
   working: ['⌨️ WORKING', STATUS_BULB.working, '#2b2d42'],
+  testing: ['🧪 TESTING', STATUS_BULB.testing, '#123b63'],
   needs_input: [NEEDS_YOU.text, STATUS_BULB.needs_input, '#ffffff'],
   done: ['✅ DONE', STATUS_BULB.done, '#2b2d42'],
   exited: ['💤 ASLEEP', STATUS_BULB.exited, '#ffffff'],
@@ -43,13 +45,13 @@ const PR_ICON: Record<WorkerPr['state'], string> = { open: '🔀', merged: '🎉
 export function bubbleFor(status: WorkerStatus, bounce: boolean, task: WorkerTask | undefined, pr: WorkerPr | undefined, lost: boolean): { key: string; draw(): THREE.Sprite | null } {
   const hot = status === 'needs_input' || (status === 'done' && bounce);
   const asking = status === 'needs_input' && !lost;
-  const bg = hot ? (status === 'done' ? '#caffbf' : NEEDS_YOU.card) : status === 'working' ? '#ffec99' : '#fffaf3';
+  const bg = hot ? (status === 'done' ? '#caffbf' : NEEDS_YOU.card) : status === 'testing' ? '#e3f2fd' : status === 'working' ? '#ffec99' : '#fffaf3';
   const border = pr ? PR_INK[pr.state] : asking ? NEEDS_YOU.bg : undefined;
   // Not working on or waiting for something more: its pull request in place of ready / done / asleep.
-  const prLabel = pr && status !== 'working' && status !== 'needs_input' && status !== 'starting' ? `${PR_ICON[pr.state]} PR #${pr.number} ${pr.state}` : undefined;
+  const prLabel = pr && status !== 'testing' && status !== 'working' && status !== 'needs_input' && status !== 'starting' ? `${PR_ICON[pr.state]} PR #${pr.number} ${pr.state}` : undefined;
   const bubble = lost
     ? '🌿 worktree deleted'
-    : prLabel ?? (status === 'needs_input' ? NEEDS_YOU.text : status === 'done' && bounce ? '✅ done!' : status === 'working' ? '⌨️ working' : isAsleep(status) ? '💤' : '');
+    : prLabel ?? (status === 'needs_input' ? NEEDS_YOU.text : status === 'done' && bounce ? '✅ done!' : status === 'testing' ? '🧪 TESTING' : status === 'working' ? '⌨️ working' : isAsleep(status) ? '💤' : '');
   const key = `${lost}|${border}|${prLabel}|${task ? `${status}|${bounce}|${task.name}|${task.summary}` : bubble}`;
   return {
     key,

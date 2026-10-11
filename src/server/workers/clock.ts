@@ -9,7 +9,7 @@ export function workedMs(info: WorkerInfo, now = Date.now()): number | undefined
 
 /** Keeps count of how long a worker has worked (WorkerInfo.workedMs) as it goes from its status into `next`. */
 export function clockWork(info: WorkerInfo, next: WorkerStatus, now = Date.now()) {
-  if (next === 'working') {
+  if (next === 'working' || next === 'testing') {
     info.workingSince ??= now;
     return;
   }

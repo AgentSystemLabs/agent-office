@@ -7,13 +7,14 @@ import { providerAdapter } from '../providers/index.js';
 import { reportedUsage } from '../reported-usage.js';
 import { restoreTracker, trackerUsage } from '../usage.js';
 import { workedMs } from './clock.js';
+import { restoreTesting, saveTesting } from './testing.js';
 import { midTurn } from './lifecycle.js';
 import type { Worker } from './types.js';
 import { COLORS, newWorker } from './worker.js';
 import { validRepos } from './worktree.js';
 
 /** What a worker with a live terminal can be doing. */
-const RUNNING = new Set<unknown>(['starting', 'idle', 'working', 'done', 'needs_input'] satisfies WorkerStatus[]);
+const RUNNING = new Set<unknown>(['starting', 'idle', 'working', 'testing', 'done', 'needs_input'] satisfies WorkerStatus[]);
 
 /** Saves every worker; `stopping`: the office is closing for good, so nobody is in the middle of anything. */
 export function saveWorkers(file: string, workers: Iterable<Worker>, stopping: boolean) {
@@ -40,6 +41,7 @@ export function saveWorkers(file: string, workers: Iterable<Worker>, stopping: b
     pastPrs: info.pastPrs,
     meeting: info.meeting,
     workedMs: workedMs(info),
+    testing: saveTesting(info),
     tracker: info.kind === 'agent' ? tracker : undefined,
     usage: providerAdapter(info.provider)?.usage?.persisted ? info.usage : undefined,
     ...providerAdapter(info.provider)?.usage?.save?.(state),
@@ -103,6 +105,7 @@ export function restoreWorkers(file: string, workers: Map<string, Worker>, defau
         workedMs: typeof s.workedMs === 'number' && Number.isFinite(s.workedMs) && s.workedMs > 0 ? s.workedMs : undefined,
       };
       const w = newWorker(info, tracker, typeof s.hookToken === 'string' && s.hookToken ? s.hookToken : undefined);
+      restoreTesting(info, s.testing);
       if (typeof s.owner === 'string' && s.owner) w.owner = s.owner;
       usage?.restore?.(w.state, s);
       w.screenDirty = false;

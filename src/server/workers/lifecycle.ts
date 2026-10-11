@@ -15,7 +15,7 @@ const ASKS = /(?:^|[._])(?:AskUserQuestion|ask_user_question|request_user_input)
 
 /** In the middle of a turn: working, or asking something (not stuck on a trust or login screen). */
 export function midTurn({ info, bootBlocked }: Pick<Worker, 'info' | 'bootBlocked'>): boolean {
-  return info.kind === 'agent' && (info.status === 'working' || (info.status === 'needs_input' && !bootBlocked));
+  return info.kind === 'agent' && (info.status === 'working' || info.status === 'testing' || (info.status === 'needs_input' && !bootBlocked));
 }
 
 /** A lifecycle hook event as a provider's normalizer compacts it. */

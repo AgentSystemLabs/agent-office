@@ -58,6 +58,20 @@ test('queue seats the selected provider and preserves it through completion and 
   assert.equal(f.workers[1].provider, 'opencode');
 });
 
+test('testing keeps the queue slot until results have been handled and the turn finishes', (t) => {
+  const f = fixture(); t.after(() => f.close());
+  const q = f.open(); q.setLimit(1);
+  q.add('Run checks', 'Tester'); q.add('Next task', 'Tester');
+  f.workers[0].status = 'testing'; q.onWorker(f.workers[0]);
+  assert.deepEqual(q.state().tasks.map((task) => task.status), ['running', 'queued']);
+  assert.equal(f.emptied(), 0);
+  assert.equal(f.workers.length, 1);
+  f.workers[0].status = 'working'; q.onWorker(f.workers[0]);
+  assert.equal(q.state().tasks[1].status, 'queued');
+  f.workers[0].status = 'done'; q.onWorker(f.workers[0]);
+  assert.equal(q.state().tasks[1].status, 'running');
+});
+
 test('queued provider survives restart even when the configured default differs', (t) => {
   const f = fixture(); t.after(() => f.close());
   const q = f.open(); q.setLimit(0);
