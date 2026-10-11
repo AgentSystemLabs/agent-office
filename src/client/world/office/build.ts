@@ -15,6 +15,7 @@ import { green, tee } from '../../features/golf/world';
 import { stack } from '../stack';
 import { tower } from '../tower';
 import { hoop } from '../../features/basketball/world';
+import { pingPong } from '../../features/pingpong/world';
 import { kitchen } from '../kitchen';
 import { signs } from '../desksigns';
 import type { Collider, DeskView, Interactable, Office, OfficeHandles } from '../types';
@@ -71,6 +72,7 @@ function floorPlan() {
     gong,
     hoop,
     whiteboard,
+    pingPong,
     clearOfStairs,
   ] as const;
 }

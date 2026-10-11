@@ -39,11 +39,11 @@ curl -fsSL https://raw.githubusercontent.com/AgentSystemLabs/agent-office/main/i
 - **From your phone, too.** `/lite` is the office in 2D: every worker and what it's waiting on, its terminal with the keys a phone keyboard lacks, and the boards. The 3D office offers it on a phone or a slow computer.
 - **GitHub on the walls.** Issues and pull requests hang on cork boards. Hand an issue to a worker, queue tasks, give a worker its own git worktree and open its PR with one key (if one gets deleted behind the office's back, the worker waits at its desk until you rebuild it). One task can span several projects: the worker gets a worktree of each, and a PR in each that links the others.
 - **Agents that manage agents.** Every worker can list, hire, message and send home the others, through an `agent-office` MCP server (Claude Code, Codex, OpenCode) or the `office-workers` command. Ask one to "send everyone whose PR merged home" and it does, deleting their worktrees and branches unless they hold unpushed work. A worker that opens its pull request itself (`gh pr create`) shows it at its desk, and one the office missed can be told which is its own (`office-workers pr`).
-- **Together.** Voice, chat, screen sharing on the lounge TV and a shared whiteboard.
+- **Together.** Voice, chat, screen sharing on the lounge TV, a shared whiteboard and a three-table pink ping-pong court (playable matches are next).
 
 - **Other maps.** Turn the whole building into a castle: sit on a throne of iron blades while your workers line up before you when they're done, send new ones off through the Hand of the King, and watch their beards grow long and grey as they toil. Send one home and the Kingsguard runs up from the dungeon, marches it down the stairs and throws it in a cell, where it starves, dies and rots down to a skeleton. Or into a space station in orbit, the Earth turning outside its windows: you run it from the captain's chair on the bridge, and a worker sent home is marched to the airlock and blown out into space, to drift off past the observation windows with everyone who went before it. Or make a map of your own, with its own way of seeing workers off in JSON ([docs/maps.md](docs/maps.md)).
 
-There's a lot more (a rooftop bar, an office dog, an arcade, supercars in the garage to drive round a scenic loop past a farm, pines, mountains and a beach): see [docs/features.md](docs/features.md).
+There's a lot more (a rooftop bar, an office dog, an arcade, a pink ping-pong court, supercars in the garage to drive round a scenic loop past a farm, pines, mountains and a beach): see [docs/features.md](docs/features.md).
 
 ## Requirements
 

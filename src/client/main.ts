@@ -51,6 +51,7 @@ import { installJukebox } from './features/jukebox';
 import { installMeeting } from './features/meeting';
 import { installNeedsYou } from './features/needsyou';
 import { installPalette } from './features/palette';
+import { installPingPong } from './features/pingpong';
 import { installPeers } from './features/peers';
 import { installRooftop } from './features/rooftop';
 import { installSeating } from './features/seating';
@@ -169,6 +170,7 @@ parts.cards = installCarrying(ctx, {
 });
 parts.seating = installSeating(ctx, { shares: () => parts.talk.currentShares(), watchShare: () => parts.talk.watchShare(), arcade: parts.arcade, showBar: parts.bar.showBar, usable: () => parts.pointer.usable() });
 installGong(ctx, { burstOver: parts.views.burstOver, workerViews: parts.views.workerViews, court: () => parts.worlds.court(), idleAgents: () => parts.worlds.idleAgents() });
+installPingPong(ctx);
 
 parts.hintbar = installHintBar(ctx, core, parts);
 parts.emotes = installEmotes(ctx, { personOf });

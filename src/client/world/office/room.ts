@@ -119,29 +119,32 @@ export const machineMonitor: Fixture<'machineScreen'> = (site) => {
   return { handle: { machineScreen } };
 };
 
-/** The rest of the lounge: the couch, the coffee table, its rug, and a pouf either side. */
+/**
+ * The rest of the lounge, compacted against the east wall so the former open lounge floor can host
+ * the three-table pink ping-pong court. The TV, jukebox and arcade still make this a social nook.
+ */
 export const lounge: Fixture = (site) => {
   // The couch, its back to the room, turned from the model's +z to face the TV on the east wall (+x).
   const couch = loungeCouch();
-  couch.position.set(10.5, 0, 0);
+  couch.position.set(15, 0, 0);
   couch.rotation.y = Math.PI / 2;
   site.group.add(couch);
   // Its top on the seat cushions, so someone standing on the couch stands on them.
-  site.colliders.push({ minX: 10, maxX: 11, minZ: -2.2, maxZ: 2.2, top: 0.47 });
+  site.colliders.push({ minX: 14.5, maxX: 15.5, minZ: -2.2, maxZ: 2.2, top: 0.47 });
   seatable(couch, 'couch', 2.6, site.interactables);
 
   const table = coffeeTable();
-  table.position.set(13, 0, 0);
+  table.position.set(15.3, 0, 3.4);
   site.group.add(table);
-  site.colliders.push({ minX: 12.2, maxX: 13.8, minZ: -0.8, maxZ: 0.8, top: 0.46 });
-  const rug = mesh(roundedBox(7, 0.02, 7, 1.2), toon('#ffc6ff'), 13.4, 0.011, 0, false);
+  site.colliders.push({ minX: 14.5, maxX: 16.1, minZ: 2.6, maxZ: 4.2, top: 0.46 });
+  const rug = mesh(roundedBox(2.8, 0.02, 10.8, 0.8), toon('#ffc6ff'), 15.3, 0.011, 0, false);
   site.group.add(rug);
 
   // A pouf either side of the lounge (the seats still called beanbags), turned to the TV like whoever sits on it.
   for (const [i, [color, x, z]] of (
     [
-      ['#06d6a0', 12.5, 3.5],
-      ['#ffd166', 14.5, -3.4],
+      ['#06d6a0', 15.2, 5.3],
+      ['#ffd166', 15.2, -3.6],
     ] as const
   ).entries()) {
     const id = `lounge-beanbag-${i + 1}`;
