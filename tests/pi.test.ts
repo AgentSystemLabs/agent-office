@@ -109,7 +109,9 @@ test('Pi worker launches, authenticates hooks, resumes its own session, and rest
   const first = launches[0].opts;
   assert.equal(first.file, file);
   assert.ok(first.args.includes(path.join(data, 'pi-sessions', worker.id)));
-  assert.deepEqual(first.args.slice(-6), ['--model', 'openai/gpt-4.1', '--thinking', 'high', '--', '- fix login']);
+  assert.deepEqual(first.args.slice(-6, -1), ['--model', 'openai/gpt-4.1', '--thinking', 'high', '--']);
+  assert.ok(first.args.at(-1).startsWith('- fix login\n\n'));
+  assert.match(first.args.at(-1), /office-decisions add/);
   assert.match(readFileSync(writePiExtension(data), 'utf8'), /agent_settled/);
   const token = first.env.AGENT_OFFICE_HOOK_TOKEN;
   const piHook = (id: string, key: string, payload: unknown) => workers.handleProviderHook('pi', id, key, '', payload);

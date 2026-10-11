@@ -1,0 +1,22 @@
+.decisions-dialog { width: min(950px,95vw); max-height: 92vh; display:flex; flex-direction:column; background:#fffaf0; color:#303048; border:3px solid #303048; border-radius:20px; overflow:hidden; }
+.decisions-dialog > header { display:flex; align-items:center; justify-content:space-between; padding:18px 20px; border-bottom:3px solid #303048; background:#fff2d9; }
+.decisions-dialog h2 { margin:0; }
+.decisions-body,.decision-editor { padding:20px; overflow:auto; }
+.decision-actions { display:flex; gap:10px; flex-wrap:wrap; margin:12px 0; }
+.decision-actions input { flex:1; min-width:180px; }
+.decision-card { margin:10px 0; border:2px solid #303048; border-radius:12px; background:#fffdf6; }
+.decision-card.blocked { border-color:#c6345d; background:#fff0f3; }
+.decision-card > summary { padding:16px; cursor:pointer; display:flex; justify-content:space-between; gap:14px; }
+.decision-label { font-size:12px; flex-shrink:0; background:#fff0ba; padding:5px 9px; border-radius:8px; }
+.blocked .decision-label { background:#c6345d; color:white; }
+.decision-content { padding:0 16px 16px; }
+.decision-content p { white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.5; }
+.decision-blocker,.decision-error { color:#9c2445; }
+.decision-answer { background:#d6f4df; padding:12px; border-radius:8px; }
+.decision-tags,.decision-sources { display:flex; flex-wrap:wrap; gap:8px; margin:10px 0; }
+.decision-tags button { border:0; padding:5px 10px; border-radius:6px; background:#e5e6ff; color:#303048; cursor:pointer; }
+.decision-field { display:grid; gap:6px; margin-bottom:14px; }
+.decisions-dialog textarea { width:100%; box-sizing:border-box; resize:vertical; }
+.decisions-dialog input,.decisions-dialog select,.decisions-dialog textarea { border:2px solid #55516d; border-radius:8px; padding:10px; font:inherit; background:white; color:#303048; max-width:100%; }
+.decisions-dialog .btn { white-space:normal; }
+@media(max-width:550px) { .decisions-body,.decision-editor { padding:12px; } .decision-card > summary { flex-direction:column; } }

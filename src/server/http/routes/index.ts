@@ -2,6 +2,7 @@ import { playtestTriageRoute } from './playtest-triage.js';
 // Every HTTP route the office answers, in the order they're tried: a new route goes where it has to
 // come in that order (see http/router.ts). The public ones are tried first, then the sign-in check,
 // then the rest; the last one answers every path left with the client bundle, or a 404.
+import { decisionsRoute } from './decisions.js';
 import type { Route } from '../router.js';
 import { agentRoutes } from './agents.js';
 import { authRoutes } from './auth.js';
@@ -29,6 +30,7 @@ export const routes: readonly Route[] = [
   pageRoutes.join,
   pageRoutes.favicon,
   // Signed in.
+  decisionsRoute,
   authRoutes.whoami,
   agentRoutes.models,
   fileRoutes.image,

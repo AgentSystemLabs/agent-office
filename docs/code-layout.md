@@ -87,6 +87,8 @@ One adapter file in `src/server/providers/`, one entry in `PROVIDERS` in `src/se
 
 ## The size guard
 
+Human decisions live in `src/client/features/decisions`, `src/server/decisions` and `src/shared/decisions.ts`. The world fixture adds the left Boss Office monitor, while the HUD action opens the same modal. `src/server/hooks/routes.ts` registers loopback worker endpoints, and `src/server/workers/prompt-extensions.ts` composes module-owned instructions for all providers. See [Human decisions](decisions.md) for the CLI, permissions and answer workflow.
+
 `tests/size.test.ts` holds every `.ts` and `.css` file under `src/` to 600 lines. It asks `git ls-files` for them (tracked, and new ones that aren't ignored) rather than walking the folder, so a worktree checked out inside the repo can't trip it. The files that were longer when it came in are listed in `CEILINGS`, each with the length it had then: they may shrink, but never grow past it. Once one is down to 600 lines or fewer, or gone, the test fails until you take it off the list, so the list only gets shorter.
 
 When it fails, split the file along the registries: a feature's code goes in its folder, a message handler in its domain's file, a tick or a key in the feature it's for, and what the page keeps of it in its own slice. Raising a ceiling, or adding a file to the list, only hands the problem to the next person, so the honest way to make room is to split the file. When you shrink a listed file, lower its ceiling to its new length in the same change, so it can't grow back.

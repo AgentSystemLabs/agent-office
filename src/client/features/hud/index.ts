@@ -3,6 +3,7 @@
  * and F to hang a picture; the project in the corner (click it for the floors); Settings, and your
  * character.
  */
+import { decisionsAction } from '../decisions/ui';
 import { ROOF } from '../../../shared/rooftop';
 import type { Ctx } from '../../core/context';
 import type { CoreState } from '../../core/ctx';
@@ -51,6 +52,7 @@ export function installHud(ctx: Ctx, core: CoreState, parts: HudParts) {
   const hud = mountHud(
     [
       playtestAction,
+      decisionsAction,
       { id: 'issues', icon: '📌', label: 'Issues', section: 'Open', count: () => store.issues.items.filter((i) => i.state === 'OPEN').length, run: () => openBoard('issues', net, actions.boardActions()) },
       { id: 'pulls', icon: '🔀', label: 'Pull requests', section: 'Open', count: () => store.pulls.items.filter((p) => p.state === 'OPEN').length, run: () => openBoard('pulls', net, actions.boardActions()) },
       { id: 'queue', icon: '📋', label: 'Task queue', section: 'Open', count: () => store.queue.tasks.filter((t) => t.status !== 'done').length, title: () => 'Issues and tasks waiting for a worker', run: waiting.showQueue },
