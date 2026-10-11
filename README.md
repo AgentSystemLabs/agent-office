@@ -13,6 +13,8 @@ Headset-Testbegleitung für die gesamte Spielsession: [Einrichtung und Bedienung
 
 Playtest-Vorbereitung direkt im Browser: **Playtest-Checkliste → XR Operator & Dev-APK** prüft die installierte APK per SHA-256, aktualisiert bei Bedarf auf die neueste erfolgreiche Dev-APK und startet die sessionweite Begleitung über USB. Der Operator ist im instrumentierten Dev-Build enthalten. Im APK-Menü führt ein lokaler Download direkt zum Office-Rechner, wenn der Browser ihn erreichen kann; andernfalls bleibt der Domain-Download und ein Link zum lokalen Office verfügbar. [Ablauf](docs/xr-playtests.md) · [Prompt für externe Reviews und getrennte Übergabe von Tasks, Entscheidungen und Playtests](docs/external-review-prompt.md).
 
+Bei einer externen Code-Review werden konkrete Bugs und umsetzbare Tasks zuerst mit vorhandenen GitHub-Issues abgeglichen und fehlende Issues angelegt. Entscheidungen und Playtests ergänzen diese Issues; die Queue bleibt ausschließlich unter deiner Kontrolle.
+
 APKs für entfernte Tester: **☰ → APK** bietet getrennte Quest-Development- und signierte Store-Builds. Beide Varianten haben ihren eigenen neuesten erfolgreichen Download hinter dem Office-Login, auch über den bestehenden HTTPS-Tunnel. [Einrichtung und Bedienung](docs/dev-apk.md).
 
 Direkt auf die Quest installieren: Im APK-Fenster **Quest verbinden** wählen. Chrome oder Edge verbindet sich per USB mit der Quest am Rechner des jeweiligen Testers. Die neueste Dev-/Store-APK oder eine ausgewählte Datei lässt sich mit Fortschrittsanzeige installieren und anschließend starten. [Browser-Installation](docs/quest-browser-install.md).
