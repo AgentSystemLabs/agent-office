@@ -1,10 +1,10 @@
-# Dev-APK bauen und herunterladen
+# APK bauen und herunterladen
 
-Im Office: **☰ → Dev-APK**. Der Eintrag lässt sich oben anheften. Er gehört zum gesamten Projekt, nicht zu einem einzelnen Playtest. Der Tester braucht zuhause kein Unity.
+Im Office: **☰ → APK**. Über **Dev-APK** oder **Store-APK** wählst du die Variante. Jede hat ihren eigenen Build-Button, letzten erfolgreichen Download und teilbaren Link. Bestehende Pins bleiben gültig. Der Eintrag lässt sich oben anheften. Er gehört zum gesamten Projekt, nicht zu einem einzelnen Playtest. Der Tester braucht zuhause kein Unity.
 
 ## Ablauf
 
-1. Ein freigeschalteter Nutzer drückt **Dev-APK bauen**. Der Server startet `Tools/Build-Quest.ps1 -Development` auf dem Build-PC.
+1. Ein freigeschalteter Nutzer drückt **Dev-APK bauen** oder **Store-APK bauen**. Der Server startet `Tools/Build-Quest.ps1 -Development` beziehungsweise `-Store` auf dem Build-PC. Store nutzt den vorhandenen Release-Ablauf einschließlich Signierung und Versionsnummer. Der Button veröffentlicht nichts bei Meta.
 2. Läuft bereits ein Unity-Build oder Test, wartet der Auftrag auf denselben globalen Build-Platz. Status und Protokoll sind sichtbar. Ein zweiter Office-Build wird währenddessen abgelehnt.
 3. Der konfigurierte Branch wird frisch abgerufen und auf einen Commit festgelegt. Der gemeinsame Arbeitscheckout wird weder zurückgesetzt noch umgeschaltet. Gebaut wird im vorbereiteten Build-Ordner.
 4. Erst nach erfolgreichem Build, vollständiger Kopie und SHA-256-Berechnung wird der Download veröffentlicht. Ein Fehlschlag lässt die letzte erfolgreiche APK unverändert.
@@ -24,6 +24,7 @@ Im Office-Datenordner (`<Office-Home>/.agent-office`, passend zu `--home`) die D
     "buildDir": "E:/source/Unity/zrb-build",
     "ref": "origin/main",
     "apkName": "ZombieRealityBreach-dev.apk",
+    "storeApkName": "ZombieRealityBreach.apk",
     "launcher": "C:/Users/gp/KaMaStudios/tools/unity-hidden.ps1",
     "builders": []
   }]
@@ -32,6 +33,8 @@ Im Office-Datenordner (`<Office-Home>/.agent-office`, passend zu `--home`) die D
 
 Voraussetzungen: Node, Git, Windows PowerShell, Unity/Android und der funktionierende ZRB-Build-Ablauf inklusive `Tools/BuildLock.ps1`. `sourceDir` ist ein vertrauenswürdiger Projektcheckout mit den erforderlichen Assets; `buildDir` ist ausschließlich ein wegwerfbarer Build-Checkout, niemals ein Arbeitscheckout. Der Office-Prozess muss Zugriff darauf haben. Der vorhandene Build-Ablauf kopiert seine Ausgabe nach `sourceDir/Builds/Quest`; die Download-Kopie wird noch unter demselben Build-Mutex erstellt.
 
+Für Store muss `storeApkName` den vom Build-Script erzeugten Release-Dateinamen angeben; er muss sich vom Dev-Dateinamen unterscheiden. Fehlt das Feld, bleibt Dev nutzbar und Store-Bauen deaktiviert. Die Release-Signierung bleibt ausschließlich auf dem Build-PC in der vom Spiel verwendeten Signing-Konfiguration. Keine Schlüssel oder Passwörter in die Office-Konfiguration eintragen. Die ZRB-Release-Versionsnummer kommt derzeit aus `yyMMddHH`; mehrere Builds innerhalb derselben Stunde erhalten dieselbe Nummer und sind daher nicht automatisch aufeinanderfolgende Meta-Uploads.
+
 Admins und Nutzer des gemeinsamen Office-Passworts dürfen Builds starten. Für weitere Co-Devs deren **Office-Konto-ID** in `builders` eintragen. Alle angemeldeten Office-Nutzer dürfen herunterladen. Keine Issues oder Worker/Queue-Einträge werden erzeugt.
 
 Der Branch ist in der Oberfläche sichtbar. Für XR-Playtest-Werkzeuge muss der gewählte Stand den Spiel-PR #361 enthalten. Ein Development-Build fügt keine noch nicht integrierten Änderungen hinzu.
@@ -39,6 +42,8 @@ Der Branch ist in der Oberfläche sichtbar. Für XR-Playtest-Werkzeuge muss der 
 ## Tunnel und Downloads
 
 Die APK liegt unter derselben Office-Adresse: beispielsweise `https://studios.zombierealitybreach.com/api/dev-apk/download?floor=<Etagen-ID>`. Der vorhandene HTTPS-/SSH-Tunnel transportiert den authentifizierten HTTP-Download. Kein zusätzlicher Port oder lokaler `agent-office tunnel`-Helfer ist nötig.
+
+Die vorhandenen API-Pfade und der Datenordner behalten zur Kompatibilität ihren Namen `dev-apk`. Für Store an Status-, Build- und Download-URL `&kind=store` anhängen. Ohne `kind` oder mit `kind=development` gilt weiterhin Dev, auch für ältere Jobs und Links. Eine Store-Anfrage liefert niemals ersatzweise die Dev-APK.
 
 GET/HEAD, Dateigröße, ETag, Range und If-Range ermöglichen fortsetzbare Downloads. Dateien werden gestreamt. Versionierte Links bleiben während neuer Builds unverändert; If-Range verhindert beim Fortsetzen des „neueste“-Links das Vermischen verschiedener Versionen.
 
@@ -54,6 +59,6 @@ Meta verlangt auch für Alpha/Beta/RC die Release-Verpackungsregeln. Für unsere
 
 ## Speicherung und Prüfung
 
-Unter `<Office-Datenordner>/dev-apk/` liegen Aufträge, Protokolle und APKs. Die letzten drei erfolgreichen APKs bleiben erhalten. Ältere APK-Dateien werden nach erfolgreicher Veröffentlichung entfernt; Metadaten und Logs bleiben bestehen. Partielle oder fehlgeschlagene Builds ersetzen niemals den neuesten erfolgreichen Download.
+Unter `<Office-Datenordner>/dev-apk/` liegen Aufträge, Protokolle und APKs. Pro Variante bleiben die letzten drei erfolgreichen APKs erhalten. Store-Veröffentlichungen löschen keine Dev-APKs und umgekehrt. Ältere APK-Dateien werden nach erfolgreicher Veröffentlichung entfernt; Metadaten und Logs bleiben bestehen. Partielle oder fehlgeschlagene Builds ersetzen niemals den neuesten erfolgreichen Download.
 
 Prüfung: `npm run typecheck`, `npm test`, `npm run build`; gezielt `node --import tsx --test tests/dev-apk.test.ts tests/size.test.ts`; Browser-Abnahme `node --import tsx tests/dev-apk-browser.mjs`. HTTP-/Browser-Tests mit Testdateien sind getrennt von echten Unity-Builds, öffentlichen Tunnel-Downloads und Headset-Installation zu berichten.

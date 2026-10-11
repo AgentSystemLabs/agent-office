@@ -11,7 +11,7 @@ Headset-Testbegleitung für die gesamte Spielsession: [Einrichtung und Bedienung
 
 # 🏢 Agent Office
 
-Dev-APKs für entfernte Tester: **☰ → Dev-APK** startet den eingerichteten Quest-Development-Build und bietet die neueste erfolgreiche APK hinter dem Office-Login zum Download an, auch über den bestehenden HTTPS-Tunnel. [Einrichtung und Bedienung](docs/dev-apk.md).
+APKs für entfernte Tester: **☰ → APK** bietet getrennte Quest-Development- und signierte Store-Builds. Beide Varianten haben ihren eigenen neuesten erfolgreichen Download hinter dem Office-Login, auch über den bestehenden HTTPS-Tunnel. [Einrichtung und Bedienung](docs/dev-apk.md).
 
 **A 3D office your team shares with its coding agents.**
 

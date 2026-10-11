@@ -8,6 +8,7 @@
 .dev-apk-card h3 { margin: 0 0 14px; }
 .dev-apk-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
 .dev-apk-dialog .btn { white-space: normal; text-decoration: none; }
+.dev-apk-dialog [aria-pressed="true"] { background: #ff895e; }
 .dev-apk-dialog code { overflow-wrap: anywhere; }
 .dev-apk-dialog summary { cursor: pointer; }
 .dev-apk-log { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 220px; overflow: auto; font-size: 12px; background: #222231; color: #f8f8ff; padding: 12px; }
