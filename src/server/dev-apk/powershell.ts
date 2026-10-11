@@ -20,11 +20,19 @@ try {
   Set-Content -LiteralPath (Join-Path $folder 'revision.txt') -Value $revision
   Write-Output ('Baue Commit ' + $revision)
   $started = [DateTime]::UtcNow
-  $arguments = @{ Development = $true; Ref = $revision; Main = $source; Folder = $job.config.buildDir }
+  $arguments = @{ Ref = $revision; Main = $source; Folder = $job.config.buildDir }
+  if ($job.kind -eq 'store') {
+    if (-not $job.config.storeApkName) { throw 'Store-APK-Dateiname fehlt.' }
+    $arguments.Store = $true
+    $apkName = $job.config.storeApkName
+  } elseif (-not $job.kind -or $job.kind -eq 'development') {
+    $arguments.Development = $true
+    $apkName = $job.config.apkName
+  } else { throw 'Unbekannte APK-Auswahl.' }
   if ($job.config.launcher) { $arguments.Launcher = $job.config.launcher }
   & $script @arguments
   if ($LASTEXITCODE -ne 0) { throw 'Build-Script fehlgeschlagen.' }
-  $apk = Join-Path $source ('Builds\Quest\' + $job.config.apkName)
+  $apk = Join-Path $source ('Builds\Quest\' + $apkName)
   $file = Get-Item -LiteralPath $apk
   if ($file.Length -lt 4 -or $file.LastWriteTimeUtc -lt $started.AddSeconds(-2)) { throw 'Keine neue APK erzeugt. Vorherige APK wird nicht als neuer Build veröffentlicht.' }
   Set-Content -LiteralPath (Join-Path $folder 'phase.txt') -Value 'publishing'

@@ -2,7 +2,8 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { open } from 'node:fs/promises';
 import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
-import { jobDir, readJson, type Job } from './storage.js';
+import { kindOf, jobDir, readJson, type Job } from './storage.js';
+import type { ApkKind } from '../../shared/dev-apk.js';
 import { latest } from './manager.js';
 import { BuildError } from './config.js';
 export function byteRange(header: string, size: number): { start: number; end: number } | undefined {
@@ -13,9 +14,9 @@ export function byteRange(header: string, size: number): { start: number; end: n
   const start = match[1] ? a : Math.max(0, size - b), end = match[1] && match[2] ? Math.min(b, size - 1) : size - 1;
   return start <= end && start < size ? { start, end } : undefined;
 }
-export async function download(root: string, project: string, id: string | null, req: IncomingMessage, res: ServerResponse) {
-  const job = id ? readJson<Job>(path.join(jobDir(root, project, id), 'job.json')) : latest(root, project);
-  if (!job || job.status !== 'ready' || !job.sha256 || !job.bytes) throw new BuildError('Noch keine erfolgreiche APK vorhanden.', 404);
+export async function download(root: string, project: string, id: string | null, req: IncomingMessage, res: ServerResponse, kind: ApkKind = 'development') {
+  const job = id ? readJson<Job>(path.join(jobDir(root, project, id), 'job.json')) : latest(root, project, kind);
+  if (!job || kindOf(job) !== kind || job.status !== 'ready' || !job.sha256 || !job.bytes) throw new BuildError('Noch keine erfolgreiche APK dieser Variante vorhanden.', 404);
   const file = await open(path.join(jobDir(root, project, job.id), 'app.apk'), 'r').catch(() => { throw new BuildError('Dieser ältere Download ist nicht mehr vorhanden.', 410); });
   try {
     const stat = await file.stat(); if (stat.size !== job.bytes) throw new BuildError('APK-Prüfung fehlgeschlagen.', 503);
@@ -27,7 +28,7 @@ export async function download(root: string, project: string, id: string | null,
       if (!range) { res.writeHead(416, { 'content-range': `bytes */${stat.size}` }).end(); return; }
     }
     const headers: Record<string, string> = { 'content-type': 'application/vnd.android.package-archive',
-      'content-disposition': `attachment; filename="dev-${job.revision?.slice(0, 12) ?? job.id}.apk"`,
+      'content-disposition': `attachment; filename="${kind === 'store' ? 'store' : 'dev'}-${job.revision?.slice(0, 12) ?? job.id}.apk"`,
       'cache-control': 'private, no-store', 'x-content-type-options': 'nosniff', 'x-accel-buffering': 'no',
       'accept-ranges': 'bytes', etag, 'last-modified': modified,
       'content-length': String(range ? range.end - range.start + 1 : stat.size) };

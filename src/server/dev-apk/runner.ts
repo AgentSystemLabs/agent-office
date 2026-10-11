@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { closeSync, createReadStream, existsSync, openSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { atomic, jobDir, readJson, release, saveJob, type Job } from './storage.js';
+import { atomic, indexFile, kindOf, jobDir, readJson, release, saveJob, type Job } from './storage.js';
 import { buildScript } from './powershell.js';
 export async function publish(root: string, job: Job) {
   const dir = jobDir(root, job.project, job.id), part = path.join(dir, 'app.apk.part');
@@ -19,10 +19,10 @@ export async function publish(root: string, job: Job) {
   if (!/^[a-f0-9]{40}$/.test(job.revision)) throw new Error('Build-Revision fehlt.');
   renameSync(part, path.join(dir, 'app.apk'));
   job.status = 'ready'; job.finishedAt = Date.now(); saveJob(root, job);
-  atomic(path.join(root, job.project, 'latest.json'), { id: job.id });
-  // Keep the last three successful APKs. Never unlink a file being streamed on Windows.
+  atomic(path.join(root, job.project, indexFile('latest', kindOf(job))), { id: job.id });
+  // Keep three successful APKs per kind. Publishing Store must not evict Development.
   const ready = readdirSync(path.join(root, job.project)).filter(id => /^[a-f0-9-]{36}$/.test(id))
-    .map(id => readJson<Job>(path.join(jobDir(root, job.project, id), 'job.json'))).filter(j => j?.status === 'ready') as Job[];
+    .map(id => readJson<Job>(path.join(jobDir(root, job.project, id), 'job.json'))).filter(j => j?.status === 'ready' && kindOf(j) === kindOf(job)) as Job[];
   for (const old of ready.sort((a, b) => b.finishedAt! - a.finishedAt!).slice(3)) {
     try { unlinkSync(path.join(jobDir(root, old.project, old.id), 'app.apk')); } catch { /* Retry retention after the next successful build. */ }
   }
@@ -39,7 +39,7 @@ export async function run(root: string, project: string, id: string) {
       });
       child.once('error', reject); child.once('exit', resolve);
     });
-    if (code !== 0) throw new Error('Dev-Build fehlgeschlagen. Details im Build-Protokoll.');
+    if (code !== 0) throw new Error('APK-Build fehlgeschlagen. Details im Build-Protokoll.');
     await publish(root, job);
   } catch (error) {
     job.status = 'failed'; job.finishedAt = Date.now(); job.error = (error as Error).message; saveJob(root, job);
