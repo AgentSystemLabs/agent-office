@@ -57,7 +57,7 @@ export function openDevApk() {
           h('div.dev-apk-actions', {}, h('a.btn.primary', { href: downloadAddress(link(apk.id), localOffice) }, localOffice ? 'APK lokal herunterladen' : 'APK herunterladen'), copyLink,
             !localOffice && location.hostname !== '127.0.0.1' && location.hostname !== 'localhost'
               ? h('a.btn', { href: 'http://127.0.0.1:4600/lite', target: '_blank', rel: 'noopener noreferrer' }, 'Auf dem Office-PC? Lokal öffnen') : null),
-          ...(localOffice ? [h('p', {}, 'Download direkt vom Office-Rechner. Falls du dort noch nicht angemeldet bist, öffne zuerst das Office über localhost:4600 und melde dich an.')] : []),
+          ...(localOffice ? [h('p', {}, 'Download direkt vom Office-Rechner. Falls du dort noch nicht angemeldet bist, öffne zuerst das Office über 127.0.0.1:4600 und melde dich an.')] : []),
           h('details', {}, h('summary', {}, 'SHA-256 prüfen'), h('code', {}, apk.sha256 ?? '')));
       } else latest.append(h('p', {}, 'Noch keine APK vorhanden. Nach dem ersten erfolgreichen Build erscheint hier der Download.'));
       log.textContent = data.log || 'Noch kein Build-Protokoll.';
