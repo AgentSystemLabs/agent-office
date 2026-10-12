@@ -72,6 +72,11 @@ button { font-family: inherit; }
 .backdrop { position: fixed; inset: 0; background: rgba(43, 45, 66, .45); display: grid; place-items: center; padding: 16px; z-index: 50; animation: fade .15s; }
 @keyframes fade { from { opacity: 0; } }
 .modal { background: var(--paper); border: 3px solid var(--ink); border-radius: 20px; box-shadow: 0 6px 0 var(--ink); width: min(560px, 100%); max-height: calc(100vh - 32px); display: flex; flex-direction: column; overflow: hidden; animation: pop .18s ease-out; }
+/* The checklist needs room for filters and test instructions; keep the phone layout fluid. */
+.modal.playtest-modal { width: min(1360px, calc(100vw - 32px)); }
+@media (min-width: 641px) {
+  body.lite .modal.playtest-modal { width: min(1360px, calc(100vw - 32px)); }
+}
 @keyframes pop { from { transform: scale(.96); opacity: .5; } }
 .modal header { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 3px solid var(--ink); background: var(--paper-2); }
 .modal header h2 { margin: 0; font-size: 18px; font-weight: 900; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
