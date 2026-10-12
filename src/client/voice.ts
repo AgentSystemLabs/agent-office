@@ -159,7 +159,7 @@ export class Voice {
     if (this.screen) return null;
     if (!window.isSecureContext || !navigator.mediaDevices?.getDisplayMedia) return 'Screen sharing needs HTTPS (or localhost).';
     try {
-      this.screen = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 15 }, audio: false });
+      this.screen = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 30 }, audio: false });
     } catch (err) {
       return (err as Error).name === 'NotAllowedError' ? null : `Could not share: ${(err as Error).message}`;
     }
