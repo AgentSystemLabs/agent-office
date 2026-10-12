@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { DECISION_CATEGORIES, orderDecisions, type Decision, type DecisionInput } from '../../shared/decisions.js';
+import { dueFollowup, followupFor, followupReport } from './followup.js';
 export class DecisionError extends Error { constructor(message: string, public status = 400) { super(message); } }
 export interface Actor { name: string; owner?: string; worker?: { id: string; name: string }; admin?: boolean }
 function text(value: unknown, max: number, required = false): string {
@@ -32,6 +33,12 @@ export class Decisions {
     if (!existsSync(this.file)) return [];
     const data = JSON.parse(readFileSync(this.file, 'utf8'));
     if (!Array.isArray(data.items) || data.items.some((d: Decision) => !d.id || !Number.isSafeInteger(d.revision))) throw new DecisionError('Entscheidungsspeicher beschädigt; Daten wurden nicht überschrieben.', 503);
+    // Existing answers get the same durable audit as new answers, once, without changing their history.
+    let migrated = false;
+    for (const d of data.items as Decision[]) if (d.status === 'answered' && d.answer && !d.followup) {
+      d.followup = followupFor(d.answeredAt ?? d.updatedAt); migrated = true;
+    }
+    if (migrated) this.save(data.items);
     return orderDecisions(data.items);
   }
   private save(items: Decision[]) {
@@ -67,7 +74,53 @@ export class Decisions {
   }
   answer(id: string, revision: number, value: unknown, actor: Actor) {
     const answer = text(value, 6000, true);
-    return this.change(id, revision, actor, d => { d.answer = answer; d.answeredBy = actor.name; d.answeredAt = Date.now(); d.status = 'answered';
-      d.history.push({ answer, by: actor.name, at: d.answeredAt }); d.notified = {}; });
+    return this.change(id, revision, actor, d => { d.answer = answer; d.answeredBy = actor.name; d.answeredAt = Math.max(Date.now(), (d.answeredAt ?? 0) + 1); d.status = 'answered';
+      d.history.push({ answer, by: actor.name, at: d.answeredAt }); d.notified = {};
+      d.followup = followupFor(d.answeredAt!); });
+  }
+  due(now = Date.now()): Decision | undefined { return this.list().filter(d => dueFollowup(d, now)).sort((a,b) => (a.followup?.updatedAt ?? 0) - (b.followup?.updatedAt ?? 0))[0]; }
+  claim(id: string, answerAt: number, now = Date.now()): Decision {
+    const items = this.list(), d = items.find(item => item.id === id);
+    if (!d || d.followup?.answerAt !== answerAt || !dueFollowup(d, now)) throw new DecisionError('Abgleich nicht mehr fällig.', 409);
+    d.followup.status = 'dispatching'; d.followup.updatedAt = now; d.followup.retryAt = undefined;
+    d.followup.workerId = undefined; d.followup.dispatchId = randomUUID();
+    this.save(items); return d;
+  }
+  dispatchFailed(id: string, answerAt: number, reason: string, now = Date.now()) {
+    const items = this.list(), d = items.find(item => item.id === id);
+    if (!d || d.followup?.answerAt !== answerAt || d.followup.status !== 'dispatching') return;
+    d.followup.status = 'pending'; d.followup.updatedAt = now; d.followup.retryAt = now + 60_000; d.followup.note = reason.slice(0, 4000);
+    this.save(items);
+  }
+  dispatched(id: string, answerAt: number, workerId: string) {
+    const items = this.list(), d = items.find(item => item.id === id);
+    if (!d || d.followup?.answerAt !== answerAt || d.followup.status !== 'dispatching') return;
+    d.followup.workerId = workerId; this.save(items);
+  }
+  report(id: string, answerAt: number, raw: unknown, workerId: string): Decision {
+    const value = followupReport(raw), items = this.list(), d = items.find(item => item.id === id);
+    if (!d || d.status !== 'answered' || d.followup?.answerAt !== answerAt) throw new DecisionError('Antwort ist nicht mehr aktuell.', 409);
+    if (d.followup.status !== 'dispatching' || d.followup.dispatchId !== (raw as {dispatchId?: string}).dispatchId ||
+      (d.followup.workerId && d.followup.workerId !== workerId)) throw new DecisionError('Dieser Abgleich wurde nicht an dich vergeben.', 409);
+    Object.assign(d.followup, value, { updatedAt: Date.now(), checkedAt: Date.now(), workerId });
+    d.followup.verifiedAt = undefined; d.followup.verifiedBy = undefined; d.followup.verificationNote = undefined;
+    d.revision++; d.updatedAt = Date.now(); this.save(items); return d;
+  }
+  retry(id: string, revision: number, actor: Actor): Decision {
+    return this.change(id, revision, actor, d => {
+      if (d.status !== 'answered' || !d.followup) throw new DecisionError('Zuerst eine Entscheidung speichern.');
+      if (d.followup.status === 'dispatching' && !dueFollowup(d, Date.now())) throw new DecisionError('Der Issues Agent prüft diese Antwort bereits.', 409);
+      d.followup.status = 'pending'; d.followup.retryAt = undefined; d.followup.updatedAt = Date.now();
+      d.followup.verifiedAt = undefined; d.followup.verifiedBy = undefined; d.followup.verificationNote = undefined;
+    });
+  }
+  verify(id: string, revision: number, note: unknown, actor: Actor): Decision {
+    const reason = text(note, 4000, true);
+    return this.change(id, revision, actor, d => {
+      if (d.followup?.status !== 'merged' && d.followup?.status !== 'no_action') throw new DecisionError('Zuerst einen Nachweis erfassen.');
+      d.followup.status = d.followup.status === 'no_action' ? 'accepted_no_action' : 'verified';
+      d.followup.verifiedAt = Date.now(); d.followup.verifiedBy = actor.name; d.followup.verificationNote = reason;
+      d.followup.updatedAt = d.followup.verifiedAt;
+    });
   }
 }

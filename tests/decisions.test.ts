@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import http from 'node:http';
@@ -11,6 +12,8 @@ import { officeDecisions } from '../src/server/hooks/office-decisions.js';
 import { requestHandler } from '../src/server/http/router.js';
 import { workerPrompt, stationRequest } from '../src/server/workers/prompt-extensions.js';
 import { WorkerManager } from '../src/server/workers/manager.js';
+import { FOLLOWUP_LEASE_MS, FOLLOWUP_RECHECK_MS } from '../src/server/decisions/followup.js';
+import { startDecisionReconciler } from '../src/server/decisions/reconcile.js';
 const owner = { name: 'Owner', owner: 'owner' }, worker = { name: 'Pixel', owner: 'owner', worker: { id: 'w1', name: 'Pixel' } };
 const question = { title: 'RB: Kosten des Upgrades', question: 'Soll das Upgrade 10 oder 20 Münzen kosten?', context: 'Der Shop benötigt den Preis.', options: ['10 Münzen', '20 Münzen'], recommendation: '10 für die erste Runde', category: 'Spielablauf', tags: ['RB', 'Shop'], issues: [303], blocking: true, blockingReason: 'Die Preisimplementierung wartet auf die Auswahl.' };
 function setup(t: any) { const dir = mkdtempSync(path.join(tmpdir(), 'office-decisions-')); t.after(() => rmSync(dir, {recursive:true,force:true})); return { dir, pool: new Decisions(dir, 'owner/game') }; }
@@ -31,6 +34,70 @@ test('human owner answers; workers and unrelated users cannot; stale revisions n
   pool.answer(d.id,d.revision,'10',owner);
   assert.throws(()=>pool.answer(d.id,d.revision,'20',owner),/inzwischen/);
   assert.equal(pool.list()[0].answer,'10');
+});
+test('answers survive restart and require a fresh, authorized audit before human verification', t => {
+  const {dir,pool}=setup(t), d=pool.add(question,worker), answered=pool.answer(d.id,d.revision,'20 Münzen',owner);
+  assert.equal(answered.followup?.status,'pending');
+  const restart=new Decisions(dir,'owner/game');
+  assert.equal(restart.due()?.id,d.id);
+  const now=Date.now(), first=restart.claim(d.id,answered.answeredAt!,now), token=first.followup!.dispatchId!;
+  assert.ok(token); assert.equal(first.followup?.status,'dispatching');
+  assert.throws(()=>restart.retry(d.id,answered.revision,owner),/prüft/);
+  assert.throws(()=>restart.report(d.id,answered.answeredAt!,{status:'issue_linked',issueNumbers:[304],evidence:'',note:'Fehlt',dispatchId:'wrong'},'issues'),/nicht an dich/);
+  assert.throws(()=>restart.report(d.id,answered.answeredAt!,{status:'issue_linked',issueNumbers:[],evidence:'',note:'Fehlt',dispatchId:token},'issues'),/Issue-Link/);
+  restart.dispatched(d.id,answered.answeredAt!,'issues');
+  assert.throws(()=>restart.report(d.id,answered.answeredAt!,{status:'issue_linked',issueNumbers:[304],evidence:'',note:'Fehlt',dispatchId:token},'other'),/nicht an dich/);
+  const linked=restart.report(d.id,answered.answeredAt!,{status:'issue_linked',issueNumbers:[304],evidence:'',note:'Offenes Folge-Issue #304',dispatchId:token},'issues');
+  assert.equal(linked.followup?.status,'issue_linked'); assert.deepEqual(new Decisions(dir,'owner/game').list()[0].followup?.issueNumbers,[304]);
+  assert.equal(restart.due(linked.followup!.checkedAt!+FOLLOWUP_RECHECK_MS-1),undefined);
+  assert.equal(restart.due(linked.followup!.checkedAt!+FOLLOWUP_RECHECK_MS)?.id,d.id);
+  const next=restart.claim(d.id,answered.answeredAt!,linked.followup!.checkedAt!+FOLLOWUP_RECHECK_MS);
+  assert.notEqual(next.followup!.dispatchId,token);
+  assert.throws(()=>restart.report(d.id,answered.answeredAt!,{status:'merged',issueNumbers:[304],evidence:'PR #1',note:'merged',dispatchId:token},'issues'),/nicht an dich/);
+  const merged=restart.report(d.id,answered.answeredAt!,{status:'merged',issueNumbers:[304],evidence:'https://github.com/owner/game/pull/1',note:'PR merged',dispatchId:next.followup!.dispatchId},'issues');
+  assert.equal(merged.followup?.status,'merged'); assert.equal(restart.due(Date.now()+FOLLOWUP_RECHECK_MS*2),undefined);
+  assert.throws(()=>restart.verify(d.id,merged.revision,'',owner),/fehlt/);
+  assert.throws(()=>restart.verify(d.id,merged.revision,'Quest geprüft',{name:'Other',owner:'other'}),/zuständige/);
+  const verified=restart.verify(d.id,merged.revision,'Quest geprüft',owner);
+  assert.equal(verified.followup?.status,'verified'); assert.equal(verified.followup?.verifiedBy,'Owner');
+  assert.equal(verified.followup?.note,'PR merged'); assert.equal(verified.followup?.verificationNote,'Quest geprüft');
+  assert.equal(new Decisions(dir,'owner/game').list()[0].followup?.status,'verified');
+});
+test('expired audits retry with a new dispatch token; new answers invalidate old reports', t => {
+  const {pool}=setup(t), d=pool.add(question,worker), answered=pool.answer(d.id,d.revision,'10',owner);
+  const now=Date.now(), first=pool.claim(d.id,answered.answeredAt!,now);
+  assert.equal(pool.due(now+FOLLOWUP_LEASE_MS-1),undefined);
+  assert.equal(pool.due(now+FOLLOWUP_LEASE_MS)?.id,d.id);
+  const second=pool.claim(d.id,answered.answeredAt!,now+FOLLOWUP_LEASE_MS);
+  assert.notEqual(second.followup?.dispatchId,first.followup?.dispatchId);
+  assert.throws(()=>pool.report(d.id,answered.answeredAt!,{status:'no_action',issueNumbers:[],evidence:'already done',note:'done',dispatchId:first.followup?.dispatchId},'issues'),/nicht an dich/);
+  const noAction=pool.report(d.id,answered.answeredAt!,{status:'no_action',issueNumbers:[],evidence:'https://github.com/owner/game/pull/1',note:'No code change',dispatchId:second.followup?.dispatchId},'issues');
+  assert.equal(pool.verify(d.id,noAction.revision,'Review bestätigt',owner).followup?.status,'accepted_no_action');
+  const reopened=pool.change(d.id,pool.list()[0].revision,owner,item=>{item.status='open';});
+  const latest=pool.answer(d.id,reopened.revision,'20',owner);
+  assert.equal(latest.followup?.status,'pending');
+  assert.throws(()=>pool.report(d.id,answered.answeredAt!,{status:'merged',issueNumbers:[],evidence:'PR #1',note:'old',dispatchId:second.followup?.dispatchId},'issues'),/nicht mehr aktuell/);
+});
+test('legacy answered decisions are backfilled durably without changing the human answer', t => {
+  const {dir,pool}=setup(t), d=pool.add(question,worker), answered=pool.answer(d.id,d.revision,'10',owner);
+  const file=path.join(dir,'decisions',createHash('sha256').update('owner/game').digest('hex').slice(0,24)+'.json');
+  const data=JSON.parse(readFileSync(file,'utf8')); delete data.items[0].followup; writeFileSync(file,JSON.stringify(data));
+  const migrated=new Decisions(dir,'owner/game').list()[0];
+  assert.equal(migrated.answer,'10'); assert.equal(migrated.revision,answered.revision);
+  assert.equal(migrated.followup?.status,'pending'); assert.equal(migrated.followup?.answerAt,answered.answeredAt);
+  assert.equal(JSON.parse(readFileSync(file,'utf8')).items[0].followup.status,'pending');
+});
+test('reconciler dispatches answered decisions only to the Issues Agent and preserves task queue', t => {
+  t.mock.timers.enable({apis:['setTimeout','setInterval']});
+  const {dir,pool}=setup(t), d=pool.add(question,worker); pool.answer(d.id,d.revision,'10',owner);
+  const calls: string[]=[];
+  const floor={id:'game',def:{repo:'owner/game'},workers:{list:()=>[],station:(desk:string,_by:string,prompt:string)=>{
+    calls.push(desk); assert.match(prompt,/office-decision:/); assert.match(prompt,/Kein Issue in die Office-Queue/);
+    return {info:{id:'issues'},hired:false};
+  }}};
+  const stop=startDecisionReconciler({cfg:{dataDir:dir},floors:new Map([['game',floor]])} as any);
+  t.mock.timers.tick(5000); stop();
+  assert.deepEqual(calls,['station-issues']); assert.equal(pool.list()[0].followup?.workerId,'issues');
 });
 test('real blockades escalate existing open questions and sort ahead of every category', t => {
   const {pool}=setup(t);
@@ -79,6 +146,20 @@ test('worker hook authenticates, chooses worker floor, and cannot store a fabric
   assert.equal(pool.list()[0].workers[0].id,'w1');assert.equal(pool.list()[0].owner,'owner');
   assert.equal((await fetch(url,{method:'POST',headers,body:'null'})).status,400);
   assert.equal((await fetch(url,{method:'DELETE',headers})).status,405);
+});
+test('only the Issues Agent can report a claimed audit through the worker hook', async t => {
+  const {dir,pool}=setup(t), d=pool.add(question,worker), answered=pool.answer(d.id,d.revision,'10',owner);
+  const claimed=pool.claim(d.id,answered.answeredAt!), report={action:'report',id:d.id,answerAt:answered.answeredAt,dispatchId:claimed.followup!.dispatchId,status:'issue_linked',issueNumbers:[304],evidence:'',note:'Open issue #304'};
+  const floor={id:'game',def:{repo:'owner/game'},workers:{authenticate:(id:string,token:string)=>token==='secret'&&['w1','issues'].includes(id)?{id,name:id,deskId:id==='issues'?'station-issues':'regular'}:undefined,ownerOf:()=> 'owner'}};
+  const ctx={cfg:{dataDir:dir},workerFloor:(id:string)=>['w1','issues'].includes(id)?floor:undefined} as any;
+  const server=http.createServer((req,res)=>officeDecisions(ctx,req,res,new URL(req.url!,'http://local')));await new Promise<void>(r=>server.listen(0,'127.0.0.1',r));t.after(()=>{server.closeAllConnections();server.close();});
+  const base=`http://127.0.0.1:${(server.address() as any).port}/office/decisions?worker=`,headers={authorization:'Bearer secret','content-type':'application/json'};
+  const post=(id:string,body:unknown)=>fetch(base+id,{method:'POST',headers,body:JSON.stringify(body)});
+  assert.equal((await post('w1',report)).status,403);
+  assert.equal((await post('issues',{...report,dispatchId:'wrong'})).status,409);
+  assert.equal((await post('issues',report)).status,200);
+  assert.equal(pool.list()[0].followup?.status,'issue_linked');
+  assert.equal((await post('issues',report)).status,409);
 });
 
 test('already running workers receive handoff instructions with their next Office task, preserving terminal commands', t => {

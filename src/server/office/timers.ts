@@ -1,9 +1,11 @@
 import type { Ctx } from './context.js';
 import { SLOW_CLIENT_BYTES } from './client.js';
+import { startDecisionReconciler } from '../decisions/reconcile.js';
 
 /** The office's own clocks: terminals re-sent to viewers who fell behind, and the heartbeat. Returns what stops them. */
 export function startTimers(ctx: Ctx): () => void {
   const { clients } = ctx;
+  const stopDecisionReconciler = startDecisionReconciler(ctx);
   const resync = setInterval(() => {
     for (const c of clients.values()) {
       if (!c.stale.size || c.ws.bufferedAmount > SLOW_CLIENT_BYTES / 8) continue;
@@ -32,6 +34,7 @@ export function startTimers(ctx: Ctx): () => void {
   }, 20_000);
 
   return () => {
+    stopDecisionReconciler();
     clearInterval(heartbeat);
     clearInterval(resync);
   };

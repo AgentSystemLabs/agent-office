@@ -5,6 +5,7 @@ import type { HudAction } from '../../ui/menu';
 import { store } from '../../state';
 import { decisions } from './state';
 import { editDecision } from './editor';
+import { followupCard } from './followup-ui';
 let modal: Modal | undefined;
 export const decisionsAction: HudAction = { id: 'decisions', icon: '💡', label: 'Entscheidungen', section: 'Open', count: () => decisions.state.items.filter(blockedDecision).length, run: () => openDecisions() };
 export function openDecisions() {
@@ -13,7 +14,7 @@ export function openDecisions() {
   const list = h('div.decision-list'), summary = h('p'), error = h('p.decision-error', { role: 'alert' }), connection = h('p.decision-error', { role: 'status' });
   const search = h('input', { placeholder: 'Frage, Issue oder Tag suchen', 'aria-label': 'Entscheidungen suchen', oninput: () => render(true) });
   const category = h('select', { 'aria-label': 'Kategorie', onchange: () => render(true) }, h('option', { value: '' }, 'Alle Kategorien'), ...DECISION_CATEGORIES.map(c => h('option', { value: c }, c)));
-  const status = h('select', { 'aria-label': 'Status', onchange: () => render(true) }, h('option', { value: 'open' }, 'Offene Entscheidungen'), h('option', { value: 'blocked' }, 'Blockiert Arbeit'), h('option', { value: 'answered' }, 'Beantwortet'), h('option', { value: 'all' }, 'Alle'));
+  const status = h('select', { 'aria-label': 'Status', onchange: () => render(true) }, h('option', { value: 'open' }, 'Offene Entscheidungen'), h('option', { value: 'blocked' }, 'Blockiert Arbeit'), h('option', { value: 'followup' }, 'Umsetzung noch offen'), h('option', { value: 'answered' }, 'Beantwortet'), h('option', { value: 'all' }, 'Alle'));
   async function action(body: unknown) {
     if (store.floor !== floor) throw Error('Projekt wurde gewechselt.');
     const r = await fetch('/api/decisions?floor=' + encodeURIComponent(floor), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
@@ -29,7 +30,7 @@ export function openDecisions() {
       d.blocking ? h('p.decision-blocker', {}, 'Abhängigkeit: ' + d.blockingReason) : null,
       d.recommendation ? h('p', {}, 'Empfehlung: ' + d.recommendation) : null,
       h('small', {}, `Erfasst von ${d.createdBy} · ${new Date(d.createdAt).toLocaleString()}`), badges, source);
-    if (d.status === 'answered') body.append(h('p.decision-answer', {}, `Entschieden von ${d.answeredBy}: ${d.answer}`));
+    if (d.status === 'answered') { body.append(h('p.decision-answer', {}, `Entschieden von ${d.answeredBy}: ${d.answer}`)); const followup = followupCard(d, decisions.state.repo, act); if (followup) body.append(followup); }
     if (d.canAnswer && d.status === 'open') {
       const answer = h('textarea', { rows: 3, placeholder: 'Deine Entscheidung und ggf. Bedingungen…', 'aria-label': 'Deine Entscheidung', oninput: () => drafts.set(d.id, answer.value) }, drafts.get(d.id) ?? '');
       body.append(h('div.decision-actions', {}, ...d.options.map(option => h('button.btn', { type: 'button', onclick: () => { answer.value = option; drafts.set(d.id, option); } }, option))), answer,
@@ -50,10 +51,12 @@ export function openDecisions() {
   function render(force = false) {
     connection.textContent = decisions.error;
     const all = decisions.state.items, signature = JSON.stringify(all.map(d => [d.id,d.revision,d.canAnswer]));
-    summary.textContent = `${all.filter(d => d.status === 'open').length} offen · ${all.filter(blockedDecision).length} blockieren Arbeit · ${all.filter(d => d.status === 'answered').length} beantwortet`;
+    summary.textContent = `${all.filter(d => d.status === 'open').length} offen · ${all.filter(blockedDecision).length} blockieren Arbeit · ${all.filter(d => d.status === 'answered').length} beantwortet · ${all.filter(d => d.status === 'answered' && !['verified', 'accepted_no_action'].includes(d.followup?.status ?? 'pending')).length} Umsetzung noch offen`;
     if (!force && signature === last) return; last = signature;
     const q = search.value.toLocaleLowerCase();
-    const items = orderDecisions(all).filter(d => (!category.value || d.category === category.value) && (status.value === 'all' || (status.value === 'blocked' ? blockedDecision(d) : d.status === status.value)) && `${d.title} ${d.question} ${d.tags.join(' ')} ${d.issues.map(n=>'#'+n).join(' ')}`.toLocaleLowerCase().includes(q));
+    const items = orderDecisions(all).filter(d => (!category.value || d.category === category.value) &&
+      (status.value === 'all' || (status.value === 'blocked' ? blockedDecision(d) : status.value === 'followup' ? d.status === 'answered' && !['verified', 'accepted_no_action'].includes(d.followup?.status ?? 'pending') : d.status === status.value)) &&
+      `${d.title} ${d.question} ${d.tags.join(' ')} ${d.issues.map(n=>'#'+n).join(' ')}`.toLocaleLowerCase().includes(q));
     list.replaceChildren(); let previous = '';
     for (const d of items) { const group = blockedDecision(d) ? 'Zuerst entscheiden: blockiert Arbeit' : d.status === 'answered' ? 'Beantwortet · ' + d.category : d.category;
       if (group !== previous) { list.append(h('h3', {}, group)); previous = group; } list.append(card(d)); }
@@ -61,7 +64,7 @@ export function openDecisions() {
   }
   modal = openModal(h('section.decisions-dialog', { role: 'dialog', 'aria-label': 'Entscheidungen', 'aria-modal': 'true' },
     h('header', {}, h('h2', {}, '💡 Entscheidungen')),
-    h('div.decisions-body', {}, h('p', {}, 'Deine Antworten für das Projekt. Speichern startet keine Aufgabe; bestehende Worker kannst du anschließend gezielt informieren.'),
+    h('div.decisions-body', {}, h('p', {}, 'Antworten werden dauerhaft mit Issues und PRs abgeglichen. Nur du entscheidest, welche Issues in die Worker-Queue kommen.'),
       h('div.decision-actions', {}, search, category, status,
         h('button.btn', { type: 'button', onclick: () => decisions.refresh() }, 'Aktualisieren'),
         h('button.btn', { type: 'button', onclick: () => { modal?.close(); editDecision({}, input => action({ action: 'add', input }).then(()=>{})); } }, '+ Entscheidung'),

@@ -29,6 +29,8 @@ export const decisionsRoute: Route = {
       let item;
       if (b.action === 'add') item = pool.add(b.input, actor);
       else if (b.action === 'answer') item = pool.answer(b.id, b.revision, b.answer, actor);
+      else if (b.action === 'followup-retry') item = pool.retry(b.id, b.revision, actor);
+      else if (b.action === 'followup-verify') item = pool.verify(b.id, b.revision, b.note, actor);
       else if (b.action === 'edit') { const value = input(b.input); item = pool.change(b.id, b.revision, actor, d => {
         if (d.question !== value.question || JSON.stringify(d.options) !== JSON.stringify(value.options) || JSON.stringify(d.issues) !== JSON.stringify(value.issues)) { d.status = 'open'; d.notified = {}; }
         Object.assign(d, value);

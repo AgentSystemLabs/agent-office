@@ -18,6 +18,14 @@ export interface Decision extends DecisionInput {
   answer?: string; answeredBy?: string; answeredAt?: number;
   history: { answer: string; by: string; at: number }[];
   notified?: Record<string, number>;
+  followup?: DecisionFollowup;
+}
+export type DecisionFollowupStatus = 'pending' | 'dispatching' | 'issue_linked' | 'merged' | 'verified' | 'no_action' | 'accepted_no_action' | 'needs_clarification';
+export interface DecisionFollowup {
+  answerAt: number; status: DecisionFollowupStatus; updatedAt: number;
+  issueNumbers: number[]; evidence: string; note: string;
+  workerId?: string; dispatchId?: string; retryAt?: number; checkedAt?: number;
+  verifiedAt?: number; verifiedBy?: string; verificationNote?: string;
 }
 export interface DecisionView extends Decision { canAnswer: boolean }
 export interface DecisionState { items: DecisionView[]; repo?: string }

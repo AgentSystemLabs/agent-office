@@ -13,7 +13,13 @@ export async function officeDecisions(ctx: Ctx, req: http.IncomingMessage, res: 
     if (req.method !== 'POST') return send(res, 405, { error: 'GET oder POST verwenden.' });
     const body = JSON.parse(await readBody(req, 24000));
     if (!body || typeof body !== 'object' || Array.isArray(body)) throw new DecisionError('Entscheidungsfrage fehlt.');
-    if ('answer' in body || 'status' in body || 'owner' in body) throw new DecisionError('Worker dürfen Fragen erfassen, aber keine menschlichen Antworten setzen.', 403);
+    if (body.action === 'report') {
+      if (worker.deskId !== 'station-issues') throw new DecisionError('Nur der Issues Agent darf den Umsetzungsabgleich melden.', 403);
+      if (typeof body.id !== 'string' || !Number.isSafeInteger(body.answerAt)) throw new DecisionError('Entscheidung und Antwortversion fehlen.');
+      const item = pool.report(body.id, body.answerAt, body, id);
+      return send(res, 200, { item });
+    }
+    if ('answer' in body || 'status' in body || 'owner' in body || 'followup' in body) throw new DecisionError('Worker dürfen Fragen erfassen, aber keine menschlichen Antworten setzen.', 403);
     const item = pool.add(body, { name: worker.name, owner: floor.workers.ownerOf(id), worker: { id, name: worker.name } });
     return send(res, 200, { item });
   } catch (e) { return send(res, e instanceof DecisionError ? e.status : e instanceof SyntaxError ? 400 : 500, { error: e instanceof DecisionError ? e.message : 'Entscheidung konnte nicht gespeichert werden.' }); }

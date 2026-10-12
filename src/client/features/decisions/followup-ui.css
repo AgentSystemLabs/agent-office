@@ -1,0 +1,3 @@
+.decision-followup { display: grid; justify-items: start; gap: 8px; margin: 14px 0; padding: 12px; border: 2px solid var(--ink); border-radius: 10px; background: #eef3ff; }
+.decision-followup p { margin: 0; overflow-wrap: anywhere; }
+.decision-followup textarea { width: min(100%, 600px); }
