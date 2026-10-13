@@ -16,6 +16,8 @@ export const BRANCH_PREFIX = 'office/';
 /** A fetch this recent is fresh enough for the next worktree: a burst of hires shares one. */
 const FETCH_FRESH_MS = 15_000;
 const FETCH_TIMEOUT_MS = 15_000;
+/** Large checkouts and Git LFS downloads need longer than metadata queries. */
+const CREATE_TIMEOUT_MS = 180_000;
 /** What the office writes into a worker's workspace (see WorkerInfo.repos), besides the worktrees. */
 export const WORKSPACE_FILES = new Set(['AGENTS.md', 'CLAUDE.md']);
 
@@ -64,10 +66,13 @@ export class Worktrees {
       const { base, note } = this.startPoint(from);
       const rel = path.join(WORKTREES_DIR, slug, sub ?? '');
       const branch = `${BRANCH_PREFIX}${slug}`;
-      this.gitSync(['worktree', 'add', '-b', branch, path.resolve(root, rel), base]);
+      this.gitSync(['worktree', 'add', '--quiet', '-b', branch, path.resolve(root, rel), base], this.dir, CREATE_TIMEOUT_MS);
       return { path: rel, branch, base, from, note };
     } catch (err) {
-      return `Could not create a git worktree: ${gitError(err)}`;
+      const why = (err as { code?: string }).code === 'ETIMEDOUT'
+        ? `Checkout exceeded ${CREATE_TIMEOUT_MS / 1000} seconds. Check Git LFS/network access and retry; any partial worktree is preserved.`
+        : gitError(err);
+      return `Could not create a git worktree: ${why}`;
     }
   }
 
@@ -342,8 +347,8 @@ export class Worktrees {
     return within(path.join(this.root, WORKTREES_DIR), real(abs));
   }
 
-  private gitSync(args: string[], cwd = this.dir): string {
-    return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 20_000 }).trim();
+  private gitSync(args: string[], cwd = this.dir, timeout = 20_000): string {
+    return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout }).trim();
   }
 
   private async git(args: string[], cwd = this.dir): Promise<string> {
@@ -372,8 +377,11 @@ export function describeWork(s: WorktreeState): string {
 
 /** The last line git printed, which is the one that says what's wrong. */
 export function gitError(err: unknown): string {
-  const e = err as { stderr?: string; message?: string };
-  return String(e.stderr || e.message || err).trim().split('\n').filter(Boolean).pop() ?? 'git failed';
+  const e = err as { stderr?: string; message?: string; code?: string };
+  if (e.code === 'ETIMEDOUT') return 'Git timed out before finishing';
+  if (e.code === 'ENOBUFS') return 'Git output exceeded the capture limit';
+  const lines = String(e.stderr || e.message || err).trim().split(/[\r\n]+/).filter(Boolean);
+  return lines.find((line) => /^(fatal|error):/.test(line)) ?? lines.pop() ?? 'git failed';
 }
 
 function real(p: string): string {

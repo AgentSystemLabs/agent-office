@@ -5,7 +5,7 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Changes } from '../src/server/changes.js';
-import { Worktrees } from '../src/server/worktrees.js';
+import { Worktrees, gitError } from '../src/server/worktrees.js';
 
 /**
  * A project cloned from a bare origin, plus a second clone standing in for GitHub: whatever it
@@ -40,6 +40,31 @@ function fixture(t: { after(fn: () => void): void }) {
   };
   return { root, dir, git: (...args: string[]) => run(dir, ...args), commit: (file: string) => commit(dir, file), merge };
 }
+
+test('a checkout exceeding the old 20-second limit still creates its worker worktree', (t) => {
+  const f = fixture(t);
+  writeFileSync(path.join(f.dir, '.gitattributes'), 'slow.txt filter=slow\n');
+  writeFileSync(path.join(f.dir, 'slow.txt'), 'worker payload\n');
+  f.git('add', '.gitattributes', 'slow.txt');
+  f.git('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'slow checkout fixture');
+  const head = f.git('rev-parse', 'HEAD');
+  const filter = path.join(f.root, 'slow.cjs');
+  writeFileSync(filter, "const fs=require('node:fs');const bytes=fs.readFileSync(0);Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,21000);process.stdout.write(bytes);");
+  f.git('config', 'filter.slow.smudge', `"${process.execPath.replaceAll('\\', '/')}" "${filter.replaceAll('\\', '/')}"`);
+  f.git('config', 'filter.slow.required', 'true');
+  const start = Date.now();
+  const made = new Worktrees(f.dir).create('slow-checkout');
+  assert.ok(typeof made !== 'string', String(made));
+  assert.ok(Date.now() - start >= 20_000, 'actually exceeds the previous timeout');
+  assert.ok(existsSync(path.join(f.dir, made.path, 'slow.txt')));
+  assert.equal(f.git('rev-parse', 'HEAD'), head, 'main checkout is unchanged');
+});
+
+test('git failures report their cause instead of checkout progress', () => {
+  assert.equal(gitError({ code: 'ETIMEDOUT', stderr: 'Updating files: 96%' }), 'Git timed out before finishing');
+  assert.equal(gitError({ code: 'ENOBUFS', stderr: 'Updating files: 96%' }), 'Git output exceeded the capture limit');
+  assert.equal(gitError({ stderr: 'Updating files: 96%\rfatal: LFS download failed\nAdvice follows' }), 'fatal: LFS download failed');
+});
 
 test("a worktree starts from the PR merged on origin, not from the project's stale checkout", async (t) => {
   const f = fixture(t);
