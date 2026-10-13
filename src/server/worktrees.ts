@@ -61,18 +61,40 @@ export class Worktrees {
    * returns is relative to `root`.
    */
   create(slug: string, sub?: string, root = this.dir): (Required<Omit<WorktreeRef, 'made'>> & { from?: string; note?: string }) | string {
+    let attempt: { abs: string; branch: string; base: string } | undefined;
     try {
       const from = this.currentBranch();
       const { base, note } = this.startPoint(from);
       const rel = path.join(WORKTREES_DIR, slug, sub ?? '');
       const branch = `${BRANCH_PREFIX}${slug}`;
-      this.gitSync(['worktree', 'add', '--quiet', '-b', branch, path.resolve(root, rel), base], this.dir, CREATE_TIMEOUT_MS);
+      const abs = path.resolve(root, rel);
+      const branchExists = !!this.gitSync(['for-each-ref', '--format=%(refname)', `refs/heads/${branch}`]);
+      if (!existsSync(abs) && !branchExists && within(path.join(real(root), WORKTREES_DIR), real(abs))) attempt = { abs, branch, base };
+      this.gitSync(['worktree', 'add', '--quiet', '-b', branch, abs, base], this.dir, CREATE_TIMEOUT_MS);
       return { path: rel, branch, base, from, note };
     } catch (err) {
+      const cleaned = attempt && this.rollbackCreation(attempt);
       const why = (err as { code?: string }).code === 'ETIMEDOUT'
-        ? `Checkout exceeded ${CREATE_TIMEOUT_MS / 1000} seconds. Check Git LFS/network access and retry; any partial worktree is preserved.`
+        ? `Checkout exceeded ${CREATE_TIMEOUT_MS / 1000} seconds. Check Git LFS/network access and retry.`
         : gitError(err);
-      return `Could not create a git worktree: ${why}`;
+      return `Could not create a git worktree: ${why}${cleaned ? ' The unused checkout was cleaned up.' : ' Existing files are preserved.'}`;
+    }
+  }
+
+  /** Only roll back this attempt's fresh, unchanged checkout; never force removal. */
+  private rollbackCreation({ abs, branch, base }: { abs: string; branch: string; base: string }): boolean {
+    try {
+      if (!existsSync(path.join(abs, '.git'))) return false;
+      if (this.gitSync(['symbolic-ref', '--short', 'HEAD'], abs) !== branch) return false;
+      if (this.gitSync(['rev-parse', 'HEAD'], abs) !== base) return false;
+      // Include ignored files: a Library, personal file or another process's output is work to preserve.
+      if (this.gitSync(['status', '--porcelain', '--untracked-files=all', '--ignored'], abs)) return false;
+      this.gitSync(['worktree', 'remove', abs], this.dir, CREATE_TIMEOUT_MS);
+      // Compare-and-delete so a concurrently advanced branch cannot lose commits.
+      this.gitSync(['update-ref', '-d', `refs/heads/${branch}`, base]);
+      return true;
+    } catch {
+      return false;
     }
   }
 

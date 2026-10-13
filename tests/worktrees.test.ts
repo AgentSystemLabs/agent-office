@@ -66,6 +66,55 @@ test('git failures report their cause instead of checkout progress', () => {
   assert.equal(gitError({ stderr: 'Updating files: 96%\rfatal: LFS download failed\nAdvice follows' }), 'fatal: LFS download failed');
 });
 
+for (const contents of ['clean', 'untracked', 'ignored', 'committed'] as const) {
+  test(`failed creation cleans only its own unused checkout: ${contents}`, (t) => {
+    const f = fixture(t);
+    const trees = new Worktrees(f.dir);
+    const internal = trees as unknown as { gitSync(args: string[], cwd?: string, timeout?: number): string };
+    const run = internal.gitSync.bind(trees);
+    const abs = path.join(f.dir, '.agent-office', 'worktrees', 'failed-create');
+    if (contents === 'ignored') {
+      const excludes = path.join(f.root, 'excludes');
+      writeFileSync(excludes, 'personal.txt\n');
+      f.git('config', 'core.excludesFile', excludes);
+    }
+    internal.gitSync = (args, cwd, timeout) => {
+      const result = run(args, cwd, timeout);
+      if (args[0] === 'worktree' && args[1] === 'add') {
+        if (contents !== 'clean') writeFileSync(path.join(abs, 'personal.txt'), 'keep this');
+        if (contents === 'committed') {
+          run(['add', 'personal.txt'], abs);
+          run(['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'personal work'], abs);
+        }
+        throw Object.assign(new Error('checkout timed out'), { code: 'ETIMEDOUT' });
+      }
+      return result;
+    };
+    const result = trees.create('failed-create');
+    assert.equal(typeof result, 'string');
+    if (contents === 'clean') {
+      assert.equal(existsSync(abs), false);
+      assert.equal(f.git('for-each-ref', '--format=%(refname)', 'refs/heads/office/failed-create'), '');
+      assert.match(String(result), /cleaned up/);
+    } else {
+      assert.ok(existsSync(path.join(abs, 'personal.txt')), 'personal work survives');
+      assert.ok(f.git('for-each-ref', '--format=%(refname)', 'refs/heads/office/failed-create'));
+      assert.match(String(result), /preserved/);
+    }
+  });
+}
+
+test('a name collision never removes the existing worker checkout', (t) => {
+  const f = fixture(t);
+  const trees = new Worktrees(f.dir);
+  const made = trees.create('existing-worker');
+  assert.ok(typeof made !== 'string');
+  const personal = path.join(f.dir, made.path, 'personal.txt');
+  writeFileSync(personal, 'keep this');
+  assert.equal(typeof trees.create('existing-worker'), 'string');
+  assert.ok(existsSync(personal));
+});
+
 test("a worktree starts from the PR merged on origin, not from the project's stale checkout", async (t) => {
   const f = fixture(t);
   const stale = f.git('rev-parse', 'HEAD');
