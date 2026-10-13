@@ -1,6 +1,7 @@
 // The building's floors: riding the elevator between them and up to the roof, and adding and taking
 // off floors.
 import type { FloorClientMsg } from '../../../shared/protocol.js';
+import { normalizeRepo } from '../../../shared/floors.js';
 import { ROOF } from '../../../shared/rooftop.js';
 import { arrivalSpot, str } from '../../office/input.js';
 import type { HandlerMap, ViewPieces } from './types.js';
@@ -24,6 +25,17 @@ export const floorHandlers = {
       (err: Error) => ctx.sendTo(c, { t: 'floor.repos', repos: [], error: `Couldn't list your repositories with gh: ${err.message}` }),
     );
   },
+  'floor.branches'(ctx, c, msg) {
+    // The panel asks as someone picks a repository; the answer says which repository it's about, in
+    // the words they asked with, so a list that arrives after they've picked another is ignored.
+    const asked = str(msg.repo, 200);
+    const repo = normalizeRepo(asked);
+    if (!repo) return ctx.sendTo(c, { t: 'floor.branches', repo: asked, branches: [], error: 'Pick a repository first' });
+    void ctx.building.branches(repo).then(
+      (choices) => ctx.sendTo(c, { t: 'floor.branches', repo: asked, ...choices }),
+      (err: Error) => ctx.sendTo(c, { t: 'floor.branches', repo: asked, branches: [], error: `Couldn't list ${repo}'s branches with gh: ${err.message}` }),
+    );
+  },
   'floor.add'(ctx, c, msg) {
     const who = c.peer.name;
     const repo = str(msg.repo, 200);
@@ -35,7 +47,7 @@ export const floorHandlers = {
           ctx.floorsChanged();
           ctx.toastAll(`🛗 ${who} is adding a floor for ${def.repo ?? def.name}…`);
         },
-        c.accountId,
+        { account: c.accountId, branch: msg.branch },
       )
       .then((r) => {
         ctx.floorsChanged();

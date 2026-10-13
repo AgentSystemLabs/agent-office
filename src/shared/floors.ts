@@ -55,6 +55,22 @@ export function normalizeRepo(value: unknown): string | undefined {
   return `${owner}/${repo}`;
 }
 
+/**
+ * A branch name from what someone picked or typed: undefined for anything git wouldn't take, so it
+ * can never become a CLI option, a path or a revision of its own. Every name GitHub hands out
+ * passes; this is what stops a hand-written message from reaching `git clone --branch` or
+ * `git checkout` with something else in it.
+ */
+export function normalizeBranch(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const s = value.trim();
+  if (!s || s.length > 200) return undefined;
+  // git's own rules (see git-check-ref-format): no leading -, no .. or //, no control characters,
+  // and none of ~ ^ : ? * [ \ or a space, which is all a branch name may not hold.
+  if (/^[.-]|\.\.|\/\/|@\{|[~^:?*\[\\\s\x00-\x1f\x7f]/.test(s) || s.endsWith('/') || s.endsWith('.') || s.endsWith('.lock')) return undefined;
+  return s;
+}
+
 export function sameRepo(a: string | undefined, b: string | undefined): boolean {
   return !!a && !!b && a.toLowerCase() === b.toLowerCase();
 }

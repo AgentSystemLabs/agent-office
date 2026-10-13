@@ -2,10 +2,12 @@ import { execFileSync, spawn } from 'node:child_process';
 import { accessSync, constants, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { FLOOR_PALETTES, MAX_FLOORS, normalizeRepo, sameRepo } from '../shared/floors.js';
-import type { CloneProgress, ProjectsDirState, RepoChoice } from '../shared/protocol.js';
+import { FLOOR_PALETTES, MAX_FLOORS, normalizeBranch, normalizeRepo, sameRepo } from '../shared/floors.js';
+import type { BranchChoices, CloneProgress, ProjectsDirState, RepoChoice } from '../shared/protocol.js';
 import { CloneRun, dropLog, whyCloneFailed, type CloneEnd, type CloneRunOptions } from './clone.js';
 import { gh } from './github.js';
+import { listBranches, listRepos } from './repos.js';
+import { gitError } from './worktrees.js';
 
 /** A floor as floors.json keeps it. */
 export interface FloorDef {
@@ -39,6 +41,8 @@ interface Pending {
   run?: CloneRun;
   /** The account that added it. */
   owner?: string;
+  /** The branch its checkout is put on; the repository's default branch when none. */
+  branch?: string;
   /** GitHub says the repository has no commits yet, so there's nothing to check out. */
   empty: boolean;
 }
@@ -61,9 +65,16 @@ export interface BuildingOptions {
   clone?: Pick<CloneRunOptions, 'stallMs' | 'tickMs'>;
 }
 
+/** Who's adding a floor, and how (see Building.add). */
+export interface AddOptions {
+  /** Whoever's adding it: they can stop the clone, as admins can. */
+  account?: string;
+  /** The branch to check the new floor out on; the repository's default branch when none. */
+  branch?: string;
+}
+
 /** How long the list of repositories `gh` can see is reused before it's asked again. */
 const REPOS_TTL_MS = 5 * 60_000;
-const MAX_REPOS = 1000;
 
 /**
  * The floors of the building, saved in <office>/.agent-office/floors.json: which projects there are,
@@ -277,18 +288,22 @@ export class Building {
   /**
    * Clones a repository into the projects folder and adds it as a floor. `started` hears about the
    * floor as soon as the clone begins; resolves to the finished floor, or to why there's none. A
-   * checkout that's already where the clone would go is used as it is. `account` (whoever's adding it)
-   * can stop the clone, as admins can.
+   * checkout that's already where the clone would go is used as it is, put on `opts.branch` if one was
+   * picked. `opts.account` (whoever's adding it) can stop the clone, as admins can.
    */
-  async add(input: string, by: string, started: (def: FloorDef) => void, account?: string): Promise<FloorDef | string> {
+  async add(input: string, by: string, started: (def: FloorDef) => void, opts: AddOptions = {}): Promise<FloorDef | string> {
     const wanted = normalizeRepo(input);
     if (!wanted) return 'Pick a repository, or type it as owner/name';
+    const branch = opts.branch === undefined ? undefined : normalizeBranch(opts.branch);
+    if (opts.branch !== undefined && !branch) return "That isn't a branch name";
     if (this.defs.some((d) => sameRepo(d.repo, wanted))) return `${wanted} already has a floor`;
     if (this.cloning.has(wanted.toLowerCase())) return `${wanted} is already being cloned`;
     if (this.defs.length + this.cloning.size >= MAX_FLOORS) return `The building is full (${MAX_FLOORS} floors)`;
     // The office's own checkout, taken off before: it moves back in where it is, not into a second clone.
     const home = this.local;
     if (this.localOff && home && sameRepo(home.repo, wanted) && existsSync(home.dir)) {
+      const err = branch ? checkoutBranch(home.dir, branch) : undefined;
+      if (err) return err;
       const def = this.newDef(path.basename(home.dir), home.repo, home.dir, by);
       started(def);
       this.defs.push(def);
@@ -314,7 +329,7 @@ export class Building {
     const dest = path.join(this.projectsDir, owner, name);
     if (this.defs.some((d) => path.resolve(d.dir) === dest)) return `${dest} is already a floor`;
     const def = this.newDef(name, repo, dest, by);
-    const pending: Pending = { def, owner: account, empty };
+    const pending: Pending = { def, owner: opts.account, branch, empty };
     this.cloning.set(key, pending);
     started(def);
     try {
@@ -334,21 +349,21 @@ export class Building {
     const { dir: dest } = p.def;
     const repo = p.def.repo!;
     const there = checkoutAt(dest, repo, p.empty);
-    // Cloned before (a floor that was taken off the list, or by hand): move back in.
-    if (there === 'ok') return undefined;
+    // Cloned before (a floor that was taken off the list, or by hand): move back in, on the branch picked.
+    if (there === 'ok') return p.branch ? checkoutBranch(dest, p.branch) : undefined;
     if (there !== 'none') return there;
     try {
       mkdirSync(path.dirname(dest), { recursive: true });
     } catch (err) {
       return `Couldn't make ${path.dirname(dest)}: ${(err as Error).message}`;
     }
-    if (this.opts.terminal) return cloneHere(repo, dest);
+    if (this.opts.terminal) return cloneHere(repo, dest, p.branch);
     try {
       mkdirSync(this.logsDir, { recursive: true, mode: 0o700 });
     } catch (err) {
       return `Couldn't make ${this.logsDir}: ${(err as Error).message}`;
     }
-    const run = await CloneRun.start(repo, dest, path.join(this.logsDir, `${repo.replace('/', '__')}.log`), { ...this.opts.clone, changed: () => this.cloneChanged?.() });
+    const run = await CloneRun.start(repo, dest, path.join(this.logsDir, `${repo.replace('/', '__')}.log`), { ...this.opts.clone, branch: p.branch, changed: () => this.cloneChanged?.() });
     if (typeof run === 'string') return run;
     p.run = run;
     this.saveClones();
@@ -379,6 +394,11 @@ export class Building {
       if (this.repoCache?.repos === repos) this.repoCache = undefined;
     });
     return repos;
+  }
+
+  /** The branches of a repository, for the elevator's "add a project" to clone a floor on one of them. */
+  branches(repo: string): Promise<BranchChoices> {
+    return listBranches(this.dataDir, repo);
   }
 
   private newDef(name: string, repo: string | undefined, dir: string, by: string): FloorDef {
@@ -510,6 +530,26 @@ function unwritable(dir: string): string | undefined {
   return undefined;
 }
 
+/**
+ * Puts a checkout of the repository that's already on disk on `branch`, for a floor added on one
+ * that isn't the default. A branch that isn't there yet is taken from origin, as `git checkout`
+ * does; git refuses rather than losing work when the checkout is dirty, and that says why.
+ */
+function checkoutBranch(dir: string, branch: string): string | undefined {
+  const git = (args: string[]) => execFileSync('git', args, { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 60_000 }).trim();
+  try {
+    if (git(['rev-parse', '--abbrev-ref', 'HEAD']) === branch) return undefined;
+  } catch (err) {
+    return `${tildify(dir)} isn't a git checkout the office can use: ${gitError(err)}`;
+  }
+  try {
+    git(['checkout', branch]);
+    return undefined;
+  } catch (err) {
+    return `${tildify(dir)} is already a checkout of this repository and couldn't be put on ${branch}: ${gitError(err)}`;
+  }
+}
+
 /** The GitHub repository a checkout's origin points at. */
 export function originRepo(dir: string): string | undefined {
   try {
@@ -543,45 +583,11 @@ function hasCommit(dir: string): boolean {
 }
 
 /** Clones `repo` to `dest` in this terminal: git shows its progress, and ssh or git can ask here. Resolves to an error, if any. */
-function cloneHere(repo: string, dest: string): Promise<string | undefined> {
+function cloneHere(repo: string, dest: string, branch?: string): Promise<string | undefined> {
   return new Promise((resolve) => {
-    const child = spawn('gh', ['repo', 'clone', repo, dest], { cwd: path.dirname(dest), stdio: 'inherit' });
+    const args = ['repo', 'clone', repo, dest, '--', ...(branch ? [`--branch=${branch}`] : [])];
+    const child = spawn('gh', args, { cwd: path.dirname(dest), stdio: 'inherit' });
     child.once('error', (err: NodeJS.ErrnoException) => resolve(err.code === 'ENOENT' ? "The GitHub CLI (gh) isn't installed on this machine" : `Couldn't run gh: ${err.message}`));
     child.once('exit', (code, signal) => resolve(code === 0 ? undefined : `Couldn't clone ${repo}: gh ${signal ? `stopped (${signal})` : `failed (exit ${code})`}`));
   });
-}
-
-async function listRepos(cwd: string): Promise<RepoChoice[]> {
-  const out = await gh(
-    [
-      'api',
-      '--paginate',
-      'user/repos?per_page=100&sort=pushed&affiliation=owner,collaborator,organization_member',
-      '--jq',
-      '.[] | {name: .full_name, description: (.description // ""), private: .private, pushedAt: .pushed_at}',
-    ],
-    cwd,
-    90_000,
-  );
-  const repos: RepoChoice[] = [];
-  const seen = new Set<string>();
-  for (const line of out.split('\n')) {
-    if (!line.trim()) continue;
-    try {
-      const r = JSON.parse(line) as { name?: unknown; description?: unknown; private?: unknown; pushedAt?: unknown };
-      const name = normalizeRepo(r.name);
-      if (!name || seen.has(name.toLowerCase())) continue;
-      seen.add(name.toLowerCase());
-      repos.push({
-        name,
-        description: typeof r.description === 'string' && r.description ? r.description.slice(0, 200) : undefined,
-        private: r.private === true,
-        pushedAt: typeof r.pushedAt === 'string' ? r.pushedAt : undefined,
-      });
-    } catch {
-      // not a line of ours
-    }
-    if (repos.length >= MAX_REPOS) break;
-  }
-  return repos.sort((a, b) => (b.pushedAt ?? '').localeCompare(a.pushedAt ?? ''));
 }

@@ -34,6 +34,12 @@
 .elevator .repo .when { font-size: 11px; color: var(--muted); white-space: nowrap; }
 .elevator .note { margin: 8px 0 0; font-size: 12px; font-weight: 700; color: var(--muted); overflow-wrap: anywhere; }
 .elevator .note.busy { color: var(--ink); }
+/* The branch the new floor is cloned on, under the repository list. */
+.elevator .branch-row { display: flex; gap: 8px; align-items: center; margin-top: 8px; font-size: 13px; font-weight: 800; }
+.elevator .branch-row .lbl { color: var(--muted); }
+.elevator .branch-row select { flex: 0 1 auto; min-width: 0; padding: 4px 8px; font: inherit; font-weight: 800; color: var(--ink); background: #fff; border: 3px solid var(--ink); border-radius: 12px; }
+.elevator .branch-row select:disabled { color: var(--muted); }
+.elevator .branch-note { flex: 1; min-width: 0; font-size: 12px; font-weight: 700; color: var(--bad); overflow-wrap: anywhere; }
 /* The folder's Change button: styles/base.css, after the button rules it restyles. */
 .elevator .dir-pick { margin-top: 8px; }
 .elevator .err { margin: 8px 0 0; font-size: 13px; font-weight: 800; color: var(--bad); overflow-wrap: anywhere; }

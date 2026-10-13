@@ -32,12 +32,20 @@ const SHOWN = 60;
 const REPOS_STALE_MS = 5 * 60_000;
 /** Longer than the office takes to ask GitHub about a repository before its clone starts. */
 const START_MS = 60_000;
+/** How long typing has to stop before the panel asks GitHub about a repository's branches. */
+const BRANCH_PAUSE_MS = 350;
 
 /** Panels waiting on a clone; each says whether the answer was for it. */
 const addedWaiters = new Set<(msg: Extract<ServerMsg, { t: 'floor.added' }>) => boolean>();
+/** Panels waiting on a repository's branches. */
+const branchWaiters = new Set<(msg: Extract<ServerMsg, { t: 'floor.branches' }>) => void>();
 
 /** Main feeds server messages through here, so a panel waiting on its clone hears back. */
 export function routeElevatorMessage(msg: ServerMsg) {
+  if (msg.t === 'floor.branches') {
+    for (const fn of branchWaiters) fn(msg);
+    return;
+  }
   if (msg.t !== 'floor.added') return;
   let heard = false;
   for (const fn of addedWaiters) heard = fn(msg) || heard;
@@ -49,6 +57,11 @@ export function routeElevatorMessage(msg: ServerMsg) {
 function cloneBar(p: CloneProgress | undefined): HTMLElement | null {
   if (p?.percent === undefined) return null;
   return h('span.clone-bar', { role: 'progressbar', 'aria-label': p.step, 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': String(p.percent) }, h('span', { style: `width:${p.percent}%` }));
+}
+
+/** The branch a floor's checkout is on, for its row: nothing when git couldn't say, or it's detached. */
+function branchLabel(f: FloorInfo): string {
+  return f.branch && f.branch !== 'HEAD' ? `🌿 ${f.branch}` : '';
 }
 
 let current: Modal | null = null;
@@ -73,6 +86,15 @@ export function openElevator(opts: ElevatorOptions): void {
   let showAdd = setup || !store.floors.length;
   /** The search box and list are in place (rebuilding them would lose the focus mid-typing). */
   let built = false;
+  /** The branch the new floor is put on; '' is the repository's default branch. */
+  let branch = '';
+  /** The repository the branch list is about (what was asked with), and what came back for it. */
+  let branchRepo: string | undefined;
+  let branchList: string[] = [];
+  let branchDefault: string | undefined;
+  let branchError = '';
+  let branchLoading = false;
+  let branchTimer: number | undefined;
 
   const floorsEl = h('div.floors');
   const addEl = h('div.add');
@@ -107,6 +129,30 @@ export function openElevator(opts: ElevatorOptions): void {
     if (e.key === 'Enter' && !e.isComposing) saveDir();
   });
 
+  // Which branch the new floor's checkout is on. The list is the repository's, asked for once someone
+  // has picked one; leaving it on the default branch clones exactly as before.
+  const branchSel = h('select', { 'aria-label': 'Branch', title: 'The branch the new floor is checked out on, and where its workers start from' }) as HTMLSelectElement;
+  const branchNote = h('span.branch-note');
+  const branchRow = h('div.branch-row.hidden', {}, h('span.lbl', {}, 'Branch'), branchSel, branchNote);
+  /** What the select holds now, so a re-render that changes nothing leaves it (and its focus) alone. */
+  let branchSig = '';
+  const fillBranch = () => {
+    const sig = `${branchLoading}|${branchDefault ?? ''}|${branchList.join('\n')}`;
+    if (sig !== branchSig) {
+      branchSig = sig;
+      branchSel.replaceChildren(
+        h('option', { value: '' }, branchLoading ? 'Loading branches…' : branchDefault ? `Default branch (${branchDefault})` : 'Default branch'),
+        ...branchList.filter((b) => b !== branchDefault).map((b) => h('option', { value: b }, b)),
+      );
+    }
+    branchSel.value = branch;
+    branchSel.disabled = branchLoading || !!adding;
+    branchNote.textContent = branchError ? `${branchError} — the floor is cloned on its default branch` : '';
+  };
+  branchSel.addEventListener('change', () => {
+    branch = branchSel.value;
+  });
+
   const needRepos = () => {
     const r = store.repos;
     if (r.loading || (r.at && Date.now() - r.at < REPOS_STALE_MS && !r.error)) return;
@@ -116,6 +162,44 @@ export function openElevator(opts: ElevatorOptions): void {
 
   /** What "Add floor" would add: the row picked, else what's typed if it's owner/name. */
   const choice = (): string | undefined => selected ?? normalizeRepo(filter);
+
+  /**
+   * The branches of the repository "Add floor" would clone, asked of the office once one is picked.
+   * Typing waits a moment first: half a repository name is a question gh can only fail.
+   */
+  const ensureBranches = (pick: string | undefined) => {
+    if (adding) return;
+    if (!pick) {
+      branchRepo = undefined;
+      branch = '';
+      return;
+    }
+    if (branchRepo && sameRepo(branchRepo, pick)) return;
+    branchRepo = pick;
+    branch = '';
+    branchList = [];
+    branchDefault = undefined;
+    branchError = '';
+    branchLoading = false;
+    clearTimeout(branchTimer);
+    branchTimer = window.setTimeout(() => {
+      if (!branchRepo || !sameRepo(branchRepo, pick)) return;
+      branchLoading = true;
+      renderAdd();
+      net.send({ t: 'floor.branches', repo: pick });
+    }, BRANCH_PAUSE_MS);
+  };
+
+  /** The branches came back, for this repository or one they've since picked over. */
+  const onBranches = (msg: Extract<ServerMsg, { t: 'floor.branches' }>) => {
+    if (!branchRepo || !sameRepo(msg.repo, branchRepo)) return;
+    branchList = msg.branches;
+    branchDefault = msg.default;
+    branchError = msg.error ?? '';
+    branchLoading = false;
+    renderAdd();
+  };
+  branchWaiters.add(onBranches);
 
   const floorButton = (f: FloorInfo, i: number) => {
     // Down in the garage, your floor is somewhere to go back up to.
@@ -138,7 +222,7 @@ export function openElevator(opts: ElevatorOptions): void {
         'span.floor-text',
         {},
         h('span.floor-name', {}, f.name, here ? h('span.here-tag', {}, 'you are here') : mine ? h('span.here-tag', {}, 'your floor') : null),
-        h('span.floor-sub', {}, [f.repo ?? f.dir, f.cloning ? f.clone?.detail : ''].filter(Boolean).join(' · ')),
+        h('span.floor-sub', {}, [f.repo ?? f.dir, branchLabel(f), f.cloning ? f.clone?.detail : ''].filter(Boolean).join(' · ')),
         f.cloning ? cloneBar(f.clone) : null,
       ),
       h('span.floor-stats', {}, ...stats.flatMap((s, j) => (j ? [' ', s] : [s]))),
@@ -280,6 +364,10 @@ export function openElevator(opts: ElevatorOptions): void {
     if (matches.length > SHOWN) rows.push(h('p.empty', { style: 'padding:8px 10px' }, `…and ${matches.length - SHOWN} more — type to narrow it down`));
     listEl.replaceChildren(...rows);
     const pick = choice();
+    // The branch the floor is cloned on: only for a repository that isn't a floor yet.
+    ensureBranches(pick);
+    fillBranch();
+    branchRow.classList.toggle('hidden', !pick || store.floors.some((f) => sameRepo(f.repo, pick)));
     const dest = pick ? `${store.projectsDir.dir}/${pick}` : `${store.projectsDir.dir}/<owner>/<repo>`;
     const change = store.me.admin ? h('button.btn.dir-change', { type: 'button', title: 'Clone new projects into another folder on the office’s machine' }, '📁 Change folder') : null;
     change?.addEventListener('click', () => editDir(true));
@@ -303,6 +391,7 @@ export function openElevator(opts: ElevatorOptions): void {
         h('h3', {}, setup && !store.floors.length ? 'Pick your first project' : '➕ Add a project'),
         h('div.repo-search', {}, input, refreshBtn),
         listEl,
+        branchRow,
         statusEl,
         dirEl,
       );
@@ -318,7 +407,8 @@ export function openElevator(opts: ElevatorOptions): void {
     seen = false;
     error = '';
     renderAdd();
-    net.send({ t: 'floor.add', repo });
+    // The branch picked, when it's the one the picker was showing for this repository.
+    net.send({ t: 'floor.add', repo, ...(sameRepo(branchRepo, repo) && branch ? { branch } : {}) });
     // The office went away before it started (a restart): don't wait forever.
     clearTimeout(startTimer);
     startTimer = window.setTimeout(() => {
@@ -408,7 +498,9 @@ export function openElevator(opts: ElevatorOptions): void {
     onClose: () => {
       current = null;
       clearTimeout(startTimer);
+      clearTimeout(branchTimer);
       addedWaiters.delete(onAdded);
+      branchWaiters.delete(onBranches);
       for (const off of unsubs) off();
     },
   });

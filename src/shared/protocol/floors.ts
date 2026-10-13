@@ -93,6 +93,14 @@ export interface RepoChoice {
   pushedAt?: string;
 }
 
+/** The branches a repository could be cloned on, for the elevator's "add a project". */
+export interface BranchChoices {
+  /** The branch names, as GitHub lists them (alphabetical). */
+  branches: string[];
+  /** The repository's default branch: what its floor is cloned on when nobody picks another. */
+  default?: string;
+}
+
 /** Everything that belongs to the floor you're on: sent when you walk in, and when you change floors. */
 
 export interface FloorView {
@@ -136,7 +144,9 @@ export type FloorClientMsg =
   /** The repositories that could become a floor; answered with `floor.repos`. */
   | { t: 'floor.repos'; refresh?: boolean }
   /** Clone a repository and make it a new floor; answered with `floor.added` once it's there. */
-  | { t: 'floor.add'; repo: string }
+  | { t: 'floor.add'; repo: string; branch?: string }
+  /** The branches a repository could be cloned on (see floor.branches). */
+  | { t: 'floor.branches'; repo: string }
   /** Stop a floor's clone before it's there (admins, or whoever added it); the one who added it hears `floor.added` with why. */
   | { t: 'floor.cancel'; floor: string }
   /** Take a floor off the building (admins only). Its checkout stays on disk; everyone on it rides to another floor. */
@@ -157,6 +167,8 @@ export type FloorServerMsg =
   | { t: 'floors'; floors: FloorInfo[] }
   /** Sent to whoever asked. */
   | { t: 'floor.repos'; repos: RepoChoice[]; error?: string }
+  /** Sent to whoever asked, for the branch it's about (`repo` is what they asked about). */
+  | { t: 'floor.branches'; repo: string; branches: string[]; default?: string; error?: string }
   /** Sent to whoever asked for the floor, once it's cloned (or couldn't be). */
   | { t: 'floor.added'; repo: string; floor?: string; error?: string }
   /** The projects folder moved (see floor.projectsDir). */

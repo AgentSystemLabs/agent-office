@@ -51,6 +51,7 @@ export function whyCloneFailed(output: string): string {
     .map((l) => l.trim())
     .filter((l) => l && !PROGRESS.test(l) && !/^Cloning into /.test(l));
   const all = said.join('\n');
+  if (/not found in upstream/i.test(all)) return "the branch you picked isn't on the repository — add the floor again and pick another";
   if (/Host key verification failed/i.test(all)) return "ssh on the office's machine hasn't accepted github.com's host key yet. Run `ssh -T git@github.com` there once, or clone over https with `gh config set git_protocol https`";
   if (/passphrase/i.test(all)) return "the office's ssh key needs its passphrase. Add it to the ssh agent (`ssh-add`), or clone over https with `gh config set git_protocol https`";
   if (/Permission denied \(publickey/i.test(all)) return "GitHub didn't take the office's ssh key. Add it with `gh ssh-key add`, or clone over https with `gh config set git_protocol https`";
@@ -69,6 +70,8 @@ export interface CloneEnd {
 export interface CloneRunOptions {
   /** Hears about new progress, at most once a tick. */
   changed?: () => void;
+  /** The branch to check the clone out on (see CloneRun.start); the repository's default branch when none. */
+  branch?: string;
   stallMs?: number;
   tickMs?: number;
 }
@@ -107,7 +110,10 @@ export class CloneRun {
     return new Promise((resolve) => {
       let child: ChildProcess;
       try {
-        child = spawn('gh', ['repo', 'clone', repo, dest, '--', '--progress'], {
+        // `--branch` after the `--` is git's own: the whole repository comes down either way, so the
+        // floor still has every branch to work from, and only the checkout starts where you picked.
+        const args = ['repo', 'clone', repo, dest, '--', ...(opts.branch ? [`--branch=${opts.branch}`] : []), '--progress'];
+        child = spawn('gh', args, {
           cwd: path.dirname(dest),
           detached: GROUPS,
           stdio: ['ignore', fd, fd],

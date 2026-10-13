@@ -7,23 +7,30 @@ import path from 'node:path';
 import { Building, type FloorDef } from '../src/server/building.js';
 import { parseProgress, whyCloneFailed } from '../src/server/clone.js';
 
-// A stand-in for gh: `repo view` and `repo clone` from bare repositories in $FAKE_GH_REPOS. It says
-// how far along it is the way git does, can wait first ($FAKE_GH_DELAY), hang ($FAKE_GH_HANG) or
-// fail the way ssh does ($FAKE_GH_FAIL).
+// A stand-in for gh: `repo view`, `repo clone` and `api` from bare repositories in $FAKE_GH_REPOS.
+// `repo clone` checks the branch out the way gh passes `--branch` to git. It says how far along it is
+// the way git does, can wait first ($FAKE_GH_DELAY), hang ($FAKE_GH_HANG) or fail the way ssh does
+// ($FAKE_GH_FAIL). `api` prints $FAKE_GH_BRANCHES, the branch names of the repository.
 const FAKE_GH = `#!/bin/sh
 case "$1 $2" in
   "repo view")
     [ -d "$FAKE_GH_REPOS/$3.git" ] || { echo "GraphQL: Could not resolve to a Repository with the name '$3'." >&2; exit 1; }
-    echo "{\\"nameWithOwner\\":\\"$3\\",\\"isEmpty\\":false}"
+    echo "{\\"nameWithOwner\\":\\"$3\\",\\"isEmpty\\":false,\\"defaultBranchRef\\":{\\"name\\":\\"main\\"}}"
+    ;;
+  "api "*)
+    printf '%s\\n' "$FAKE_GH_BRANCHES"
     ;;
   "repo clone")
     name="$3"; dest="$4"
+    branch=""
+    for a in "$@"; do case "$a" in --branch=*) branch="\${a#--branch=}";; esac; done
     printf "Cloning into '%s'...\\n" "$dest" >&2
     [ -n "$FAKE_GH_FAIL" ] && { echo "$FAKE_GH_FAIL" >&2; echo "fatal: Could not read from remote repository." >&2; exit 128; }
     [ -n "$FAKE_GH_HANG" ] && exec sleep 600
     printf "Receiving objects:  42%% (42/100), 1.00 MiB | 512.00 KiB/s\\r" >&2
     [ -n "$FAKE_GH_DELAY" ] && sleep "$FAKE_GH_DELAY"
-    git clone -q "$FAKE_GH_REPOS/$name.git" "$dest" || exit 1
+    if [ -n "$branch" ]; then git clone -q --branch "$branch" "$FAKE_GH_REPOS/$name.git" "$dest" || exit 1
+    else git clone -q "$FAKE_GH_REPOS/$name.git" "$dest" || exit 1; fi
     git -C "$dest" remote set-url origin "https://github.com/$name.git"
     ;;
 esac
@@ -53,14 +60,16 @@ function office(t: { after(fn: () => void): void }) {
   const repos = path.join(root, 'github');
   // acme/game on "GitHub", with a commit.
   const work = path.join(root, 'work');
-  execFileSync('git', ['init', '-q', work]);
+  execFileSync('git', ['init', '-q', '-b', 'main', work]);
   writeFileSync(path.join(work, 'index.html'), '<h1>game</h1>');
   execFileSync('git', ['-C', work, 'add', '.']);
   execFileSync('git', ['-C', work, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'first']);
   execFileSync('git', ['clone', '-q', '--bare', work, path.join(repos, 'acme', 'game.git')]);
+  // A second branch, for a floor added on one that isn't the default.
+  execFileSync('git', ['-C', path.join(repos, 'acme', 'game.git'), 'branch', 'feature']);
   process.env.PATH = `${bin}${path.delimiter}${process.env.PATH}`;
   process.env.FAKE_GH_REPOS = repos;
-  for (const k of ['FAKE_GH_DELAY', 'FAKE_GH_HANG', 'FAKE_GH_FAIL']) delete process.env[k];
+  for (const k of ['FAKE_GH_DELAY', 'FAKE_GH_HANG', 'FAKE_GH_FAIL', 'FAKE_GH_BRANCHES']) delete process.env[k];
   const projects = path.join(root, 'projects');
   /** The clones under way, as the office keeps them for the next one. */
   const saved = () => (existsSync(path.join(dataDir, 'cloning.json')) ? (JSON.parse(readFileSync(path.join(dataDir, 'cloning.json'), 'utf8')) as (FloorDef & { pid: number })[]) : []);
@@ -142,7 +151,7 @@ test('a clone can be stopped by an admin or whoever added it', async (t) => {
   process.env.FAKE_GH_HANG = '1';
   const building = new Building(dataDir, projects, { clone: { tickMs: 50 } });
   let id = '';
-  const r = building.add('acme/game', 'Sam', (def) => (id = def.id), 'sam-account');
+  const r = building.add('acme/game', 'Sam', (def) => (id = def.id), { account: 'sam-account' });
   const pid = await running();
   assert.match(String(building.cancel(id, 'Ann stopped the clone', (owner) => owner === 'ann-account')), /Only admins/);
   assert.equal(building.cancel(id, 'Sam stopped the clone', (owner) => owner === 'sam-account'), undefined);
@@ -195,4 +204,61 @@ test("a clone that was cut off isn't taken for a checkout", async (t) => {
   const building = new Building(dataDir, projects, fast);
   assert.match(String(await building.add('acme/game', 'Sam', () => {})), /didn't finish/);
   assert.deepEqual(building.list(), []);
+});
+
+test('a floor added on a branch is cloned with its checkout there', async (t) => {
+  const { dataDir, projects } = office(t);
+  process.env.FAKE_GH_DELAY = '0.3';
+  const building = new Building(dataDir, projects, fast);
+  const r = await building.add('acme/game', 'Sam', () => {}, { branch: 'feature' });
+  assert.equal(typeof r, 'object', String(r));
+  // The whole repository comes down either way: only the checkout starts where they picked.
+  const dir = path.join(projects, 'acme', 'game');
+  const head = (d: string) => execFileSync('git', ['-C', d, 'rev-parse', '--abbrev-ref', 'HEAD'], { encoding: 'utf8' }).trim();
+  assert.equal(head(dir), 'feature');
+  const branches = execFileSync('git', ['-C', dir, 'branch', '-a'], { encoding: 'utf8' });
+  assert.match(branches, /\borigin\/feature\b/, 'the branch picked is there');
+  assert.match(branches, /\borigin\/main\b/, 'and so is the rest of the repository');
+});
+
+test("a branch that isn't a branch name is refused before anything is cloned", async (t) => {
+  const { dataDir, projects } = office(t);
+  const building = new Building(dataDir, projects, fast);
+  // A branch name is git's own; one of these would become an option of git's, not a branch.
+  for (const branch of ['--upload-pack=touch /tmp/pwned', 'main..other', 'a b', '']) {
+    assert.equal(await building.add('acme/game', 'Sam', () => {}, { branch }), "That isn't a branch name", branch);
+  }
+  assert.deepEqual(building.list(), []);
+  assert.deepEqual(building.pending(), []);
+});
+
+test("a checkout already on disk is put on the branch picked, and says so when git won't", async (t) => {
+  const { root, dataDir, projects } = office(t);
+  const dest = path.join(projects, 'acme', 'game');
+  execFileSync('git', ['clone', '-q', path.join(root, 'github', 'acme', 'game.git'), dest]);
+  execFileSync('git', ['-C', dest, 'remote', 'set-url', 'origin', 'https://github.com/acme/game.git']);
+  const head = () => execFileSync('git', ['-C', dest, 'rev-parse', '--abbrev-ref', 'HEAD'], { encoding: 'utf8' }).trim();
+  assert.equal(head(), 'main');
+  const building = new Building(dataDir, projects, fast);
+  // A branch the repository doesn't have: git refuses, and the checkout is left where it was.
+  assert.match(String(await building.add('acme/game', 'Sam', () => {}, { branch: 'nope' })), /couldn't be put on nope/);
+  assert.equal(head(), 'main');
+  assert.deepEqual(building.list(), []);
+  // The one it does have: the checkout moves onto it, with nothing cloned again.
+  assert.equal(typeof (await building.add('acme/game', 'Sam', () => {}, { branch: 'feature' })), 'object');
+  assert.equal(head(), 'feature');
+});
+
+test("a repository's branches come back with its default one, ready for the picker", async (t) => {
+  const { dataDir, projects } = office(t);
+  const building = new Building(dataDir, projects, fast);
+  process.env.FAKE_GH_BRANCHES = 'feature\nmain\n--evil\nnot a branch\nfeature';
+  // gh's list, without what isn't a branch name and without the repeats; the default is named apart.
+  assert.deepEqual(await building.branches('acme/game'), { branches: ['feature', 'main'], default: 'main' });
+  // A list cut short of the default branch still offers it.
+  process.env.FAKE_GH_BRANCHES = 'feature';
+  assert.deepEqual(await building.branches('acme/game'), { branches: ['main', 'feature'], default: 'main' });
+  // Nothing from gh at all: the default is all the picker has.
+  process.env.FAKE_GH_BRANCHES = '';
+  assert.deepEqual(await building.branches('acme/game'), { branches: ['main'], default: 'main' });
 });
