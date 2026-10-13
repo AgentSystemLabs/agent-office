@@ -420,3 +420,7 @@ Every change to the app that lands on `main` is published as a GitHub release by
 ## License
 
 [MIT](LICENSE)
+
+### Windows launcher GUI
+
+For an office managed by Windows scheduled tasks, [the Windows launcher](docs/windows-launcher.md) provides Start, Stop, Restart, health status and live log tabs.
