@@ -1,7 +1,34 @@
 // The meeting room's patterns: how 2–5 workers at the table work on one question or task together.
 // The server runs them (server/meetings.ts); the client offers them when a meeting is called.
 
-import { fmtCost, fmtTokens, type Meeting, type MeetingPattern, type MeetingRecord } from './protocol.js';
+import { fmtCost, fmtTokens, type CouncilDecisionRecord, type Meeting, type MeetingPattern, type MeetingRecord } from './protocol.js';
+
+/** Parses the council's fixed evidence-first Markdown contract without inventing missing content. */
+export function parseCouncilDecision(markdown: string): CouncilDecisionRecord | undefined {
+  const sections = new Map<string, string>();
+  const heading = /^#{1,2}\s+(.+?)\s*$/gm;
+  const hits = [...markdown.matchAll(heading)];
+  for (let i = 0; i < hits.length; i++) {
+    const name = hits[i][1].trim().toLowerCase();
+    const start = (hits[i].index ?? 0) + hits[i][0].length;
+    const end = hits[i + 1]?.index ?? markdown.length;
+    sections.set(name, markdown.slice(start, end).trim());
+  }
+  const decision = sections.get('decision');
+  if (!decision) return undefined;
+  const text = (name: string) => sections.get(name)?.trim() ?? '';
+  const bullets = (name: string) => text(name).split(/\r?\n/).map((line) => line.replace(/^\s*[-*]\s+/, '').trim()).filter(Boolean);
+  return {
+    decision,
+    whyNow: text('why now'),
+    evidenceFor: bullets('evidence for'),
+    evidenceAgainst: bullets('evidence against'),
+    confidenceBand: text('confidence band'),
+    invalidation: bullets('invalidation'),
+    owner: text('owner'),
+    nextReview: text('next review'),
+  };
+}
 
 export interface PatternDef {
   icon: string;
@@ -76,6 +103,16 @@ export const MEETING_PATTERNS: Record<MeetingPattern, PatternDef> = {
     stages: ['Reviews', 'Combined review'],
     output: (_slug, pr) => `reviews/pr-${pr ?? 'n'}.md`,
     needs: 'pr',
+  },
+  council: {
+    icon: '🏛️',
+    label: 'LokiDewa council',
+    blurb: 'Mandate-scoped councillors advise from their own remit — whale flow, hunter alpha, risk, execution — and the head of the table writes the decision LokiDewa acts on.',
+    roles: ['Council chair', 'Whale watcher', 'Alpha hunter', 'Risk warden', 'Builder'],
+    seats: { min: 2, max: 5, default: 4 },
+    rounds: { min: 2, max: 4, default: 3 },
+    roundsNote: 'Briefings from each mandate, a round of challenge per extra round, then the decision.',
+    output: (slug) => `docs/decisions/${slug}.md`,
   },
 };
 
@@ -162,5 +199,21 @@ export function meetingSummary(m: Meeting): string {
 }
 
 export function meetingRecord(m: Meeting): MeetingRecord {
-  return { id: m.id, pattern: m.pattern, title: m.title, status: m.status, summary: meetingSummary(m), calledBy: m.calledBy, finishedAt: m.finishedAt ?? Date.now(), branch: m.worktree?.branch, output: m.output };
+  return {
+    id: m.id,
+    pattern: m.pattern,
+    title: m.title,
+    prompt: m.prompt,
+    status: m.status,
+    summary: meetingSummary(m),
+    calledBy: m.calledBy,
+    startedAt: m.startedAt,
+    finishedAt: m.finishedAt ?? Date.now(),
+    rounds: m.rounds,
+    seats: m.seats.map(({ role, workerName, tokens, cost }) => ({ role, workerName, tokens, cost })),
+    branch: m.worktree?.branch,
+    output: m.output,
+    preview: m.preview,
+    decision: m.pattern === 'council' && m.preview ? parseCouncilDecision(m.preview) : undefined,
+  };
 }

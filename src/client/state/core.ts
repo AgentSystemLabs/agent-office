@@ -94,7 +94,8 @@ export const floor: Slice = {
     s.issues = v.issues;
     s.pulls = v.pulls;
     s.queue = v.queue;
-    return ['floor', 'project', 'workers', 'issues', 'pulls', 'queue'];
+    s.alerts = v.alerts;
+    return ['floor', 'project', 'workers', 'issues', 'pulls', 'queue', 'alerts'];
   },
   on: {
     'worker.update'(s, m) {
@@ -128,6 +129,14 @@ export const floor: Slice = {
     queue(s, m) {
       s.queue = m.state;
       return ['queue'];
+    },
+    alerts(s, m) {
+      s.alerts = m.state;
+      return ['alerts'];
+    },
+    'alert.added'(s, m) {
+      s.alerts = { cards: [m.card, ...s.alerts.cards.filter((c) => c.id !== m.card.id)] };
+      return ['alerts'];
     },
   },
 };

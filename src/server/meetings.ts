@@ -5,6 +5,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { MEETING_SEATS } from '../shared/layout.js';
 import { MEETING_NOTES_DIR, MEETING_PATTERNS, isMeetingPattern, meetingRecord, outputProblem, slugify } from '../shared/meetings.js';
+import { councilParts } from './council-parts.js';
 import { isAgentEffort, isAgentProvider, tokensOf, type AgentChoice, type AgentEffort, type AgentProvider, type Meeting, type MeetingRecord, type MeetingRequest, type MeetingState, type MeetingTurn, type WorkerInfo, type WorkerStatus } from '../shared/protocol.js';
 import { validateWorkerEffort, validateWorkerModel } from './agents.js';
 import { providerMeta, takesEffort, takesModel } from '../shared/providers.js';
@@ -518,6 +519,7 @@ export class MeetingRoom {
       mapreduce: `Round 1: each mapper does the task over its own parts. Round 2: the ${head} combines what they found into one result.`,
       redblue: `Each round the Red team attacks the change (bugs, security holes, edge cases) and the Blue team fixes what holds up. The ${head} writes it all up in the last round, which comes early if Red finds nothing more.`,
       review: `Round 1: each reviewer reviews the pull request through their own lens. Round 2: the ${head} merges the reviews into one, which the office posts on the pull request.`,
+      council: `Round 1: each councillor briefs the council from their own mandate. Each round after that until the last: every councillor challenges the others' briefings and revises their own; the ${head} weighs them last. Last round: the ${head} writes the decision LokiDewa acts on.`,
     };
     const where = !m.worktree
       ? `You're in the project's folder, which other people use too: don't commit, push or switch branches.`
@@ -629,6 +631,8 @@ export class MeetingRoom {
         }
         return [{ seat: 0, doing: 'writing the review', file: m.output, ask: this.say('meeting.review.combine', { findings: notes(1, all), exampleRole: m.seats[1]?.role ?? 'Security', output: A(m.output) }) }];
       }
+      case 'council':
+        return councilParts(m, round, step, this.cwd(m), m.notes, (id, vars) => this.say(id, vars));
     }
   }
 

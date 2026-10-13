@@ -4,7 +4,7 @@
 //
 // Browser-safe: no node imports, the hire dialog reads this too.
 
-export const AGENT_PROVIDERS = ['claude', 'opencode', 'codex', 'grok', 'muse', 'dsh', 'pi', 'cursor', 'custom'] as const;
+export const AGENT_PROVIDERS = ['claude', 'opencode', 'codex', 'grok', 'muse', 'dsh', 'pi', 'cursor', 'custom', 'hermes'] as const;
 
 export type AgentProvider = (typeof AGENT_PROVIDERS)[number];
 
@@ -88,6 +88,19 @@ export function isValidMuseModel(value: unknown): value is string {
   if (typeof value !== 'string' || value.length === 0 || value.length > MUSE_MODEL_MAX) return false;
   if (/[\s\p{Cc}\p{Cf}]/u.test(value)) return false;
   return /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(value);
+}
+
+/**
+ * A Hermes model: a model alias, or a provider/model id (`AtriaAI-Atria/Atria-Dawn-Preview`,
+ * `anthropic/claude-sonnet-4`). Only the characters a model name uses get through, and never a
+ * leading '-': it goes to `hermes chat -m` as one argv value.
+ */
+export const HERMES_MODEL_MAX = 128;
+
+export function isValidHermesModel(value: unknown): value is string {
+  if (typeof value !== 'string' || value.length === 0 || value.length > HERMES_MODEL_MAX) return false;
+  if (/[\s\p{Cc}\p{Cf}]/u.test(value)) return false;
+  return /^[A-Za-z0-9][A-Za-z0-9._:/@+-]*$/.test(value);
 }
 
 /**
@@ -325,6 +338,24 @@ export const PROVIDER_META: Record<AgentProvider, ProviderMeta> = {
     name: 'Custom',
     unpicked: 'A custom --agent runs as it is: set its model and effort in --agent-args.',
     usage: { note: 'Usage is untracked unless compatible Claude Code hooks report it.' },
+  },
+  hermes: {
+    label: 'Hermes',
+    name: 'Hermes Agent',
+    bin: 'hermes',
+    unpicked: 'A Hermes Agent session (hermes chat). Its session ID is kept by the office, so a model swap re-launches against the same session — the briefcase persists, the brain changes.',
+    validModel: isValidHermesModel,
+    invalidModel: 'Invalid Hermes model (expected a model alias or provider/model without whitespace)',
+    models: {
+      pick: 'typed',
+      unset: 'Default (Hermes settings)',
+      max: HERMES_MODEL_MAX,
+      hint: 'Optional model alias (e.g. AtriaAI-Atria/Atria-Dawn-Preview) or provider/model; leave Default to use your Hermes config.',
+      invalid: 'Use a Hermes model: a model alias or provider/model — letters, digits and . _ : / @ + - (up to 128 characters).',
+    },
+    takesEffort: true,
+    effortLabel: 'Reasoning',
+    usage: { note: 'Usage is read from the session transcript, as Claude Code’s is.' },
   },
 };
 

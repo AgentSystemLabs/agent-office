@@ -11,11 +11,13 @@ import type { Parts } from '../../core/parts';
 import { waitingInOrder, waitingLabel } from '../../nextup';
 import { saveSettings, store } from '../../state';
 import { openAccounts } from '../../ui/accounts';
+import { openAlerts } from '../../ui/alerts';
 import { openBoard } from '../../ui/boards';
 import { openCharacter } from '../../ui/character';
 import { $ } from '../../ui/dom';
 import { toggleFloorMenu } from '../../ui/floormenu';
 import { openHelp } from '../../ui/hud';
+import { openLobby } from '../../ui/lobby';
 import { mountHud } from '../../ui/menu';
 import { openServices } from '../../ui/services';
 import { openSettings, type SettingsPane } from '../../ui/settings';
@@ -49,20 +51,22 @@ export function installHud(ctx: Ctx, core: CoreState, parts: HudParts) {
   const noMedia = () => (window.isSecureContext ? undefined : 'Voice and screen sharing need HTTPS or localhost — use a TLS proxy, --self-signed, or an SSH tunnel');
   const hud = mountHud(
     [
+      { id: 'lobby', icon: '🏠', label: 'Dewa Alpha lobby', section: 'Open', title: () => 'Today’s brief and the fastest way into every workspace', run: () => openLobby({ council: parts.meeting.showMeeting, canvas: () => openWhiteboard(net), alerts: openAlerts }) },
       { id: 'issues', icon: '📌', label: 'Issues', section: 'Open', count: () => store.issues.items.filter((i) => i.state === 'OPEN').length, run: () => openBoard('issues', net, actions.boardActions()) },
       { id: 'pulls', icon: '🔀', label: 'Pull requests', section: 'Open', count: () => store.pulls.items.filter((p) => p.state === 'OPEN').length, run: () => openBoard('pulls', net, actions.boardActions()) },
       { id: 'queue', icon: '📋', label: 'Task queue', section: 'Open', count: () => store.queue.tasks.filter((t) => t.status !== 'done').length, title: () => 'Issues and tasks waiting for a worker', run: waiting.showQueue },
+      { id: 'alerts', icon: '📡', label: 'Dewa Alpha alerts', section: 'Open', count: () => store.alerts.cards.length, title: () => 'WHY NOW cards with evidence, freshness, coverage, and invalidation', run: openAlerts },
       { id: 'services', icon: '🌐', label: 'Services', section: 'Open', count: () => store.services.items.length, title: () => 'Web servers the workers are running', run: () => openServices() },
-      { id: 'whiteboard', icon: '📝', label: 'Whiteboard', section: 'Open', title: () => 'Draw together, live', run: () => openWhiteboard(net) },
-      // Up on the top bar while a meeting is on: what's being worked through in the meeting room.
+      { id: 'whiteboard', icon: '🧠', label: 'Research canvas', section: 'Open', title: () => 'Map narratives, wallet evidence, hypotheses, and next actions together', run: () => openWhiteboard(net) },
+      // Up on the top bar while a council session is on: the decision being worked through in the war room.
       {
         id: 'meeting',
-        icon: '🤝',
-        label: 'Meeting room',
+        icon: '🏛️',
+        label: 'Council war room',
         section: 'Open',
         status: () => store.meeting.current?.status === 'running',
-        chip: () => 'In a meeting',
-        title: () => 'Call a meeting: workers work through a question or a task together',
+        chip: () => 'Council active',
+        title: () => 'Call LokiDewa Council to research, challenge evidence, decide, and assign next actions',
         run: () => parts.meeting.showMeeting(),
       },
       { id: 'search', icon: '🔎', label: 'Search', section: 'Open', key: '/', title: () => 'Search the chat and every terminal', run: waiting.showSearch },

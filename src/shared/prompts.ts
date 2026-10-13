@@ -357,6 +357,38 @@ const DEFS = {
     needs: ['output'],
     text: `Read every reviewer's findings ({{findings}}). Drop the duplicates, keeping the clearest wording, and write one combined review to {{output}} in Markdown: a short summary with your verdict first, then the findings, the most serious first, each tagged with the lens it came from in bold brackets like **[{{exampleRole}}]**, with its file:line. Don't post it: the office posts it on the pull request once the file is written. ${OUTPUT}`,
   },
+  'meeting.council.brief': {
+    group: 'meetings',
+    label: 'LokiDewa council · brief',
+    used: 'Round 1 of a LokiDewa council, for each councillor.',
+    vars: { role: 'Their mandate: Whale watcher, Alpha hunter, Risk warden, Builder', question: 'The question LokiDewa put to the council', file: FILE_NOTE },
+    needs: ['file'],
+    text: `The council is meeting on: {{question}}\n\nYou are the {{role}}. Answer only from your own mandate — the remit your role names — and say nothing about what lies outside it. Where a question falls outside your mandate, say so plainly and pass: a council that stays in its lanes decides faster.\n\nWrite your briefing to {{file}}: what your mandate sees in this, with the evidence behind it, and one thing you'd advise the chair to do. Be concrete; name names, numbers and files where you have them. Then end your turn.`,
+  },
+  'meeting.council.challenge': {
+    group: 'meetings',
+    label: 'LokiDewa council · challenge',
+    used: 'A middle round of a LokiDewa council, for each councillor.',
+    vars: { role: 'Their mandate', otherBriefings: "The other councillors' latest notes", file: FILE_NOTE },
+    needs: ['file'],
+    text: `Read the other councillors' briefings ({{otherBriefings}}). As the {{role}}, challenge what doesn't hold up in your mandate's own terms: a claim with nothing behind it, a risk nobody has priced, a step that costs more than it pays. Say where you were wrong in your own last briefing too — a councillor that revises earns the chair's ear.\n\nWrite your challenge to {{file}}, and revise your own advice from the last round in it. Then end your turn.`,
+  },
+  'meeting.council.weigh': {
+    group: 'meetings',
+    label: 'LokiDewa council · weigh',
+    used: 'A middle round of a LokiDewa council, for the chair.',
+    vars: { role: "The chair's role", briefings: "The councillors' latest notes", challenges: 'The same, to weigh against each other', file: FILE_NOTE },
+    needs: ['file'],
+    text: `Weigh the councillors' briefings ({{briefings}}) against each other and against the challenges they raised ({{challenges}}). As the {{role}}, name where they agree, where they're at odds and which disagreement matters most to the question.\n\nWrite your weighing to {{file}}: the one decision that survives the challenges, what it would take to change your mind, and what the council should settle in its last round. Then end your turn.`,
+  },
+  'meeting.council.decide': {
+    group: 'meetings',
+    label: 'LokiDewa council · decide',
+    used: 'The last round of a LokiDewa council, for the chair. This file is what LokiDewa acts on.',
+    vars: { title: 'The meeting’s title', briefings: "Every councillor's notes", notes: 'The whole meeting’s notes', output: OUTPUT_NOTE },
+    needs: ['output'],
+    text: `The council has met on: {{title}}\n\nRead every councillor's notes ({{briefings}}) and the rounds between them ({{notes}}). Write the evidence-first decision to {{output}} using exactly these Markdown headings:\n\n# Decision\n## Why Now\n## Evidence For\n## Evidence Against\n## Confidence Band\n## Invalidation\n## Owner\n## Next Review\n\nUse bullets under both evidence sections and Invalidation. Confidence Band is a plain Low/Medium/High evidence band, never a probability. State what LokiDewa does, who owns it, what proves it wrong, and when it must be reviewed. This file is what LokiDewa acts on — write it as the decision, not a recommendation. ${OUTPUT}`,
+  },
 
   // --- 🏷️ Worker signs ---
   'office.namer': {

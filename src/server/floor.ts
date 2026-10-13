@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, existsSync } from 'node:fs';
+import { homedir } from 'node:os';
 import path from 'node:path';
 import type { ChangesState, FloorInfo, PeerInfo, ProjectInfo, ServerMsg, WorkerInfo } from '../shared/protocol.js';
 import { isBusy } from '../shared/status.js';
@@ -21,6 +22,8 @@ import { Jail } from './jail.js';
 import { Garage } from './garage.js';
 import { Jukebox } from './jukebox.js';
 import { Whiteboard } from './whiteboard.js';
+import { AlertBoard } from './alerts.js';
+import { loadResearchAlerts } from './research-feed.js';
 import { MeetingRoom } from './meetings.js';
 import { Worktrees, type WorktreeCleanup } from './worktrees.js';
 import { landedWork, landedWorkers, type Landed } from './leave-on-merge.js';
@@ -115,6 +118,8 @@ export class Floor {
   readonly workers: WorkerManager;
   readonly github: GitHub;
   readonly queue: TaskQueue;
+  /** LokiDewa two-layer alert cards on this floor. */
+  readonly alerts = new AlertBoard();
   readonly changes: Changes;
   readonly decor: Decor;
   /** The signs over its desks, and how far its back office is built out. */
@@ -309,6 +314,15 @@ export class Floor {
     this.jukebox = new Jukebox(dataDir);
     this.whiteboard = new Whiteboard(dataDir);
     this.ready = this.workers.start();
+
+    // LokiDewa: load whale research cards from the report output file.
+    // Defaults to staging path; override with DEWA_RESEARCH_REPORT env var.
+    const reportPath = process.env.DEWA_RESEARCH_REPORT
+      || path.join(homedir(), 'DewaResearch/qwen-report-stage/research_report.txt');
+    if (existsSync(reportPath)) {
+      const n = loadResearchAlerts(this.alerts, reportPath);
+      if (n > 0) console.log(`[floor] loaded ${n} research cards from ${reportPath}`);
+    }
 
     void this.github.refresh();
     // A floor with people on it, or work under way, keeps its boards fresh; the others check in now and then.

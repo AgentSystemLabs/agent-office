@@ -1,9 +1,10 @@
 import './meeting.css';
 import { MEETING_PATTERNS, MEETING_PATTERN_IDS, fixedRounds, meetingSpend, meetingStage, outputProblem, slugify } from '../../shared/meetings';
-import { fmtTokens, type Meeting, type MeetingPattern, type MeetingTurn } from '../../shared/protocol';
+import { meetingPresence } from '../../shared/presence';
+import { fmtTokens, type Meeting, type MeetingPattern, type MeetingRecord, type MeetingTurn } from '../../shared/protocol';
 import type { Net } from '../net';
 import { store } from '../state';
-import { h, openModal, timeAgo, toast, STATUS_LABEL, type Modal } from './dom';
+import { h, openModal, setDoing, timeAgo, toast, STATUS_LABEL, type Modal } from './dom';
 import { confirmDialog } from './prompt';
 import { providerPicker } from './provider';
 import { officePrompt } from './prompts';
@@ -32,6 +33,7 @@ export function issueMeeting(n: number, title: string): MeetingPreset {
 
 const PART_LABEL: Record<MeetingTurn['state'], string> = { waiting: '⏳ up next', sent: '📨 handed over', working: '💬 on it', done: '✅ written' };
 
+
 /**
  * The meeting room's window. With a meeting at the table it shows how it's going (and stops it, or
  * clears the table once it's over); otherwise, or with a preset from an issue or a PR, it's the form
@@ -43,14 +45,31 @@ export function openMeeting(net: Net, actions: MeetingActions, preset?: MeetingP
   const body = h('div.body.meeting');
   const foot = h('footer');
   const el = h('div.modal.meeting-window', { role: 'dialog', 'aria-label': 'Meeting room' }, h('header', {}, title, close), body, foot);
-  let view: 'status' | 'form' = preset || !store.meeting.current ? 'form' : 'status';
+  let view: 'status' | 'form' | 'replay' = preset || !store.meeting.current ? 'form' : 'status';
+  let selectedRecord: MeetingRecord | null = null;
   let form: ReturnType<typeof meetingForm> | null = null;
   const render = () => {
+    if (view === 'replay' && selectedRecord) {
+      form = null;
+      title.textContent = '⏪ Council replay';
+      setDoing(modal, meetingPresence(null, selectedRecord.title));
+      renderReplay(selectedRecord, body, foot, () => {
+        view = store.meeting.current ? 'status' : 'form';
+        selectedRecord = null;
+        render();
+      });
+      return;
+    }
     if (view === 'status' && store.meeting.current) {
       form = null;
       title.textContent = '🤝 Meeting room';
+      setDoing(modal, meetingPresence(store.meeting.current));
       renderStatus(store.meeting.current, body, foot, net, actions, () => {
         view = 'form';
+        render();
+      }, (record) => {
+        selectedRecord = record;
+        view = 'replay';
         render();
       });
       return;
@@ -61,6 +80,7 @@ export function openMeeting(net: Net, actions: MeetingActions, preset?: MeetingP
         render();
       });
       title.textContent = '🤝 Call a meeting';
+      setDoing(modal, meetingPresence(null));
       body.replaceChildren(form.body);
       foot.replaceChildren(...form.foot);
     }
@@ -72,7 +92,7 @@ export function openMeeting(net: Net, actions: MeetingActions, preset?: MeetingP
   render();
 }
 
-function renderStatus(m: Meeting, body: HTMLElement, foot: HTMLElement, net: Net, actions: MeetingActions, callAnother: () => void) {
+function renderStatus(m: Meeting, body: HTMLElement, foot: HTMLElement, net: Net, actions: MeetingActions, callAnother: () => void, replay: (record: MeetingRecord) => void) {
   const p = MEETING_PATTERNS[m.pattern];
   const running = m.status === 'running';
   const pill = h('span.pill', { class: running ? 'working' : m.status === 'done' ? 'done' : 'needs_input' }, running ? 'in a meeting' : m.status);
@@ -106,7 +126,7 @@ function renderStatus(m: Meeting, body: HTMLElement, foot: HTMLElement, net: Net
     seats,
     h('div.meeting-out', {}, h('div.meeting-out-head', {}, h('b', {}, '📄 '), h('code', {}, m.output), where, review), h('pre.meeting-preview', {}, m.preview?.trim() ? m.preview : running ? 'Nothing written yet.' : 'Nothing was written.')),
     store.meeting.past.length
-      ? h('details.meeting-past', {}, h('summary', {}, `Earlier meetings (${store.meeting.past.length})`), h('ul', {}, ...store.meeting.past.map((r) => h('li', { title: `Called by ${r.calledBy}` }, h('b', {}, r.title), h('div.muted', {}, r.summary)))))
+      ? h('details.meeting-past', {}, h('summary', {}, `Earlier meetings (${store.meeting.past.length})`), h('ul', {}, ...store.meeting.past.map((r) => h('li', {}, h('button.btn.meeting-replay', { type: 'button', title: `Replay meeting called by ${r.calledBy}`, onclick: () => replay(r) }, h('b', {}, `⏪ ${r.title}`), h('span.muted', {}, r.summary))))))
       : null,
     ),
   );
@@ -120,6 +140,27 @@ function renderStatus(m: Meeting, body: HTMLElement, foot: HTMLElement, net: Net
     !running ? h('button.btn.primary', { type: 'button', onclick: callAnother }, '🤝 Call a meeting…') : null,
     ),
   );
+}
+
+function renderReplay(record: MeetingRecord, body: HTMLElement, foot: HTMLElement, back: () => void) {
+  const pattern = MEETING_PATTERNS[record.pattern];
+  const decision = record.decision;
+  const list = (title: string, items: string[]) => h('section', {}, h('b', {}, title), items.length ? h('ul', {}, ...items.map((item) => h('li', {}, item))) : h('p.muted', {}, 'None recorded'));
+  body.replaceChildren(
+    h('div.meeting-head', {}, h('span.pill.done', {}, record.status), h('b', {}, `${pattern.icon} ${pattern.label}`), h('span.meeting-title', {}, record.title)),
+    h('p.meeting-line', {}, `Called by ${record.calledBy} · ${record.rounds} rounds · finished ${timeAgo(new Date(record.finishedAt).toISOString())}`),
+    h('section.meeting-out', {}, h('b', {}, 'Mandate'), h('p', {}, record.prompt)),
+    h('ul.meeting-seats', {}, ...record.seats.map((seat) => h('li', {}, h('b', {}, seat.role), h('span.muted', {}, seat.workerName ?? 'worker')))),
+    decision ? h('div.council-record', {},
+      h('section.alert-why', {}, h('b', {}, 'DECISION'), h('p', {}, decision.decision)),
+      h('section.alert-why', {}, h('b', {}, 'WHY NOW'), h('p', {}, decision.whyNow)),
+      list('Evidence for', decision.evidenceFor),
+      list('Evidence against', decision.evidenceAgainst),
+      list('Invalidation', decision.invalidation),
+      h('div.alert-grid', {}, h('div', {}, h('b', {}, 'Confidence band'), h('p', {}, decision.confidenceBand)), h('div', {}, h('b', {}, 'Owner'), h('p', {}, decision.owner)), h('div', {}, h('b', {}, 'Next review'), h('p', {}, decision.nextReview))),
+    ) : h('div.meeting-out', {}, h('b', {}, `📄 ${record.output}`), h('pre.meeting-preview', {}, record.preview?.trim() || 'No archived output.')),
+  );
+  foot.replaceChildren(h('span.grow', {}, 'Read-only replay. No agents are rerun.'), h('button.btn.primary', { type: 'button', onclick: back }, '← Back to war room'));
 }
 
 const present = (...xs: (Node | null)[]): Node[] => xs.filter((x): x is Node => x !== null);

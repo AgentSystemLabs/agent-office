@@ -5,6 +5,7 @@
 // unions every frame is one of.
 
 import type { AccountsClientMsg, AccountsServerMsg, SignInsClientMsg, TeamClientMsg } from './protocol/accounts.js';
+import type { AlertServerMsg } from './protocol/alerts.js';
 import type { ChangesClientMsg, ChangesServerMsg } from './protocol/changes.js';
 import type { FloorClientMsg, FloorServerMsg, PlanClientMsg } from './protocol/floors.js';
 import type { GitHubClientMsg, GitHubServerMsg } from './protocol/github.js';
@@ -18,6 +19,7 @@ import type { UsageClientMsg, UsageServerMsg } from './protocol/usage.js';
 import type { WorkerClientMsg, WorkerServerMsg } from './protocol/workers.js';
 
 export * from './protocol/accounts.js';
+export * from './protocol/alerts.js';
 export * from './protocol/agents.js';
 export * from './protocol/changes.js';
 export * from './protocol/floors.js';
@@ -66,4 +68,5 @@ export type ServerMsg =
   | AccountsServerMsg
   | SettingsServerMsg
   | UsageServerMsg
+  | AlertServerMsg
   | ToysServerMsg;

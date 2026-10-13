@@ -22,6 +22,7 @@ import { openPull, routePullMessage } from './ui/pull';
 import { openQueue } from './ui/queue';
 import { openAsk } from './ui/ask';
 import { openMeeting, type MeetingPreset } from './ui/meeting';
+import { openAlerts } from './ui/alerts';
 import { openSignIns } from './ui/signins';
 import { modelBadge, providerLabel } from './ui/provider';
 import { byUrgency, waitingInOrder, waitingLabel } from './nextup';
@@ -317,20 +318,26 @@ function showMeeting(preset?: MeetingPreset) {
   );
 }
 
-$('btn-issues').addEventListener('click', () => openBoard('issues', net, boardActions()));
-$('btn-pulls').addEventListener('click', () => openBoard('pulls', net, boardActions()));
+$('btn-alerts').addEventListener('click', openAlerts);
+$('btn-council').addEventListener('click', () => showMeeting({ pattern: 'council' }));
 $('btn-queue').addEventListener('click', () => openQueue(net, { openTerminal: openWorker }));
 $('btn-new').addEventListener('click', () => sendToWorker('✨ New task'));
 
 function renderNav() {
   const count = (id: string, n: number) => ($(id).querySelector('.n')!.textContent = n ? String(n) : '');
-  count('btn-issues', store.issues.items.filter((i) => i.state === 'OPEN').length);
-  count('btn-pulls', store.pulls.items.filter((p) => p.state === 'OPEN').length);
+  count('btn-alerts', store.alerts.cards.length);
   count('btn-queue', store.queue.tasks.filter((t) => t.status !== 'done').length);
+  $('brief-agents').textContent = String([...store.workers.values()].filter((w) => w.status !== 'done' && w.status !== 'exited').length);
+  $('brief-alerts').textContent = String(store.alerts.cards.length);
+  $('brief-tasks').textContent = String(store.queue.tasks.filter((t) => t.status !== 'done').length);
+  $('brief-council').textContent = store.meeting.current?.status === 'running' ? 'Live' : 'Ready';
 }
 store.on('issues', renderNav);
 store.on('pulls', renderNav);
 store.on('queue', renderNav);
+store.on('alerts', renderNav);
+store.on('workers', renderNav);
+store.on('meeting', renderNav);
 
 // ---- What you have open, for the others (see PeerInfo.doing) -----------------------------------
 let doingSent: string | undefined;

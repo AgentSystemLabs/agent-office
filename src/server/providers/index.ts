@@ -7,6 +7,7 @@ import { cursor } from './cursor.js';
 import { custom } from './custom.js';
 import { dsh } from './dsh.js';
 import { grok } from './grok.js';
+import { hermes } from './hermes.js';
 import { muse } from './muse.js';
 import { opencode } from './opencode.js';
 import { pi } from './pi.js';
@@ -24,6 +25,7 @@ export const PROVIDERS: Record<AgentProvider, SomeAdapter> = {
   pi,
   cursor,
   custom,
+  hermes,
 };
 
 /** The hook route /hooks/`route` serves, when it's one (see ProviderAdapter.hook). */

@@ -109,13 +109,18 @@ export function buildMeetingRoom(group: THREE.Group, colliders: Collider[], inte
       for (const [leaf, x0] of leaves) leaf.position.x = x0 + Math.sign(x0 - dx) * e * (half - 0.06);
     },
   });
-  const label = textPlane('🤝 Meeting room', { bg: '#2b2d42', color: '#fffaf3', size: 56, border: '#fffaf3' });
-  label.scale.multiplyScalar(0.62);
+  const label = textPlane('🏛️ Dewa Information Alpha', { bg: '#111827', color: '#fffaf3', size: 54, border: '#ffd166' });
+  label.scale.multiplyScalar(0.58);
   // In front of the glass wall's frame (out to R.minZ - 0.08) and the sliding leaves (to R.minZ - 0.11),
   // which it runs across once its text is wider than the door.
   label.position.set(dx, 2.52, R.minZ - 0.13);
   label.rotation.y = Math.PI;
   group.add(label);
+  const sublabel = textPlane('Alpha war room · council · research · execution', { bg: '#fffaf3', color: '#2b2d42', size: 34, border: '#2b2d42' });
+  sublabel.scale.multiplyScalar(0.42);
+  sublabel.position.set(dx, 2.18, R.minZ - 0.135);
+  sublabel.rotation.y = Math.PI;
+  group.add(sublabel);
 
   // The table, on two pedestals, and its chairs.
   const table = new THREE.Group();
@@ -150,6 +155,25 @@ export function buildMeetingRoom(group: THREE.Group, colliders: Collider[], inte
   const read: Interactable = { kind: 'meeting', x: b.x, z: b.z - 1.4, radius: 2.4 };
   interactables.push(read);
   frame.userData.interact = read;
+  const boardTitle = textPlane('WHY NOW / EVIDENCE / INVALIDATION', { bg: '#111827', color: '#ffd166', size: 34, border: '#ffd166' });
+  boardTitle.scale.multiplyScalar(0.5);
+  boardTitle.position.set(b.x, b.y + b.height / 2 + 0.22, b.z - 0.02);
+  boardTitle.rotation.y = Math.PI;
+  group.add(boardTitle);
+
+  const tags = [
+    ['Wallet Flow', '#118ab2'],
+    ['Alpha Queue', '#ef476f'],
+    ['Risk Desk', '#ffd166'],
+    ['Next Actions', '#06d6a0'],
+  ] as const;
+  tags.forEach(([name, color], i) => {
+    const tag = textPlane(name, { bg: color, color: '#111827', size: 30, border: '#111827' });
+    tag.scale.multiplyScalar(0.36);
+    tag.position.set(R.minX + 0.05, 1.15 + i * 0.32, R.minZ + 1.1);
+    tag.rotation.y = Math.PI / 2;
+    group.add(tag);
+  });
 
   // The panel on the glass beside the door, like a room-booking screen: what's on, the round, the
   // tokens, and the summary once it's over. Beside the door rather than past it, so the board shows.

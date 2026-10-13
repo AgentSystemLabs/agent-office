@@ -2,6 +2,7 @@
 // floor. A new feature adds its handler file and a line here.
 import type { ClientMsg } from '../../../shared/protocol.js';
 import { accountsHandlers } from './accounts.js';
+import { alertsView } from './alerts.js';
 import { ballHandlers, ballHooks, ballView } from './ball.js';
 import { cabinetHandlers, cabinetHooks, cabinetView } from './cabinet.js';
 import { carHandlers, carHooks, carsView } from './car.js';
@@ -62,6 +63,7 @@ export const views: ViewPieces = {
   issues: issuesView,
   pulls: pullsView,
   queue: queueView,
+  alerts: alertsView,
   decor: decorView,
   plan: planView,
   services: servicesView,

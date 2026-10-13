@@ -20,14 +20,20 @@
     <main class="lite-main">
       <p id="floor-meta" class="lite-meta"></p>
       <div id="elsewhere" class="lite-elsewhere hidden"></div>
+      <section class="lite-brief" aria-label="Dewa Alpha brief">
+        <div><b id="brief-agents">0</b><small>agents active</small></div>
+        <div><b id="brief-alerts">0</b><small>alpha signals</small></div>
+        <div><b id="brief-tasks">0</b><small>open tasks</small></div>
+        <div><b id="brief-council">Ready</b><small>council</small></div>
+      </section>
       <h2 class="lite-h">Workers <span id="waiting-now" class="lite-waiting"></span></h2>
       <ul id="workers" class="lite-workers"></ul>
     </main>
     <nav class="lite-nav" aria-label="Office">
-      <button id="btn-issues" class="btn" type="button">📌 Issues <span class="n"></span></button>
-      <button id="btn-pulls" class="btn" type="button">🔀 PRs <span class="n"></span></button>
-      <button id="btn-queue" class="btn" type="button">📋 Queue <span class="n"></span></button>
-      <button id="btn-new" class="btn primary" type="button">✨ New task</button>
+      <button id="btn-alerts" class="btn" type="button">📡 Alerts <span class="n"></span></button>
+      <button id="btn-council" class="btn" type="button">🏛️ Council</button>
+      <button id="btn-queue" class="btn" type="button">📋 Tasks <span class="n"></span></button>
+      <button id="btn-new" class="btn primary" type="button">✨ New</button>
     </nav>
     <div id="toasts"></div>
     <div id="conn" class="conn hidden">Reconnecting…</div>

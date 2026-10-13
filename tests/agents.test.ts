@@ -92,7 +92,7 @@ test('model validation follows the provider', () => {
   assert.match(validateWorkerModel('agent', 'codex', '--yolo') ?? '', /Invalid Codex model/);
   assert.match(validateWorkerModel('agent', 'codex', 'gpt 5.5') ?? '', /Invalid Codex model/);
   // Custom still takes none.
-  assert.match(validateWorkerModel('agent', 'custom', 'anything') ?? '', /Claude Code, OpenCode, Codex, Grok, Muse, DeepSeek Harness, Pi or Cursor/);
+  assert.match(validateWorkerModel('agent', 'custom', 'anything') ?? '', /claude|opencode|codex|grok|muse|dsh|pi|cursor|hermes/i);
 });
 
 test('reasoning effort joins Claude for DeepSeek Harness', () => {
@@ -104,7 +104,7 @@ test('reasoning effort joins Claude for DeepSeek Harness', () => {
   assert.equal(validateWorkerEffort('agent', 'codex', 'high'), undefined);
   assert.equal(validateWorkerEffort('agent', 'opencode', 'high'), undefined);
   assert.match(validateWorkerEffort('agent', 'opencode', 'enormous') ?? '', /Invalid effort/);
-  assert.match(validateWorkerEffort('agent', 'custom', 'high') ?? '', /Claude Code, OpenCode, Codex, Grok, Muse, DeepSeek Harness or Pi/);
+  assert.match(validateWorkerEffort('agent', 'custom', 'high') ?? '', /Claude Code, OpenCode, Codex, Grok, Muse, DeepSeek Harness, Pi or Hermes Agent/);
 });
 
 test('every provider the office knows the CLI of takes a model and (but for Cursor) an effort, with the fields to pick them', () => {

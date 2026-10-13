@@ -3,7 +3,7 @@
 import type { AgentEffort, AgentProvider } from './agents.js';
 
 /** How the workers at the meeting table work together (see shared/meetings.ts). */
-export type MeetingPattern = 'debate' | 'lead' | 'mapreduce' | 'redblue' | 'review';
+export type MeetingPattern = 'debate' | 'lead' | 'mapreduce' | 'redblue' | 'review' | 'council';
 
 /** A worker's place at a meeting. */
 export interface MeetingSeat {
@@ -34,6 +34,18 @@ export interface MeetingTurn {
 }
 
 export type MeetingStatus = 'running' | 'done' | 'stopped';
+
+/** Evidence-first decision written by LokiDewa Council. */
+export interface CouncilDecisionRecord {
+  decision: string;
+  whyNow: string;
+  evidenceFor: string[];
+  evidenceAgainst: string[];
+  confidenceBand: string;
+  invalidation: string[];
+  owner: string;
+  nextReview: string;
+}
 
 /**
  * A meeting in the meeting room: 2–5 workers on one question or task, in rounds, following a pattern.
@@ -100,13 +112,19 @@ export interface MeetingRecord {
   id: string;
   pattern: MeetingPattern;
   title: string;
+  prompt: string;
   status: MeetingStatus;
   /** The line on the room's door: pattern, rounds, tokens, cost, and the output (or why it stopped). */
   summary: string;
   calledBy: string;
+  startedAt: number;
   finishedAt: number;
+  rounds: number;
+  seats: Array<Pick<MeetingSeat, 'role' | 'workerName' | 'tokens' | 'cost'>>;
   branch?: string;
   output: string;
+  preview?: string;
+  decision?: CouncilDecisionRecord;
 }
 
 export interface MeetingState {

@@ -8,7 +8,7 @@
 // server message and from each floor you arrive on. The store runs the slices in the one order they're
 // registered in (./slices/index.ts), and that order is the order their topics fire in.
 
-import type { ChatLine, FloorInfo, FloorView, GhIssue, GhPull, GhState, Me, PeerInfo, ProjectInfo, ProjectsDirState, QueueState, QueueTask, RepoChoice, Run, ServerMsg, WorkerInfo } from '../../shared/protocol';
+import type { AlertState, ChatLine, FloorInfo, FloorView, GhIssue, GhPull, GhState, Me, PeerInfo, ProjectInfo, ProjectsDirState, QueueState, QueueTask, RepoChoice, Run, ServerMsg, WorkerInfo } from '../../shared/protocol';
 import { randomLook } from '../../shared/avatar';
 import { AVATAR_COLORS, type Profile } from './persist';
 
@@ -39,6 +39,7 @@ export interface Topics {
   issues: true;
   pulls: true;
   queue: true;
+  alerts: true;
 }
 
 export type Topic = keyof Topics;
@@ -110,6 +111,7 @@ export class Store {
   /** Whether this office can invite teammates (deployed with deploy/aws.sh). */
   invites = false;
   queue: QueueState = { tasks: [], maxWorkers: 0 };
+  alerts: AlertState = { cards: [] };
   /** Who you're signed in as (see /api/whoami). */
   me: Me = { admin: false };
   private subs = new Map<Topic, Set<() => void>>();
