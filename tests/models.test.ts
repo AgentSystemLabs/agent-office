@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { isValidGrokModel, isValidMuseModel, isValidOpenCodeModel } from '../src/shared/providers.js';
-import { MODEL_LISTERS, createModelCatalogue, fetchCodexModels, fetchCursorModels, fetchGrokModels, fetchOpenCodeModels, type ModelCommandRunner } from '../src/server/models.js';
+import { MODEL_LISTERS, createModelCatalogue, fetchCodexModels, fetchCursorModels, fetchGrokModels, fetchOpenCodeModels, resolveCodexModelCommand, type ModelCommandRunner } from '../src/server/models.js';
 import { AGENT_PROVIDERS, PROVIDER_META } from '../src/shared/providers.js';
 
 test('OpenCode model ids require provider/model and reject whitespace or control characters', () => {
@@ -92,6 +92,22 @@ test('Codex catalogue errors do not expose command output', async () => {
     return error instanceof Error && /unavailable/i.test(error.message) && !error.message.includes('secret-token');
   });
   await assert.rejects(fetchCodexModels('codex', '/project', async () => ({ stdout: '{"models":"none"}', stderr: '' })), /unavailable/i);
+});
+
+test('Codex model lookup runs an npm-installed Windows CLI without a shell', () => {
+  const npm = String.raw`C:\Users\test\AppData\Roaming\npm`;
+  const script = String.raw`C:\Users\test\AppData\Roaming\npm\node_modules\@openai\codex\bin\codex.js`;
+  const files = new Set([String.raw`C:\Users\test\AppData\Roaming\npm\codex.cmd`, script]);
+  const exists = (file: string) => files.has(file);
+  assert.deepEqual(resolveCodexModelCommand('codex', 'win32', `C:\\Tools;${npm}`, exists), { file: process.execPath, args: [script] });
+  assert.deepEqual(resolveCodexModelCommand(String.raw`C:\Users\test\AppData\Roaming\npm\codex.cmd`, 'win32', '', exists), { file: process.execPath, args: [script] });
+  assert.deepEqual(resolveCodexModelCommand('codex', 'linux', '', exists), { file: 'codex', args: [] });
+});
+
+test('Codex model lookup prefers a native Windows executable', () => {
+  const executable = String.raw`C:\Tools\codex.exe`;
+  const exists = (file: string) => file === executable;
+  assert.deepEqual(resolveCodexModelCommand('codex', 'win32', String.raw`C:\Tools`, exists), { file: executable, args: [] });
 });
 
 test('every provider that says its CLI lists its models has a lister, and only those', () => {

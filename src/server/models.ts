@@ -2,7 +2,7 @@
 // reasoning efforts it takes, where the CLI says. Each is asked without a shell, and only what
 // looks like a model gets through.
 import { spawn } from 'node:child_process';
-import { closeSync, mkdtempSync, openSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { closeSync, existsSync, mkdtempSync, openSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { AGENT_EFFORTS, isValidCodexModel, isValidCursorModel, isValidGrokModel, isValidOpenCodeModel, type AgentProvider, type ModelOption } from '../shared/providers.js';
@@ -133,9 +133,35 @@ export async function fetchGrokModels(command: string, cwd: string, runner: Mode
  * Run `codex debug models` without a shell: Codex's catalogue as JSON, of which the office takes
  * the models its own picker lists, what each is called and the reasoning efforts it supports.
  */
+export function resolveCodexModelCommand(
+  command: string,
+  platform = process.platform,
+  searchPath = process.env.PATH ?? '',
+  exists: (file: string) => boolean = existsSync,
+): { file: string; args: string[] } {
+  if (platform !== 'win32' || !/^codex(?:\.(?:exe|cmd))?$/i.test(path.win32.basename(command)))
+    return { file: command, args: [] };
+
+  const dirs = path.win32.isAbsolute(command)
+    ? [path.win32.dirname(command)]
+    : searchPath.split(path.win32.delimiter).map((dir) => dir.replace(/^"|"$/g, '')).filter(Boolean);
+  for (const dir of dirs) {
+    const executable = path.win32.join(dir, 'codex.exe');
+    if (exists(executable)) return { file: executable, args: [] };
+
+    // npm installs a .cmd shim, which Node cannot spawn with shell:false on Windows. Run its
+    // adjacent JavaScript entry point with this process's Node instead of opening a shell.
+    const shim = path.win32.join(dir, 'codex.cmd');
+    const script = path.win32.join(dir, 'node_modules', '@openai', 'codex', 'bin', 'codex.js');
+    if (exists(shim) && exists(script)) return { file: process.execPath, args: [script] };
+  }
+  return { file: command, args: [] };
+}
+
 export async function fetchCodexModels(command: string, cwd: string, runner: ModelCommandRunner = runModelCommand): Promise<ModelOption[]> {
   try {
-    const result = await runner(command, ['debug', 'models'], { cwd, timeout: MODEL_COMMAND_TIMEOUT_MS, maxBuffer: MODEL_DETAILS_MAX_BUFFER });
+    const invocation = runner === runModelCommand ? resolveCodexModelCommand(command) : { file: command, args: [] };
+    const result = await runner(invocation.file, [...invocation.args, 'debug', 'models'], { cwd, timeout: MODEL_COMMAND_TIMEOUT_MS, maxBuffer: MODEL_DETAILS_MAX_BUFFER });
     const listed: unknown = JSON.parse(result.stdout)?.models;
     if (!Array.isArray(listed)) throw new Error('no models');
     const models: ModelOption[] = [];
