@@ -28,6 +28,7 @@ import { beanbags, desks, kiosks } from './seats';
 import { meetingRoom } from './meeting-room';
 import { loft } from './loft';
 import type { Fixture, Gives, Site } from './fixture';
+import { scranton } from '../../features/scranton/world';
 
 // The office floor, put together from its fixtures (see fixture.ts): the room and its walls, the desks
 // and everything else in it, the balcony, the loft and the meeting room under it, the back office, and
@@ -72,6 +73,7 @@ function floorPlan() {
     hoop,
     whiteboard,
     clearOfStairs,
+    scranton,
   ] as const;
 }
 

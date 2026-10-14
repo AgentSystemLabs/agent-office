@@ -11,6 +11,8 @@
 
 **A 3D office your team shares with its coding agents.**
 
+The optional [ambient Dunder Mifflin cast](docs/ambient-office.md) works in an adjoining [Scranton replica suite](docs/scranton-extension.md), with its own working day, conversations and occasional celebrations. Coworkers face their conversation partners, gesture in speaking turns, react according to their relationships, and perform coordinated group moments. Wave near an idle coworker to get an acknowledgment. Enter through the **Dunder Mifflin →** doorway on the east wall between the Services board and TV, then follow the hallway. Use the **Dunder Mifflin** clock or **E** at a character for conversation, Pam's local task notes or a work brief; hide dialogue or coworkers for quiet work.
+
 Sit **Claude Code**, **Codex**, **OpenCode**, **Grok**, **Muse**, **DeepSeek Harness** and **Cursor** workers at desks, watch each one's terminal on the laptop in front of it,
 and jump into any of them together. Every GitHub repo is a floor of the building.
 

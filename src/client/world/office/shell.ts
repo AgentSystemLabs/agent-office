@@ -5,6 +5,7 @@ import { mergeByMaterial, mesh, textPlane, toon } from '../toon';
 import type { Collider } from '../types';
 import type { Fixture } from './fixture';
 import { GLASS, PALETTE, box, glassPane, onWall, type Looks } from './materials';
+import { OFFICE_OPENINGS } from '../../../shared/office-openings';
 
 // The office's shell: its outside walls, the windows in them, and the doors out (the exit and the
 // balcony's), which open by themselves.
@@ -315,7 +316,7 @@ export function wallRun(into: THREE.Group, cols: Collider[], axis: 'x' | 'z', at
 /** Outside walls, with real windows you see out of and a door out, and the glass doors out to the balcony. */
 export const walls: Fixture = (site) => {
   const night = site.get('night');
-  const openings = [...WINDOWS, EXIT_DOOR, BALCONY_DOOR];
+  const openings = [...WINDOWS, EXIT_DOOR, BALCONY_DOOR, ...OFFICE_OPENINGS];
   buildWalls(site.group, site.colliders, openings, site.looks);
   const glazing = new THREE.Group();
   for (const o of WINDOWS) {

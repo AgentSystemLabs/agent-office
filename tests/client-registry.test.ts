@@ -358,7 +358,7 @@ test('interactions: one definition per kind, with its reach, hint and use', () =
 function clientSources(): { file: string; src: string }[] {
   const root = path.join(import.meta.dirname, '../src/client');
   const code = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
-  return (readdirSync(root, { recursive: true }) as string[]).filter((rel) => rel.endsWith('.ts')).map((file) => ({ file, src: code(readFileSync(path.join(root, file), 'utf8')) }));
+  return (readdirSync(root, { recursive: true }) as string[]).filter((rel) => rel.endsWith('.ts')).map((file) => ({ file: file.replaceAll('\\', '/'), src: code(readFileSync(path.join(root, file), 'utf8')) }));
 }
 
 /**

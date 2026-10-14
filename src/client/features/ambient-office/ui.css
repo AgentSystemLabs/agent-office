@@ -1,0 +1,43 @@
+.ambient-badge {
+  position: fixed;
+  top: 76px;
+  left: 18px;
+  z-index: 12;
+  border: 1px solid #62755c;
+  border-radius: 8px;
+  background: #f7f1e5ed;
+  color: #394733;
+  padding: 7px 12px;
+  font: 700 12px system-ui, sans-serif;
+  cursor: pointer;
+  box-shadow: 0 2px 6px #0002;
+}
+.panel.ambient-panel { width: min(920px, 94vw); max-height: 88vh; overflow-y: auto; padding: 22px; }
+.ambient-panel > header { display: flex; align-items: center; gap: 18px; padding: 12px 0; position: sticky; top: -22px; z-index: 2; background: var(--paper); border-bottom: 1px solid #8884; }
+.ambient-panel > header h2 { margin: 0; flex: 1; }
+.ambient-status { color: var(--muted); font-size: 12px; margin-right: 12px; }
+.ambient-controls { display: flex; gap: 24px; flex-wrap: wrap; padding-top: 16px; }
+.ambient-controls label { display: flex; gap: 7px; align-items: center; cursor: pointer; }
+.ambient-intro, .ambient-limit { color: var(--muted); font-size: 13px; line-height: 1.5; }
+.ambient-columns { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 24px; margin-top: 20px; }
+.ambient-roster { display: flex; flex-direction: column; gap: 4px; max-height: 530px; overflow: auto; }
+.ambient-roster button { border: 1px solid transparent; padding: 8px 10px; background: transparent; color: inherit; text-align: left; border-radius: 6px; cursor: pointer; }
+.ambient-roster button.selected { background: #66826022; border-color: #8ba582; font-weight: bold; }
+.ambient-roster button.away::after { content: ' · away'; font-size: 10px; opacity: .6; }
+.ambient-detail h3 { margin: 0 0 4px; font-size: 22px; }
+.ambient-job, .ambient-current, .ambient-utility { color: var(--muted); font-size: 12px; }
+.ambient-current { color: #749868; }
+.ambient-reply { border-left: 3px solid #8ba582; padding: 10px 14px; line-height: 1.5; background: #66826013; }
+.ambient-actions { display: flex; gap: 8px; margin-bottom: 18px; }
+.ambient-detail textarea { display: block; box-sizing: border-box; width: 100%; margin: 8px 0; resize: vertical; padding: 12px; line-height: 1.5; border: 1px solid #aaa; border-radius: 6px; background: white; color: var(--ink); }
+.ambient-detail textarea[hidden] { display: none; }
+.ambient-save { font-size: 11px; min-height: 16px; color: var(--muted); }
+.ambient-continuity { margin-top: 20px; border-top: 1px solid #8884; padding-top: 16px; }
+.ambient-continuity summary { cursor: pointer; }
+.ambient-memories { line-height: 1.6; color: var(--muted); font-size: 13px; }
+@media (max-width: 650px) {
+  .ambient-columns { grid-template-columns: 1fr; }
+  .ambient-roster { flex-direction: row; flex-wrap: wrap; max-height: 130px; }
+  .ambient-panel > header { flex-wrap: wrap; }
+  .ambient-status { order: 3; width: 100%; }
+}

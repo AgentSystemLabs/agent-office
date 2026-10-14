@@ -6,6 +6,7 @@ import type { Collider } from './types';
 import type { Fixture, StreetSite } from './office/fixture';
 import { canvasTexture } from './texture';
 import { mergeByMaterial, mesh, textPlane, toon, toonUnique } from './toon';
+import { reservedOfficeSpace } from '../../shared/office-footprints';
 
 const G = STREET_Y;
 /** The building's footprint, walls included. */
@@ -358,6 +359,7 @@ export function buildStreet(group: THREE.Group, colliders: Collider[], night: Ni
     [23, -19, 1.1],
   ];
   for (const [x, z, s] of trees) {
+    if (reservedOfficeSpace(x, z, 2.5 * s)) continue;
     const t = tree(s);
     t.position.set(x, G, z);
     forest.add(t);

@@ -64,6 +64,8 @@ import { installWalking } from './features/walking';
 import { installWhiteboard } from './features/whiteboard';
 import { installWorkerActions } from './features/workers/actions';
 import { installWorkerViews } from './features/workers/views';
+import { installAmbientOffice } from './features/ambient-office';
+import { installScranton } from './features/scranton';
 
 // The loading screen stays up until there's an office to see (see boot and whoami at the end).
 const loading = loadingScreen(onModelsProgress);
@@ -179,6 +181,7 @@ installChat(ctx);
 parts.talk = installVoice(ctx, { tv: parts.tv });
 installDictation(ctx);
 parts.hud = installHud(ctx, core, parts);
+installAmbientOffice(ctx, installScranton(ctx));
 
 // ---- Main loop ---------------------------------------------------------------------------------------
 fitWindow(ctx);

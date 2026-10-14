@@ -4,6 +4,7 @@
 import { IS_MAC } from './termkeys';
 
 export const HELP_ROWS: readonly (readonly [string, string])[] = [
+  ['Dunder Mifflin', 'The TV cast works in the Scranton suite: enter through the signed doorway between the Services board and TV, then follow the hallway north and left. E at a coworker or the Dunder Mifflin clock opens their optional conversation and local work scratchpad. Hide coworkers or dialogue there for quiet work'],
   ['W A S D', 'Walk (hold Shift to run)'],
   ['Space', 'Jump'],
   ['☕', 'Press E at the coffee machine in the kitchen for a minute of quicker walking and higher jumps. Three cups in a row gives you the jitters'],
