@@ -2,16 +2,13 @@ import * as THREE from 'three';
 import { BARK_EVERY_S, BARK_FOR_S, DOG_COATS, dogAt, dogBreed, legSeconds, type DogAct, type DogBreed, type DogState } from '../../../shared/dog';
 import type { Theme } from '../../../shared/protocol';
 import { paintCoat } from './coat';
+import { voiceOf, type DogSounds } from './voice';
 import { dogAntlers, dogBatWings, dogRedNose, dogScarf, dogWitchHat } from '../../world/costumes';
 import { loadModel, type Model } from '../../world/models';
 import type { Interactable } from '../../world/types';
 import { disposeSprite, textSprite, toon, toonUnique } from '../../world/toon';
 
-export interface DogSounds {
-  bark(x: number, z: number, times: number): void;
-  /** A happy little yip, when someone pets it. */
-  yip(x: number, z: number): void;
-}
+export type { DogSounds } from './voice';
 
 /** What it's doing, as its clips have it: one of its acts, or on its way there at a trot or, in a hurry, a gallop. */
 type Act = DogAct | 'walk' | 'run';
@@ -157,6 +154,8 @@ export class Dog {
   private coat = -1;
   private tag: THREE.Sprite | null = null;
   private tagName = '';
+  /** How it sounds and carries on: a dog's or the cat's (see voice.ts). */
+  private voice = voiceOf('pup');
   private bubble: { sprite: THREE.Sprite; kind: string; until: number } | null = null;
 
   private state: DogState | null = null;
@@ -234,9 +233,10 @@ export class Dog {
     }
     // Another floor's dog (someone took the elevator): its breed's model, once that's in.
     const breed = dogBreed(state.breed);
+    this.voice = voiceOf(breed);
     if (breed !== this.wants) this.wear(breed);
     if (state.coat !== this.coat) paintCoat(this.coatMats, (this.coat = state.coat));
-    if (state.name !== this.tagName) this.setTag(state.name);
+    if (`${this.voice.emoji} ${state.name}` !== this.tagName) this.setTag(state.name);
     this.arriveAt = start + legSeconds(state) * 1000;
     // The next woof on its schedule (a page opened halfway through picks up where it's at).
     const since = (performance.now() - this.arriveAt) / 1000;
@@ -246,7 +246,7 @@ export class Dog {
     // Just petted (not a pat from before this page loaded).
     if (state.act === 'wag' && state.petBy && performance.now() - start < 1000) {
       const p = dogAt(state, 0);
-      this.sounds.yip(p.x, p.z);
+      this.voice.petted(this.sounds, p.x, p.z);
       this.say('wag', '❤️', 2.2);
     }
   }
@@ -258,22 +258,7 @@ export class Dog {
     const moving = performance.now() < this.arriveAt;
     const w = s.workerId ? (workerName(s.workerId) ?? 'a worker') : 'a worker';
     if (s.following) return `following ${personName(s.following) ?? 'someone'}`;
-    switch (s.act) {
-      case 'bark':
-        return moving ? `running to ${w}, who needs input` : `barking at ${w}: needs input`;
-      case 'nap':
-        return moving ? 'off for a nap' : `napping under ${w}'s desk`;
-      case 'wag':
-        return s.petBy ? `wagging at ${s.petBy}` : 'wagging';
-      case 'lie':
-        return moving ? 'trotting to the lounge' : 'lounging';
-      case 'sniff':
-        return moving ? 'trotting about' : 'sniffing around';
-      case 'sit':
-        return 'sitting';
-      default:
-        return '';
-    }
+    return this.voice.doing(s.act, moving, w, s.petBy);
   }
 
   update(dt: number) {
@@ -303,9 +288,9 @@ export class Dog {
     // Woof, on schedule, while nobody's seeing to the worker yet.
     if (!at.moving && s.act === 'bark' && s.workerId && now >= this.nextBark && now - this.arriveAt < BARK_FOR_S * 1000) {
       if (!this.hushed(s.workerId)) {
-        this.sounds.bark(at.x, at.z, this.barks === 0 ? 3 : 2);
+        this.voice.call(this.sounds, at.x, at.z, this.barks === 0 ? 3 : 2);
         this.woofT = 0;
-        this.say('woof', this.barks === 0 ? 'Woof! Woof! Woof!' : 'Woof! Woof!', 1.4);
+        this.say('woof', this.voice.calls[this.barks === 0 ? 0 : 1], 1.4);
       }
       this.barks++;
       this.nextBark = this.arriveAt + this.barks * BARK_EVERY_S * 1000;
@@ -354,7 +339,7 @@ export class Dog {
         const box = m.geometry.boundingBox ?? (m.geometry.computeBoundingBox(), m.geometry.boundingBox);
         if (box) collar = (box.max.x - box.min.x) / 2;
       }
-      const paint = PAINT[name] ?? 0;
+      const paint = voiceOf(breed).paint[name] ?? PAINT[name] ?? 0;
       m.material = typeof paint === 'number' ? this.coatMats[paint] : toon(paint);
       m.castShadow = typeof paint === 'number';
       m.receiveShadow = true;
@@ -456,12 +441,12 @@ export class Dog {
   }
 
   private setTag(name: string) {
-    this.tagName = name;
+    this.tagName = `${this.voice.emoji} ${name}`;
     if (this.tag) {
       this.root.remove(this.tag);
       disposeSprite(this.tag);
     }
-    this.tag = textSprite(`🐶 ${name}`, { bg: '#fffaf3', size: 30 });
+    this.tag = textSprite(this.tagName, { bg: '#fffaf3', size: 30 });
     this.tag.position.y = (this.rig?.top ?? PUP_TOP) + TAG_OVER;
     this.root.add(this.tag);
   }
@@ -491,7 +476,7 @@ export class Dog {
     const rig = this.rig;
     const k = snap ? 1 : 1 - Math.exp(-dt * 7);
     this.drop += ((rig?.drop[act] ?? 0) - this.drop) * k;
-    this.eyes += ((act === 'nap' ? 0 : 1) - this.eyes) * k;
+    this.eyes += ((act === 'nap' ? 0 : act === 'wag' ? this.voice.pettedEyes : 1) - this.eyes) * k;
     const t = this.t;
     const moving = act === 'walk' || act === 'run';
 
@@ -503,7 +488,7 @@ export class Dog {
       // frame, so they're set from rest every frame rather than turned from wherever they were.
       // Jaw: snaps open on a woof, hangs open panting when it's happy or after a run, shut asleep.
       const woof = this.woofT < 0.35 ? Math.sin((this.woofT / 0.35) * Math.PI) : 0;
-      const pant = act === 'wag' || act === 'sit' || moving ? 0.25 + Math.sin(t * 14) * 0.08 : 0;
+      const pant = this.voice.pants && (act === 'wag' || act === 'sit' || moving) ? 0.25 + Math.sin(t * 14) * 0.08 : 0;
       rig.jaw.bone.quaternion.copy(rig.jaw.rest);
       rig.jaw.bone.rotateX(Math.max(woof * 0.6, pant));
       // Eyes shut to nap; otherwise a blink now and then.

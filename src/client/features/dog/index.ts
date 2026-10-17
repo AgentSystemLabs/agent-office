@@ -2,6 +2,7 @@ import type { Ctx } from '../../core/context';
 import { aside, hintTitle, key, onE } from '../../core/hint';
 import { noOutline } from '../../core/outline';
 import { store } from '../../state';
+import { dogBreed, petEmoji } from '../../../shared/dog';
 import { Dog } from './world';
 
 // The kinds of thing you can use that this defines (see InteractKinds in world/types.ts).
@@ -11,7 +12,7 @@ declare module '../../world/types' {
   }
 }
 
-/** The floor's dog, the office's own: it walks about, barks at workers waiting on someone, and E pets it. */
+/** The floor's dog (or cat), the office's own: it walks about, barks at workers waiting on someone, and E pets it. */
 export function installDog(ctx: Ctx): Dog {
   // The floor's dog. It goes quiet once someone has the terminal of the worker it's barking at open.
   const dog = new Dog(ctx.sound, (id) => (store.workers.get(id)?.viewers.length ?? 0) > 0);
@@ -35,7 +36,7 @@ export function installDog(ctx: Ctx): Dog {
         (id) => store.workers.get(id)?.name,
         (id) => (id === store.you ? 'you' : store.peers.get(id)?.name),
       );
-      return { k: `${dog.name}|${doing}`, parts: [hintTitle(`🐶 ${dog.name}`), doing ? aside(doing) : '', key('E', 'Pet')] };
+      return { k: `${dog.name}|${doing}`, parts: [hintTitle(`${petEmoji(dogBreed(store.dog?.breed))} ${dog.name}`), doing ? aside(doing) : '', key('E', 'Pet')] };
     },
     use: onE(() => ctx.net.send({ t: 'dog.pet' })),
   });

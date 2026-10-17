@@ -211,7 +211,7 @@ try {
   for (const breed of new Set([...breeds, ...swaps])) models[breed] = await inspect(breed);
   report.models = models;
   const began = performance.now();
-  const sounds = { bark() {}, yip() {} };
+  const sounds = { bark() {}, yip() {}, meow() {}, purr() {} };
   const first = only ? ACTS.indexOf(only) : 0;
   const dogs = breeds.flatMap((breed, b) =>
     (only ? [only] : ACTS).map((act: Act, i) => {

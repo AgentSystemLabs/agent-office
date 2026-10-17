@@ -33,11 +33,19 @@ export const DOG_NAME_MAX = 24;
 /** A new floor's dog is called one of these until someone names it in ⚙️ Settings (none is a worker's name). */
 export const DOG_NAMES = ['Biscuit', 'Pancake', 'Peanut', 'Pepper', 'Cookie', 'Bagel', 'Ziggy', 'Pretzel', 'Maple', 'Scout'];
 
-/** A floor's dog is one of these, each its own model (dog-<breed>.glb) with the same rig and clips. */
-export const DOG_BREEDS = ['pup', 'corgi', 'dachshund', 'pug', 'shiba', 'pomeranian'] as const;
+/**
+ * A floor's dog is one of these, each its own model (dog-<breed>.glb) with the same rig and clips. The cat
+ * is one too: the same day on the floor, moving like a cat, with its own voice (client features/dog/voice.ts).
+ */
+export const DOG_BREEDS = ['pup', 'corgi', 'dachshund', 'pug', 'shiba', 'pomeranian', 'cat'] as const;
 export type DogBreed = (typeof DOG_BREEDS)[number];
 /** What ⚙️ Settings calls each breed. */
-export const DOG_BREED_NAMES: Record<DogBreed, string> = { pup: '🐶 Pup', corgi: '🦊 Corgi', dachshund: '🌭 Dachshund', pug: '🐾 Pug', shiba: '🍂 Shiba', pomeranian: '🧸 Pomeranian' };
+export const DOG_BREED_NAMES: Record<DogBreed, string> = { pup: '🐶 Pup', corgi: '🦊 Corgi', dachshund: '🌭 Dachshund', pug: '🐾 Pug', shiba: '🍂 Shiba', pomeranian: '🧸 Pomeranian', cat: '🐱 Cat' };
+
+/** What goes in front of its name: 🐱 for the cat, 🐶 for a dog. */
+export function petEmoji(breed: DogBreed): string {
+  return breed === 'cat' ? '🐱' : '🐶';
+}
 
 /**
  * The breeds a floor's dog is dealt from its id (see dogDefaults): the ones there were when floors first

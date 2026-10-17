@@ -55,3 +55,72 @@ function woof(a: AudioCore, out: AudioNode, t: number, f: number, len: number, g
   breath.start(t, rand(0, 4));
   breath.stop(t + len + 0.02);
 }
+
+// ---- The cat ----------------------------------------------------------------------------------
+
+/** A meow or a few from where the cat is. */
+export function meow(a: AudioCore, x: number, z: number, times: number) {
+  const ctx = a.ctx;
+  if (!ctx) return;
+  a.count('meow');
+  const out = a.panner({ x, y: 0.4, z }, 2, 1);
+  out.connect(a.ambience);
+  let t = ctx.currentTime + 0.03;
+  const pitch = rand(0.95, 1.08);
+  for (let i = 0; i < Math.max(1, times); i++) {
+    mew(ctx, out, t, 560 * pitch * rand(0.96, 1.04), rand(0.5, 0.62));
+    t += rand(0.75, 0.95);
+  }
+}
+
+/** One "mi-aow": a reedy voice that rises and falls, the mouth opening from "ee" to "ah" and closing to "oo". */
+function mew(ctx: AudioContext, out: AudioNode, t: number, f: number, len: number) {
+  const voice = ctx.createOscillator();
+  voice.type = 'sawtooth';
+  voice.frequency.setValueAtTime(f * 0.85, t);
+  voice.frequency.exponentialRampToValueAtTime(f * 1.3, t + len * 0.35);
+  voice.frequency.exponentialRampToValueAtTime(f * 0.8, t + len);
+  const mouth = biquad(ctx, 'bandpass', 1800, 3);
+  mouth.frequency.setValueAtTime(2600, t);
+  mouth.frequency.exponentialRampToValueAtTime(1500, t + len * 0.45);
+  mouth.frequency.exponentialRampToValueAtTime(800, t + len);
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.4, t + 0.06);
+  g.gain.setValueAtTime(0.4, t + len * 0.55);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + len);
+  voice.connect(mouth).connect(g).connect(out);
+  voice.start(t);
+  voice.stop(t + len + 0.02);
+}
+
+/** A purr: a low rumble pulsing about 25 times a second, louder breathing out than in. */
+export function purr(a: AudioCore, x: number, z: number) {
+  const ctx = a.ctx;
+  if (!ctx) return;
+  a.count('purr');
+  const out = a.panner({ x, y: 0.3, z }, 1.2, 1);
+  out.connect(a.ambience);
+  const t = ctx.currentTime + 0.02;
+  const len = 2.2;
+  const rumble = a.noise(a.buf.white, true);
+  const g = ctx.createGain();
+  g.gain.value = 0;
+  // The pulse: a low tone sets the level of the rumble, up and down.
+  const pulse = ctx.createOscillator();
+  pulse.frequency.value = rand(23, 27);
+  const depth = ctx.createGain();
+  depth.gain.value = 0.5;
+  pulse.connect(depth).connect(g.gain);
+  // Two breaths: out (louder), in, out.
+  const level = ctx.createGain();
+  level.gain.setValueAtTime(0.0001, t);
+  for (const [at, v] of [[0.1, 0.9], [0.75, 0.35], [0.95, 0.35], [1.6, 0.9], [len, 0.0001]] as const) {
+    level.gain.exponentialRampToValueAtTime(v, t + at);
+  }
+  rumble.connect(biquad(ctx, 'lowpass', 260, 0.9)).connect(g).connect(level).connect(out);
+  rumble.start(t, rand(0, 4));
+  rumble.stop(t + len + 0.05);
+  pulse.start(t);
+  pulse.stop(t + len + 0.05);
+}
