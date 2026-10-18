@@ -83,9 +83,13 @@ export function installPointer(ctx: Ctx, core: CoreState, parts: PointerParts) {
   const CROSSHAIR = new THREE.Vector2(0, 0);
   const eye = new THREE.Vector3();
 
-  /** What the ray through `ndc` lands on first, whether it is within reach (plus `slack` meters), and where it hit. */
-  function aimedAt(ndc: THREE.Vector2, slack = 0): { it: Interactable; near: boolean; hit: THREE.Intersection } | null {
+  /**
+   * What the ray through `ndc` lands on first, whether it is within reach (plus `slack` meters), and
+   * where it hit. Nothing past `far` meters is looked at.
+   */
+  function aimedAt(ndc: THREE.Vector2, slack = 0, far = Infinity): { it: Interactable; near: boolean; hit: THREE.Intersection } | null {
     raycaster.setFromCamera(ndc, camera);
+    raycaster.far = far;
     eye.set(player.pos.x, player.pos.y + EYE_HEIGHT, player.pos.z);
     // (Workers standing in line in the castle carry their spot's interactable: see Court.)
     const roof = parts.rooftop.roof();
@@ -115,6 +119,9 @@ export function installPointer(ctx: Ctx, core: CoreState, parts: PointerParts) {
     return first ?? ctx.world().herald?.interactable ?? null;
   }
 
+  /** The farthest any kind of thing can be used from (see ctx.interactions). */
+  const longestReach = () => Math.max(...ctx.interactions.kinds().map((k) => ctx.interactions.reach(k)));
+
   /** The issue whose note on the issues board an aim lands on, or null (bare cork, the frame, anything else). */
   function noteUnder(aim: { it: Interactable; hit: THREE.Intersection } | null): GhIssue | null {
     if (aim?.it.kind !== 'issues' || aim.hit.object !== ctx.world().boardMeshes.issues || !aim.hit.uv) return null;
@@ -134,7 +141,8 @@ export function installPointer(ctx: Ctx, core: CoreState, parts: PointerParts) {
     aimedNote = null;
     if (modalOpen() || parts.telescope.active || ctx.activities.busy()) target = null;
     else if (firstPerson) {
-      const aim = aimedAt(CROSSHAIR);
+      // Only what's in reach matters here, and the ray stopping there skips testing the rest of the building every frame.
+      const aim = aimedAt(CROSSHAIR, 0, longestReach() + 1);
       target = aim?.near ? aim.it : (throneTarget() ?? seating.mySeat() ?? (inOffice() ? hoops.ballAtFeet() : null));
       if (aim?.near) aimedNote = noteUnder(aim);
     } else {

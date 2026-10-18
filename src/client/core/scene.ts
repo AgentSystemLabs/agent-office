@@ -17,6 +17,15 @@ export const FAR = HAZE_MAX + 20;
 /** How wide the camera sees (degrees), unless what you're doing has it otherwise (see ctx.view). */
 export const FOV = 55;
 
+/**
+ * Firefox's WebGL pays a lot of main-thread time per draw call, and the sun's shadow is hundreds of
+ * them each time it's drawn, so there it's redrawn every other frame. A Retina screen there is drawn
+ * at 1.5 pixels to a CSS pixel, not 2: a touch softer, with half as many pixels to fill and hold.
+ */
+const FIREFOX = navigator.userAgent.includes('Firefox/');
+export const SHADOW_EVERY = FIREFOX ? 2 : 1;
+const MAX_PIXEL_RATIO = FIREFOX ? 1.5 : 2;
+
 /** The renderer, the scene with its lights and camera, and what's always in it (see createScene). */
 export interface Stage {
   readonly canvas: HTMLCanvasElement;
@@ -52,8 +61,10 @@ export function noWebGL(): Promise<never> {
 
 /** Sets up the renderer on `canvas`, and builds the scene: its lights, the camera, the office, the sky. */
 export function createScene(canvas: HTMLCanvasElement, renderer: THREE.WebGLRenderer): Stage {
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, MAX_PIXEL_RATIO));
   renderer.shadowMap.enabled = true;
+  // Redrawn every SHADOW_EVERY frames, by drawScene (core/loop.ts).
+  renderer.shadowMap.autoUpdate = false;
   renderer.shadowMap.type = THREE.PCFShadowMap;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   const effect = new OutlineEffect(renderer, { defaultThickness: 0.0032, defaultColor: [0.17, 0.18, 0.26] });

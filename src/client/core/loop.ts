@@ -11,7 +11,7 @@ import type { Ctx } from './context';
 import type { CoreState } from './ctx';
 import type { Parts } from './parts';
 import type { Frame } from './registry';
-import { FOV } from './scene';
+import { FOV, SHADOW_EVERY } from './scene';
 import { FirstPersonBody } from '../world/character/person-first';
 
 /** Covering less ground than this (m/s) since your last footstep, your feet make no sound: a walk is 4.6. */
@@ -186,12 +186,16 @@ export function installLoop(ctx: Ctx, core: CoreState, parts: Pick<Parts, 'stage
     ctx.view.draw(f, drawScene);
   }
 
+  /** Frames drawn, to redraw the sun's shadow every SHADOW_EVERY of them. */
+  let drawn = 0;
+
   /** The scene, then your hands on top of it. */
   function drawScene() {
     const { player, hands, sky, camera, renderer } = ctx;
     const { effect, scene } = parts.stage;
     const firstPerson = player.view === 'first';
     const unhide = firstBody?.hideExtras();
+    renderer.shadowMap.needsUpdate = drawn++ % SHADOW_EVERY === 0;
     effect.render(scene, camera);
     unhide?.();
     // Not while something has the screen to itself (the telescope, the boss's monitor or the arcade up close), where they'd cover it.
