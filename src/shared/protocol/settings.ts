@@ -1,6 +1,7 @@
 // ⚙️ Settings and the building's services: notifications, the machine, upgrades, the sky, holidays, maps, prompts.
 
 import type { CustomMap } from '../maps/index.js';
+import type { ConfigurableStation } from '../layout.js';
 import type { PromptId } from '../prompts.js';
 import type { AgentChoice } from './agents.js';
 
@@ -16,6 +17,8 @@ export interface PromptsState {
    * started with (--agent), on its own default model.
    */
   agent?: AgentChoice & { by: string; at: number };
+  /** What the Issues and PR agents start on, by station kind, when an admin picked something for one; the rest start on the office's default worker. */
+  stations?: Partial<Record<ConfigurableStation, AgentChoice & { by: string; at: number }>>;
 }
 
 /** Where a team webhook posts: Slack and Discord get their own message format, anything else plain JSON. */
@@ -190,7 +193,9 @@ export type SettingsClientMsg =
   /** Rewrite one of the office's prompts (admins only); null puts the default back. */
   | { t: 'prompts.set'; id: PromptId; text: string | null }
   /** Pick the worker everyone starts on (admins only); null goes back to the office's --agent. */
-  | { t: 'prompts.agent'; choice: AgentChoice | null };
+  | { t: 'prompts.agent'; choice: AgentChoice | null }
+  /** Pick what one of the board agents starts on (admins only); null puts it back on the office's default worker. */
+  | { t: 'prompts.station'; kind: ConfigurableStation; choice: AgentChoice | null };
 
 export type SettingsServerMsg =
   | { t: 'upgrade'; state: UpgradeState }

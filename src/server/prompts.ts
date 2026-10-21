@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { isAgentEffort, isAgentProvider, type AgentChoice, type AgentProvider, type PromptsState } from '../shared/protocol.js';
+import type { ConfigurableStation } from '../shared/layout.js';
 import { PROMPTS, PROMPT_MAX, fillPrompt, isPromptId, promptText, type PromptId, type PromptVars } from '../shared/prompts.js';
 import { validateWorkerEffort, validateWorkerModel } from './agents.js';
 
@@ -9,6 +10,8 @@ export interface PromptSource {
   text(id: PromptId): string;
   /** The worker picked in ⚙️ Settings, when one was. */
   agent(): AgentChoice | undefined;
+  /** What an admin picked for a board agent (the Issues or PR one), when they picked one. */
+  station(kind: ConfigurableStation): AgentChoice | undefined;
 }
 
 /** A prompt's text, from `source` when there is one, else the default. */
@@ -36,7 +39,13 @@ export class OfficePrompts implements PromptSource {
   }
 
   state(): PromptsState {
-    return { custom: { ...this.saved.custom }, ...(this.saved.agent ? { agent: { ...this.saved.agent } } : {}) };
+    const { custom, agent, stations } = this.saved;
+    return { custom: { ...custom }, ...(agent ? { agent: { ...agent } } : {}), ...(stations ? { stations: { ...stations } } : {}) };
+  }
+
+  station(kind: ConfigurableStation): AgentChoice | undefined {
+    const s = this.saved.stations?.[kind];
+    return s && { provider: s.provider, ...(s.model ? { model: s.model } : {}), ...(s.effort ? { effort: s.effort } : {}) };
   }
 
   text(id: PromptId): string {
@@ -75,6 +84,22 @@ export class OfficePrompts implements PromptSource {
     return undefined;
   }
 
+  /** Picks what a board agent starts on; null puts it back on the office's default worker. Returns why it can't, if it can't. */
+  setStation(kind: unknown, choice: AgentChoice | null, by: string): string | undefined {
+    if (kind !== 'issues' && kind !== 'pulls') return 'Unknown board agent';
+    if (!choice) {
+      if (this.saved.stations) delete this.saved.stations[kind];
+      this.changed();
+      return undefined;
+    }
+    const why = this.problem(choice);
+    if (why) return why;
+    const { provider, model, effort } = choice;
+    (this.saved.stations ??= {})[kind] = { provider, ...(model ? { model } : {}), ...(effort ? { effort } : {}), by, at: Date.now() };
+    this.changed();
+    return undefined;
+  }
+
   private problem(c: AgentChoice): string | undefined {
     if (!isAgentProvider(c.provider) || !this.providers.list.includes(c.provider)) return 'Unknown agent provider';
     if (c.provider === 'custom' && this.providers.configured !== 'custom') return 'Custom is not the configured agent provider';
@@ -102,6 +127,13 @@ export class OfficePrompts implements PromptSource {
       const choice: AgentChoice = { provider: a.provider, model: typeof a.model === 'string' ? a.model : undefined, effort: isAgentEffort(a.effort) ? a.effort : undefined };
       // One the office can't start any more (it was started with another --agent) is forgotten.
       if (!this.problem(choice)) this.saved.agent = { ...choice, by: typeof a.by === 'string' ? a.by : 'someone', at: typeof a.at === 'number' ? a.at : 0 };
+    }
+    for (const [kind, s] of Object.entries(raw?.stations ?? {})) {
+      if ((kind !== 'issues' && kind !== 'pulls') || !s || !isAgentProvider(s.provider)) continue;
+      const choice: AgentChoice = { provider: s.provider, model: typeof s.model === 'string' ? s.model : undefined, effort: isAgentEffort(s.effort) ? s.effort : undefined };
+      // One the office can't start any more is forgotten, as the default worker's is.
+      if (this.problem(choice)) continue;
+      (this.saved.stations ??= {})[kind] = { ...choice, by: typeof s.by === 'string' ? s.by : 'someone', at: typeof s.at === 'number' ? s.at : 0 };
     }
   }
 

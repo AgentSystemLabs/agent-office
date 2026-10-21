@@ -1086,6 +1086,7 @@ test('a worker nobody picked a model for starts on the office default, and a boa
   const prompts: PromptSource = {
     text: (id) => (id === 'station.issues' ? 'You triage issues. The request:' : PROMPTS[id].text),
     agent: () => ({ provider: 'claude', model: 'sonnet', effort: 'low' }),
+    station: () => undefined,
   };
   const workers = new WorkerManager(f.root, f.data, f.claude, ['--from-test'], { url: 'http://127.0.0.1:1', token: '' }, events([]), ledger(f.data), undefined, prompts);
   t.after(() => workers.shutdown());
@@ -1701,4 +1702,41 @@ test("a worker whose worktree was deleted outside the office waits, marked lost,
   assert.equal(git(path.join(f.root, gone.worktree!.path), 'rev-parse', 'HEAD'), gone.worktree!.base);
   assert.equal(after.get(gone.id)?.lost, undefined);
   assert.deepEqual(toasts, []);
+});
+
+test('a board agent starts on the worker an admin picked for its station, and the queue agent never does', async (t) => {
+  const f = fixture();
+  isolateProviderEnvironment(f, t);
+  const previousLog = process.env.FAKE_AGENT_LOG;
+  process.env.FAKE_AGENT_LOG = f.log;
+  t.after(() => {
+    if (previousLog === undefined) delete process.env.FAKE_AGENT_LOG;
+    else process.env.FAKE_AGENT_LOG = previousLog;
+    f.close();
+  });
+  const prompts: PromptSource = {
+    text: (id) => PROMPTS[id].text,
+    agent: () => ({ provider: 'claude', model: 'opus', effort: 'high' }),
+    station: (kind) => (kind === 'issues' ? { provider: 'claude', model: 'sonnet', effort: 'low' } : kind === 'pulls' ? { provider: 'codex', model: 'gpt-5.5' } : undefined),
+  };
+  const workers = new WorkerManager(f.root, f.data, f.claude, ['--from-test'], { url: 'http://127.0.0.1:1', token: '' }, events([]), ledger(f.data), undefined, prompts);
+  t.after(() => workers.shutdown());
+
+  // The Issues agent: its own station's pick, not the office default.
+  const issues = workers.station('station-issues', 'Ada', 'File one about the dog');
+  assert.equal(typeof issues, 'object');
+  if (typeof issues === 'string') return;
+  assert.deepEqual([issues.info.provider, issues.info.model, issues.info.effort], ['claude', 'sonnet', 'low']);
+
+  // The PR agent: its own, on another provider.
+  const pulls = workers.station('station-pulls', 'Ada', 'Review #12');
+  assert.equal(typeof pulls, 'object');
+  if (typeof pulls === 'string') return;
+  assert.deepEqual([pulls.info.provider, pulls.info.model, pulls.info.effort], ['codex', 'gpt-5.5', undefined]);
+
+  // The Queue agent ignores station picks: it runs on the office's default worker.
+  const queue = workers.station('station-queue', 'Ada', 'Build it');
+  assert.equal(typeof queue, 'object');
+  if (typeof queue === 'string') return;
+  assert.deepEqual([queue.info.provider, queue.info.model, queue.info.effort], ['claude', 'opus', 'high']);
 });

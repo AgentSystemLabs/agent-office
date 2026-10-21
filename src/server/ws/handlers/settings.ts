@@ -6,6 +6,7 @@ import { MAX_WORKER_LIMIT, parseWorkerLimit } from '../../machine.js';
 import { OFFICE_MAP } from '../../../shared/maps/index.js';
 import { isThemePick } from '../../../shared/theme.js';
 import { PROMPTS, PROMPT_MAX, isPromptId } from '../../../shared/prompts.js';
+import { STATION_AGENT } from '../../../shared/layout.js';
 import type { SettingsClientMsg } from '../../../shared/protocol.js';
 import type { Ctx } from '../../office/context.js';
 import { str } from '../../office/input.js';
@@ -132,5 +133,21 @@ export const settingsHandlers = {
     const err = ctx.prompts.setAgent(choice, who);
     if (err) return ctx.warn(c, err);
     ctx.toastAll(choice ? `🤖 ${who} set the office’s default worker` : `🤖 ${who} put the office’s default worker back to ${path.basename(ctx.cfg.agentCmd)}`);
+  },
+  'prompts.station'(ctx, c, msg) {
+    const who = c.peer.name;
+    if (!ctx.meOf(c.accountId).admin) return ctx.warn(c, 'Only admins can pick a board agent’s provider');
+    const kind = msg.kind;
+    if (kind !== 'issues' && kind !== 'pulls') return;
+    const ch = msg.choice;
+    if (ch !== null && (!ch || typeof ch !== 'object')) return;
+    const choice = ch && {
+      provider: ch.provider,
+      model: ch.model === undefined || ch.model === '' ? undefined : str(ch.model, OPEN_CODE_MODEL_MAX + 1),
+      effort: ch.effort === undefined ? undefined : ch.effort,
+    };
+    const err = ctx.prompts.setStation(kind, choice, who);
+    if (err) return ctx.warn(c, err);
+    ctx.toastAll(choice ? `🤖 ${who} set the ${STATION_AGENT[kind].name}’s provider` : `🤖 ${who} put the ${STATION_AGENT[kind].name} back on the office’s default worker`);
   },
 } satisfies HandlerMap<SettingsClientMsg>;

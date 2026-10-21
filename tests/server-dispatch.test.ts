@@ -404,6 +404,15 @@ test('settings, accounts, sign-ins and the boards answer as before', async () =>
   a.send({ t: 'prompts.set', id: 'nope', text: 'x' });
   a.send({ t: 'prompts.agent', choice: null });
   assert.equal(await told('🤖'), '🤖 Eve put the office’s default worker back to claude');
+  // A board agent's own worker: set per station, and dropped back onto the default.
+  a.send({ t: 'prompts.station', kind: 'issues', choice: { provider: 'opencode' } });
+  assert.equal(await told('🤖'), '🤖 Eve set the Issues agent’s provider');
+  assert.deepEqual((await a.take('prompts', (m) => !!m.state.stations?.issues)).state.stations?.issues?.provider, 'opencode');
+  a.send({ t: 'prompts.station', kind: 'issues', choice: null });
+  assert.equal(await told('🤖'), '🤖 Eve put the Issues agent back on the office’s default worker');
+  assert.equal((await a.take('prompts', (m) => !m.state.stations?.issues)).state.stations?.issues, undefined);
+  // The Queue agent is never picked for, and a provider the office can't run is refused.
+  a.send({ t: 'prompts.station', kind: 'queue', choice: { provider: 'opencode' } });
   a.send({ t: 'notify.webhook', url: 'not a url' });
   assert.match((await a.take('toast', (m) => m.level === 'warn')).text, /./);
   a.send({ t: 'upgrade.check' });

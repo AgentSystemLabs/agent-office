@@ -104,8 +104,48 @@ test('the default worker is checked before it is kept, and one the office can no
   assert.ok(readFileSync(file, 'utf8'));
 });
 
+test('a board agent’s own worker is checked before it is kept, and one the office can no longer start is forgotten', (t) => {
+  const dir = scratch(t);
+  const book = new OfficePrompts(dir, { list: ['claude', 'opencode', 'codex'], configured: 'claude' }, () => {});
+  assert.equal(book.station('issues'), undefined);
+  // Only the Issues and PR agents have one: the Queue agent always runs on the office's default.
+  assert.match(book.setStation('queue', { provider: 'claude' }, 'Ada') ?? '', /Unknown board agent/);
+  assert.match(book.setStation({ provider: 'claude' }, { provider: 'claude' }, 'Ada') ?? '', /Unknown board agent/);
+  assert.match(book.setStation('issues', { provider: 'custom' }, 'Ada') ?? '', /Unknown agent provider/);
+  assert.match(book.setStation('issues', { provider: 'claude', model: 'gpt-9' }, 'Ada') ?? '', /Invalid Claude model/);
+  assert.match(book.setStation('pulls', { provider: 'codex', effort: 'enormous' as never }, 'Ada') ?? '', /Invalid effort/);
+  assert.equal(book.station('issues'), undefined);
+
+  assert.equal(book.setStation('issues', { provider: 'claude', model: 'opus', effort: 'high' }, 'Ada'), undefined);
+  assert.equal(book.setStation('pulls', { provider: 'opencode', model: 'xai/grok-4' }, 'Grace'), undefined);
+  assert.deepEqual(book.station('issues'), { provider: 'claude', model: 'opus', effort: 'high' });
+  assert.deepEqual(book.station('pulls'), { provider: 'opencode', model: 'xai/grok-4' });
+  assert.deepEqual(book.state().stations?.issues, { provider: 'claude', model: 'opus', effort: 'high', by: 'Ada', at: book.state().stations!.issues!.at });
+  assert.equal(book.state().stations?.issues?.by, 'Ada');
+
+  // It's there after a restart.
+  const again = new OfficePrompts(dir, { list: ['claude', 'opencode', 'codex'], configured: 'claude' }, () => {});
+  assert.deepEqual(again.station('issues'), { provider: 'claude', model: 'opus', effort: 'high' });
+  assert.deepEqual(again.station('pulls'), { provider: 'opencode', model: 'xai/grok-4' });
+
+  // Null puts that one back on the office's default worker, and the other stays.
+  assert.equal(book.setStation('issues', null, 'Ada'), undefined);
+  assert.equal(book.station('issues'), undefined);
+  assert.deepEqual(book.station('pulls'), { provider: 'opencode', model: 'xai/grok-4' });
+  assert.deepEqual(new OfficePrompts(dir, { list: ['claude', 'opencode'], configured: 'claude' }, () => {}).station('issues'), undefined);
+
+  // One the office can't start any more (another --agent) is forgotten, as the default worker's is.
+  const file = path.join(dir, 'prompts.json');
+  writeFileSync(file, JSON.stringify({ custom: {}, stations: { issues: { provider: 'custom', by: 'Ada', at: 1 }, pulls: { provider: 'codex', model: 'gpt-5.5', effort: 'low', by: 'Ada', at: 2 } } }));
+  const withCustom = new OfficePrompts(dir, { list: ['claude', 'custom'], configured: 'custom' }, () => {});
+  assert.deepEqual(withCustom.station('issues'), { provider: 'custom' });
+  const without = new OfficePrompts(dir, { list: ['claude', 'codex'], configured: 'claude' }, () => {});
+  assert.equal(without.station('issues'), undefined);
+  assert.deepEqual(without.state().stations, { pulls: { provider: 'codex', model: 'gpt-5.5', effort: 'low', by: 'Ada', at: 2 } });
+});
+
 test('a board agent is told its rewritten brief', () => {
-  const source: PromptSource = { text: (id) => (id === 'station.pulls' ? 'You review PRs. The request:' : PROMPTS[id].text), agent: () => undefined };
+  const source: PromptSource = { text: (id) => (id === 'station.pulls' ? 'You review PRs. The request:' : PROMPTS[id].text), agent: () => undefined, station: () => undefined };
   assert.equal(stationBrief('pulls', source), 'You review PRs. The request:');
   assert.equal(stationBrief('issues', source), stationBrief('issues'));
 });

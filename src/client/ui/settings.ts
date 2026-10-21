@@ -6,7 +6,9 @@ import { askNotifyPermission, notifyPermission, type DesktopNotifier } from '../
 import type { ThemePick, WebhookKind } from '../../shared/protocol';
 import { THEME_PICKS } from '../../shared/theme';
 import { mapChoices } from '../../shared/maps';
+import { STATION_AGENT } from '../../shared/layout';
 import { dogSetting } from './settings-dog';
+import { BOARD_AGENTS, boardAgentRow } from './settings-boards';
 import { h, openModal, timeAgo } from './dom';
 import { agentFields, choiceLabel, officeChoice } from './provider';
 import { openPromptEditor, rewrittenPrompts } from './prompts';
@@ -297,6 +299,10 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
   const agentActions = h('div.seg', { style: 'margin-top:8px' }, agentSave, agentBack);
   const agentNow = h('p.outside-now');
   const agentNote = h('p.setting-note');
+  // What the Issues and PR agents start on: each one's own pick, or the default above (see settings-boards.ts).
+  const boardRows = BOARD_AGENTS.map((kind) => ({ kind, row: boardAgentRow(net, kind) }));
+  const boardNote = h('p.setting-note');
+  boardNote.textContent = 'What the Issues and PR agents start on when nobody is there yet: leave them on the default worker above, or press ✏️ Edit to give one a provider, model and effort of its own. The Queue agent always runs on the default.';
   const paintAgent = () => {
     const admin = store.me.admin;
     const picked = store.prompts.agent;
@@ -468,6 +474,8 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
     ],
     workers: [
       setting('Default worker', 'office', agentNow, agent.element, agentActions, agentNote),
+      ...boardRows.map(({ kind, row }) => setting(STATION_AGENT[kind].name, 'office', row.now, row.fields, row.actions)),
+      setting('Board agents', 'office', boardNote),
       setting('Worker limit', 'office', limitRow, limitNote),
       setting('Workers whose pull request merged', 'office', leaveRow, leaveNote),
       setting('Prompts', 'office', promptsOpen, promptsNote),

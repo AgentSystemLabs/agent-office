@@ -138,6 +138,9 @@ export const SEATS: DeskDef[] = [...DESKS, ...WING_DESKS, ...BEANBAGS];
 /** The boards with an agent standing by: the Issues board, the PR board and the task queue. */
 export type StationKind = 'issues' | 'pulls' | 'queue';
 
+/** The board agents an admin can give their own provider, model and effort: the Issues and PR agents (the Queue agent always runs on the office's default worker). */
+export type ConfigurableStation = Exclude<StationKind, 'queue'>;
+
 /**
  * The board agents: a worker standing behind a little kiosk just west of each of those boards (see
  * BOARDS), there for anyone to prompt about it. (x, z) is the kiosk. They face into the room, so at
