@@ -14,6 +14,7 @@ import type { QueueClientMsg, QueueServerMsg } from './protocol/queue.js';
 import type { RooftopClientMsg, RooftopServerMsg } from './protocol/rooftop.js';
 import type { SettingsClientMsg, SettingsServerMsg } from './protocol/settings.js';
 import type { BallClientMsg, CabinetClientMsg, CarClientMsg, DecorClientMsg, DogClientMsg, JukeboxClientMsg, ToysServerMsg, WhiteboardClientMsg } from './protocol/toys.js';
+import type { TranscriptClientMsg, TranscriptServerMsg } from './protocol/transcript.js';
 import type { UsageClientMsg, UsageServerMsg } from './protocol/usage.js';
 import type { WorkerClientMsg, WorkerServerMsg } from './protocol/workers.js';
 
@@ -28,6 +29,7 @@ export * from './protocol/queue.js';
 export * from './protocol/rooftop.js';
 export * from './protocol/settings.js';
 export * from './protocol/toys.js';
+export * from './protocol/transcript.js';
 export * from './protocol/usage.js';
 export * from './protocol/workers.js';
 
@@ -35,6 +37,7 @@ export type ClientMsg =
   | PresenceClientMsg
   | RooftopClientMsg
   | WorkerClientMsg
+  | TranscriptClientMsg
   | GitHubClientMsg
   | QueueClientMsg
   | MeetingClientMsg
@@ -58,6 +61,7 @@ export type ServerMsg =
   | PresenceServerMsg
   | RooftopServerMsg
   | WorkerServerMsg
+  | TranscriptServerMsg
   | GitHubServerMsg
   | QueueServerMsg
   | MeetingServerMsg

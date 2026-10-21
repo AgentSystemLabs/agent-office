@@ -190,15 +190,14 @@ export class WorkerManager {
     return this.workers.get(id)?.owner;
   }
 
+  /** Its agent's transcript (Claude Code's session log), once a hook has named it; a /clear names a new one. */
+  transcriptOf(id: string): string | undefined {
+    return this.workers.get(id)?.tracker.transcript;
+  }
+
   /** Each worker's terminal process and directory, to tell whose servers are whose. */
   owners(): ServiceOwner[] {
-    return [...this.workers.values()].map((w) => ({
-      workerId: w.info.id,
-      pid: w.pty?.pid,
-      agent: w.info.kind === 'agent',
-      cwd: this.cwd(w.info),
-      root: this.dir,
-    }));
+    return [...this.workers.values()].map((w) => ({ workerId: w.info.id, pid: w.pty?.pid, agent: w.info.kind === 'agent', cwd: this.cwd(w.info), root: this.dir }));
   }
 
   /**
