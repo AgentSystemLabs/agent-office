@@ -97,7 +97,7 @@ export function codexHookArgs(hookPath: string, platform: NodeJS.Platform = proc
     // A quoted executable is not invoked by PowerShell without &, and cmd.exe does not
     // recognize POSIX single quotes. An encoded PowerShell command works from either
     // Windows shell and keeps paths (including apostrophes and metacharacters) literal.
-    const script = "$OutputEncoding = [Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false); "
+    const script = "$ProgressPreference = 'SilentlyContinue'; $OutputEncoding = [Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false); "
       + "[Console]::In.ReadToEnd() | & " + argv.map((arg) => `'${arg.replaceAll("'", "''")}'`).join(' ');
     const command = platform === 'win32'
       ? `powershell.exe -NoProfile -NonInteractive -EncodedCommand ${Buffer.from(script, 'utf16le').toString('base64')}`
