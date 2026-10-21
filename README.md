@@ -420,3 +420,7 @@ Every change to the app that lands on `main` is published as a GitHub release by
 ## License
 
 [MIT](LICENSE)
+
+### Codex hooks on Windows
+
+Windows hook commands use an encoded PowerShell launch. After an update that changes hooks, restart or resume existing Codex workers and review the updated commands in /hooks. See [agent configuration](docs/agents.md).

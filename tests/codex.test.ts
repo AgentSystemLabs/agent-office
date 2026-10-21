@@ -38,7 +38,7 @@ test('rejects unknown, malformed, empty, oversized, and child-scoped events', ()
 });
 
 test('generates one stable CLI hook override per supported event', () => {
-  const args = codexHookArgs('/tmp/office data/agent-office-codex-hook.cjs');
+  const args = codexHookArgs('/tmp/office data/agent-office-codex-hook.cjs', 'linux');
   assert.equal(args.length, CODEX_HOOK_EVENTS.length * 2);
   for (let i = 0; i < CODEX_HOOK_EVENTS.length; i++) {
     assert.equal(args[i * 2], '-c');
@@ -135,6 +135,49 @@ test('helper forwards only the bounded root event fields to the authenticated br
       session_id: 'thread-1', hook_event_name: 'UserPromptSubmit', prompt: 'fix it', turn_id: 'turn-1',
       transcript_path: '/private/transcript.jsonl',
     });
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// Run the generated command, rather than spawning the helper directly: the shell
+// launch is what failed on Windows even though the direct helper tests passed.
+test('Windows hook command forwards UTF-8 stdin through the shell with literal paths', { skip: process.platform !== 'win32' }, async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "office ' & $ hooks-"));
+  const server = createServer((req, res) => {
+    const chunks: Buffer[] = [];
+    req.on('data', (chunk: Buffer) => chunks.push(chunk));
+    req.on('end', () => {
+      received.push(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+      res.writeHead(200).end();
+    });
+  });
+  const received: unknown[] = [];
+  try {
+    const file = writeCodexHook(dir);
+    const config = codexHookArgs(file)[3]; // UserPromptSubmit
+    const match = config.match(/command=("(?:[^"\\]|\\.)*"),timeout/);
+    assert.ok(match);
+    const command = JSON.parse(match[1]) as string;
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    assert.ok(address && typeof address === 'object');
+    for (const shell of ['cmd.exe', 'powershell.exe']) {
+      const args = shell === 'cmd.exe' ? ['/d', '/s', '/c', command] : ['-NoProfile', '-NonInteractive', '-Command', command];
+      const child = spawn(shell, args, {
+        env: { ...process.env, AGENT_OFFICE_HOOK_URL: `http://127.0.0.1:${address.port}`, AGENT_OFFICE_HOOK_TOKEN: 'test', AGENT_OFFICE_WORKER_ID: 'worker-1' },
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      let stdout = '', stderr = '';
+      child.stdout.on('data', (chunk) => { stdout += chunk; });
+      child.stderr.on('data', (chunk) => { stderr += chunk; });
+      const exited = new Promise<number | null>((resolve, reject) => { child.on('error', reject); child.on('close', resolve); });
+      child.stdin.end(JSON.stringify({ session_id: 'thread-1', prompt: 'Fix caf\u00e9 \u4fee\u590d \u2728' }));
+      assert.equal(await exited, 0, stderr);
+      assert.equal(stdout, '{}', stderr);
+    }
+    assert.deepEqual(received, Array(2).fill({ session_id: 'thread-1', hook_event_name: 'UserPromptSubmit', prompt: 'Fix caf\u00e9 \u4fee\u590d \u2728' }));
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
     rmSync(dir, { recursive: true, force: true });
