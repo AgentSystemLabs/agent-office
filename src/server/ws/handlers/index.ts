@@ -20,6 +20,7 @@ import { servicesView, settingsHandlers } from './settings.js';
 import { signinsHandlers } from './signins.js';
 import { teamHandlers } from './team.js';
 import { usageHandlers } from './usage.js';
+import { whipHandlers } from './whip.js';
 import { whiteboardHandlers, whiteboardHooks, whiteboardView } from './whiteboard.js';
 import { jailView, workerHandlers, workerHooks, workersView } from './workers.js';
 import type { FeatureHooks, HandlerMap, ViewPieces } from './types.js';
@@ -45,6 +46,7 @@ export const handlers: HandlerMap<ClientMsg> = {
   ...signinsHandlers,
   ...teamHandlers,
   ...usageHandlers,
+  ...whipHandlers,
   ...whiteboardHandlers,
   ...workerHandlers,
 };

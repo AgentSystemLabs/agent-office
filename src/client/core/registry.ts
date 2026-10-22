@@ -217,6 +217,8 @@ export interface Activity<Why extends string = string, E = unknown, El = unknown
   stop(why: Why): void;
   /** Keys while it's active: true when it took the key. */
   key?(e: E): boolean;
+  /** A click on the world while it's active (the mouse button, in first person): true when it took it. */
+  click?(): boolean;
   /** Draws the hint bar while it's active. */
   hint?(el: El): void;
   /** The camera's its own while it's active (over your shoulder at the tee, say): no crosshair, and you're in view. */
@@ -298,6 +300,11 @@ export class Activities<Why extends string = string, E = unknown, El = unknown> 
   /** Offers a key press to what's going on, in order: true when one took it. */
   key(e: E): boolean {
     return this.list.some((a) => !!a.key && a.active() && a.key(e));
+  }
+
+  /** Offers a click on the world to what's going on, in order: true when one took it. */
+  click(): boolean {
+    return this.list.some((a) => !!a.click && a.active() && a.click());
   }
 }
 

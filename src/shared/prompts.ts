@@ -1,12 +1,12 @@
 // Every prompt the office writes for a worker by itself: what 🤖 Hand to a worker, 🔍 Review and the
 // boards' other buttons send, what the queue adds to a task, the board agents' briefs, the meeting
-// room's parts and the sign-writer's instructions. Each can be rewritten in ⚙️ Settings (kept by
+// room's parts, the whip's optimization pass and the sign-writer's instructions. Each can be rewritten in ⚙️ Settings (kept by
 // server/prompts.ts, for the whole building); these are the defaults, which "Default" goes back to.
 // A {{name}} in one is filled in by the office when it's sent.
 
 import { STATION_AGENT, type StationKind } from './layout.js';
 
-export type PromptGroup = 'issues' | 'pulls' | 'queue' | 'repos' | 'stations' | 'meetings' | 'office';
+export type PromptGroup = 'issues' | 'pulls' | 'queue' | 'repos' | 'stations' | 'meetings' | 'whip' | 'office';
 
 /** The editor's sections, in order. */
 export const PROMPT_GROUPS: Record<PromptGroup, string> = {
@@ -16,6 +16,7 @@ export const PROMPT_GROUPS: Record<PromptGroup, string> = {
   repos: '🗂️ Across repositories',
   stations: '🧑‍💼 Board agents',
   meetings: '🤝 Meeting room',
+  whip: '🪢 The whip',
   office: '🏷️ Worker signs',
 };
 
@@ -356,6 +357,48 @@ const DEFS = {
     vars: { findings: "Every reviewer's notes", exampleRole: "A reviewer's lens, for the example tag", output: OUTPUT_NOTE },
     needs: ['output'],
     text: `Read every reviewer's findings ({{findings}}). Drop the duplicates, keeping the clearest wording, and write one combined review to {{output}} in Markdown: a short summary with your verdict first, then the findings, the most serious first, each tagged with the lens it came from in bold brackets like **[{{exampleRole}}]**, with its file:line. Don't post it: the office posts it on the pull request once the file is written. ${OUTPUT}`,
+  },
+
+  // --- 🪢 The whip ---
+  'worker.whip': {
+    group: 'whip',
+    label: 'Optimization pass',
+    used: 'Sent to a worker when someone cracks the whip at it: one pass to tighten up what its branch has done so far, without changing what it does.',
+    vars: {
+      by: 'Who cracked the whip',
+      name: "The worker's name",
+      task: 'What it is working on: its sign (name and summary), else its first prompt',
+      branch: 'The branch it is on',
+      base: 'What to diff its work against: the branch its worktree was cut from (on origin when there is one)',
+      pr: 'A line saying which pull request is its own, to push to (empty when it has none)',
+      repos: 'For a worker across repositories: a line saying to do it in each one (empty otherwise)',
+    },
+    needs: ['base'],
+    text: [
+      "*Crack!* {{by}} just cracked the whip at you, {{name}}. That's all the drama: time for an optimization pass over what you've done so far.",
+      '',
+      'Your task: {{task}}',
+      "You're on `{{branch}}`, and your work is what it changed since `{{base}}`.",
+      '',
+      '{{pr}}',
+      '',
+      '{{repos}}',
+      '',
+      "If you're in the middle of a step, finish it first. Then:",
+      '',
+      "1. Read your changes: `git diff {{base}}...HEAD` for what's committed, `git diff HEAD` and `git status` for what isn't. (If `{{base}}` isn't there, diff against the branch you started from.) That diff is the scope: leave code you didn't touch alone.",
+      '2. Go through it with the task in mind and fix what you find:',
+      '   - Simplify: needless indirection, nesting, abstractions and special cases; unclear names.',
+      '   - Reuse: code that redoes what a helper or pattern in the project already does, and logic duplicated within your own changes.',
+      '   - Dead code: unused functions, imports, variables and parameters, leftover debug output, commented-out code.',
+      '   - Efficiency: repeated work or I/O (N+1 queries, reading the same file twice), needless loops, copies and allocations, independent steps run one after another, slow work on hot paths or at startup.',
+      '   - Robustness: edge cases the task implies, errors that are swallowed or lose their cause, missing cleanup.',
+      "3. Don't change what it's meant to do, and don't widen the scope: no new features, no refactoring beyond your own changes, no renaming what other code depends on. Skip a fix that would change intended behavior or reach well outside the diff, and note it instead. If it's already clean, say so and change nothing.",
+      '4. Verify it the way this project does (build, typecheck, lint, tests) and fix anything you broke.',
+      "5. If `{{branch}}` is a branch of your own, commit the pass as a commit of its own. Push it only to a pull request that's already open, and don't open one.",
+      '',
+      'Then sum it up in a few lines: what you changed and why, and what you deliberately left alone.',
+    ].join('\n'),
   },
 
   // --- 🏷️ Worker signs ---

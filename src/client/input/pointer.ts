@@ -156,6 +156,8 @@ export function installPointer(ctx: Ctx, core: CoreState, parts: PointerParts) {
     // At the dart board or the axe lane, the button throws (see Thrower).
     if (modalOpen() || ctx.activities.any('takesCamera')) return;
     if (emotes.emoteWheel.isOpen) return emotes.emoteWheel.click();
+    // Whatever you're in the middle of that wants the click has it (the whip cracks).
+    if (ctx.activities.click()) return;
     // The ball in your hands: press to wind up, let go (or click again, with no mouse captured) to shoot.
     if (hoops.holding()) {
       if (hoops.winding() && !player.locked) hoops.letFly();

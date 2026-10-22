@@ -18,6 +18,7 @@ Back to the [README](../README.md).
 | O | Open a pull request for a worker on its own branch, or see the one it has (a worker across several projects gets one in each) |
 | N | Go to the worker that has waited longest on someone; again for the next one |
 | F | Hang a picture from the web on a wall (scroll to size it, click to hang it) |
+| J | Take out the whip (J again, or Q, puts it away); E or a click at a worker cracks it: it flinches for everyone on your floor and gets an optimization pass over its branch and task |
 | Q | Put back the issue card you're carrying, or drop the basketball |
 | H | These controls; in a car, honk the horn |
 | T / Enter | Chat |
