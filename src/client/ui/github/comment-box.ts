@@ -1,3 +1,4 @@
+import { storageKey } from '../../state/persist';
 import type { GhComment } from '../../../shared/protocol';
 import type { Net } from '../../net';
 import { h } from '../dom';
@@ -51,7 +52,7 @@ export function commentBox(kind: 'issue' | 'pull', number: number, itemUrl: stri
     if (ta.value) savePref(draftKey, ta.value);
     else
       try {
-        localStorage.removeItem(draftKey);
+        localStorage.removeItem(storageKey(draftKey));
       } catch {
         // storage blocked
       }

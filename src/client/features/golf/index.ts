@@ -2,6 +2,7 @@
  * Golf off the balcony: the tee (a club out, a swing, the camera following the ball), everyone's balls
  * in the air or lying where they stopped, and your records, kept in this browser.
  */
+import { storageKey } from '../../state/persist';
 import { GOLF_HOLE } from '../../../shared/layout';
 import type { Ctx } from '../../core/context';
 import { aside, hintTitle, key, onE } from '../../core/hint';
@@ -38,7 +39,7 @@ export function installGolf(ctx: Ctx, deps: GolfDeps) {
   const GOLF_KEY = 'agent-office.golf';
   function golfRecord(): { best: number | null; holes: number } {
     try {
-      const r = JSON.parse(localStorage.getItem(GOLF_KEY) ?? '{}') as { best?: unknown; holes?: unknown };
+      const r = JSON.parse(localStorage.getItem(storageKey(GOLF_KEY)) ?? '{}') as { best?: unknown; holes?: unknown };
       return { best: typeof r.best === 'number' ? r.best : null, holes: typeof r.holes === 'number' ? r.holes : 0 };
     } catch {
       return { best: null, holes: 0 };
@@ -46,7 +47,7 @@ export function installGolf(ctx: Ctx, deps: GolfDeps) {
   }
   function saveGolfRecord(r: { best: number | null; holes: number }) {
     try {
-      localStorage.setItem(GOLF_KEY, JSON.stringify(r));
+      localStorage.setItem(storageKey(GOLF_KEY), JSON.stringify(r));
     } catch {
       // private window: it's only for this visit then
     }

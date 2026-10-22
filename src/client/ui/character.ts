@@ -1,4 +1,5 @@
 import './character.css';
+import { openPocketCustomize } from '../shared/pocket/native';
 import * as THREE from 'three';
 import { OutlineEffect } from 'three/examples/jsm/effects/OutlineEffect.js';
 import { HAIR_COLOR_NAMES, HAIR_COLORS, HAIR_STYLES, SKIN_TONES, randomLook, randomName, type Look } from '../../shared/avatar';
@@ -132,6 +133,7 @@ class Preview {
  * `first` is the one you see when you join: closing it goes in as whoever's picked so far.
  */
 export function openCharacter(first: boolean, onSave: (p: Profile) => void) {
+  if (openPocketCustomize()) return;
   const pick: Profile = { ...store.profile, look: { ...store.profile.look } };
   const canvas = h('canvas', { 'aria-label': 'Your character, drag to spin' }) as HTMLCanvasElement;
   const preview = new Preview(canvas, pick);

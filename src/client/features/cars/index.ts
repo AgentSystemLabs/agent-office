@@ -3,6 +3,7 @@
  * horn, laps of the scenic loop, and a car shoving you out of its way. Placing you anywhere gets you
  * out first: see the driver's activity, and placeAt in core/place.ts.
  */
+import { storageKey } from '../../state/persist';
 import { CARS, SEAT_HIPS, type CarSeat } from '../../../shared/garage';
 import { PLACES, placeAt as loopPlace } from '../../../shared/scenic';
 import type { Ctx, Hint } from '../../core/context';
@@ -150,7 +151,7 @@ export function installCars(ctx: Ctx, deps: CarsDeps) {
   const laps = new LapTimer(
     (() => {
       try {
-        const best = Number(localStorage.getItem(LAP_KEY));
+        const best = Number(localStorage.getItem(storageKey(LAP_KEY)));
         return best > 0 ? best : null;
       } catch {
         return null;
@@ -161,7 +162,7 @@ export function installCars(ctx: Ctx, deps: CarsDeps) {
     const done = laps.done;
     if (done?.best) {
       try {
-        localStorage.setItem(LAP_KEY, String(time));
+        localStorage.setItem(storageKey(LAP_KEY), String(time));
       } catch {
         // private window: it's only for this visit then
       }

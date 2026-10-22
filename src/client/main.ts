@@ -1,4 +1,6 @@
 import './style.css';
+import { pocketNoWebGL } from './shared/pocket/runtime';
+import { initPocketBootstrap } from './shared/pocket/bootstrap';
 import { Net } from './net';
 import { DesktopNotifier } from './notify';
 import { store, loadProfile, loadSettings } from './state';
@@ -65,15 +67,17 @@ import { installWhiteboard } from './features/whiteboard';
 import { installWorkerActions } from './features/workers/actions';
 import { installWorkerViews } from './features/workers/views';
 
-// The loading screen stays up until there's an office to see (see boot and whoami at the end).
+// Optional Pocket 3D starts from authenticated native-room data, before any scene or avatar.
+const pocket = initPocketBootstrap(store);
+// The standalone loading screen remains independent of the native Pocket room.
 const loading = loadingScreen(onModelsProgress);
 // Came here from the 2D view's 🏢 3D button: it isn't offered straight back.
-const chose3d = new URLSearchParams(location.search).has('3d');
+const chose3d = !pocket && new URLSearchParams(location.search).has('3d');
 if (chose3d) history.replaceState(null, '', location.pathname);
 /** Offers the 2D view (/lite) where the 3D is hard going. */
-const offer2d = (why: 'touch' | 'slow') => chose3d || offerLite(why);
+const offer2d = (why: 'touch' | 'slow') => !!pocket || chose3d || offerLite(why);
 // A phone can't walk around the office: the 2D view is made for it.
-if (touchOnly()) offer2d('touch');
+if (!pocket && touchOnly()) offer2d('touch');
 // The models made in Blender, loaded before the world they're in is built (see world/models.ts).
 await preloadModels();
 
@@ -89,7 +93,7 @@ installLoop(ctx, core, parts, { offer2d });
 
 // ---- Renderer & scene ---------------------------------------------------------------------------
 const canvas = $('scene') as HTMLCanvasElement;
-parts.stage = createScene(canvas, makeRenderer(canvas) ?? (await noWebGL()));
+parts.stage = createScene(canvas, makeRenderer(canvas) ?? (await (pocket ? pocketNoWebGL() : noWebGL())));
 parts.worlds = createWorlds(ctx);
 installSky(ctx);
 
@@ -182,7 +186,7 @@ parts.hud = installHud(ctx, core, parts);
 
 // ---- Main loop ---------------------------------------------------------------------------------------
 fitWindow(ctx);
-const frame = frameLoop(ctx, loading);
+const frame = frameLoop(ctx, { drew() { loading.drew(); pocket?.drew(); } });
 
 // ---- Boot ------------------------------------------------------------------------------------------
 function boot() {
@@ -202,7 +206,9 @@ async function whoami() {
   }
 }
 
-void whoami().then(() => {
+if (pocket) {
+  void pocket.start({ net: parts.net, loading, startFrames: () => requestAnimationFrame(frame) });
+} else void whoami().then(() => {
   const saved = loadProfile();
   if (saved && store.me.account) saved.name = store.me.account.name;
   if (store.me.account) store.profile.name = store.me.account.name;

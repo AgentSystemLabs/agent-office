@@ -1,3 +1,4 @@
+import { storageKey } from '../../state/persist';
 import './pulldiff.css';
 import type { GhReviewComment } from '../../../shared/protocol';
 import { h, timeAgo } from '../dom';
@@ -107,7 +108,7 @@ type ReviewedStore = Record<string, { at: number; files: Record<string, string> 
 
 function loadReviewed(): ReviewedStore {
   try {
-    const v = JSON.parse(localStorage.getItem(REVIEWED_KEY) ?? '{}');
+    const v = JSON.parse(localStorage.getItem(storageKey(REVIEWED_KEY)) ?? '{}');
     return v && typeof v === 'object' ? v : {};
   } catch {
     return {};
@@ -139,7 +140,7 @@ export class Reviewed {
     const keys = Object.keys(all).sort((a, b) => all[b].at - all[a].at);
     for (const k of keys.slice(KEEP_PRS)) delete all[k];
     try {
-      localStorage.setItem(REVIEWED_KEY, JSON.stringify(all));
+      localStorage.setItem(storageKey(REVIEWED_KEY), JSON.stringify(all));
     } catch {
       // storage blocked or full: the mark lasts until the window closes
     }

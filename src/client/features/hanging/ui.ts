@@ -1,3 +1,4 @@
+import { storageKey } from '../../state/persist';
 import './ui.css';
 import { FRAMES, checkImageUrl, type Decoration } from '../../../shared/decor';
 import { store } from '../../state';
@@ -14,7 +15,7 @@ export interface HangChoice {
 const FRAME_KEY = 'agent-office.frame';
 function lastFrame(): number {
   try {
-    const n = Number(localStorage.getItem(FRAME_KEY));
+    const n = Number(localStorage.getItem(storageKey(FRAME_KEY)));
     return Number.isInteger(n) && n >= 0 && n < FRAMES.length ? n : 0;
   } catch {
     return 0;
@@ -147,7 +148,7 @@ export function openHangDialog(opts: { initial?: Decoration; onDone(choice: Hang
   const finish = () => {
     if (!pic) return;
     try {
-      localStorage.setItem(FRAME_KEY, String(frame));
+      localStorage.setItem(storageKey(FRAME_KEY), String(frame));
     } catch {
       // storage blocked
     }

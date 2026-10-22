@@ -1,3 +1,4 @@
+import { storageKey } from '../state/persist';
 import './litesuggest.css';
 // Offering the 2D view (/lite) where the 3D office is hard going: on a phone, with no keys to walk
 // with, or on a computer where frames come slowly (see framerate.ts).
@@ -14,7 +15,7 @@ export function touchOnly(): boolean {
 
 function declined(): boolean {
   try {
-    return localStorage.getItem(DECLINED_KEY) === '1';
+    return localStorage.getItem(storageKey(DECLINED_KEY)) === '1';
   } catch {
     return false;
   }
@@ -39,7 +40,7 @@ export function offerLite(why: 'touch' | 'slow') {
   );
   stay.addEventListener('click', () => {
     try {
-      localStorage.setItem(DECLINED_KEY, '1');
+      localStorage.setItem(storageKey(DECLINED_KEY), '1');
     } catch {
       // storage blocked: it's only this page then
     }

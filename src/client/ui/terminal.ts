@@ -99,6 +99,7 @@ export function openTerminalFor(): string | null {
 }
 
 export function openTerminal(net: Net, workerId: string, onChanges?: () => void, find?: TerminalFind, opts: TerminalOptions = {}) {
+  if (net.openPocketSession(workerId)) return;
   if (current?.workerId === workerId) {
     if (find) current.find(find);
     return;

@@ -1,6 +1,12 @@
 import type { ClientMsg, ServerMsg } from '../shared/protocol';
 import { lastFloor, store, type Profile, type Spot } from './state';
 
+import { installPocketBoundary, pocketRuntime } from './shared/pocket/runtime';
+import { PocketTransport } from './shared/pocket/transport';
+import { readPocketBootstrap } from './shared/pocket/bootstrap';
+
+installPocketBoundary();
+
 type Handler = (msg: ServerMsg) => void;
 
 /** The sign-in page, coming back to the 2D view afterwards if that's where you are (see login.ts). */
@@ -10,6 +16,14 @@ export function loginUrl(): string {
 
 export class Net {
   private ws: WebSocket | null = null;
+  private pocket?: PocketTransport;
+
+  /** Native Pocket chat replaces the terminal in the embedded client. */
+  openPocketSession(workerId: string): boolean {
+    if (!pocketRuntime()) return false;
+    this.send({ t: 'worker.attach', workerId });
+    return true;
+  }
   private handlers: Handler[] = [];
   private statusHandlers: ((up: boolean) => void)[] = [];
   private retry = 0;
@@ -28,6 +42,7 @@ export class Net {
 
   onMessage(h: Handler) {
     this.handlers.push(h);
+    return () => { this.handlers = this.handlers.filter((handler) => handler !== h); };
   }
 
   onStatus(h: (up: boolean) => void) {
@@ -35,6 +50,14 @@ export class Net {
   }
 
   connect() {
+    if (pocketRuntime()) {
+      this.pocket ??= new PocketTransport(
+        (msg) => this.handlers.forEach((h) => h(msg)),
+        (up) => { this.up = up; this.statusHandlers.forEach((h) => h(up)); },
+      );
+      this.pocket.connect(this.profile(), readPocketBootstrap() ?? undefined);
+      return;
+    }
     const { name, color, look } = this.profile();
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     const q = new URLSearchParams({ name, color, skin: String(look.skin), hair: String(look.hair), style: String(look.style) });
@@ -88,6 +111,11 @@ export class Net {
   }
 
   send(msg: ClientMsg) {
+    if (pocketRuntime()) {
+      if (this.pocket) this.pocket.send(msg);
+      else this.handlers.forEach((h) => h({ t: 'toast', level: 'warn', text: 'Pocket is not connected yet.' }));
+      return;
+    }
     if (this.ws && this.ws.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(msg));
   }
 }

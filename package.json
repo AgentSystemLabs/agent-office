@@ -18,6 +18,8 @@
     "dev": "concurrently -k \"vite\" \"tsx watch src/server/cli.ts --port 4600 --password dev --no-open\"",
     "build": "npm run build:client && npm run build:server",
     "build:client": "vite build",
+    "build:pocket": "vite build --base ./ --outDir ../../dist/pocket && node integrations/pi-pocket/package.mjs",
+    "test:pocket": "node --test integrations/pi-pocket/office-v2.test.ts",
     "build:server": "tsc -p tsconfig.server.json",
     "typecheck": "tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.client.json --noEmit",
     "start": "node bin/agent-office.js",

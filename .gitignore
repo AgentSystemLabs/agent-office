@@ -5,3 +5,5 @@ dist
 .DS_Store
 pw.txt
 __pycache__/
+integrations/pi-pocket/office-v2-client/world/
+integrations/pi-pocket/office-v2-client/office-document.json

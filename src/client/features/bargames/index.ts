@@ -2,6 +2,7 @@
  * Darts and axes at the rooftop bar: stepping up to the line, throws landing (yours and everyone's
  * up there) and chalked up on the board, and your best rounds, kept in this browser.
  */
+import { storageKey } from '../../state/persist';
 import * as THREE from 'three';
 import { ROUND, score, targetFrame, type BarGame, type Score, type Toss } from '../../../shared/bargames';
 import type { Ctx, Hint } from '../../core/context';
@@ -37,7 +38,7 @@ export function installBarGames(ctx: Ctx, deps: BarGamesDeps) {
   const THROW_KEY = 'agent-office.bargames';
   const throwBests: Partial<Record<BarGame, number>> = (() => {
     try {
-      const r = JSON.parse(localStorage.getItem(THROW_KEY) ?? '{}') as Record<string, unknown>;
+      const r = JSON.parse(localStorage.getItem(storageKey(THROW_KEY)) ?? '{}') as Record<string, unknown>;
       const out: Partial<Record<BarGame, number>> = {};
       for (const g of ['darts', 'axe'] as BarGame[]) if (typeof r[g] === 'number') out[g] = r[g] as number;
       return out;
@@ -47,7 +48,7 @@ export function installBarGames(ctx: Ctx, deps: BarGamesDeps) {
   })();
   function saveThrowBests() {
     try {
-      localStorage.setItem(THROW_KEY, JSON.stringify(throwBests));
+      localStorage.setItem(storageKey(THROW_KEY), JSON.stringify(throwBests));
     } catch {
       // private window: it's only for this visit then
     }

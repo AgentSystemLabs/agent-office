@@ -1,3 +1,4 @@
+import { storageKey } from '../../state/persist';
 import type { GhMergeMethod } from '../../../shared/protocol';
 
 // What the windows remember in this browser: how you last merged, the Files tab's layout, which tab
@@ -5,7 +6,7 @@ import type { GhMergeMethod } from '../../../shared/protocol';
 
 export function pref<T>(key: string, fallback: T): T {
   try {
-    return (JSON.parse(localStorage.getItem(key) ?? 'null') as T) ?? fallback;
+    return (JSON.parse(localStorage.getItem(storageKey(key)) ?? 'null') as T) ?? fallback;
   } catch {
     return fallback;
   }
@@ -13,7 +14,7 @@ export function pref<T>(key: string, fallback: T): T {
 
 export function savePref(key: string, v: unknown) {
   try {
-    localStorage.setItem(key, JSON.stringify(v));
+    localStorage.setItem(storageKey(key), JSON.stringify(v));
   } catch {
     // storage blocked
   }

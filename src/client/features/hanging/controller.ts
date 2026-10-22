@@ -1,3 +1,4 @@
+import { storageKey } from '../../state/persist';
 import * as THREE from 'three';
 import { PICTURE_MAX, PICTURE_MIN, clampToWall, frameRect, overlaps, pictureSize, type WallId } from '../../../shared/decor';
 import type { Net } from '../../net';
@@ -37,7 +38,7 @@ export interface Spot {
 const SIZE_KEY = 'agent-office.picture-size';
 function lastSize(): number {
   try {
-    const n = Number(localStorage.getItem(SIZE_KEY));
+    const n = Number(localStorage.getItem(storageKey(SIZE_KEY)));
     return n >= PICTURE_MIN && n <= PICTURE_MAX ? n : 1.2;
   } catch {
     return 1.2;
@@ -183,7 +184,7 @@ export class Hanger {
       this.net.send({ t: 'decor.add', decor: { url: cur.url, title: cur.title || undefined, frame: cur.frame, ...spot } });
     }
     try {
-      localStorage.setItem(SIZE_KEY, String(cur.size));
+      localStorage.setItem(storageKey(SIZE_KEY), String(cur.size));
     } catch {
       // storage blocked
     }

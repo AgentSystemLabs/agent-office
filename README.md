@@ -45,6 +45,16 @@ curl -fsSL https://raw.githubusercontent.com/AgentSystemLabs/agent-office/main/i
 
 There's a lot more (a rooftop bar, an office dog, an arcade, supercars in the garage to drive round a scenic loop past a farm, pines, mountains and a beach): see [docs/features.md](docs/features.md).
 
+## Office v2 with the Pi Pocket runtime
+
+A separate integration adds a native room inside **Pi Pocket 0.19.0+**, with real Pocket linked sessions at desks instead of CLI workers. The room starts with your Pocket identity and saved appearance; the 3D office is an optional view, not a startup requirement. It uses Pocket's existing model configuration, session history, authorization, and native approval controls. The Agent Office Node backend does not run in this mode.
+
+Build with `npm run build:pocket`. Test with `npm run test:pocket` and the isolated scripted-model preview. Review the package before the owner installs and enables it. No credentials are copied and no Pocket core change or restart is required.
+
+This first slice supports source-scoped shared desks, polled presence, initial-task hiring, busy/idle status, and native session navigation. Follow-ups are drafts for the person to send. Embedded session streams, exact approval status, shell terminals, queue automation, meetings, and Office-managed worktrees are not implemented.
+
+See [Pi Pocket integration](docs/pi-pocket.md) for architecture, installation, permissions, recovery, and limitations. The ordinary CLI setup below is a different runtime; do not start it for Pocket mode.
+
 ## Requirements
 
 On the machine that runs the office:

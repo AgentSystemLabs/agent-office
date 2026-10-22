@@ -1,4 +1,5 @@
 import './elevator.css';
+import { pocketRuntime } from '../shared/pocket/runtime';
 import type { CloneProgress, FloorInfo, RepoChoice, ServerMsg } from '../../shared/protocol';
 import { cloneLabel, cloneStep, floorPalette, normalizeRepo, sameRepo } from '../../shared/floors';
 import { ROOF, ROOF_NAME } from '../../shared/rooftop';
@@ -58,6 +59,10 @@ export function elevatorPanelOpen(): boolean {
 }
 
 export function openElevator(opts: ElevatorOptions): void {
+  if (pocketRuntime()) {
+    toast('This room uses the source selected in Pocket. Choose another source in the native room.', 'info');
+    return;
+  }
   if (current) return;
   // Nowhere to go yet: the panel greets you. It closes like any other; the elevator (or the floor
   // name in the corner) opens it again.

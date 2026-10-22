@@ -1,3 +1,4 @@
+import { storageKey } from '../../state/persist';
 import './ui.css';
 import { isDocPath, resolveDocLink, type DocFile, type DocList, type DocText } from '../../../shared/docs';
 import { clip, h, openModal, setDoing, timeAgo, toast } from '../../ui/dom';
@@ -127,7 +128,7 @@ function size(bytes: number): string {
 
 function lastRead(floor: string): string | undefined {
   try {
-    return JSON.parse(localStorage.getItem(LAST_KEY) ?? '{}')[floor];
+    return JSON.parse(localStorage.getItem(storageKey(LAST_KEY)) ?? '{}')[floor];
   } catch {
     return undefined;
   }
@@ -135,9 +136,9 @@ function lastRead(floor: string): string | undefined {
 
 function rememberRead(floor: string, path: string) {
   try {
-    const all = JSON.parse(localStorage.getItem(LAST_KEY) ?? '{}');
+    const all = JSON.parse(localStorage.getItem(storageKey(LAST_KEY)) ?? '{}');
     all[floor] = path;
-    localStorage.setItem(LAST_KEY, JSON.stringify(all));
+    localStorage.setItem(storageKey(LAST_KEY), JSON.stringify(all));
   } catch {
     // Private mode, or storage is full: it just won't reopen where you were.
   }

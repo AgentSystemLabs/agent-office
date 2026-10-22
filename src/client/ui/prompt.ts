@@ -1,3 +1,4 @@
+import { storageKey } from '../state/persist';
 import './prompt.css';
 import type { AgentEffort, AgentProvider, LostBranch, ServerMsg, WorktreeCleanup, WorktreeState } from '../../shared/protocol';
 import { h, openModal } from './dom';
@@ -28,7 +29,7 @@ const WT_KEY = 'agent-office.worktree';
 /** Whether the last hire asked for its own git worktree (the Ask window shares the choice). */
 export function worktreePref(): boolean {
   try {
-    return localStorage.getItem(WT_KEY) === '1';
+    return localStorage.getItem(storageKey(WT_KEY)) === '1';
   } catch {
     return false;
   }
@@ -92,7 +93,7 @@ export function openPrompt(opts: PromptOptions) {
     modal.close();
     if (opts.worktreeOption) {
       try {
-        localStorage.setItem(WT_KEY, wtBox.checked ? '1' : '0');
+        localStorage.setItem(storageKey(WT_KEY), wtBox.checked ? '1' : '0');
       } catch {
         // storage blocked
       }

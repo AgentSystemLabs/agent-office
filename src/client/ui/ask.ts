@@ -1,3 +1,4 @@
+import { storageKey } from '../state/persist';
 import './ask.css';
 import type { AgentEffort, AgentProvider, WorkerStatus } from '../../shared/protocol';
 import { h, openModal, STATUS_LABEL } from './dom';
@@ -45,7 +46,7 @@ export function openAsk(opts: AskOptions) {
   ta.value = opts.initial ?? '';
   const wtBox = h('input', { type: 'checkbox', id: 'ask-wt' }) as HTMLInputElement;
   try {
-    wtBox.checked = localStorage.getItem(WT_KEY) === '1';
+    wtBox.checked = localStorage.getItem(storageKey(WT_KEY)) === '1';
   } catch {
     // storage blocked
   }
@@ -102,7 +103,7 @@ export function openAsk(opts: AskOptions) {
     modal.close();
     if (!to && opts.worktreeOption) {
       try {
-        localStorage.setItem(WT_KEY, wtBox.checked ? '1' : '0');
+        localStorage.setItem(storageKey(WT_KEY), wtBox.checked ? '1' : '0');
       } catch {
         // storage blocked
       }

@@ -1,3 +1,4 @@
+import { storageKey } from '../state/persist';
 import './boards.css';
 import type { GhIssue, GhLabel, GhPull, WorkerInfo } from '../../shared/protocol';
 import type { Net } from '../net';
@@ -61,7 +62,7 @@ function filtersKey(kind: 'issues' | 'pulls'): string {
 function loadFilters(kind: 'issues' | 'pulls'): LabelFilters {
   const out: LabelFilters = {};
   try {
-    const saved = JSON.parse(localStorage.getItem(filtersKey(kind)) ?? 'null');
+    const saved = JSON.parse(localStorage.getItem(storageKey(filtersKey(kind))) ?? 'null');
     if (saved && typeof saved === 'object') {
       for (const [k, v] of Object.entries(saved)) if (Array.isArray(v) && v.length) out[k] = v.filter((x): x is string => typeof x === 'string');
     }
@@ -73,7 +74,7 @@ function loadFilters(kind: 'issues' | 'pulls'): LabelFilters {
 
 function saveFilters(kind: 'issues' | 'pulls', filters: LabelFilters) {
   try {
-    localStorage.setItem(filtersKey(kind), JSON.stringify(filters));
+    localStorage.setItem(storageKey(filtersKey(kind)), JSON.stringify(filters));
   } catch {
     // storage blocked
   }

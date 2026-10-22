@@ -104,6 +104,8 @@ export function choiceLabel(choice: AgentChoice): string {
   return badge ? `${PROVIDER_LABEL[choice.provider]} · ${badge}` : PROVIDER_LABEL[choice.provider];
 }
 
+import { pocketRuntime } from '../shared/pocket/runtime';
+
 export interface ProviderPicker {
   element: HTMLElement;
   value(): AgentProvider;
@@ -128,6 +130,7 @@ const CATALOGUE_TTL_MS = 60_000;
 
 /** Asks for a provider's models, unless what's here is fresh: then there's nothing to wait for. */
 function loadCatalogue(provider: AgentProvider): Promise<void> | undefined {
+  if (pocketRuntime()) return undefined;
   const c = catalogues.get(provider) ?? { at: 0 };
   catalogues.set(provider, c);
   if ((c.list || c.failed) && Date.now() - c.at < CATALOGUE_TTL_MS) return undefined;
@@ -159,6 +162,11 @@ function loadCatalogue(provider: AgentProvider): Promise<void> | undefined {
  * a provider added there gets its fields here.
  */
 export function agentFields(project: ProjectInfo | null, id: string, initial: AgentChoice, label = 'Provider'): AgentFields {
+  if (pocketRuntime()) return {
+    element: h('small.provider-note', {}, 'Pocket inherits the source model and thinking. Change them in native Pocket chat.'),
+    value: () => 'pi', model: () => undefined, effort: () => undefined, valid: () => true,
+    set: () => {}, choice: () => ({ provider: 'pi' }),
+  };
   const options = supportedProviders(project);
   const fallback = resolvedProvider(project?.defaultProvider, project);
   const select = h('select.provider-select', { id, 'aria-label': 'Worker provider' }) as HTMLSelectElement;
