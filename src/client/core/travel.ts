@@ -136,16 +136,19 @@ export function installTravel(ctx: Ctx, core: CoreState, parts: TravelParts) {
     const inside = inElevator(player.pos.x, player.pos.z);
     const within = floorId === store.floor;
     core.trip = { floor: floorId, how: 'elevator', garage, timer: window.setTimeout(tripFailed, 10_000) };
+    const trip = core.trip;
     player.enabled = false;
     player.clearKeys();
     lift()?.setOpen(false);
     // Wait for the doors to shut on you, then dim the lights and go.
     setTimeout(
       () => {
+        if (core.trip !== trip) return;
         fade(true);
         setTimeout(() => {
+          if (core.trip !== trip) return;
           placeInCar(inside ? player.pos : undefined, garage && within);
-          if (within) setTimeout(rodeWithin, 700);
+          if (within) setTimeout(() => { if (core.trip === trip) rodeWithin(); }, 700);
           // Down to the garage from the roof: the bottom floor, and down its shaft once it's here (see arrive).
           else net.send({ t: 'floor.go', floor: floorId, ...(garage ? { at: { x: player.pos.x, y: streetBelow(0), z: player.pos.z, rotY: 0 } } : {}) });
         }, 320);
@@ -210,18 +213,20 @@ export function installTravel(ctx: Ctx, core: CoreState, parts: TravelParts) {
     // The floor list isn't a window, so nothing else stops a walk over to someone on this floor.
     if (!keepWalking) parts.walking.stopWalkingTo();
     core.trip = { floor: floorId, how: 'switch', timer: window.setTimeout(tripFailed, 10_000) };
+    const trip = core.trip;
     player.enabled = false;
     player.clearKeys();
     fade(true, true);
-    setTimeout(() => net.send({ t: 'floor.go', floor: floorId, at: standingAt(floorId) }), 170);
+    setTimeout(() => { if (core.trip === trip) net.send({ t: 'floor.go', floor: floorId, at: standingAt(floorId) }); }, 170);
   }
 
   /** Through the ceiling up the ladder, or through the floor down one: the lights dip as you pass. */
   function travel(floorId: string, how: Grip, at: Arrival) {
     if (core.trip) return;
     core.trip = { floor: floorId, how, timer: window.setTimeout(tripFailed, 10_000) };
+    const trip = core.trip;
     fade(true, true);
-    setTimeout(() => net.send({ t: 'floor.go', floor: floorId, at }), 170);
+    setTimeout(() => { if (core.trip === trip) net.send({ t: 'floor.go', floor: floorId, at }); }, 170);
   }
 
   /** The floor never came (it's gone, or the office is unreachable): back where you were. */
@@ -339,5 +344,5 @@ export function installTravel(ctx: Ctx, core: CoreState, parts: TravelParts) {
     doorsOpen();
   }
 
-  return { syncStack, takenAway, showElevator, lift, ride, switchFloor, travel, leaveRoofFor, setPlace, arrive, pending };
+  return { syncStack, takenAway, showElevator, lift, ride, switchFloor, travel, leaveRoofFor, setPlace, arrive, pending, cancel: tripFailed };
 }

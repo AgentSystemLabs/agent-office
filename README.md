@@ -362,6 +362,8 @@ deploy/coolify.sh ssh 'node /opt/agent-office/bin/agent-office.js accounts invit
 
 ## Controls
 
+Floor travel now waits in an elevator cabin while graphics warm up, with quiet music and an **Emergency · let me out** button after 15 seconds if it gets stuck. Automatic graphics adjustments reduce sustained rendering lag. See [smoother floor travel](docs/performance.md).
+
 | Key | Action |
 | --- | --- |
 | W A S D | Walk (hold Shift to run) |

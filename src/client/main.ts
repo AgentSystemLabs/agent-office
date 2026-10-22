@@ -28,6 +28,7 @@ import { installKeyboard, installKeyGuards } from './input/keyboard';
 import { installFocus } from './input/focus';
 import { installPointer } from './input/pointer';
 import { installArcade } from './features/arcade';
+import { installFloorLoading } from './features/floor-loading';
 import { installBar } from './features/bar';
 import { installBarGames } from './features/bargames';
 import { installBasketball } from './features/basketball';
@@ -179,6 +180,7 @@ installChat(ctx);
 parts.talk = installVoice(ctx, { tv: parts.tv });
 installDictation(ctx);
 parts.hud = installHud(ctx, core, parts);
+installFloorLoading(ctx, core, parts);
 
 // ---- Main loop ---------------------------------------------------------------------------------------
 fitWindow(ctx);

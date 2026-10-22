@@ -1,0 +1,15 @@
+.backdrop.floor-wait-backdrop { background: #172329; z-index: 10; }
+.modal.floor-wait { width: min(560px, 100%); padding: 22px; background: #e0e3e1; color: #243039; border-color: #243039; box-shadow: 0 12px 0 #0a151b; }
+.floor-wait header { display: flex; justify-content: space-between; align-items: center; font-weight: 900; font-size: 20px; }
+.floor-wait-display { margin: 18px 0; padding: 16px; background: #142a25; color: #c2f6c7; border-radius: 12px; text-align: center; }
+.floor-wait-display > span { font-size: 12px; letter-spacing: .18em; }
+.floor-wait-display h2 { margin: 8px 0 0; font-size: 23px; }
+.floor-wait-doors { display: flex; height: min(28vh, 220px); border: 5px solid #627177; border-radius: 8px; overflow: hidden; }
+.floor-wait-doors span { flex: 1; background: repeating-linear-gradient(90deg, #a5b2b6, #c9d0d1 28px, #b1bfc2 30px); }
+.floor-wait-doors span + span { border-left: 4px solid #40545c; }
+.floor-wait-status { min-height: 44px; font-weight: 900; margin: 20px 0 8px; }
+.floor-wait-help { font-size: 13px; line-height: 1.5; }
+.floor-wait-footer { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 20px; }
+.floor-wait-time { font-size: 13px; }
+.floor-wait .floor-wait-emergency { background: #a32b31; border-color: #541319; color: white; margin-left: auto; }
+.floor-wait-emergency[hidden] { display: none; }
