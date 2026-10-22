@@ -245,6 +245,11 @@ export class Hands {
     this.reachT = 0;
   }
 
+  /** The right hand, to hold something in that goes where it goes (the whip): the palm's at its origin, -z is out past the knuckles. */
+  get rightHand(): THREE.Object3D {
+    return this.right.group;
+  }
+
   /** A mug of coffee in the left hand, or not. */
   holdMug(on: boolean) {
     this.wantsMug = on;

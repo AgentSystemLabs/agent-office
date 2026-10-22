@@ -233,6 +233,20 @@ test('an activity with both hands busy says so, only while it is going on', () =
   assert.equal(acts.any('bothHands'), true);
 });
 
+test('a click on the world goes to what is going on, in order, until one takes it', () => {
+  const log: string[] = [];
+  const acts = new Activities(['hanger', 'whip']);
+  let whipping = false;
+  acts.add({ id: 'whip', active: () => whipping, stop: () => {}, click: () => (log.push('whip'), true) });
+  acts.add({ id: 'hanger', active: () => true, stop: () => {}, click: () => (log.push('hanger'), false) });
+  acts.add({ id: 'golf', active: () => true, stop: () => {} });
+  assert.equal(acts.click(), false);
+  assert.deepEqual(log, ['hanger']);
+  whipping = true;
+  assert.equal(acts.click(), true);
+  assert.deepEqual(log, ['hanger', 'hanger', 'whip']);
+});
+
 test('an activity taken out is gone from the order', () => {
   const acts = new Activities(['a', 'b']);
   const off = acts.add({ id: 'a', active: () => true, stop: () => {} });

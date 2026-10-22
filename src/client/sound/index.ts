@@ -27,6 +27,7 @@ import { bark, yip } from '../features/dog/sound';
 import { airlock, cellDoor, thud } from '../features/workers/sound';
 import { golf, type GolfSound } from '../features/golf/sound';
 import { gong } from '../features/gong/sound';
+import { whip } from '../features/whip/sound';
 import { Jukebox, type JukeboxPlay } from '../features/jukebox/sound';
 import { needsYou } from '../features/needsyou/sound';
 import type { Pos } from './places';
@@ -262,6 +263,11 @@ export class OfficeSound {
 
   gong(why: GongWhy) {
     gong(this.a, why);
+  }
+
+  /** A whip cracking at `at` (where you are, without one), `delay` seconds from now, after the swish of it going out (see features/whip). */
+  whip(at?: Pos, delay = 0) {
+    whip(this.a, at, delay);
   }
 
   ding(kind: 'done' | 'needs_input') {
