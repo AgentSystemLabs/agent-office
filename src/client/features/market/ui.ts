@@ -3,7 +3,8 @@
 // straight from the sources, so the office's Finnhub key stays on the server.
 import './ui.css';
 import { cleanSymbol, DEFAULT_WATCHLIST, MAX_SYMBOLS, type Headline, type NewsAnswer, type Quote, type QuotesAnswer } from '../../../shared/market';
-import { h, openModal, timeAgo } from '../../ui/dom';
+import { h, openModal, timeAgo, toast } from '../../ui/dom';
+import { loadHoldings, merge, parseHoldingCommand, parseHoldingsCsv, saveHoldings, valueHoldings, type Holding } from './portfolio';
 
 const LIST_KEY = 'agent-office.market.watchlist';
 const QUOTES_EVERY = 10_000;
@@ -52,8 +53,26 @@ export function openMarket() {
   let headlines: Headline[] = [];
   let newsError = '';
   let updated = 0;
+  let holdings: Holding[] = loadHoldings();
 
-  const cmd = h('input.mkt-cmd', { type: 'text', placeholder: 'Symbol <GO>   e.g. AAPL or BTC-USD', spellcheck: 'false', autocomplete: 'off', 'aria-label': 'Add a symbol' });
+  const cmd = h('input.mkt-cmd', { type: 'text', placeholder: 'Symbol <GO>   e.g. AAPL or BTC-USD   ·   AAPL 10 182.50 to hold 10 at $182.50', spellcheck: 'false', autocomplete: 'off', 'aria-label': 'Add a symbol or a holding' });
+  const file = h('input', { type: 'file', accept: '.csv,text/csv', hidden: true, 'aria-label': 'Import holdings from a CSV' });
+  const totals = h('div.mkt-totals');
+  const holdRows = h('tbody');
+  const portfolio = h(
+    'div.mkt-portfolio',
+    {},
+    h('h3', {}, 'Portfolio ', h('span.mkt-private', { title: 'Kept in this browser only. The office is asked for prices by symbol, never what you hold.' }, '🔒 this browser only')),
+    totals,
+    h('table.mkt-table', {}, h('thead', {}, h('tr', {}, ...['Ticker', 'Qty', 'Last', 'Value', 'Day', 'P/L', ''].map((t) => h('th', {}, t)))), holdRows),
+    h(
+      'div.mkt-actions',
+      {},
+      h('button.mkt-btn', { type: 'button', onclick: () => file.click() }, 'Import CSV'),
+      h('button.mkt-btn', { type: 'button', onclick: () => holdings.length && confirm('Forget every holding in this browser?') && setHoldings([]) }, 'Clear'),
+      file,
+    ),
+  );
   const status = h('span.mkt-status');
   const rows = h('tbody');
   const detail = h('div.mkt-detail');
@@ -68,7 +87,7 @@ export function openMarket() {
     h(
       'div.mkt-grid',
       {},
-      h('section.mkt-panel', {}, h('h3', {}, 'Watchlist'), h('table.mkt-table', {}, h('thead', {}, h('tr', {}, ...['Ticker', 'Last', 'Chg', '%Chg', 'High', 'Low', 'Time', ''].map((t) => h('th', {}, t)))), rows)),
+      h('section.mkt-panel', {}, h('h3', {}, 'Watchlist'), h('table.mkt-table', {}, h('thead', {}, h('tr', {}, ...['Ticker', 'Last', 'Chg', '%Chg', 'High', 'Low', 'Time', ''].map((t) => h('th', {}, t)))), rows), portfolio),
       h('section.mkt-panel', {}, detail, h('h3', {}, 'Top news'), newsList),
     ),
     h('footer', {}, h('span.grow', {}, 'Stocks and news: Finnhub (free tier, US). Crypto: Coinbase. Prices can lag the market by a few seconds; not investment advice.')),
@@ -127,6 +146,55 @@ export function openMarket() {
     );
   };
 
+  const money = (n: number | undefined, sign = false) => (n === undefined ? '—' : `${sign && n > 0 ? '+' : n < 0 ? '-' : ''}$${Math.abs(n).toLocaleString(undefined, { maximumFractionDigits: 2, minimumFractionDigits: 2 })}`);
+
+  const renderPortfolio = () => {
+    const v = valueHoldings(holdings, last);
+    if (!holdings.length) {
+      totals.replaceChildren(h('span.dim', {}, 'Type AAPL 10 182.50 above (10 shares at $182.50), or import a positions CSV with Symbol and Quantity columns.'));
+      return holdRows.replaceChildren();
+    }
+    totals.replaceChildren(
+      h('span', {}, 'Value ', h('b', {}, money(v.value))),
+      h(`span.${dir(v.day)}`, {}, 'Day ', h('b', {}, money(v.day, true))),
+      h(`span.${dir(v.gain)}`, {}, 'P/L ', h('b', {}, money(v.gain, true)), v.gainPct === undefined ? '' : ` (${signed(v.gainPct)}%)`),
+      v.priced < holdings.length ? h('span.dim', {}, `${holdings.length - v.priced} unpriced`) : '',
+    );
+    holdRows.replaceChildren(
+      ...v.rows.map((r) =>
+        h(
+          'tr',
+          { onclick: () => ((picked = r.symbol), renderRows(), renderDetail()) },
+          h('td.sym', {}, r.symbol),
+          h('td.num', {}, String(r.qty)),
+          h('td.num', {}, r.quote ? price(r.quote.price) : '—'),
+          h('td.num', {}, money(r.value)),
+          h(`td.num.${dir(r.day ?? 0)}`, {}, money(r.day, true)),
+          h(`td.num.${dir(r.gain ?? 0)}`, { title: r.cost === undefined ? 'No cost given' : `Paid ${money(r.cost)} a share` }, money(r.gain, true)),
+          h('td', {}, h('button.mkt-x', { type: 'button', title: `Forget ${r.symbol}`, 'aria-label': `Forget ${r.symbol}`, onclick: (e: Event) => (e.stopPropagation(), setHoldings(holdings.filter((x) => x.symbol !== r.symbol))) }, '×')),
+        ),
+      ),
+    );
+  };
+
+  function setHoldings(next: Holding[]) {
+    holdings = next;
+    saveHoldings(holdings);
+    renderPortfolio();
+    void refreshQuotes();
+  }
+
+  file.addEventListener('change', async () => {
+    const f = file.files?.[0];
+    file.value = '';
+    if (!f) return;
+    if (f.size > 1024 * 1024) return void toast('That file is over 1 MB: export just your positions', 'warn');
+    const got = parseHoldingsCsv(await f.text());
+    if (got.error) return void toast(got.error, 'warn');
+    setHoldings(merge([...got.holdings]));
+    toast(`Imported ${got.holdings.length} holdings${got.skipped ? `, skipped ${got.skipped} lines` : ''}`);
+  });
+
   const renderStatus = () => {
     status.textContent = updated ? `Updated ${clock(updated)}` : 'Connecting…';
   };
@@ -144,19 +212,25 @@ export function openMarket() {
 
   let quoting = false;
   async function refreshQuotes() {
-    if (quoting || !list.length) return;
+    const symbols = [...new Set([...list, ...holdings.map((x) => x.symbol)])];
+    if (quoting || !symbols.length) return;
     quoting = true;
     try {
-      const a = await getJson<QuotesAnswer>(`/api/market/quotes?s=${encodeURIComponent(list.join(','))}`);
+      const chunks: string[][] = [];
+      for (let i = 0; i < symbols.length; i += MAX_SYMBOLS) chunks.push(symbols.slice(i, i + MAX_SYMBOLS));
+      const answers = await Promise.all(chunks.map((c) => getJson<QuotesAnswer>(`/api/market/quotes?s=${encodeURIComponent(c.join(','))}`)));
       const before = new Map(last);
-      for (const q of a.quotes) last.set(q.symbol, q);
-      missing = new Map(a.missing.map((m) => [m.symbol, m.why]));
-      for (const m of a.missing) last.delete(m.symbol);
-      stocks = a.stocks;
+      missing = new Map();
+      for (const a of answers) {
+        for (const q of a.quotes) last.set(q.symbol, q);
+        for (const m of a.missing) missing.set(m.symbol, m.why), last.delete(m.symbol);
+        stocks = a.stocks;
+      }
       updated = Date.now();
       renderKeyNote();
       renderRows();
       renderDetail();
+      renderPortfolio();
       flash(before);
     } catch (err) {
       status.textContent = `Offline: ${err instanceof Error ? err.message : 'no answer'}`;
@@ -192,6 +266,13 @@ export function openMarket() {
   cmd.addEventListener('keydown', (e) => {
     if (e.key !== 'Enter') return;
     e.preventDefault();
+    const held = parseHoldingCommand(cmd.value);
+    if (held) {
+      cmd.value = '';
+      const rest = holdings.filter((x) => x.symbol !== held.symbol);
+      setHoldings(held.qty ? [{ ...held }, ...rest] : rest);
+      return;
+    }
     const s = cleanSymbol(cmd.value);
     if (!s) {
       cmd.classList.add('bad');
@@ -223,6 +304,7 @@ export function openMarket() {
   renderRows();
   renderDetail();
   renderNews();
+  renderPortfolio();
   renderStatus();
   void refreshQuotes();
   void refreshNews();

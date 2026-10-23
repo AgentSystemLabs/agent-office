@@ -86,3 +86,26 @@ test('the office asks Finnhub at most 50 times a minute, however many symbols ar
     delete process.env.AGENT_OFFICE_FINNHUB_KEY;
   }
 });
+
+test('holdings come from a broker-style CSV or a typed line, and are priced with the quotes', async () => {
+  const { parseHoldingsCsv, parseHoldingCommand, valueHoldings, merge } = await import('../src/client/features/market/portfolio.js');
+  const csv = '﻿Account summary\r\n"Symbol","Name","Quantity","Average Cost"\r\nAAPL,"Apple, Inc.",10,"$150.00"\r\nBTC-USD,Bitcoin,0.5,"$60,000.00"\r\naapl,Apple,5,$180\r\nTOTAL,,,\r\n../x,Bad,3,1\r\n';
+  const got = parseHoldingsCsv(csv);
+  assert.deepEqual(got.holdings, [
+    { symbol: 'AAPL', qty: 15, cost: 160 },
+    { symbol: 'BTC-USD', qty: 0.5, cost: 60000 },
+  ]);
+  assert.equal(got.skipped, 2);
+  assert.match(parseHoldingsCsv('a,b\n1,2').error ?? '', /Symbol/);
+  assert.deepEqual(parseHoldingCommand('msft 3 @ $400'), { symbol: 'MSFT', qty: 3, cost: 400 });
+  assert.deepEqual(parseHoldingCommand('MSFT 0'), { symbol: 'MSFT', qty: 0 });
+  assert.equal(parseHoldingCommand('AAPL'), null);
+  assert.deepEqual(merge([{ symbol: 'X', qty: 1 }, { symbol: 'X', qty: 2, cost: 5 }]), [{ symbol: 'X', qty: 3, cost: 5 }]);
+  const q = (symbol: string, price: number, change: number) => ({ symbol, price, change, changePct: 0, high: 0, low: 0, open: 0, at: 0, source: 'finnhub' as const });
+  const v = valueHoldings(got.holdings, new Map([['AAPL', q('AAPL', 200, 2)]]));
+  assert.equal(v.value, 3000);
+  assert.equal(v.day, 30);
+  assert.equal(v.gain, 600);
+  assert.equal(v.gainPct, 25);
+  assert.equal(v.priced, 1);
+});

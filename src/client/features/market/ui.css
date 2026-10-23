@@ -44,3 +44,9 @@
   .mkt-grid { grid-template-columns: 1fr; }
   .mkt-panel { border-right: 0; border-bottom: 1px solid #3a2a00; }
 }
+.mkt-portfolio { margin-top: 14px; }
+.mkt-private { float: right; font-weight: 700; letter-spacing: 0; text-transform: none; color: #ffd27a; }
+.mkt-totals { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; padding: 4px 0 6px; }
+.mkt-actions { display: flex; gap: 8px; margin-top: 8px; }
+.mkt-btn { background: #000; color: #ffb000; border: 1px solid #5a4100; border-radius: 4px; padding: 3px 10px; font: 700 12px ui-monospace, Menlo, Consolas, monospace; cursor: pointer; }
+.mkt-btn:hover { border-color: #ffb000; }
