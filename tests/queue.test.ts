@@ -58,6 +58,35 @@ test('queue seats the selected provider and preserves it through completion and 
   assert.equal(f.workers[1].provider, 'opencode');
 });
 
+test('restart retains an OpenHands assignment while its worker resumes, without duplicate seating', (t) => {
+  const f=fixture('openhands');t.after(()=>f.close());
+  const q=f.open();q.setLimit(1);q.add('First audit','Tester');q.add('Second audit','Tester');
+  const first=f.workers[0];q.shutdown();first.status='offline';
+  const restored=f.open();restored.pump();
+  assert.deepEqual(restored.state().tasks.map(x=>x.status),['running','queued']);
+  assert.equal(f.workers.length,1);
+  first.status='working';restored.onWorker(first);restored.restored();
+  assert.equal(f.workers.length,1);
+  assert.equal(restored.state().tasks[0].workerId,first.id);
+  first.status='done';restored.onWorker(first);
+  assert.equal(restored.state().tasks[0].outcome,'done');
+  assert.equal(restored.state().tasks[1].status,'running');
+  assert.notEqual(restored.state().tasks[1].workerId,first.id);
+});
+
+test('a restored worker still offline after host startup is stopped accurately', (t) => {
+  const f=fixture('openhands');t.after(()=>f.close());const q=f.open();q.add('Audit','Tester');q.shutdown();
+  f.workers[0].status='offline';const restored=f.open();restored.pump();
+  assert.equal(restored.state().tasks[0].status,'running');restored.restored();
+  assert.equal(restored.state().tasks[0].outcome,'exited');
+});
+
+test('a saved running task with a missing worker is never silently requeued', (t) => {
+  const f=fixture('openhands');t.after(()=>f.close());const q=f.open();q.add('Audit','Tester');q.shutdown();
+  f.workers.length=0;const restored=f.open();restored.restored();
+  assert.equal(restored.state().tasks[0].outcome,'exited');assert.equal(f.workers.length,0);
+});
+
 test('queued provider survives restart even when the configured default differs', (t) => {
   const f = fixture(); t.after(() => f.close());
   const q = f.open(); q.setLimit(0);
