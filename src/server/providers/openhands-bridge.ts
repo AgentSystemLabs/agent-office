@@ -126,7 +126,10 @@ async function verifyResume() {
   await events(false);
   output('Resumed OpenHands conversation ' + conversationId + '.');
   await hook('session', 'starting');
-  if (existing.execution_status === 'running' || existing.execution_status === 'waiting_for_confirmation') await watchRun();
+  if (ACTIVE.has(existing.execution_status)) {
+    await hook('session', 'working');
+    await watchRun();
+  }
   else await hook('session', 'done');
 }
 async function createConversation(prompt) {
@@ -206,17 +209,18 @@ async function showEvent(event) {
 }
 async function watchRun() {
   let waiting = false;
-  const deadline = Date.now() + 30 * 60 * 1000;
-  let idleSince;
+  let lastNotice = Date.now();
   while (!stopping) {
-    if (Date.now() > deadline) throw new Error('OpenHands turn exceeded 30 minutes. Inspect Agent Canvas before submitting another prompt.');
     await events(true);
     const state = await api('/api/conversations/' + conversationId);
     const status = state.execution_status;
-    if (status === 'idle') {
-      idleSince ??= Date.now();
-      if (Date.now() - idleSince > 30000) throw new Error('OpenHands remained idle for 30 seconds. Inspect Agent Canvas before submitting another prompt.');
-    } else idleSince = undefined;
+    // Long inference/tool runs have no overall deadline. Individual HTTP requests remain bounded.
+    // Keep watching the existing conversation; never submit another prompt to recover a watcher.
+    if (ACTIVE.has(status) && Date.now() - lastNotice >= 60000) {
+      output('[OpenHands status: ' + status + '; still watching this conversation]');
+      if (status !== 'waiting_for_confirmation') await hook('session', 'working');
+      lastNotice = Date.now();
+    }
     if (status === 'waiting_for_confirmation') {
       if (!waiting) {
         output('OpenHands needs confirmation in Agent Canvas.');
@@ -314,8 +318,10 @@ output('OpenHands Agent Canvas bridge (local API). Ctrl+C interrupts the current
 if (initialPrompt) enqueue(initialPrompt);
 else if (conversationId) {
   queue = queue.then(async () => {
+    busy = true;
     try { await checkCwd(); await verifyResume(); output('OpenHands ready for another prompt.'); }
     catch (error) { output('[OpenHands bridge] ' + error.message); await hook('error', 'needs_input', { detail: error.message }); }
+    finally { busy = false; }
   });
 } else output('OpenHands ready for a prompt.');
 `;

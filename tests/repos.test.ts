@@ -85,7 +85,7 @@ interface Fixture {
 }
 
 function fixture(t: { after(fn: () => void): void }): Fixture {
-  const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'agent-office-repos-')));
+  const root = realpathSync.native(mkdtempSync(path.join(tmpdir(), 'agent-office-repos-')));
   const bin = path.join(root, 'bin');
   mkdirSync(bin);
   const agent = path.join(bin, 'fake-agent');

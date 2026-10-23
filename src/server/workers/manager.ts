@@ -23,7 +23,7 @@ import { midTurn } from './lifecycle.js';
 import { restoreWorkers, saveWorkers } from './persist.js';
 import { WorkerPrs } from './pr.js';
 import { WIN, binScript, defaultShell, resolveCommand, shellRun, shq, writeOfficeCommands } from './process.js';
-import { CARRY_ON_PROMPT, WorkerTasks } from './tasks.js';
+import { restartPrompt, WorkerTasks } from './tasks.js';
 import { flushScreens, fullScreens, newTerm, offlineBanner, screenText, type HeadlessTerminal } from './terminal.js';
 import type { HookEnv, OpenedPr, RepoSource, RunAs, Worker, WorkerContext, WorkerEvents, WorkerHandle } from './types.js';
 import { clamp, safeEq, truncate } from './util.js';
@@ -322,9 +322,9 @@ export class WorkerManager {
       this.tasks.notePrompt(w, prompt);
     }
     // Cut off mid-turn by a restart: it gets on with it, as whoever was watching would have told it to.
-    const carryOn = !prompt && w.interrupted && w.info.kind === 'agent' && !!w.info.sessionId;
+    const carryOn = !prompt && w.info.kind === 'agent' ? restartPrompt(w.info.provider, w.info.sessionId, !!w.interrupted) : undefined;
     w.interrupted = false;
-    this.launch(w, carryOn ? CARRY_ON_PROMPT : first, w.info.sessionId);
+    this.launch(w, carryOn ?? first, w.info.sessionId);
     return undefined;
   }
 

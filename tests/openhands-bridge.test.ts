@@ -11,13 +11,15 @@ import { OPENHANDS_BRIDGE_SOURCE } from '../src/server/providers/openhands-bridg
 const AGENT_ID = '4d92aeec-2478-484c-9663-8d3956bb3c01';
 const CONVERSATION_ID = 'ac40c16d-be36-4bfb-8740-a689121ddf89';
 
-async function probe(model: string, resume = false, scenario: 'done' | 'idle' | 'rate-limit' = 'done') {
+async function probe(model: string, resume = false, scenario: 'done' | 'idle' | 'running' | 'rate-limit' = 'done') {
   const home = await mkdtemp(path.join(tmpdir(), 'agent-office-bridge-test-'));
   const project = path.join(home, 'project');
   await mkdir(project);
   const canonicalProject = await realpath(project);
   let created = 0;
   let extraRun = 0;
+  let stateReads = 0;
+  let eventPosts = 0;
   const server = createServer((req, res) => {
     if (req.headers['x-session-api-key'] !== 'local-test-key') { res.writeHead(401).end(); return; }
     const route = new URL(req.url ?? '/', 'http://127.0.0.1').pathname;
@@ -31,9 +33,9 @@ async function probe(model: string, resume = false, scenario: 'done' | 'idle' | 
         { id: 'event-2', timestamp: '2026-10-22T00:00:01Z', kind: 'ObservationEvent', observation: { kind: 'TerminalObservation', content: [{ type: 'text', text: '\x1b]8;;https://example.invalid\x07unsafe-output\x1b\\' }] } },
       ],
     };
-    else if (route === `/api/conversations/${CONVERSATION_ID}/events` && scenario === 'rate-limit') { res.writeHead(429).end(); return; }
+    else if (route === `/api/conversations/${CONVERSATION_ID}/events`) { eventPosts++; if (scenario === 'rate-limit') { res.writeHead(429).end(); return; } body = {}; }
     else if (route === `/api/conversations/${CONVERSATION_ID}/run`) { extraRun++; body = {}; }
-    else if (route === `/api/conversations/${CONVERSATION_ID}`) body = { workspace: { working_dir: canonicalProject }, agent: { llm: { model } }, execution_status: scenario === 'idle' ? 'idle' : 'done' };
+    else if (route === `/api/conversations/${CONVERSATION_ID}`) body = { workspace: { working_dir: canonicalProject }, agent: { llm: { model } }, execution_status: ++stateReads < 5 && (scenario === 'idle' || scenario === 'running') ? scenario : 'done' };
     else { res.writeHead(404).end(); return; }
     res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(body));
   });
@@ -45,11 +47,11 @@ async function probe(model: string, resume = false, scenario: 'done' | 'idle' | 
     assert.ok(address && typeof address !== 'string');
     const url = `http://127.0.0.1:${address.port}`;
     const bridge = OPENHANDS_BRIDGE_SOURCE.replace("const BASE = 'http://127.0.0.1:8000';", `const BASE = '${url}';`)
-      .replace('Date.now() - idleSince > 30000', 'Date.now() - idleSince > 10')
       .replace('setTimeout(resolve, 1200)', 'setTimeout(resolve, 20)');
     assert.notEqual(bridge, OPENHANDS_BRIDGE_SOURCE);
     const script = path.join(home, 'bridge.mjs');
-    await writeFile(script, bridge);
+    // Advance wall time by 31 minutes per read while keeping the fixture fast.
+    await writeFile(script, 'const actualNow = Date.now; let clockTicks = 0; Date.now = () => actualNow() + (++clockTicks * 31 * 60 * 1000);\n' + bridge);
     const child = spawn(process.execPath, [script, '--cwd', project, ...(resume ? ['--resume', CONVERSATION_ID] : []), ...(!resume || scenario === 'rate-limit' ? ['--prompt', 'Check the provider'] : [])], {
       env: { ...process.env, USERPROFILE: home, HOME: home, AGENT_OFFICE_HOOK_URL: '' },
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -73,7 +75,7 @@ async function probe(model: string, resume = false, scenario: 'done' | 'idle' | 
     } finally {
       if (child.exitCode === null) { child.kill(); await once(child, 'exit'); }
     }
-    return { output, created, extraRun };
+    return { output, created, extraRun, eventPosts, stateReads };
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
     assert.equal(path.dirname(home), tmpdir());
@@ -101,9 +103,20 @@ test('OpenHands bridge starts with NVIDIA and strips terminal controls from tool
   assert.doesNotMatch(result.output.replace(/\r\n/g, '\n'), /[\x00-\x08\x0B-\x1F\x7F-\x9F]/);
 });
 
-test('OpenHands bridge stops polling a conversation that stays idle', async () => {
+test('OpenHands bridge keeps watching idle transitions beyond 30 minutes', async () => {
   const result = await probe('nvidia_nim/z-ai/glm-5.3', false, 'idle');
-  assert.match(result.output, /remained idle for 30 seconds/);
+  assert.equal(result.stateReads, 5);
+  assert.doesNotMatch(result.output, /exceeded 30 minutes|remained idle|\[OpenHands bridge\]/);
+});
+
+test('OpenHands bridge reconnects to an active run without submitting duplicate work', async () => {
+  const result = await probe('nvidia_nim/z-ai/glm-5.3', true, 'running');
+  assert.equal(result.stateReads, 5);
+  assert.equal(result.created, 0);
+  assert.equal(result.eventPosts, 0);
+  assert.equal(result.extraRun, 0);
+  assert.match(result.output, /still watching this conversation/);
+  assert.doesNotMatch(result.output, /exceeded 30 minutes|\[OpenHands bridge\]/);
 });
 
 test('OpenHands bridge reports ambiguous rate limits without starting an extra run', async () => {

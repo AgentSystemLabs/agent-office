@@ -227,6 +227,26 @@ export class MeetingRoom {
     return undefined;
   }
 
+  /** Continue the same stopped meeting, retaining notes written after its last status update. */
+  resume(by: string): string | undefined {
+    const m = this.current;
+    if (!m || m.status !== 'stopped' || m.cleared) return 'No stopped meeting can be resumed';
+    const workers = new Map(this.workers.list().map(w => [w.id, w]));
+    for (const seat of m.seats) {
+      const worker = seat.workerId && workers.get(seat.workerId);
+      if (!worker || worker.meeting !== m.id || worker.status === 'exited' || worker.status === 'offline') return 'Resume the original meeting workers before continuing this meeting';
+    }
+    m.status = 'running';
+    delete m.reason;
+    delete m.finishedAt;
+    this.readySince.clear();
+    for (const turn of m.turns) if (turn.state !== 'done') delete turn.retried;
+    this.events.toast(`${by} resumed the meeting on “${m.title}”`, 'info');
+    this.changed();
+    this.pump();
+    return undefined;
+  }
+
   /** Sends the last meeting's workers home and clears the table. */
   clear(by: string): string | undefined {
     const m = this.current;

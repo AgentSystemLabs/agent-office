@@ -149,12 +149,19 @@ function run(claude: string, env: Record<string, string>, system: string, input:
       clearTimeout(timer);
       resolve(v);
     };
-    const child = spawn(claude, args, {
+    const launch = () => spawn(claude, args, {
       // A neutral directory, so it doesn't pick up the project's CLAUDE.md.
       cwd: os.tmpdir(),
       env: { ...env, MAX_THINKING_TOKENS: '0' },
       stdio: ['pipe', 'pipe', 'ignore'],
     });
+    let child: ReturnType<typeof launch>;
+    try { child = launch(); }
+    catch {
+      // Optional labels must not reject the scheduler when Windows cannot spawn an npm .cmd shim.
+      resolve(null);
+      return;
+    }
     const timer = setTimeout(() => {
       child.kill('SIGKILL');
       finish(null);

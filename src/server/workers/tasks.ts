@@ -19,6 +19,10 @@ const TASK_REFRESH_MS = 90_000;
  */
 export const CARRY_ON_PROMPT = 'continue — the office restarted and interrupted you. Pick up where you left off; if you were waiting on an answer or a permission, ask again.';
 
+export function restartPrompt(provider: unknown, sessionId: string | undefined, interrupted: boolean): string | undefined {
+  return interrupted && sessionId && !providerAdapter(provider)?.resumesOwnRun ? CARRY_ON_PROMPT : undefined;
+}
+
 export class WorkerTasks {
   private namer: TaskNamer;
 

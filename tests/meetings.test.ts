@@ -101,6 +101,36 @@ function fixture(opts: { git?: boolean; rewritten?: Partial<Record<PromptId, str
   return { dir, room, workers, prompts, typed, toasts, reviews, take, settle, start, cwd, kill: (id: string) => manager.kill(id), close() { room.shutdown(); rmSync(dir, { recursive: true, force: true }); } };
 }
 
+test('a stopped meeting reuses late notes and finishes with its original workers', (t) => {
+  const f = fixture(); t.after(() => f.close());
+  assert.equal(f.start({ pattern: 'redblue', rounds: 1, roles: ['Blue', 'Red'] }), undefined);
+  f.settle();
+  const before = f.room.state().current!;
+  const redId = before.seats[1].workerId;
+  const redPrompts = f.prompts.filter(p => p.id === redId).length;
+  assert.equal(f.room.stop('Ada'), undefined);
+  f.take(1, 'Observed findings written after the stop.');
+  assert.equal(f.room.state().current!.status, 'stopped');
+  assert.equal(f.room.resume('Ada'), undefined);
+  const resumed = f.room.state().current!;
+  assert.equal(resumed.id, before.id);
+  assert.equal(resumed.step, 2);
+  assert.equal(f.prompts.filter(p => p.id === redId).length, redPrompts);
+  assert.equal(readFileSync(path.join(f.cwd(), before.turns[0].file), 'utf8'), 'Observed findings written after the stop.');
+  f.take(0, 'Final evidence report.');
+  assert.equal(f.room.state().current!.status, 'done');
+  assert.match(f.room.resume('Ada')!, /No stopped meeting/);
+});
+
+test('meeting resume refuses a missing original worker', (t) => {
+  const f = fixture(); t.after(() => f.close());
+  assert.equal(f.start({ pattern: 'redblue', rounds: 1 }), undefined);
+  assert.equal(f.room.stop('Ada'), undefined);
+  f.workers.pop();
+  assert.match(f.room.resume('Ada')!, /original meeting workers/);
+  assert.equal(f.room.state().current!.status, 'stopped');
+});
+
 test('a debate runs its rounds and ends when the chair writes the decision', (t) => {
   const f = fixture(); t.after(() => f.close());
   assert.equal(f.start({ rounds: 3, output: 'docs/decision.md' }), undefined);

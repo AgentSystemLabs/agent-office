@@ -32,6 +32,7 @@ function openHandsHook(h: WorkerHandle<StatusState>, _event: string, payload: un
 
 export const openhands: ProviderAdapter<StatusState, OpenHandsSetup> = {
   id: 'openhands',
+  resumesOwnRun: true,
   createState: () => ({}),
   prepare({ dataDir }) {
     const dir = path.join(dataDir, 'openhands');
