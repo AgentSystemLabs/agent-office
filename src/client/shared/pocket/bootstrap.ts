@@ -1,13 +1,16 @@
+import './responsive.css';
 import type { Me, PeerInfo, WorkerInfo } from '../../../shared/protocol';
 import { HAIR_COLORS, HAIR_STYLES, SKIN_TONES } from '../../../shared/avatar';
 import type { Profile } from '../../state/persist';
-import type { PocketSnapshot } from './wire';
+import { validPocketMaster, type PocketSnapshot } from './wire';
 import { pocketRuntime } from './runtime';
+import { parsePocketFloors, type PocketFloor } from './floors';
 
 export interface PocketBootstrap {
   person: { id: string; name: string; role: 'owner' | 'guest' | 'viewer' };
   profile: Profile;
   snapshot: PocketSnapshot;
+  floors: PocketFloor[];
 }
 
 type Obj = Record<string, unknown>;
@@ -45,6 +48,9 @@ export function parsePocketBootstrap(encoded: string): PocketBootstrap {
     || !s.peers.some((p) => p.id === s.you) || !Array.isArray(s.workers) || !s.workers.every(worker)
     || !Array.isArray(s.chat) || !s.chat.every((c) => object(c) && text(c.from) && typeof c.name === 'string'
       && typeof c.color === 'string' && typeof c.text === 'string' && finite(c.at))) throw new Error('Invalid Pocket bootstrap source snapshot');
+  if (!validPocketMaster(s as unknown as PocketSnapshot)) throw new Error('Invalid Pocket bootstrap master');
+  b.floors = parsePocketFloors(b.floors);
+  if (!(b.floors as PocketFloor[]).some(f => f.id === s.source)) throw new Error('Invalid Pocket bootstrap floor selection');
   // The authenticated person's name, not a browser's old display name, is authoritative.
   b.profile.name = b.person.name;
   return b as unknown as PocketBootstrap;
@@ -115,6 +121,7 @@ export function initPocketBootstrap(target: { profile: Profile; me: Me }): Pocke
   try {
     const b = readPocketBootstrap();
     if (!b) return null;
+    document.documentElement.classList.add('pocket-office');
     target.profile = { ...b.profile, look: { ...b.profile.look } };
     target.me = pocketMe(b);
     return new PocketLifecycle(b);

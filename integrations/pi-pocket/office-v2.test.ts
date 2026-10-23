@@ -1,13 +1,15 @@
 // Helpers must load first. These tests use temporary data and a scripted model, never the live server.
-import { cleanUp, context, newSession, openApp, owner, root, scriptedModel } from '/opt/pi-pocket/test/helpers.ts';
 import assert from 'node:assert/strict';
 import { copyFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
-import { createHandler } from '/opt/pi-pocket/src/server/http.ts';
-import { PlanDoc, TurnsDoc } from '/opt/pi-pocket/src/server/docs.ts';
-import { defineDocFamily } from '/opt/pi-pocket/node_modules/@earendil-works/pi-durable/dist/index.js';
+import { pathToFileURL } from 'node:url';
+const pocketRoot = process.env.PI_POCKET_ROOT ?? '/opt/pi-pocket';
+const { cleanUp, context, newSession, openApp, owner, root, scriptedModel } = await import(pathToFileURL(join(pocketRoot, 'test/helpers.ts')).href);
+const { createHandler } = await import(pathToFileURL(join(pocketRoot, 'src/server/http.ts')).href);
+const { PlanDoc, TurnsDoc } = await import(pathToFileURL(join(pocketRoot, 'src/server/docs.ts')).href);
+const { defineDocFamily } = await import(pathToFileURL(join(pocketRoot, 'node_modules/@earendil-works/pi-durable/dist/index.js')).href);
 import { SKIN_TONES, HAIR_COLORS, HAIR_STYLES } from '../../src/shared/avatar.ts';
 const TestProfiles = defineDocFamily({ kind: 'x.office-v2.profiles', version: 1, scope: 'session', family: true,
   initial: (_seed: null) => ({}) });
@@ -285,6 +287,114 @@ test('dismiss of uncertain admission retains durable exclusion until receipt rec
   assert.deepEqual(recovered.data.pending, []);
   assert.equal(app.sessions().length, count, 'uncertain session is neither duplicated nor deleted');
   assert.equal((await call(`hire/${source}`, hire('desk-5', 'different'))).status, 200);
+});
+
+test('avatar actions deliver bounded source-scoped one-shots and heartbeat preserves state without model work', async () => {
+  const source = await newSession(app);
+  const other = await newSession(app);
+  const sessions = app.sessions().length;
+  const action = value => call(`presence/${source}`, { clientId, action: value });
+  const reach = await action({ t: 'act' });
+  assert.equal(reach.status, 200, JSON.stringify(reach.data));
+  assert.equal(reach.data.events.length, 1);
+  assert.deepEqual(reach.data.events[0].message, { t: 'peer.act', id: reach.data.you });
+  const held = await action({ t: 'act', smoke: true, golf: true, drink: 'water', throwing: 'darts' });
+  const emote = await action({ t: 'emote', emote: 'wave' });
+  assert.ok(emote.data.events.at(-1).seq > held.data.events.at(-1).seq);
+  assert.equal(emote.data.events.at(-1).message.t, 'peer.emote');
+  await action({ t: 'doing', what: 'Reading', reading: true });
+  const heartbeat = await call(`${state(source)}&presence=${encodeURIComponent('{"x":2}')}`);
+  const p = heartbeat.data.peers.find(p => p.id === reach.data.you);
+  assert.deepEqual([p.x, p.smoking, p.golfing, p.drink, p.throwing, p.doing, p.reading], [2, true, true, 'water', 'darts', 'Reading', true]);
+  assert.equal((await call(state(source), undefined, 'guest')).data.events.length, 3);
+  assert.deepEqual((await call(state(other))).data.events, []);
+  await action({ t: 'act', drink: null, throwing: null, smoke: false, golf: false });
+  await action({ t: 'doing' });
+  const cleared = (await call(state(source))).data.peers.find(p => p.id === reach.data.you);
+  assert.equal(cleared.drink, undefined);
+  assert.equal(cleared.throwing, undefined);
+  assert.equal(cleared.doing, undefined);
+  assert.equal(cleared.reading, false);
+  assert.equal(app.sessions().length, sessions);
+  assert.equal(await app.harness.snapshot(PlanDoc, source, context), undefined);
+});
+
+test('avatar actions reject identity overrides and invalid values; seats use current leases with private refusal', async () => {
+  const source = await newSession(app);
+  const action = (value, actor = 'owner') => call(`presence/${source}`, { clientId, action: value }, actor);
+  for (const value of [{ t: 'act', id: guestId }, { t: 'act', smoke: 'yes' }, { t: 'act', drink: 'fuel' },
+    { t: 'act', throwing: 'bomb' }, { t: 'emote', emote: 'hack' }, { t: 'doing', reading: 1 },
+    { t: 'doing', what: 'a'.repeat(161) }, { t: 'carry', issue: 1 }, { t: '__proto__' }]) {
+    assert.equal((await action(value)).status, 400, JSON.stringify(value));
+  }
+  assert.equal((await action({ t: 'act' }, 'viewer')).status, 404);
+  assert.equal((await action({ t: 'act' }, 'scoped')).status, 404);
+  await action({ t: 'sit', seat: 'couch:1' });
+  const refused = await action({ t: 'sit', seat: 'couch:1' }, 'guest');
+  assert.equal(refused.status, 200);
+  assert.equal(refused.data.events.at(-1).message.t, 'sit.refused');
+  assert.equal(refused.data.peers.find(p => p.id === refused.data.you).seat, undefined);
+  assert.equal((await call(state(source))).data.events.some(e => e.message.t === 'sit.refused'), false);
+  await action({ t: 'sit' });
+  assert.equal((await action({ t: 'sit', seat: 'couch:1' }, 'guest')).data.peers.find(p => p.id === refused.data.you).seat, 'couch:1');
+});
+
+test('avatar events expire and bursts remain bounded', async () => {
+  const source = await newSession(app);
+  const action = () => call(`presence/${source}`, { clientId, action: { t: 'act' } });
+  const first = await action();
+  const realNow = Date.now;
+  try {
+    for (let i = 1; i <= 40; i++) {
+      Date.now = () => realNow() + i * 1100;
+      assert.equal((await action()).status, 200);
+    }
+    const current = (await call(state(source))).data;
+    assert.ok(current.events.length <= 32);
+    assert.ok(current.events.every(e => e.seq > first.data.events[0].seq));
+    Date.now = () => realNow() + 70_000;
+    const expired = (await call(state(source))).data;
+    assert.deepEqual(expired.events, []);
+    assert.deepEqual(expired.peers, []);
+  } finally { Date.now = realNow; }
+  for (let i = 0; i < 12; i++) assert.equal((await action()).status, 200);
+  assert.equal((await action()).status, 429);
+});
+
+test('chat floors list only authorized root conversations and keep the master separate from children', async () => {
+  const source = await newSession(app);
+  const before = app.sessions().length;
+  const empty = await call(state(source));
+  assert.equal(empty.data.master.workerId, `pocket-master-${source}`);
+  assert.equal(empty.data.master.title, empty.data.title);
+  assert.equal(empty.data.master.busy, false);
+  assert.deepEqual(empty.data.workers, []);
+  assert.deepEqual(empty.data.bindings, [], 'the master is not a hired child or releasable seat');
+  const hired = await call(`hire/${source}`, hire('desk-16', 'floor-child'));
+  const child = hired.data.bindings[0].conversationId;
+  const floors = await call('floors');
+  assert.equal(floors.status, 200, JSON.stringify(floors.data));
+  assert.ok(floors.data.some((floor: any) => floor.id === Number(source)));
+  assert.ok(!floors.data.some((floor: any) => floor.id === child), 'children do not become root floors');
+  assert.equal((await call('floors', undefined, 'viewer')).status, 404);
+  assert.equal((await call('floors', undefined, 'scoped')).status, 404);
+  assert.equal((await call('floors', undefined, 'owner', false)).status, 403);
+  assert.equal(app.sessions().length, before + 1, 'reading floors starts no model work');
+});
+
+test('a client changes chat floors immediately without moving its other tabs', async () => {
+  const a = await newSession(app);
+  const b = await newSession(app);
+  const otherClient = 'eeeeeeee-0000-4000-8000-000000000005';
+  const joinFloor = (source: unknown, id: string) => call(`state/${source}?${new URLSearchParams({clientId:id,presence:JSON.stringify({x:1,y:0,z:1,rotY:0,moving:false})})}`);
+  await joinFloor(a, clientId);
+  await joinFloor(a, otherClient);
+  await joinFloor(b, clientId);
+  const old = (await call(state(a))).data;
+  const next = (await call(state(b))).data;
+  assert.ok(!old.peers.some((peer: any) => peer.id.endsWith(clientId)));
+  assert.ok(old.peers.some((peer: any) => peer.id.endsWith(otherClient)));
+  assert.ok(next.peers.some((peer: any) => peer.id.endsWith(clientId)));
 });
 
 test('each read suppresses bindings when the source audience cannot see worker metadata', async () => {

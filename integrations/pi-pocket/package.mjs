@@ -48,6 +48,7 @@ const html = (await readFile(join(input, 'index.html'), 'utf8'))
   .replace(/<title>[^<]*<\/title>/, '<title>Office v2 · Pocket runtime</title>');
 if (/<script(?![^>]*\bsrc=)[^>]*>/i.test(html)) throw new Error('The Office document must not contain inline scripts.');
 await writeFile(join(output, 'office-document.json'), JSON.stringify({ html }));
+await cp(join(root, 'src/shared/uuid.ts'), join(output, 'uuid.js'));
 await cp(join(root, 'LICENSE'), join(output, 'AGENT-OFFICE-LICENSE.txt'));
 const pocketRoot = process.env.PI_POCKET_ROOT ?? '/opt/pi-pocket';
 await cp(join(pocketRoot, 'types/pocket.d.ts'), join(root, 'integrations/pi-pocket/_pocket.d.ts'));

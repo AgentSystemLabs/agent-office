@@ -1,4 +1,6 @@
 import './floormenu.css';
+import { pocketRuntime } from '../shared/pocket/runtime';
+import { openPocketElevator } from './pocket-elevator';
 import { cloneLabel, floorPalette } from '../../shared/floors';
 import { ROOF, ROOF_NAME } from '../../shared/rooftop';
 import type { FloorInfo } from '../../shared/protocol';
@@ -32,6 +34,7 @@ export function closeFloorMenu() {
 
 /** Opens the floor list under `anchor`, or closes it if it's open. */
 export function toggleFloorMenu(anchor: HTMLElement, opts: FloorMenuOptions): void {
+  if (pocketRuntime()) return openPocketElevator();
   if (current) return current.close();
   const el = h('div.floor-menu.panel', { role: 'menu', 'aria-label': 'Floors' });
 

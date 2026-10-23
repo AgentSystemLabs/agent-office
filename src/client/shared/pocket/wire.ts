@@ -2,6 +2,7 @@ import type { ChatLine, PeerInfo, ServerMsg, WorkerInfo } from '../../../shared/
 import { EMPTY_PLAN } from '../../../shared/floorplan';
 import { parked } from '../../../shared/garage';
 import { JUKEBOX_TUNES } from '../../../shared/jukebox';
+import { pocketFloorId, pocketFloorViews, type PocketFloor } from './floors';
 
 /** The parent authorizes every field. Extra parent-only binding fields are ignored. */
 export interface PocketSnapshot {
@@ -13,9 +14,19 @@ export interface PocketSnapshot {
   peers: PeerInfo[];
   chat: ChatLine[];
   workers: WorkerInfo[];
+  /** The root inspector is separate from all regular desks and worker counts. */
+  master?: { workerId: string; title: string; busy?: boolean };
+  events?: { seq: number; at: number; message: Extract<ServerMsg, { t: 'peer.act' | 'peer.emote' | 'sit.refused' }> }[];
+}
+
+export function validPocketMaster(s: PocketSnapshot): boolean {
+  const master = s.master;
+  return master === undefined || (!!master && master.workerId === `pocket-master-${s.source}`
+    && typeof master.title === 'string' && (master.busy === undefined || typeof master.busy === 'boolean'));
 }
 
 type Welcome = Extract<ServerMsg, { t: 'welcome' }>;
+const machine = (s: PocketSnapshot): Welcome['machine'] => ({cpu:0,cores:0,memUsed:0,memTotal:0,history:[],workers:s.workers.length,limit:16});
 
 function workers(s: PocketSnapshot): WorkerInfo[] {
   return s.workers.map((w) => ({
@@ -27,19 +38,19 @@ function workers(s: PocketSnapshot): WorkerInfo[] {
   }));
 }
 
-export function pocketWelcome(s: PocketSnapshot): Welcome {
+export function pocketWelcome(s: PocketSnapshot, floors: PocketFloor[] = [{ id: s.source, title: s.title, cwd: s.cwd, busy: false, archived: false }]): Welcome {
   const unknownUsage = () => ({ input: 0, output: 0, cacheWrite: 0, cacheRead: 0, cost: 0, calls: 0, costKnown: false, callsKnown: false, incomplete: true });
   return {
-    t: 'welcome', you: s.you, peers: s.peers.map((p) => ({ ...p, floor: 'pocket' })), chat: s.chat,
-    floors: [{ id: 'pocket', name: s.title, dir: s.cwd, workers: s.workers.length, people: s.peers.length, wing: 0, palette: 0, addedBy: 'Pocket', addedAt: 0, busy: s.workers.filter((w) => w.status === 'working').length, waiting: 0 }],
+    t: 'welcome', you: s.you, peers: s.peers.map((p) => ({ ...p, floor: pocketFloorId(s.source) })), chat: s.chat,
+    floors: pocketFloorViews(floors, s),
     projectsDir: { dir: s.cwd, custom: false }, ice: [], invites: false, version: 'pocket',
     upgrade: { available: false, phase: 'idle' },
     usage: { total: unknownUsage(), today: unknownUsage(), day: '', pauseHiring: false },
     limits: { windows: [], at: 0 }, me: { admin: false }, notify: {},
-    machine: { cpu: 0, cores: 0, memUsed: 0, memTotal: 0, history: [], workers: s.workers.length },
+    machine: machine(s),
     sky: { lat: 0, lon: 0, utcOffset: 0, weather: 'clear', intensity: 0, realTime: true },
     theme: { pick: 'off', active: null }, map: { pick: 'office', custom: [] },
-    prompts: { custom: {} }, leaveOnMerge: { on: false }, floor: 'pocket',
+    prompts: { custom: {} }, leaveOnMerge: { on: false }, floor: pocketFloorId(s.source),
     project: { name: s.title, dir: s.cwd, agentCmd: 'Pocket · inherited model', defaultProvider: 'pi', agentProviders: ['pi'] },
     workers: workers(s), issues: { items: [], loading: false, fetchedAt: 0 }, pulls: { items: [], loading: false, fetchedAt: 0 },
     queue: { tasks: [], maxWorkers: 0 }, decor: [], plan: { ...EMPTY_PLAN, labels: {} },
@@ -51,11 +62,12 @@ export function pocketWelcome(s: PocketSnapshot): Welcome {
 }
 
 /** Polls are deltas, not welcomes: they must not reset the player or rebuild the floor. */
-export function pocketUpdates(before: PocketSnapshot, next: PocketSnapshot): ServerMsg[] {
+export function pocketUpdates(before: PocketSnapshot, next: PocketSnapshot, eventCursor = pocketEventCursor(before)): ServerMsg[] {
   const messages: ServerMsg[] = [];
+  if (before.workers.length !== next.workers.length) messages.push({t:'machine',state:machine(next)});
   const peers = new Map(before.peers.map((p) => [p.id, p]));
   for (const p of next.peers) {
-    messages.push({ t: peers.has(p.id) ? 'peer.update' : 'peer.join', peer: { ...p, floor: 'pocket' } });
+    messages.push({ t: peers.has(p.id) ? 'peer.update' : 'peer.join', peer: { ...p, floor: pocketFloorId(next.source) } });
     peers.delete(p.id);
   }
   for (const id of peers.keys()) messages.push({ t: 'peer.leave', id });
@@ -67,5 +79,15 @@ export function pocketUpdates(before: PocketSnapshot, next: PocketSnapshot): Ser
   for (const workerId of old.keys()) messages.push({ t: 'worker.remove', workerId });
   const seen = new Set(before.chat.map((line) => JSON.stringify(line)));
   for (const line of next.chat) if (!seen.has(JSON.stringify(line))) messages.push({ t: 'chat', ...line });
+  for (const event of next.events ?? []) {
+    if (event.seq <= eventCursor || event.at <= Date.now() - 15_000) continue;
+    // Local actions already animate the player. Refusals must reach that player only.
+    if (event.message.t !== 'sit.refused' && event.message.id === next.you) continue;
+    messages.push(event.message);
+  }
   return messages;
+}
+
+export function pocketEventCursor(snapshot: PocketSnapshot): number {
+  return (snapshot.events ?? []).reduce((seq, event) => Math.max(seq, event.seq), 0);
 }

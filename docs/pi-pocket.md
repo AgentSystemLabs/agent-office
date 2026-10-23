@@ -1,141 +1,121 @@
-# Pi Pocket runtime integration
+# Office v2: chat-backed 3D floors in Pi Pocket
 
 Back to the [README](../README.md).
 
-Office v2 can run as a **Pi Pocket extension**, without starting the Agent Office Node server or any CLI worker. A native Pocket room supplies participants, desks, appearance preferences, and agent controls. The original 3D world is an optional view of that same room, not a prerequisite. Pocket supplies authentication, real linked sessions, models, tool execution, approval controls, durable history, and team-budget enforcement.
+Office v2 is a Pocket extension. Its primary interface is the original **desktop** 3D office. Its own page fills the window and can also enter browser fullscreen. It does not use a phone-style extension panel, bottom sheet, or mobile fallback. A computer window of at least 1024 × 600 is required. There is no Office Node backend, PTY service, provider CLI, separate login, or credential copy.
 
-This is an initial integration, not feature parity with the CLI office.
+**This redesign requires the experimental Pocket conversation SDK additions. Stock Pocket 0.19.0 is not sufficient.** The extension checks capabilities rather than pretending that a larger window provides missing runtime APIs. Do not replace a live installation until the Pocket SDK update and the complete extension workflow have passed isolated tests.
 
-## Runtime boundary
+## Room model
+
+- Each ordinary root Pocket chat is a floor. Its title is the floor's name.
+- The elevator lists authorized, unarchived root chats. Search and refresh stay in the 3D elevator.
+- The current floor's root chat is its **master**, represented separately from hired children at a raised desk.
+- Regular desks bind real child Pocket conversations to that root chat.
+- Switching floors changes your room. It does not move another person or move/delete/restart agents.
+- Teammates who choose the same chat floor share its presence, desks, and office chat.
+- A child's model, thinking, tools, instructions, working folder, and team budget inherit through Pocket's linked-session mechanism.
+- A child does **not** inherit the root transcript or another child's context. Shared files and explicit team messages are not automatic shared memory.
+
+GitHub and repository-per-floor workflows are outside this redesign's scope. A floor is a chat, not a repository clone.
+
+## Fullscreen and worker inspection
+
+The fullscreen element belongs to the extension and contains both:
+
+1. the trusted Office world iframe;
+2. the worker-inspector overlay, rendered with public `pocket.Conversation`.
+
+Fullscreen does not apply to the world iframe alone. Otherwise native chat would appear outside the fullscreen element and become unreachable.
+
+Clicking a worker or master first refreshes its authorized binding through the extension route. The inspector then embeds the **native Pocket conversation**, with its own document, store, connection, and conversation ID. It does not navigate or retarget the parent chat. Messages, thinking, tools, approvals, the human composer, and stopping work remain core-owned controls. Drafts are never automatically sent. Opening a worker never approves a tool, takes the turn, changes a model, or starts new work.
+
+Closing the inspector disposes its embedded connection and restores the world's input lifecycle. A parent-to-world control message pauses movement and clears held keys while the inspector is open. Its source window, origin, channel, and boolean payload are checked.
+
+## Core mechanism versus extension workflow
 
 ```text
-Pocket extension panel
-  ├─ native room, participants, desks, hire and appearance sheets
-  ├─ optional 3D world in a same-origin srcdoc frame
-  │    └─ bounded, origin/window/channel-checked message bridge
-  └─ public pocket SDK + this extension's routes
-       ├─ ephemeral shared presence (15-second lease)
-       ├─ durable source-scoped desk bindings and chat
-       └─ linkedSessions.start/list → real Pocket sessions
+Office v2 extension page / fullscreen host
+  ├─ trusted Office 3D iframe
+  │    └─ bounded origin/window/channel-checked bridge
+  ├─ native Pocket conversation component in the inspector
+  │    └─ core-owned transcript, composer, tools, approvals, authorization
+  └─ public SDK + module-owned routes
+       ├─ conversations.list → authorized root chat floors
+       ├─ ephemeral per-floor presence and avatar events
+       ├─ durable source-scoped desk bindings and office chat
+       └─ linkedSessions.start/list → real Pocket children
 ```
 
-There is no second Office login, credential copy, Office WebSocket, PTY host, or provider CLI in this path. Do **not** run `agent-office` to start Pocket mode. The ordinary CLI deployment remains available separately and is not changed into a Pocket service.
+The reusable mechanisms belong to Pocket core:
 
-The iframe separates Office's DOM, styles, and input from Pocket's UI. It is **trusted same-origin code, not a security sandbox**. Review the complete browser bundle before enabling the extension.
+- `WebRequest.conversations.list({ rootsOnly, includeArchived })` returns current actor-authorized metadata. It requires no model request or durable write.
+- `pocket.Conversation({ conversationId, draft?, title?, onClose? })` renders a scoped native conversation. Each embed remains independent of the parent's selection.
 
-The browser bridge uses an exact window, origin, and random per-mount channel. It fixes the source conversation outside iframe requests. Every server action still receives independent Pocket authorization. The channel is not an authorization token.
+Both additions are experimental for unreleased Pocket 0.20.0. They require an explicit Pocket update and, for server changes, an owner-managed restart. The workflow, 3D assets, floor selection, master desk, worker desks, and presentation stay in the extension.
 
-The legacy Office `/api` requests fail locally in Pocket mode. The bridge uses only `pocket`, the module's own routes, and packaged local assets. It never calls Pocket's internal HTTP APIs.
+Production extension code uses only public SDK methods, its own routes, and its own packaged assets. It does not import Pocket internals, read core documents, call private HTTP APIs, copy sign-ins, or bypass approvals. Tests can use Pocket's internal helpers only in isolated temporary data.
 
-## What works
+## Identity and bootstrap
 
-- Open the Office v2 panel beside a root conversation.
-- Share a source-scoped office with authorized collaborators.
-- Enter immediately with your authenticated Pocket identity; no Office login or character-selection gate.
-- See participants and desks without downloading the 3D application or requiring WebGL.
-- Customize your account's saved appearance after entry, across devices and conversations.
-- Optionally enter 3D for shared avatars, movement, and durable office chat.
-- Hire an agent at a supported desk with an initial task.
-- Start a real Pocket linked session using the source's model, thinking, folder, and copied agent settings.
-- See authorized busy/idle desk status through the public linked-session API.
-- Open a desk in native Pocket chat for messages, tool activity, questions, and approvals.
-- Prepare a follow-up draft in that chat. The person reviews and sends it; opening a desk does not submit a message.
-- Release a desk without deleting or stopping its session.
+The parent establishes the signed-in Pocket person, account-owned avatar preferences, authorized root chat list, and authorized source snapshot **before** starting the world. It injects `{ person, profile, snapshot, floors }`; the source must occur in that floor list.
 
-Linked sessions do not inherit the source's history or receive separate worktrees automatically. Pocket's root team budget covers their spend. A linked child cannot hire another child; use a root conversation as the office workspace.
+Names always come from Pocket. Defaults are deterministic per account. The server stores avatar preferences by the authenticated person, not in the standalone `agent-office.profile` browser key. Customization requires no source turn or model work. Its overlay is inside the fullscreen host.
 
-The workspace stays bound to its selected source when a desk opens a child, including after browser refresh. The last authorized workspace selection is an optional, per-account browser preference; the server rechecks access. Use **Use this conversation** only to deliberately switch it.
+The Pocket branch skips standalone login, character selection, saved standalone position, repository/floor creation, and dog-loading prerequisites. Its readiness uses a source welcome and first rendered frame. Audio defaults to muted and notifications to off. Per-user browser preferences use `x.office-v2.<userId>.*` keys. A remembered floor grants no authority: access is checked again.
 
-## Identity and startup
+The iframe is **trusted same-origin code, not a security sandbox**. Review the complete bundle before enabling it. Bridge channels bind messages to a frame; server authorization remains independent. Legacy Office API calls fail locally rather than falling back to a CLI backend.
 
-The parent first reads the signed-in Pocket person and module-owned avatar preferences. Defaults are deterministic per account. Names always come from Pocket and cannot be edited through Office. Preferences are stored by the server under that person's authenticated ID, not in the standalone `agent-office.profile` browser key. Editing your appearance requires no model, source turn, or model work.
+## Presence and safety
 
-Next, the parent reads an authorized source snapshot and renders the native room. Hiring and all desk actions use conversation-bound public routes. Native chat, model settings, credentials, approvals, and tool execution remain Pocket-owned. The room lists accounts once even when multiple tabs have presence.
+Presence is a 15-second ephemeral lease, separate from durable sessions and desks. Movement is coalesced and polled, not an Office WebSocket. Account profiles remain authoritative.
 
-Only **3D office (optional)** fetches the Office bundle. Before creating its iframe, the parent injects a validated startup contract containing the authenticated person, saved avatar, and authorized source snapshot. The 3D branch initializes the avatar before creating the scene, emits its initial welcome from that snapshot, and refreshes authorization through the bridge. It does not run standalone login, character selection, saved-position restoration, floor selection, or dog-loading prerequisites. Readiness uses a source welcome and a first rendered frame. Office audio defaults to muted, and notifications default to off.
+Avatar `act`, emotes, seating, and activity/reading presence use bounded ephemeral state/events. A fieldless `act` is a one-shot reach. It is not an unsupported worker command. Events have sequence numbers, finite retention, and replay suppression. Seat conflicts produce private refusals.
 
-Optional 3D browser preferences use `x.office-v2.<userId>.*` keys. They do not read another account's standalone preferences. Native room participants do not appear as ghost 3D avatars. A 3D load failure does not remove the native room or its controls.
+Do not imply full legacy feature parity from the scene alone. GitHub is intentionally excluded. Voice/RTC, issue-card carrying, shared game simulation, shell workers, CLI provider settings, Office-managed worktrees, and automation without an implemented Pocket adapter remain unverified or unavailable. UI controls must not advertise a successful operation that the runtime did not perform.
 
-## Deliberate limits
-
-Pocket's public extension API currently exposes linked-session creation, listing, and native navigation. It does **not** expose complete message streams, detailed tool/approval status, or human submit/abort/approval methods.
-
-Therefore:
-
-- Exact session activity and approvals stay in native Pocket chat.
-- `idle` does not mean task success. Unknown status is not completion.
-- Cost is unknown in Office; native Pocket is authoritative.
-- Shell hiring, terminal input, CLI model/provider settings, Office-managed worktrees, multi-repository tasks, queue automation, meetings, GitHub mutation, floor cloning, and Office administration are unsupported.
-- The native room is the default on desktop and phones. Optional 3D needs a capable WebGL browser. Automatic navigation to the standalone `/lite` app is disabled; it is not a Pocket fallback.
-- Presence is polled and coalesced, not real-time WebSocket movement. A disappeared tab expires after 15 seconds.
-- Office chat and desk mutations require the source turn. Presence reads need source visibility and do not take the turn.
-- The extension is for the owner and guests allowed to steer all sessions. Session-only invitees and viewers do not load it.
-- Audience-safe metadata rules can hide workers. The extension must not reveal private session IDs or details to fill those gaps.
+Idle is not task success. Unknown activity/model/cost is not invented. Exact worker activity comes from the native Pocket inspector. Actor and audience checks filter bindings on every fresh request.
 
 ## Build
 
-Requirements: Node compatible with the installed Pocket release, this checkout's dependencies, and Pi Pocket 0.19.0 or later.
+Use a Pocket checkout containing the experimental SDK additions:
 
 ```sh
 npm ci --include=dev --ignore-scripts
 npm run typecheck
-npm test
+node --import tsx --import=#tests/css --test --test-concurrency=4 tests/*.test.ts
 npm run build
-npm run build:pocket
+PI_POCKET_ROOT=/path/to/updated/pi-pocket npm run build:pocket
 ```
 
-`build:pocket` uses relative asset paths and packages public assets under:
+`build:pocket` packages assets under `integrations/pi-pocket/office-v2-client/world/` and writes `office-document.json`. It copies public types from `PI_POCKET_ROOT` (default `/opt/pi-pocket`). These are build-tool paths, not production imports. Never package credentials or temporary test data.
 
-```text
-integrations/pi-pocket/
-  office-v2.ts
-  _pocket.d.ts
-  office-v2-client/
-    index.js
-    bridge.js
-    views.js
-    frame-errors.js
-    style.css
-    office-document.json  # generated public HTML template as JSON
-    world/                # generated Office bundle and local assets
-```
+Local GLB files receive `.glb.png` suffixes for Pocket's extension asset allowlist; their binary data is unchanged. Assets are local, not CDN dependencies, and each must fit Pocket's 8 MiB limit. The complete client folder and `office-v2.ts` form the deployment.
 
-The package renames local binary GLB assets with `.glb.png` suffixes and rewrites their references. Pocket's extension server permits this image suffix. `GLTFLoader` reads the unchanged GLB header and binary content. No assets come from a CDN.
-
-`package.mjs` copies the installed Pocket public type declarations from `/opt/pi-pocket`. This path is local build tooling, not a runtime dependency of the installed extension.
-
-## Test without real AI requests
-
-On the Pocket host:
+## Isolated verification
 
 ```sh
-npm run test:pocket
-node integrations/pi-pocket/preview.mjs
+PI_POCKET_ROOT=/path/to/updated/pi-pocket npm run test:pocket
+PI_POCKET_ROOT=/path/to/updated/pi-pocket node integrations/pi-pocket/preview.mjs
+node integrations/pi-pocket/responsive-check.mjs
+PI_POCKET_ROOT=/path/to/updated/pi-pocket node integrations/pi-pocket/browser-check.mjs
 ```
 
-The tests and preview use Pocket's temporary-data helpers and a scripted model. They do not use live conversations or provider subscriptions. Set `PI_POCKET_ROOT` for the preview if Pocket is not at `/opt/pi-pocket`.
+The preview and fullscreen acceptance harness use temporary Pocket helpers and a scripted model, never live conversations or subscriptions. The acceptance harness starts and stops its own preview. Its tool probe runs only `printf` in the temporary folder; its approval probe exercises the native approval UI in isolated data. It prints isolated sign-in links on `127.0.0.2`. Do not publish those links. Follow its printed stop command when finished.
 
-The preview prints a separate host, temporary sign-in links, and its PID. To run the browser acceptance check, capture the preview output in `/tmp/office-v2-pocket-preview.log`, then run `node integrations/pi-pocket/browser-check.mjs` in another terminal. It uses Chromium (`CHROMIUM_PATH` overrides the executable), two users, fresh browser contexts, and no renderer patches. It checks native entry, account appearance persistence, shared real desks, native navigation, refresh-safe workspace selection, and zero 3D downloads or Office WebSockets. Screenshots are written to `dist/screenshots/`.
+The layout fixture opens the real desktop Office DOM and styles without a renderer or backend. It checks dialogs, close targets, HUD, menu, and overflow at 1280×800, 1440×900, 1024×768, and 1920×1080. It verifies layout, not WebGL rendering. Small windows show a desktop-size requirement instead of switching to an iPhone interface.
 
-Open the owner link, then Office v2. Follow the printed stop command to close the preview and remove its temporary data. It is not a production service.
+End-to-end acceptance must separately verify the real 3D world, two users, elevator switching between two chats, the master desk, child hiring, live inspector activity, human follow-ups, approvals, correct source/target isolation, reconnect/recovery, and desktop screenshots. The native inspector must also retain a computer-width viewport. Do not report readiness from a layout fixture alone.
 
-## Install — owner approval required
+## Install and recovery
 
-1. Build the package and review **all** server and browser files, including generated Office assets and third-party dependencies.
-2. Test on an isolated Pocket copy first. Review dependency advisories before production use.
-3. With owner approval, copy `office-v2.ts` and its complete adjacent `office-v2-client/` folder into Pocket's data `extensions/` folder. Use regular files, not symlinks. Do not overwrite another extension or client folder.
-4. The owner opens **Menu → Extensions** and enables **Office v2**. Do not edit Pocket's data files to enable it.
-5. Open a root conversation with the desired model, thinking, workspace folder, tools, and budget. Open **Office v2** on the rail.
-6. Hire 1 worker with a small explicit task. Verify native chat and approvals before inviting collaborators.
+1. Review the Pocket SDK and extension changes separately. Test both together in isolated data.
+2. Apply the Pocket update only with owner approval. The owner performs the required server restart through Pocket; an agent must not restart while its tool call runs.
+3. With approval, install the complete extension package as regular files in the data `extensions/` folder. Keep the existing Office extension separate.
+4. The owner enables Office v2 through **Menu → Extensions**.
+5. Open a root chat and choose its model. Open Office v2 from the rail, then **Fullscreen**.
+6. Verify one small task and its native approval path before inviting collaborators.
 
-No Pocket core code or server restart is required. The live extension must not be enabled by a test script.
+A failed bridge never falls back to a CLI worker. Releasing a desk does not stop or delete its conversation. A pending hire may already have admitted model work: recover its original actor-bound receipt rather than starting a new task. Public receipt retention is finite. Cancellation after admission does not undo work.
 
-## Recovery
-
-Close/reconnect the panel to replace its bridge and frame. A failed bridge never falls back to a CLI worker. Desk bindings survive frame reloads and server restarts; ephemeral presence does not.
-
-Hiring reserves a desk before starting a session. A stable, actor-bound receipt key prevents duplicate initial work during supported retries. A pending start must be recovered with its original key, not replaced with a fresh key. Receipt retention is finite; do not treat it as permanent identity.
-
-Releasing a desk is not cancellation. If a start was admitted before a disconnect, its session can continue even if final binding or UI work failed. Inspect native sessions before starting replacement work.
-
-Disable the extension through **Menu → Extensions**. If its browser code fails, open Pocket with `?noext=1`, then disable it. This does not delete any linked session.
+Disable the extension through Pocket's Extensions UI. If browser code fails, use `?noext=1` and disable it. Disabling the extension does not delete its linked conversations.

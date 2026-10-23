@@ -5,6 +5,16 @@ import { roomPeople, workerStatus, roomViews } from '../integrations/pi-pocket/o
 // @ts-ignore Pocket browser modules are deliberately plain JavaScript.
 import { createBridge, validRequest } from '../integrations/pi-pocket/office-v2-client/bridge.js';
 
+test('avatar action bridge uses only the fixed source and server-bound client identity', async () => {
+  const calls: unknown[][] = [];
+  const frame = {};
+  const payload = { source: 99, clientId: 'another-person', action: { t: 'act' } };
+  assert.equal(validRequest({ source: frame, origin: 'https://pocket.test', data: { type: 'office-v2:request', channel: 'channel', id: 'act-1', op: 'presence', payload } }, frame, 'https://pocket.test', 'channel'), true);
+  const handle = createBridge({ pocket: { api: async (...args: unknown[]) => { calls.push(args); return {}; } }, source: 3, clientId: 'fixed-client', signal: new AbortController().signal });
+  await handle('presence', payload);
+  assert.deepEqual(calls[0].slice(0, 2), ['presence/3', { clientId: 'fixed-client', action: { t: 'act' } }]);
+});
+
 test('native people list groups tabs by authenticated account, never by display name', () => {
   const owner = { id: 'owner:first-tab', name: 'Sam' };
   const otherTab = { id: 'owner:second-tab', name: 'Sam' };
@@ -53,16 +63,15 @@ test('native open refreshes authorization without changing presence and cannot n
   assert.equal(opened, 0);
 });
 
-test('native draft insertion checks lifetime again after native navigation', async () => {
+test('scoped inspector handoff checks lifetime after its asynchronous host opens', async () => {
   const stop = new AbortController();
   let drafts = 0;
   const pocket = {
     api: async () => ({ bindings: [{ workerId: 'worker', conversationId: 4 }] }),
-    openConversation: () => stop.abort(),
-    conversationId: () => 4,
+    openConversation: () => { throw new Error('Parent navigation is forbidden'); },
     insertText: () => drafts++,
   };
-  const handle = createBridge({ pocket, source: 3, clientId: 'client', signal: stop.signal });
+  const handle = createBridge({ pocket, source: 3, clientId: 'client', signal: stop.signal, inspect: async () => { stop.abort(); } });
   await assert.rejects(handle('open', { workerId: 'worker', prompt: 'Unsent follow-up' }), /closed/);
   assert.equal(drafts, 0);
 });

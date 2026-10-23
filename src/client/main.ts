@@ -46,6 +46,8 @@ import { installDog } from './features/dog';
 import { installEmotes } from './features/emotes';
 import { installGolf } from './features/golf';
 import { installGong } from './features/gong';
+import { installPocketMaster } from './features/pocket-master';
+import { pocketPresentation } from './shared/pocket/presentation';
 import { installGallery, installHanging } from './features/hanging';
 import { installHerald } from './features/herald';
 import { installHud } from './features/hud';
@@ -65,6 +67,7 @@ import { installWaiting } from './features/waiting';
 import { installWalking } from './features/walking';
 import { installWhiteboard } from './features/whiteboard';
 import { installWorkerActions } from './features/workers/actions';
+import { pocketWorkerActions } from './shared/pocket/controls';
 import { installWorkerViews } from './features/workers/views';
 
 // Optional Pocket 3D starts from authenticated native-room data, before any scene or avatar.
@@ -89,11 +92,13 @@ await preloadModels();
 const parts = {} as Parts;
 const { ctx, core } = createCtx(parts);
 // The office's own parts of each frame, before anything else's.
-installLoop(ctx, core, parts, { offer2d });
+const presentation = pocket ? pocketPresentation() : undefined;
+installLoop(ctx, core, parts, { offer2d, shouldDraw: presentation?.shouldDraw });
 
 // ---- Renderer & scene ---------------------------------------------------------------------------
 const canvas = $('scene') as HTMLCanvasElement;
 parts.stage = createScene(canvas, makeRenderer(canvas) ?? (await (pocket ? pocketNoWebGL() : noWebGL())));
+presentation?.setup(parts.stage);
 parts.worlds = createWorlds(ctx);
 installSky(ctx);
 
@@ -146,7 +151,7 @@ parts.maps = installMaps(ctx, core, parts);
 parts.peers = installPeers(ctx, core, parts);
 parts.walking = installWalking(ctx, core, parts);
 parts.views = installWorkerViews(ctx, core, parts);
-parts.actions = installWorkerActions(ctx, core, parts);
+parts.actions = installWorkerActions(ctx, core, parts, pocketWorkerActions());
 parts.waiting = installWaiting(ctx, core, parts);
 parts.needsYou = installNeedsYou(ctx, parts);
 installPalette(ctx, parts);
@@ -173,6 +178,7 @@ parts.cards = installCarrying(ctx, {
 });
 parts.seating = installSeating(ctx, { shares: () => parts.talk.currentShares(), watchShare: () => parts.talk.watchShare(), arcade: parts.arcade, showBar: parts.bar.showBar, usable: () => parts.pointer.usable() });
 installGong(ctx, { burstOver: parts.views.burstOver, workerViews: parts.views.workerViews, court: () => parts.worlds.court(), idleAgents: () => parts.worlds.idleAgents() });
+installPocketMaster(ctx);
 
 parts.hintbar = installHintBar(ctx, core, parts);
 parts.emotes = installEmotes(ctx, { personOf });

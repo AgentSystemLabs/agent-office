@@ -1,189 +1,209 @@
+import { uuid } from './uuid.js';
 import { createBridge, listenToFrame } from './bridge.js';
-import { roomViews, roomPeople, workerStatus } from './views.js';
+import { roomViews } from './views.js';
+import { rememberWorkspace } from './workspace.js';
+import { worldDocument } from './world-document.js';
 export const pocketApi = 1;
 
 export default function setup(pocket) {
-  if (typeof pocket.panel !== 'function' || typeof pocket.insertText !== 'function') throw new Error('Office v2 requires Pi Pocket 0.19.0 or later.');
   const { html, useState, useRef, useEffect, useLayoutEffect } = pocket;
   const listeners = new Set();
-  const changed = (event, snapshot) => { for (const listener of listeners) listener(event, snapshot); };
-  const { Avatar, Hire } = roomViews(pocket, changed);
-  let workspace = null;
-  let initializedFor = null;
+  const changed = (event) => { for (const listener of listeners) listener(event); };
+  const { Avatar } = roomViews(pocket, changed);
   pocket.style('style.css');
 
   function Office() {
-    const [source, setSource] = useState(() => workspace ?? pocket.conversationId());
     const [identity, setIdentity] = useState(null);
+    const [floors, setFloors] = useState([]);
+    const [source, setSource] = useState(null);
     const [snapshot, setSnapshot] = useState(null);
-    const [view, setView] = useState('room');
-    const [documentHtml, setDocumentHtml] = useState(null);
+    const [scene, setScene] = useState(null);
+    const [overlay, setOverlay] = useState(null);
     const [error, setError] = useState('');
     const [generation, setGeneration] = useState(0);
-    const [working, setWorking] = useState(false);
+    const [fullscreen, setFullscreen] = useState(false);
+    const [recovering, setRecovering] = useState(null);
+    const [recoveryError, setRecoveryError] = useState('');
+    const [smallWindow, setSmallWindow] = useState(false);
+    const documentHtml = !smallWindow && scene?.source === source ? scene.html : null;
+    const host = useRef(null);
     const frame = useRef(null);
-    const channel = useRef(null);
-    const clientId = useRef(crypto.randomUUID());
+    const clientId = useRef(uuid());
+    const liveBridge = useRef(null);
+    const currentOverlay = useRef(null);
+    currentOverlay.current = overlay;
+    const asset = useRef(null);
     const latest = useRef(null);
     latest.current = snapshot;
-    const actionScope = useRef(null);
-    useLayoutEffect(() => {
-      const scope = { source, stop: new AbortController() };
-      actionScope.current = scope; setWorking(false);
-      return () => scope.stop.abort();
-    }, [source]);
-    function acceptSnapshot(state) {
-      if (state.source !== source) return;
-      setSnapshot(state);
-      setIdentity((before) => {
-        const next = { person: state.person, profile: state.profile };
-        return JSON.stringify(before) === JSON.stringify(next) ? before : next;
-      });
-    }
-
-    useEffect(() => {
-      const update = (event, state) => {
-        if (event === 'profile') setGeneration((g) => g + 1);
-        else if (state?.source === source) acceptSnapshot(state);
-      };
-      listeners.add(update);
-      return () => listeners.delete(update);
-    }, [source]);
 
     useEffect(() => {
       const stop = new AbortController();
-      setError(''); setIdentity(null); setSnapshot(null); setDocumentHtml(null);
       async function bootstrap() {
-        // Native Pocket identity and data are prerequisites. The Office renderer is not.
-        const person = await pocket.api('profile', undefined, { signal: stop.signal });
+        if (typeof pocket.Conversation !== 'function') throw new Error('This 3D office requires the Pocket conversation-view SDK update. The installed stock 0.19 SDK cannot embed worker conversations.');
+        const [person, rooms, document] = await Promise.all([
+          pocket.api('profile', undefined, { signal: stop.signal }),
+          pocket.api('floors', undefined, { signal: stop.signal }),
+          fetch(new URL('./office-document.json', import.meta.url), { signal: stop.signal }).then(async (res) => {
+            if (!res.ok) throw new Error('The packaged Office world is missing. Build the extension first.');
+            return res.json();
+          }),
+        ]);
         if (stop.signal.aborted) return;
-        const key = `x.office-v2.${person.person.id}.workspace`;
-        if (initializedFor !== person.person.id) {
-          initializedFor = person.person.id;
-          try {
-            const saved = Number(localStorage.getItem(key));
-            if (Number.isSafeInteger(saved) && saved > 0 && saved !== source) {
-              workspace = saved; setSource(saved); return;
-            }
-          } catch { /* Browser storage is optional; it never grants workspace access. */ }
-        }
-        if (!source) { setIdentity(person); return; }
-        workspace = source;
-        const query = new URLSearchParams({ clientId: clientId.current, presence: JSON.stringify({ ...person.profile, lite: true }) });
-        const state = await pocket.api(`state/${source}?${query}`, undefined, { signal: stop.signal });
-        if (!stop.signal.aborted) {
-          acceptSnapshot(state);
-          try { localStorage.setItem(key, String(source)); } catch { /* Storage can be unavailable. */ }
-        }
+        const current = pocket.conversationId();
+        let remembered;
+        try { remembered = Number(localStorage.getItem(`x.office-v2.${encodeURIComponent(person.person.id)}.workspace`)); } catch { /* Optional preference. */ }
+        const selected = rooms.find((room) => room.id === remembered) ?? rooms.find((room) => room.id === current) ?? rooms[0];
+        asset.current = document.html;
+        setIdentity(person); setFloors(rooms); setSource(selected?.id ?? null);
       }
       bootstrap().catch((failure) => { if (!stop.signal.aborted) setError(failure.message); });
       return () => stop.abort();
-    }, [source, generation]);
+    }, []);
 
     useEffect(() => {
-      if (!identity || !source) return;
+      if (!source || !identity || !asset.current || smallWindow) return;
       const stop = new AbortController();
-      let inFlight = false;
-      const timer = setInterval(async () => {
-        if (inFlight || stop.signal.aborted) return;
-        inFlight = true;
-        try {
-          const query = new URLSearchParams({ clientId: clientId.current });
-          if (view === 'room') query.set('presence', JSON.stringify({ ...identity.profile, lite: true }));
-          const state = await pocket.api(`state/${source}?${query}`, undefined, { signal: stop.signal });
-          if (!stop.signal.aborted) acceptSnapshot(state);
-        } catch (failure) { if (!stop.signal.aborted) setError(failure.message); }
-        finally { inFlight = false; }
-      }, 2000);
-      return () => { clearInterval(timer); stop.abort(); };
-    }, [identity, source, view]);
-
-    useEffect(() => {
-      if (view !== '3d' || !identity || !latest.current) { setDocumentHtml(null); return; }
-      const stop = new AbortController();
-      channel.current = crypto.randomUUID();
-      setDocumentHtml(null);
-      async function loadWorld() {
-        const res = await fetch(new URL('./office-document.json', import.meta.url), { signal: stop.signal });
-        if (!res.ok) throw new Error('The optional 3D bundle is missing. The native room remains available.');
-        const asset = await res.json();
-        const boot = { person: identity.person, profile: identity.profile, snapshot: latest.current };
-        const root = new URL('./world/', import.meta.url).href;
-        const meta = `<meta name="pocket-runtime" content="1"><meta name="pocket-channel" content="${channel.current}"><meta name="pocket-bootstrap" content="${encodeURIComponent(JSON.stringify(boot))}"><script src="${new URL('./frame-errors.js', import.meta.url).href}"></script>`;
-        const resolved = asset.html.replace(/\b(src|href)="(\.\/[^\"]+)"/g, (_all, attribute, path) => `${attribute}="${new URL(path, root).href}"`);
-        if (!stop.signal.aborted) setDocumentHtml(resolved.replace('<head>', `<head>${meta}`));
+      setScene(null); setOverlay(null); setError(''); setRecovering(null); setRecoveryError('');
+      async function enter() {
+        const rooms = await pocket.api('floors', undefined, { signal: stop.signal });
+        if (!rooms.some((room) => room.id === source)) throw new Error('This chat floor is archived or unavailable. Return to Pocket and choose an accessible root chat.');
+        const self = latest.current?.source === source ? latest.current.peers.find((peer) => peer.id === latest.current.you) : null;
+        const presence = { ...identity.profile, lite: false, ...(self ? { x:self.x,y:self.y,z:self.z,rotY:self.rotY,moving:false } : {}) };
+        const state = await pocket.api(`state/${source}?${new URLSearchParams({ clientId:clientId.current, presence:JSON.stringify(presence) })}`, undefined, { signal:stop.signal });
+        if (stop.signal.aborted) return;
+        const channel = uuid();
+        const boot = { person:state.person, profile:state.profile, snapshot:state, floors:rooms };
+        const document = worldDocument(asset.current, new URL('./world/', import.meta.url).href, channel, boot, new URL('./frame-errors.js', import.meta.url).href);
+        setFloors(rooms); setSnapshot(state); setScene({source,channel,html:document});
+        rememberWorkspace(identity.person.id, source);
       }
-      loadWorld().catch((failure) => { if (!stop.signal.aborted) setError(failure.message); });
+      enter().catch((failure) => { if (!stop.signal.aborted) setError(failure.message); });
       return () => stop.abort();
-    }, [view, identity, source]);
+    }, [source, identity, generation, smallWindow]);
+
+    useEffect(() => {
+      const stop = new AbortController();
+      const update = async (event) => {
+        if (event !== 'profile') return;
+        try { const person = await pocket.api('profile', undefined, { signal:stop.signal }); if (!stop.signal.aborted) setIdentity(person); }
+        catch (failure) { if (!stop.signal.aborted) setError(failure.message); }
+      };
+      listeners.add(update);
+      return () => { stop.abort(); listeners.delete(update); };
+    }, []);
 
     useLayoutEffect(() => {
-      if (!documentHtml || !frame.current || !source) return;
+      if (!documentHtml || !frame.current || !source || scene.source !== source) return;
+      const boundFrame = frame.current;
+      const boundChannel = scene.channel;
       const stop = new AbortController();
-      const unlisten = listenToFrame({ frame: frame.current, origin: location.origin, channel: channel.current,
-        handle: createBridge({ pocket, source, clientId: clientId.current, signal: stop.signal,
-          customize: () => pocket.openSheet('office-v2-avatar'),
-          onSnapshot: (state) => { if (!stop.signal.aborted) acceptSnapshot(state); },
-        }),
-        onError: (message) => { if (!stop.signal.aborted) setError(message); },
+      const timers = new Set();
+      const bridge = createBridge({ pocket, source, clientId:clientId.current, signal:stop.signal,
+        customize: () => setOverlay({ kind:'avatar' }),
+        workspace: () => setOverlay({ kind:'floors' }),
+        inspect: (worker) => { if (!stop.signal.aborted) setOverlay({ kind:'worker', ...worker, key:uuid() }); },
+        switchFloor: async (target) => {
+          const rooms = await pocket.api('floors', undefined, { signal:stop.signal });
+          if (!rooms.some((room) => room.id === target)) throw new Error('That chat floor is not available to your account.');
+          await pocket.api(`state/${target}?${new URLSearchParams({ clientId:clientId.current })}`, undefined, { signal:stop.signal });
+          if (stop.signal.aborted) throw new Error('The office is closed.');
+          // Acknowledge the old scene before replacing it. Never move its workers or other participants.
+          const timer = setTimeout(() => {
+            timers.delete(timer);
+            if (!stop.signal.aborted) { setOverlay(null); setFloors(rooms); setSource(target); if (target === source) setGeneration((g) => g + 1); }
+          }, 0);
+          timers.add(timer);
+        },
+        onSnapshot: (state) => {
+          if (stop.signal.aborted || state.source !== source) return;
+          setSnapshot(state);
+          // Also synchronize after connect, when an inspector opened before the world was ready.
+          boundFrame.contentWindow?.postMessage({type:'office-v2:overlay',channel:boundChannel,open:!!currentOverlay.current},location.origin);
+        },
       });
-      return () => { stop.abort(); unlisten(); };
-    }, [documentHtml, source]);
+      liveBridge.current = bridge;
+      const unlisten = listenToFrame({ frame:boundFrame, origin:location.origin, channel:boundChannel, handle:bridge,
+        onError:(message) => { if (!stop.signal.aborted) setError(message); },
+      });
+      return () => { stop.abort(); unlisten(); if (liveBridge.current === bridge) liveBridge.current = null; for (const timer of timers) clearTimeout(timer); };
+    }, [scene, source, smallWindow]);
 
-    async function action(run) {
-      const scope = actionScope.current;
-      if (!scope || scope.source !== source || scope.stop.signal.aborted) return;
-      const active = () => actionScope.current === scope && !scope.stop.signal.aborted;
-      const apply = (state) => { if (active()) acceptSnapshot(state); };
-      setWorking(true); setError('');
-      try { await run(scope.stop.signal, apply); }
-      catch (failure) { if (active()) setError(failure.message); }
-      finally { if (active()) setWorking(false); }
+    useEffect(() => {
+      if (!documentHtml || scene.source !== source) return;
+      frame.current?.contentWindow?.postMessage({ type:'office-v2:overlay', channel:scene.channel, open:!!overlay }, location.origin);
+      if (!overlay) frame.current?.focus();
+    }, [overlay, scene, source]);
+    useEffect(() => {
+      const key = (event) => { if (event.key === 'Escape' && overlay) { event.stopPropagation(); setOverlay(null); } };
+      window.addEventListener('keydown', key);
+      return () => window.removeEventListener('keydown', key);
+    }, [overlay]);
+    useEffect(() => {
+      const update = () => setSmallWindow(window.innerWidth < 1024 || window.innerHeight < 600);
+      update(); window.addEventListener('resize', update);
+      return () => window.removeEventListener('resize', update);
+    }, []);
+    useEffect(() => {
+      const update = () => setFullscreen(document.fullscreenElement === host.current);
+      document.addEventListener('fullscreenchange', update);
+      return () => document.removeEventListener('fullscreenchange', update);
+    }, []);
+
+    async function toggleFullscreen() {
+      try {
+        if (document.fullscreenElement === host.current) await document.exitFullscreen();
+        else await host.current?.requestFullscreen();
+      } catch { setError('Fullscreen is unavailable in this browser. The office still fills its Pocket page.'); }
     }
-    const openWorker = (workerId) => action((signal) => createBridge({ pocket, source, clientId: clientId.current, signal })('open', { workerId }));
-    const releaseWorker = (workerId) => {
-      if (!confirm('Release this desk? The Pocket session will keep running and remain in your session list.')) return;
-      return action(async (signal, apply) => apply(await pocket.api(`dismiss/${source}`, { clientId: clientId.current, workerId }, { signal })));
-    };
-    const recover = (reservation) => action(async (signal, apply) => apply(await pocket.api(`hire/${source}`, { clientId: clientId.current, deskId: reservation.deskId, prompt: reservation.prompt, requestId: reservation.requestId }, { signal })));
-    function changeWorkspace() {
-      const current = pocket.conversationId();
-      if (!current || current === source) return;
-      if (!confirm('Use this conversation as the office workspace? Existing desks stay with their previous workspace.')) return;
-      workspace = current; setSource(current); setView('room');
+    async function leave() {
+      if (document.fullscreenElement === host.current) await document.exitFullscreen();
+      if (source) pocket.openConversation(source);
+      pocket.closePage();
+    }
+    function openMaster() {
+      if (!snapshot?.master) return;
+      const bridge = liveBridge.current;
+      if (!bridge) return;
+      bridge('open', { workerId:snapshot.master.workerId }).catch((failure) => { if (liveBridge.current === bridge) setError(failure.message); });
     }
 
-    return html`<section class="office-v2-shell">
-      <div class="office-v2-toolbar">
-        <span><strong>Office v2</strong>${identity ? ` · ${identity.person.name}` : ''}</span>
-        <button class="button" onClick=${() => pocket.openSheet('office-v2-avatar')}>My appearance</button>
-        <button class="button" onClick=${() => setGeneration((g) => g + 1)}>Refresh</button>
-        <button class="button" onClick=${changeWorkspace}>Use this conversation</button>
-      </div>
-      ${error ? html`<div role="alert" class="error-box">${error}<button class="button" onClick=${() => setError('')}>Dismiss notice</button></div>` : null}
-      ${!source ? html`<p class="office-v2-note">Open a root conversation to choose the workspace. Your identity and appearance are already linked to your Pocket account.</p>` : !snapshot ? !error ? html`<${pocket.Loader} label="Loading your Pocket workspace…" />` : null : html`
-        <div class="office-v2-room-head"><h2>${snapshot.title}</h2><p class="muted small">${snapshot.cwd}</p><p class="muted small">${snapshot.model ? `New agents inherit ${snapshot.model}, thinking, tools, and the team budget.` : 'No workspace model selected. Choose a model in Pocket before hiring.'}</p>
-          <div class="office-v2-people" aria-label="People in the office">${roomPeople(snapshot.peers).map((peer) => html`<span class="office-v2-person" key=${peer.id}><span style=${`color:${peer.color}`}>●</span> ${peer.name}</span>`)}</div>
-          <div class="office-v2-tabs"><button class="button" aria-pressed=${view === 'room'} onClick=${() => setView('room')}>Room & desks</button><button class="button" aria-pressed=${view === '3d'} onClick=${() => setView('3d')}>3D office (optional)</button></div>
-        </div>
-        ${(snapshot.pending ?? []).map((reservation) => html`<div class="office-v2-note" key=${reservation.workerId}>Pending hire at ${reservation.deskId}. A session may already be running.
-          <button class="button" disabled=${working || !reservation.recoverable} onClick=${() => recover(reservation)}>Recover original hire</button>
-        </div>`)}
-        ${view === '3d' ? html`<p class="office-v2-note">The same people and agents, shown in 3D. Return to Room & desks at any time.</p>${documentHtml ? html`<iframe ref=${frame} class="office-v2-frame" title="Office v2 multiplayer workspace" sandbox="allow-scripts allow-same-origin allow-pointer-lock allow-forms" allow="fullscreen" srcDoc=${documentHtml}></iframe>` : html`<${pocket.Loader} label="Loading optional 3D view…" />`}` : html`
-          <div class="office-v2-desks" aria-label="Agent desks">${Array.from({ length: 16 }, (_, n) => {
-            const deskId = `desk-${n + 1}`;
-            const worker = snapshot.workers.find((item) => item.deskId === deskId);
-            return html`<article class="office-v2-desk" key=${deskId} aria-label=${`Desk ${n + 1}`}><h3>Desk ${n + 1}</h3>
-              ${worker ? html`<p><strong>${worker.name}</strong></p><p class="muted small">${workerStatus(worker.status)} · Pocket session</p><button class="button primary" disabled=${working} onClick=${() => openWorker(worker.id)}>Open conversation</button><button class="button" disabled=${working} onClick=${() => releaseWorker(worker.id)}>Release desk</button>` : html`<p class="muted">No visible worker</p><button class="button" onClick=${() => pocket.openSheet('office-v2-hire', { source, deskId, clientId: clientId.current })}>Hire agent</button>`}
-            </article>`;
-          })}</div>`}
-        <p class="office-v2-note">Messages, tools, and approvals stay in native Pocket conversations. Idle is not task success. Releasing a desk does not stop or delete its session. Hidden or reserved desks can refuse a hire.</p>
-      `}
-    </section>`;
+    async function recoverPending(pending, release = false) {
+      const bridge = liveBridge.current;
+      if (!bridge || recovering) return;
+      const view = overlay;
+      setRecovering(pending.workerId); setRecoveryError('');
+      try {
+        if (release) await bridge('dismiss', {workerId:pending.workerId,key:uuid()});
+        else await bridge('hire', {deskId:pending.deskId,prompt:pending.prompt,key:pending.requestId});
+        if (liveBridge.current === bridge && currentOverlay.current === view) setOverlay(null);
+      } catch (failure) { if (liveBridge.current === bridge && currentOverlay.current === view) setRecoveryError(failure.message); }
+      finally { if (liveBridge.current === bridge) setRecovering(null); }
+    }
+
+    return html`<section class="office-v2-world" ref=${host} aria-label="3D Pocket office">
+      <header class="office-v2-worldbar"><strong title=${snapshot?.title}>${snapshot?.title ?? 'Office v2'}</strong>
+        <button class="button" disabled=${!snapshot?.master} onClick=${openMaster}>Master chat</button>
+        ${snapshot?.pending?.length ? html`<button class="button" onClick=${() => { setRecoveryError(''); setOverlay({kind:'pending'}); }}>Pending hires (${snapshot.pending.length})</button>` : null}
+        <button class="button" onClick=${toggleFullscreen}>${fullscreen ? 'Exit fullscreen' : 'Fullscreen'}</button>
+        <button class="button" onClick=${leave}>Back to chat</button>
+      </header><div class="office-v2-world-stage">
+      ${smallWindow ? html`<div class="office-v2-desktop-required" role="alert"><strong>Desktop Office</strong><p>Use a computer window at least 1024 × 600. Office keeps its desktop controls; it does not switch to an iPhone layout.</p><button class="button" onClick=${toggleFullscreen}>Fullscreen</button><button class="button" onClick=${leave}>Back to Pocket</button></div>` : null}
+      ${error ? html`<div class="office-v2-world-error" role="alert">${error}<button class="button" onClick=${() => { setError(''); setGeneration((g) => g + 1); }}>Retry floor</button><button class="button" onClick=${leave}>Return to Pocket</button></div>` : null}
+      ${documentHtml ? html`<iframe key=${scene.channel} class="office-v2-worldframe" ref=${frame} title="Office v2 multiplayer world" sandbox="allow-scripts allow-same-origin allow-pointer-lock allow-forms" allow="fullscreen" srcDoc=${documentHtml}></iframe>` : !error ? html`<div class="office-v2-world-loading"><${pocket.Loader} label=${identity && !floors.length ? 'No root chats. Create a chat in Pocket first.' : 'Entering your chat floor…'} /></div>` : null}
+      ${overlay ? html`<div class="office-v2-inspector-scrim"><section class="office-v2-inspector" role="dialog" aria-label=${overlay.kind === 'worker' ? overlay.master ? 'Master conversation' : 'Worker conversation' : overlay.kind === 'avatar' ? 'My appearance' : overlay.kind === 'pending' ? 'Pending hires' : 'Chat floors'}>
+        <header><strong>${overlay.kind === 'worker' ? `${overlay.master ? 'Master · ' : ''}${overlay.title}` : overlay.kind === 'avatar' ? 'My appearance' : overlay.kind === 'pending' ? 'Pending hires' : 'Chat floors'}</strong><button class="button" aria-label="Close inspector" onClick=${() => setOverlay(null)}>✕</button></header>
+        ${overlay.kind === 'worker' ? html`<div class="office-v2-inspector-view"><${pocket.Conversation} key=${overlay.key} conversationId=${overlay.conversationId} draft=${overlay.draft} title=${overlay.title} onClose=${() => setOverlay(null)} /></div>`
+          : overlay.kind === 'avatar' ? html`<${Avatar} close=${() => setOverlay(null)} />`
+          : overlay.kind === 'pending' ? html`<div class="office-v2-avatar"><p>These original hires may already have started model work. Recover the same receipt; do not submit the task again. Releasing a desk does not stop or undo work.</p>
+              ${recoveryError ? html`<p role="alert">${recoveryError}</p>` : null}
+              ${(snapshot?.pending ?? []).map((pending) => html`<article key=${pending.workerId}><strong>${pending.deskId}</strong><p>${pending.prompt}</p><button class="button" disabled=${!!recovering || !pending.recoverable} onClick=${() => recoverPending(pending)}>${recovering === pending.workerId ? 'Working…' : 'Recover original hire'}</button> <button class="button" disabled=${!!recovering} onClick=${() => recoverPending(pending,true)}>Release reservation</button></article>`)}
+              ${!snapshot?.pending?.length ? html`<p>No pending hires remain.</p>` : null}</div>`
+          : html`<p>Use the elevator in the 3D world to choose a chat floor.</p><button class="button" onClick=${() => setOverlay(null)}>Return to the elevator</button>`}
+      </section></div>` : null}
+    </div></section>`;
   }
-  pocket.sheet({ id: 'office-v2-avatar', title: 'My office appearance', component: Avatar });
-  pocket.sheet({ id: 'office-v2-hire', title: 'Hire a Pocket agent', component: Hire });
-  pocket.panel({ id: 'office-v2', title: 'Office v2', icon: 'grid', component: Office, wide: true });
-  pocket.rail({ id: 'office-v2', title: 'Office v2', icon: 'grid', panel: 'office-v2' });
-  pocket.launcher({ id: 'office-v2', label: 'Open Office v2', detail: 'Shared desks backed by real Pocket sessions', icon: 'grid', panel: 'office-v2' });
+
+  pocket.page({ id:'office-v2-world', title:'Office v2', icon:'grid', component:Office });
+  pocket.rail({ id:'office-v2', title:'Office v2', icon:'grid', page:'office-v2-world' });
+  pocket.launcher({ id:'office-v2', label:'Open 3D Office', detail:'Chat floors, master desk, and real Pocket workers', icon:'grid', page:'office-v2-world' });
 }

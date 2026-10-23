@@ -2,6 +2,7 @@ import { canLabel } from '../shared/floorplan';
 import type { GhIssue, WorkerInfo } from '../shared/protocol';
 import { isAsleep } from '../shared/status';
 import type { Interactable } from './world/types';
+import { interactionPermitted } from './shared/interaction-policy';
 
 export const DESK_KEYS = { KeyE: 'E', KeyP: 'P', KeyR: 'R', KeyX: 'X', KeyB: 'B', KeyC: 'C', KeyO: 'O', KeyL: 'L' } as const;
 export type DeskKey = (typeof DESK_KEYS)[keyof typeof DESK_KEYS];
@@ -15,7 +16,7 @@ export interface InteractionState {
 
 /** Whether a desk key has an action at the interaction currently in reach. */
 export function interactionAvailable(it: Interactable | null, key: DeskKey, state: InteractionState): boolean {
-  if (!it) return false;
+  if (!it || !interactionPermitted(it, key)) return false;
 
   // A carried issue can be handed to any desk, queued, returned/swapped, or taken into a meeting.
   if (key === 'E' && state.carrying && (it.kind === 'desk' || it.kind === 'queue' || it.kind === 'issues' || it.kind === 'meeting')) {

@@ -1,3 +1,4 @@
+import { uuid } from './uuid.js';
 const COLORS = ['#ff8a5b', '#4f86f7', '#06d6a0', '#ef476f', '#ffd166', '#9d4edd', '#00b4d8', '#f77f00'];
 const HAIR = ['Short', 'Long', 'Bun', 'Spiky', 'Curly', 'Ponytail', 'Bald'];
 
@@ -49,7 +50,7 @@ export function roomViews(pocket, changed) {
     const [prompt, setPrompt] = useState('');
     const [error, setError] = useState('');
     const [saving, setSaving] = useState(false);
-    const key = useRef(crypto.randomUUID());
+    const key = useRef(uuid());
     const submitted = useRef(null);
     async function hire() {
       setSaving(true); setError('');

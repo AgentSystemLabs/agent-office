@@ -47,11 +47,13 @@ There's a lot more (a rooftop bar, an office dog, an arcade, supercars in the ga
 
 ## Office v2 with the Pi Pocket runtime
 
-A separate integration adds a native room inside **Pi Pocket 0.19.0+**, with real Pocket linked sessions at desks instead of CLI workers. The room starts with your Pocket identity and saved appearance; the 3D office is an optional view, not a startup requirement. It uses Pocket's existing model configuration, session history, authorization, and native approval controls. The Agent Office Node backend does not run in this mode.
+A separate extension runs the **desktop 3D office in Pi Pocket**, with a root chat per floor, a master desk, and real linked-session workers at regular desks instead of CLI workers. Its fullscreen host also contains native Pocket worker conversations, so messages, tools, approvals, and follow-ups do not require leaving the office. The Agent Office Node backend does not run in this mode.
 
-Build with `npm run build:pocket`. Test with `npm run test:pocket` and the isolated scripted-model preview. Review the package before the owner installs and enables it. No credentials are copied and no Pocket core change or restart is required.
+**This redesign requires Pocket's experimental conversation-list and conversation-view SDK additions; stock 0.19.0 is not sufficient.** The office remains an extension, but those generic mechanisms require a separately reviewed Pocket update.
 
-This first slice supports source-scoped shared desks, polled presence, initial-task hiring, busy/idle status, and native session navigation. Follow-ups are drafts for the person to send. Embedded session streams, exact approval status, shell terminals, queue automation, meetings, and Office-managed worktrees are not implemented.
+Build with `PI_POCKET_ROOT=/path/to/updated/pi-pocket npm run build:pocket`. Test against that same updated checkout using isolated data and a scripted model. Review the core and extension changes before installing either. No credentials are copied; the required core SDK update needs an owner-managed restart.
+
+The elevator switches authorized chat floors without moving their agents or teammates. Office fills the computer window, retains its original desktop HUD, and requires at least 1024 × 600. It never switches to an iPhone-style layout. Desktop dialogs stay within the window with reachable close controls. Worker inspection uses core-owned native chat rather than copied streams or private APIs, and never automatically sends a draft. GitHub is intentionally excluded for now. Legacy shell, worktree, voice, game-simulation, and automation workflows require their own adapters; the scene alone does not imply feature parity. The complete fullscreen workflow must pass end-to-end acceptance before this redesign replaces a live installation.
 
 See [Pi Pocket integration](docs/pi-pocket.md) for architecture, installation, permissions, recovery, and limitations. The ordinary CLI setup below is a different runtime; do not start it for Pocket mode.
 

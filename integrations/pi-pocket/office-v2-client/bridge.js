@@ -1,15 +1,16 @@
-// This bridge exposes only this module's public routes and native Pocket navigation.
+import { uuid } from './uuid.js';
+// This bridge exposes only this module's public routes and scoped native conversation inspection.
 export function validRequest(event, frameWindow, origin, channel) {
   const m = event.data;
   if (event.source !== frameWindow || event.origin !== origin || !m || typeof m !== 'object') return false;
   if (m.type !== 'office-v2:request' || m.channel !== channel) return false;
   if (typeof m.id !== 'string' || !/^[a-zA-Z0-9._:-]{1,120}$/.test(m.id)) return false;
-  if (!['connect', 'poll', 'move', 'chat', 'hire', 'open', 'dismiss', 'customize'].includes(m.op)) return false;
+  if (!['connect', 'poll', 'move', 'chat', 'hire', 'open', 'dismiss', 'customize', 'workspace', 'presence', 'floors', 'switch'].includes(m.op)) return false;
   if (m.payload !== undefined && (!m.payload || typeof m.payload !== 'object' || Array.isArray(m.payload))) return false;
   try { return JSON.stringify(m).length <= 32000; } catch { return false; }
 }
 
-export function createBridge({ pocket, source, clientId, signal, onSnapshot = () => {}, customize = () => {} }) {
+export function createBridge({ pocket, source, clientId, signal, onSnapshot = () => {}, customize = () => {}, workspace = () => {}, inspect, switchFloor }) {
   let presence = {};
   const ensureOpen = () => { if (signal.aborted) throw new Error('The office is closed.'); };
   const observe = (snapshot) => { ensureOpen(); onSnapshot(snapshot); return snapshot; };
@@ -26,34 +27,42 @@ export function createBridge({ pocket, source, clientId, signal, onSnapshot = ()
         return state();
       case 'poll': return state();
       case 'customize': customize(); return { opened: true };
+      case 'workspace': workspace(); return { opened: true };
+      case 'floors': return pocket.api('floors', undefined, { signal });
+      case 'switch': {
+        if (!Number.isSafeInteger(payload.source) || payload.source < 1 || typeof switchFloor !== 'function') throw new Error('Select an available chat floor.');
+        await switchFloor(payload.source);
+        ensureOpen();
+        return { switching: true, source: payload.source };
+      }
+      case 'presence':
+        return pocket.api(`presence/${source}`, { clientId, action: payload.action }, { signal }).then(observe);
       case 'move':
         presence = { ...presence, ...(payload.position ?? payload) };
         return state();
       case 'hire':
         return pocket.api(`hire/${source}`, { deskId: payload.deskId, prompt: payload.prompt, requestId: payload.key, clientId }, { signal }).then(observe);
       case 'chat':
-        return pocket.api(`state/${source}`, { action: 'chat', text: payload.text, requestId: payload.key ?? crypto.randomUUID(), clientId }, { signal }).then(observe);
+        return pocket.api(`state/${source}`, { action: 'chat', text: payload.text, requestId: payload.key ?? uuid(), clientId }, { signal }).then(observe);
       case 'dismiss':
         return pocket.api(`dismiss/${source}`, { workerId: payload.workerId, clientId }, { signal }).then(observe);
       case 'open': {
+        if (typeof payload.workerId !== 'string' || !payload.workerId || payload.workerId.length > 120) throw new Error('Select a worker or the master desk.');
         const snapshot = await state(false);
         ensureOpen();
-        const binding = snapshot.bindings?.find((b) => b.workerId === payload.workerId);
+        const binding = snapshot.master?.workerId === payload.workerId
+          ? { conversationId: snapshot.source }
+          : snapshot.bindings?.find((b) => b.workerId === payload.workerId);
         if (!binding) throw new Error('This desk has no session you can open. Refresh the office.');
+        if (payload.prompt !== undefined && (typeof payload.prompt !== 'string' || payload.prompt.length > 20000)) throw new Error('The task draft is too long. Nothing was sent.');
+        if (typeof inspect !== 'function') throw new Error('The Pocket conversation-view SDK update is required to inspect this worker.');
+        const master = snapshot.master?.workerId === payload.workerId;
+        const worker = snapshot.workers?.find((item) => item.id === payload.workerId);
         ensureOpen();
-        pocket.openConversation(binding.conversationId);
-        if (payload.prompt) {
-          // Native navigation is asynchronous. Never put a draft into the old session.
-          const deadline = Date.now() + 5000;
-          while (pocket.conversationId() !== binding.conversationId) {
-            if (signal.aborted || Date.now() > deadline) throw new Error('Open the worker conversation before adding a draft. Nothing was sent.');
-            await new Promise((r) => setTimeout(r, 30));
-          }
-          if (typeof payload.prompt !== 'string' || payload.prompt.length > 20000) throw new Error('The task draft is too long. Nothing was sent.');
-          ensureOpen();
-          pocket.insertText(payload.prompt);
-          pocket.notify('info', 'Task draft added to the worker conversation. Review and send it there.');
-        }
+        await inspect({ source, workerId: payload.workerId, conversationId: binding.conversationId,
+          title: master ? snapshot.master.title : worker?.name ?? 'Worker conversation',
+          master, draft: payload.prompt });
+        ensureOpen();
         return { opened: true, draft: !!payload.prompt, sent: false };
       }
       default: throw new Error('This action is not supported by the Pocket runtime.');

@@ -1,0 +1,48 @@
+/* Desktop Office only. The host supplies a full viewport of at least 1024×600.
+   Keep the original desktop HUD, panel layout, typography, and control sizes.
+   These Pocket-scoped rules only bound dialogs inside the available desktop viewport. */
+html.pocket-office .backdrop:not(.clear) { padding: 16px; }
+html.pocket-office .modal {
+  position: relative;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100dvh - 38px); /* Leave room for the original bottom shadow. */
+  min-width: 0;
+  min-height: 0;
+}
+/* Headers and close buttons stay outside the scrolling body. Original desktop close size: 34px. */
+html.pocket-office .modal > header {
+  position: relative;
+  flex: none;
+  padding-right: 62px;
+}
+html.pocket-office .modal > header .close {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  left: auto;
+  margin: 0;
+  z-index: 3;
+}
+html.pocket-office .modal > .close.corner {
+  top: 10px;
+  right: 10px;
+  left: auto;
+  z-index: 3;
+}
+html.pocket-office .modal:not(:has(> header)) { padding-top: 50px; }
+html.pocket-office .modal > :is(.body, .settings-body, .changes-body, .term-host) {
+  min-height: 0;
+  min-width: 0;
+}
+html.pocket-office .modal > .body { overflow: auto; overscroll-behavior: contain; }
+/* Long action text can wrap without moving the close button or extending beyond the desktop. */
+html.pocket-office .modal > footer {
+  flex: none;
+  flex-wrap: wrap;
+  max-height: min(180px, 30dvh);
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+html.pocket-office .modal > footer > * { min-width: 0; max-width: 100%; }
+html.pocket-office .modal > footer .grow { flex: 1 1 180px; }
+html.pocket-office .modal :is(input, textarea, select, img, video) { max-width: 100%; }

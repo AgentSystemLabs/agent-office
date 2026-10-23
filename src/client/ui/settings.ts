@@ -1,4 +1,5 @@
 import './settings.css';
+import { openPocketSettings } from '../shared/pocket/settings';
 import type { Net } from '../net';
 import type { OfficeSound } from '../sound';
 import { store, type NeedsYouSound, type Settings, type ViewMode } from '../state';
@@ -50,6 +51,7 @@ let lastPane: SettingsPane = 'you';
 
 /** `outside` describes the sky over the office (see describeSky), once the server has said. `first` opens on that category instead of the last one. */
 export function openSettings(net: Net, settings: Settings, onChange: (s: Settings) => void, onCharacter: () => void, sound: Pick<OfficeSound, 'ding' | 'needsYou'>, notifier: DesktopNotifier, onSignOut: () => void, outside?: { now: string; live: boolean }, first?: SettingsPane) {
+  if (openPocketSettings(settings, onChange, onCharacter)) return;
   const seg = h('div.seg', { role: 'radiogroup', 'aria-label': 'Camera view' });
   const note = h('p.setting-note');
   const paint = () => {

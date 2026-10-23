@@ -28,6 +28,8 @@ import { openPull } from '../../ui/pull';
 import { openRepoPulls, workerRepos } from '../../ui/repos';
 import { openTerminal } from '../../ui/terminal';
 import { hiringPaused, usageLabel, usageTitle } from '../../ui/usage';
+import { createWorkerPolicy, workerKeyAllowed, workerPolicyHint, type WorkerActionPolicy } from './policy';
+import { registerInteractionPolicy } from '../../shared/interaction-policy';
 
 // The kinds of thing you can use that this defines (see InteractKinds in world/types.ts).
 declare module '../../world/types' {
@@ -40,11 +42,19 @@ declare module '../../world/types' {
 export type WorkerActionsParts = Pick<Parts, 'worlds' | 'seating' | 'walking' | 'waiting' | 'meeting' | 'cards'>;
 
 /** Registers the worktree answer (worker.worktree), and defines what's done at a desk and at a board agent. */
-export function installWorkerActions(ctx: Ctx, core: CoreState, parts: WorkerActionsParts) {
+export function installWorkerActions(ctx: Ctx, core: CoreState, parts: WorkerActionsParts, policy: WorkerActionPolicy = {}) {
   const { player, net, me, settings } = ctx;
   const { plan, inOffice } = parts.worlds;
-  const openWorkerTerminal = (id: string) => parts.waiting.openWorkerTerminal(id);
-  const openWorkerChanges = (id: string, repo?: string) => parts.waiting.openWorkerChanges(id, repo);
+  const offDeskPolicy = registerInteractionPolicy('desk', (it, key) => workerKeyAllowed(policy, key)
+    && !(policy.boardAgents === false && plan().byId.get(it.deskId ?? '')?.room));
+  const offStationPolicy = registerInteractionPolicy('station', () => policy.boardAgents !== false);
+  const openWorkerTerminal = (id: string) => policy.conversationLabel ? net.openPocketSession(id) : parts.waiting.openWorkerTerminal(id);
+  const openWorkerChanges = (id: string, repo?: string) => policy.repositories === false ? policyActions.unavailable() : parts.waiting.openWorkerChanges(id, repo);
+  const policyActions = createWorkerPolicy(policy, {
+    workerAtDesk: id => store.workerAtDesk(id), worker: id => store.workers.get(id), desk: id => plan().byId.get(id),
+    canHire: () => !officeIsFull(), hire, send: msg => net.send(msg), openConversation: id => { net.openPocketSession(id); },
+    prompt: openPrompt, confirm: confirmDialog, notify: message => { toast(message, 'warn'); },
+  });
 
   function freeDesk(): string | null {
     // Prefer the empty desk nearest to you; when they're all taken, the bean bag that's out.
@@ -78,6 +88,7 @@ export function installWorkerActions(ctx: Ctx, core: CoreState, parts: WorkerAct
   }
 
   function hire(deskId: string, prompt?: string, worktree = false, provider?: AgentProvider, model?: string, effort?: AgentEffort, issue?: number, repos?: string[], via?: 'herald') {
+    if (!policyActions.allowHire(deskId, prompt, worktree, provider, model, effort, issue, repos, via)) return;
     net.send({ t: 'worker.spawn', deskId, prompt, worktree, provider, model, effort, issue, repos: repos?.length ? repos : undefined, via });
     // The moment notifications start to matter: ask once (it has to come from a key press or click).
     if (settings.notify && notifyPermission() === 'default' && !askedToNotify) {
@@ -87,11 +98,13 @@ export function installWorkerActions(ctx: Ctx, core: CoreState, parts: WorkerAct
   }
 
   function openShell(deskId: string) {
+    if (policy.shell === false) return policyActions.unavailable();
     if (officeIsFull()) return;
     net.send({ t: 'worker.spawn', deskId, kind: 'shell' });
   }
 
   function promptAtDesk(deskId: string) {
+    if (policyActions.desk(deskId, 'P')) return;
     const w = store.workerAtDesk(deskId);
     const desk = plan().byId.get(deskId)!;
     if (!w) {
@@ -128,6 +141,7 @@ export function installWorkerActions(ctx: Ctx, core: CoreState, parts: WorkerAct
 
   /** Direct hire from an empty desk, with an optional first prompt and provider choice. */
   function hireAtDesk(deskId: string) {
+    if (policyActions.desk(deskId, 'E')) return;
     const desk = plan().byId.get(deskId)!;
     if (officeIsFull()) return;
     openPrompt({
@@ -146,6 +160,7 @@ export function installWorkerActions(ctx: Ctx, core: CoreState, parts: WorkerAct
 
   ctx.messages.on('worker.worktree', routeWorktreeMessage);
   function killWorker(id: string) {
+    if (policyActions.release(id)) return;
     const w = store.workers.get(id);
     if (!w) return;
     const where = plan().byId.get(w.deskId)?.label ?? 'the desk';
@@ -178,6 +193,7 @@ export function installWorkerActions(ctx: Ctx, core: CoreState, parts: WorkerAct
 
   /** E at a board agent: type it a request. It's hired with it when nobody is there yet. */
   function askStation(deskId: string) {
+    if (policyActions.blockBoard()) return;
     const kind = plan().byId.get(deskId)?.station;
     if (!kind) return;
     const w = store.workerAtDesk(deskId);
@@ -208,6 +224,7 @@ export function installWorkerActions(ctx: Ctx, core: CoreState, parts: WorkerAct
   }
 
   function resumeWorker(w: WorkerInfo) {
+    if (policy.conversationLabel) return openWorkerTerminal(w.id);
     if (w.lost) return fixLostWorktree(w);
     if (!w.sessionId && w.kind !== 'shell') toast(`${w.name} has no saved Claude session — starting a fresh one`, 'warn');
     net.send({ t: 'worker.resume', workerId: w.id });
@@ -219,6 +236,7 @@ export function installWorkerActions(ctx: Ctx, core: CoreState, parts: WorkerAct
    * more are lost, or to send it home.
    */
   function fixLostWorktree(w: WorkerInfo) {
+    if (policy.repositories === false) return policyActions.unavailable();
     if (!w.lost || !w.worktree) return;
     const others = [...store.workers.values()].filter((o) => o.lost && o.id !== w.id);
     lostWorktreeDialog({
@@ -243,6 +261,7 @@ export function installWorkerActions(ctx: Ctx, core: CoreState, parts: WorkerAct
 
   /** O at a desk: see the worker's pull request, or push its branch and open one. */
   function pullRequestFor(w: WorkerInfo) {
+    if (policy.repositories === false) return policyActions.unavailable();
     if (w.repos?.length) return pullRequestsFor(w);
     if (w.pr) {
       const it = store.pulls.items.find((p) => p.number === w.pr!.number);
@@ -344,7 +363,10 @@ export function installWorkerActions(ctx: Ctx, core: CoreState, parts: WorkerAct
   }
 
   function deskHint(deskId: string): Hint {
+    if (policy.boardAgents === false && plan().byId.get(deskId)?.room) return { k: 'unconnected', parts: [aside('Meetings are not connected in this runtime')] };
     const w = store.workerAtDesk(deskId);
+    const runtimeHint = workerPolicyHint(policy, w, plan().byId.get(deskId)?.label ?? 'Desk', w ? STATUS_LABEL[w.status] : '');
+    if (runtimeHint) return { k: JSON.stringify(runtimeHint), parts: [h('span.title', {}, runtimeHint.title), ...runtimeHint.keys.map(([code, label]) => key(code, label))] };
     if (!w && plan().byId.get(deskId)?.room) return { k: 'room', parts: [h('span.title', {}, `🤝 ${plan().byId.get(deskId)!.label} · free`), key('E', 'Call a meeting')] };
     // The sign over it, if it has one, and L to hang one (or change it).
     const sign = store.floorPlan.labels[deskId]?.text;
@@ -411,6 +433,7 @@ export function installWorkerActions(ctx: Ctx, core: CoreState, parts: WorkerAct
   }
 
   function stationHint(deskId: string): Hint {
+    if (policy.boardAgents === false) return { k: 'unconnected', parts: [aside('GitHub boards and board agents are not connected')] };
     const kind = plan().byId.get(deskId)?.station;
     if (!kind) return { k: '', parts: [] };
     const w = store.workerAtDesk(deskId);
@@ -447,7 +470,7 @@ export function installWorkerActions(ctx: Ctx, core: CoreState, parts: WorkerAct
     reach: 4.5,
     hint: (it) => (it.deskId ? deskHint(it.deskId) : { k: '', parts: [] }),
     use: (it, key) => {
-      if (!it.deskId) return;
+      if (!it.deskId || policyActions.desk(it.deskId, key)) return;
       if (key === 'L') return openDeskLabel(net, it.deskId);
       const w = store.workerAtDesk(it.deskId);
       // Nobody is hired at the meeting table: a meeting seats its own workers there.
@@ -465,7 +488,7 @@ export function installWorkerActions(ctx: Ctx, core: CoreState, parts: WorkerAct
     reach: 4.5,
     hint: (it) => (it.deskId ? stationHint(it.deskId) : { k: '', parts: [] }),
     use: (it, key) => {
-      if (!it.deskId) return;
+      if (!it.deskId || policyActions.blockBoard()) return;
       const w = store.workerAtDesk(it.deskId);
       if (key === 'E' || key === 'P') return askStation(it.deskId);
       if (key === 'O' && w) return openWorkerTerminal(w.id);
@@ -475,6 +498,7 @@ export function installWorkerActions(ctx: Ctx, core: CoreState, parts: WorkerAct
 
   /** A prompt from the boards goes to a new worker at a free desk, or to one already at a desk. With `issue`, that worker takes the issue. */
   function sendToWorker(title: string, text: { context?: string; initial?: string }, issue?: number) {
+    if (policyActions.blockBoard()) return;
     const desk = freeDesk();
     const awake = [...store.workers.values()].filter((w) => w.kind === 'agent' && !isAsleep(w.status));
     if (!desk && !awake.length) {
@@ -499,14 +523,15 @@ export function installWorkerActions(ctx: Ctx, core: CoreState, parts: WorkerAct
   /** What the boards' buttons do: hand an issue to a worker, queue it, call a meeting about it, go to a desk, take its card. */
   function boardActions() {
     return {
-      queue: (prompt: string, title: string, issue: number, provider?: AgentProvider, model?: string, effort?: AgentEffort) => net.send({ t: 'queue.add', prompt, title, issue, provider, model, effort }),
+      queue: (prompt: string, title: string, issue: number, provider?: AgentProvider, model?: string, effort?: AgentEffort) => { if (!policyActions.blockBoard()) net.send({ t: 'queue.add', prompt, title, issue, provider, model, effort }); },
       assign: (prompt: string, title: string, issue?: number) => sendToWorker(`🤖 ${title}`, { initial: prompt }, issue),
       ask: (context: string, title: string) => sendToWorker(`✍️ ${title}`, { context }),
-      meeting: (preset: MeetingPreset) => parts.meeting.showMeeting(preset),
+      meeting: (preset: MeetingPreset) => { if (!policyActions.blockBoard()) parts.meeting.showMeeting(preset); },
       goToDesk,
-      pickUp: parts.cards.pickUp,
+      pickUp: (...args: Parameters<typeof parts.cards.pickUp>) => { if (!policyActions.blockBoard()) return parts.cards.pickUp(...args); },
     };
   }
 
-  return { officeIsFull, firstFreeSeat, hire, hireAtDesk, resumeWorker, fixLostWorktree, pullRequestFor, standAt, boardActions };
+  return { officeIsFull, firstFreeSeat, hire, hireAtDesk, resumeWorker, fixLostWorktree, pullRequestFor, standAt, boardActions,
+    disposePolicy: () => { offDeskPolicy(); offStationPolicy(); } };
 }

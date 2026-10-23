@@ -127,6 +127,7 @@ export function buildLoft(group: THREE.Group, colliders: Collider[], interactabl
   desk.add(screen);
   desk.add(mesh(new THREE.CylinderGeometry(0.06, 0.05, 0.12, 10), toon('#ffd166'), 0.9, 0.89, 0.15));
   const plate = textPlane('👑 BOSS', { bg: '#ffd166', size: 48 });
+  plate.name = 'loft-desk-label';
   plate.scale.multiplyScalar(0.55);
   plate.position.set(0, 0.5, -0.55);
   plate.rotation.y = Math.PI;
@@ -196,11 +197,13 @@ export function buildLoft(group: THREE.Group, colliders: Collider[], interactabl
 
   // Signs: one on the back wall inside, one over the glass for everyone downstairs.
   const inside = textPlane('👑 Boss Office', { bg: '#fffaf3', size: 64 });
+  inside.name = 'loft-inside-label';
   inside.scale.multiplyScalar(0.8);
   inside.position.set(maxX - 3, floorY + 1.9, maxZ - 0.04);
   inside.rotation.y = Math.PI;
   group.add(inside);
   const outside = textPlane('👑 Boss Office', { bg: '#2b2d42', color: '#fffaf3', size: 64, border: '#fffaf3' });
+  outside.name = 'loft-outside-label';
   outside.scale.multiplyScalar(1.4);
   // In front of the roof's trim (minZ - 0.04 to minZ), or the trim hides the sign's lower half.
   outside.position.set(cx, roofY + 0.2, minZ - 0.07);

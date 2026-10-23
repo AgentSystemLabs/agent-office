@@ -82,7 +82,8 @@ const FLOOR_KEY = 'agent-office.floor';
 
 /** The floor you were last on, to come back to it after a reload. */
 export function lastFloor(): string | null {
-  if (readPocketBootstrap()) return 'pocket';
+  const pocket = readPocketBootstrap();
+  if (pocket) return `chat-${pocket.snapshot.source}`;
   try {
     return localStorage.getItem(storageKey(FLOOR_KEY));
   } catch {

@@ -14,6 +14,8 @@ export interface PromptOptions {
   placeholder?: string;
   initial?: string;
   submitLabel?: string;
+  /** The Enter shortcut's action, when submit reviews a draft rather than sending it. */
+  enterLabel?: string;
   /** Allow hiring a worker without an initial prompt (the direct hire flow). */
   allowEmpty?: boolean;
   /** Offer the "own git worktree" option (only when hiring a new worker). */
@@ -77,7 +79,7 @@ export function openPrompt(opts: PromptOptions) {
     { role: 'dialog', 'aria-label': opts.title },
     h('header', {}, h('h2', {}, opts.title)),
     h('div.body', {}, opts.warning ? h('p.setting-note.bad', { style: 'margin:0 0 10px', role: 'alert' }, opts.warning) : null, opts.subtitle ? h('p', { style: 'margin:0 0 10px;font-weight:700;color:var(--muted)' }, opts.subtitle) : null, dictateField(ta), provider?.element ?? null, wtRow, repos.element),
-    h('footer', {}, h('span.grow', {}, 'Enter to send · Shift+Enter for a new line'), cancel, submit),
+    h('footer', {}, h('span.grow', {}, `${opts.enterLabel ?? 'Enter to send'} · Shift+Enter for a new line`), cancel, submit),
   ) as HTMLFormElement;
   form.noValidate = true;
 

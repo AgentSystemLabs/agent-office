@@ -20,6 +20,8 @@ const QUIET_FEET = 1.2;
 export interface LoopDeps {
   /** Offers the 2D view (/lite), where the 3D is hard going (see main.ts). */
   offer2d(why: 'slow'): void;
+  /** A host can pause expensive drawing while its external conversation view has focus. */
+  shouldDraw?(frame: Frame): boolean;
 }
 
 /** Registers the office's own ticks: install it before anything else registers one. */
@@ -183,6 +185,7 @@ export function installLoop(ctx: Ctx, core: CoreState, parts: Pick<Parts, 'stage
 
   /** Draws the frame, through whatever it's drawn through (a few drinks in, the drunk vision: see ctx.view). */
   function drawFrame(f: Frame) {
+    if (deps.shouldDraw && !deps.shouldDraw(f)) return;
     ctx.view.draw(f, drawScene);
   }
 
@@ -201,7 +204,10 @@ export function installLoop(ctx: Ctx, core: CoreState, parts: Pick<Parts, 'stage
       renderer.clearDepth();
       hands.setLight(sky.lightAt(camera.position));
       sky.shading(false);
+      const autoClear = renderer.autoClear;
+      renderer.autoClear = false;
       effect.render(hands.scene, hands.camera);
+      renderer.autoClear = autoClear;
       sky.shading(true);
     }
   }

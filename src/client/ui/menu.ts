@@ -1,4 +1,5 @@
 import './menu.css';
+import { pocketHudActions, pocketHudPanel } from '../shared/pocket/controls';
 import { store, type HudPanel, type Settings, type Topic } from '../state';
 import { waitingOnSomeone } from '../notify';
 import { DESK_BY_ID } from '../../shared/layout';
@@ -61,6 +62,7 @@ export interface Hud {
  * and the panels you choose to show. Everything else waits in the menu, so the office stays in view.
  */
 export function mountHud(actions: HudAction[], settings: Settings, save: () => void): Hud {
+  actions = pocketHudActions(actions);
   const dock = $('dock');
   const labelOf = (a: HudAction) => (typeof a.label === 'string' ? a.label : a.label());
   const iconOf = (a: HudAction) => (typeof a.icon === 'string' ? a.icon : a.icon());
@@ -74,7 +76,7 @@ export function mountHud(actions: HudAction[], settings: Settings, save: () => v
   menuBtn.addEventListener('click', () => toggleMenu());
 
   function applyPanels() {
-    for (const p of PANELS) $(PANEL_EL[p.id]).classList.toggle('hud-off', !settings.hud[p.id]);
+    for (const p of PANELS) $(PANEL_EL[p.id]).classList.toggle('hud-off', !pocketHudPanel(p.id) || !settings.hud[p.id]);
   }
 
   function setPanel(id: HudPanel, on: boolean) {
@@ -202,7 +204,7 @@ export function mountHud(actions: HudAction[], settings: Settings, save: () => v
       'div.hud-menu',
       { role: 'menu', 'aria-label': 'Menu' },
       h('div.menu-col', {}, ...section('Open', rows('Open')), ...section('Together', rows('Together'))),
-      h('div.menu-col', {}, ...section('Show on screen', PANELS.map(toggle)), ...section('Office', rows('Office'))),
+      h('div.menu-col', {}, ...section('Show on screen', PANELS.filter((p) => pocketHudPanel(p.id)).map(toggle)), ...section('Office', rows('Office'))),
       h('p.menu-foot', {}, 'Pin what you use most to keep it on the top bar. ', h('kbd', {}, 'Tab'), ' opens and closes this menu.'),
     );
     // On the window, so the keys work wherever focus is while the menu is up.

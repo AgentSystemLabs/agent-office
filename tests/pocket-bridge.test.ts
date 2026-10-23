@@ -28,20 +28,17 @@ test('Pocket bridge fixes the source and translates hire keys without accepting 
   await assert.rejects(handle('shell', {}), /not supported/);
 });
 
-test('Opening a desk refreshes authorized bindings and inserts only a draft in the selected session', async () => {
+test('Opening a desk refreshes authorization and opens a scoped inspector without navigating or sending', async () => {
   const actions: unknown[] = [];
-  let current = 42;
   const pocket = {
-    api: async () => ({ bindings: [{ workerId: 'pocket-1', conversationId: 73 }] }),
-    openConversation: (id: number) => { current = id; actions.push(['open', id]); },
-    conversationId: () => current,
-    insertText: (text: string) => actions.push(['draft', current, text]),
-    notify: () => {},
+    api: async () => ({ source:42, bindings:[{workerId:'pocket-1',conversationId:73}], workers:[{id:'pocket-1',name:'Agent one'}] }),
+    openConversation: () => { throw new Error('Must not navigate the parent'); },
+    insertText: () => { throw new Error('Must not write to the parent composer'); },
   };
-  const handle = createBridge({ pocket, source: 42, clientId: 'client', signal: new AbortController().signal });
-  assert.deepEqual(await handle('open', { workerId: 'pocket-1', prompt: 'follow up' }), { opened: true, draft: true, sent: false });
-  assert.deepEqual(actions, [['open', 73], ['draft', 73, 'follow up']]);
-  await assert.rejects(handle('open', { workerId: 'hidden-session' }), /no session you can open/);
+  const handle = createBridge({ pocket, source:42, clientId:'client', signal:new AbortController().signal, inspect:(worker: unknown) => actions.push(worker) });
+  assert.deepEqual(await handle('open', {workerId:'pocket-1',prompt:'follow up'}), {opened:true,draft:true,sent:false});
+  assert.deepEqual(actions, [{source:42,workerId:'pocket-1',conversationId:73,title:'Agent one',master:false,draft:'follow up'}]);
+  await assert.rejects(handle('open', {workerId:'hidden-session'}), /no session you can open/);
 });
 
 test('Closing the bridge stops operations and never falls back to another runtime', async () => {

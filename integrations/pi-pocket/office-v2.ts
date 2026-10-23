@@ -2,7 +2,7 @@
 import { randomUUID } from 'node:crypto';
 import { defineDoc, defineDocFamily } from '@earendil-works/pi-durable';
 import type { Host, Web, WebRequest, Person, ConversationWebRequest } from './_pocket.d.ts';
-import type { PeerInfo, ChatLine } from '../../src/shared/protocol/presence.js';
+import type { PresenceServerMsg, PeerInfo, ChatLine } from '../../src/shared/protocol/presence.js';
 import type { WorkerInfo } from '../../src/shared/protocol/workers.js';
 
 export const pocketApi = 2;
@@ -39,7 +39,14 @@ export interface OfficeProfileResponse {
   person: Person;
   profile: Avatar & { name: string };
 }
+type AvatarEvent = { seq: number; at: number; message: Extract<PresenceServerMsg, { t: 'peer.act' | 'peer.emote' | 'sit.refused' }> };
+// Standalone extension mirrors shared/emotes.ts, rooftop.ts and bargames.ts; tests enforce parity.
+const EMOTES = ['wave', 'thumbs', 'clap', 'dance', 'point', 'facepalm'];
+const DRINKS = ['beer', 'wine', 'martini', 'maitai', 'shot', 'mojito', 'water'];
+const BAR_GAMES = ['darts', 'axe'];
 export interface OfficeSnapshot extends OfficeProfileResponse {
+  master: { workerId: string; title: string; busy?: boolean };
+  events: AvatarEvent[];
   source: number; title: string; cwd: string; model?: string; you: string;
   peers: PeerInfo[]; chat: ChatLine[]; workers: WorkerInfo[];
   bindings: { workerId: string; conversationId: number }[];
@@ -50,9 +57,16 @@ export default function officeV2(_host: Host, web: Web) {
   if (typeof web.conversationRoute !== 'function') throw new Error('Agent Office needs Pi Pocket 0.19.0 or later.');
   web.client('office-v2-client', { access: 'steer' });
   // Explicitly ephemeral. Nothing here is an authority for a desk or a session.
-  const presence = new Map<string, { source: number; peer: PeerInfo; expires: number }>();
+  const presence = new Map<string, { source: number; peer: PeerInfo; expires: number; events: AvatarEvent[] }>();
+  let sequence = Date.now() * 1000;
   const active = new Set<string>(); // Local duplicate suppression; durable reservations survive reloads.
-  const prune = () => { for (const [key, entry] of presence) if (entry.expires <= Date.now()) presence.delete(key); };
+  const prune = () => {
+    const now = Date.now();
+    for (const [key, entry] of presence) {
+      if (entry.expires <= now) presence.delete(key);
+      else entry.events = entry.events.filter(event => event.at > now - 15_000);
+    }
+  };
   const timer = setInterval(prune, 5_000);
   timer.unref?.();
   web.onDispose(() => { clearInterval(timer); presence.clear(); });
@@ -132,12 +146,25 @@ export default function officeV2(_host: Host, web: Web) {
       bindings.push({ workerId, conversationId: seat.conversationId! });
     }
     const model = req.conversation.model;
-    return { ...await profile(req), source: Number(req.conversation.id), title: req.conversation.title, cwd: req.conversation.cwd,
+    const roots = typeof req.conversations?.list === 'function' ? await req.conversations.list({ rootsOnly: true }) : [];
+    const root = roots.find(room => Number(room.conversationId) === Number(req.conversation.id));
+    const master = { workerId: `pocket-master-${req.conversation.id}`, title: req.conversation.title,
+      ...(root ? { busy: root.busy } : {}) };
+    // The master is the authorized source itself, not a hired child or a releasable seat.
+    return { master, ...await profile(req), source: Number(req.conversation.id), title: req.conversation.title, cwd: req.conversation.cwd,
       ...(model ? { model: `${model.provider}/${model.modelId}` } : {}), you: identity(req, id),
       peers: [...presence.values()].filter(p => p.source === Number(req.conversation.id)).map(p => p.peer),
+      events: [...presence.values()].filter(p => p.source === Number(req.conversation.id)).flatMap(p =>
+        p.events.filter(e => e.message.t !== 'sit.refused' || p.peer.id === identity(req, id))).sort((a, b) => a.seq - b.seq),
       chat: data.chat, workers, bindings, pending };
   };
   const options = { conversation: 'source', access: 'steer' as const };
+  web.route('GET', 'floors', async req => {
+    if (typeof req.conversations?.list !== 'function') throw web.error(501, 'Chat-backed floors require the Pocket conversation-list SDK update.');
+    const rooms = await req.conversations.list({ rootsOnly: true, includeArchived: false });
+    return rooms.map(room => ({ id: Number(room.conversationId), title: room.title, cwd: room.cwd,
+      busy: room.busy, archived: room.archived }));
+  }, { access: 'steer' });
   web.conversationRoute('GET', 'state/:source', async req => {
     const id = client(req.query.get('clientId'));
     const raw = req.query.get('presence');
@@ -161,11 +188,74 @@ export default function officeV2(_host: Host, web: Web) {
       prune();
       const key = `${req.conversation.id}:${identity(req, id)}`;
       if (!presence.has(key) && presence.size >= 1000) throw web.error(429, 'Presence capacity reached');
-      presence.set(key, { source: Number(req.conversation.id), expires: Date.now() + 15_000, peer: {
-        id: identity(req, id), ...avatar,
-        x: coordinate('x', 200), y: coordinate('y', 100), z: coordinate('z', 200), rotY: coordinate('rotY', 100),
+      const position = { x: coordinate('x', 200), y: coordinate('y', 100), z: coordinate('z', 200), rotY: coordinate('rotY', 100) };
+      const previous = presence.get(key);
+      // One Office client occupies one chat floor. Other tabs keep their independent leases.
+      for (const [otherKey, entry] of presence) if (entry.peer.id === identity(req, id) && entry.source !== Number(req.conversation.id)) presence.delete(otherKey);
+      presence.set(key, { events: previous?.events ?? [], source: Number(req.conversation.id), expires: Date.now() + 15_000, peer: {
+        ...previous?.peer, id: identity(req, id), ...avatar,
+        ...position,
         moving: p.moving === true, lite: p.lite === true, voice: false, muted: true, sharing: false, floor: 'pocket',
       } });
+    }
+    return snapshot(req, id);
+  }, options);
+  // Avatar actions are process-local leases and one-shot events, never model work or durable history.
+  web.conversationRoute('POST', 'presence/:source', async req => {
+    fields(req.body, ['clientId', 'action']);
+    const id = client(req.body.clientId);
+    const raw = req.body.action;
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) fail('Invalid avatar action');
+    const action = raw as Record<string, unknown>;
+    const allowed: Record<string, string[]> = {
+      act: ['t', 'smoke', 'golf', 'drink', 'throwing'], emote: ['t', 'emote'],
+      sit: ['t', 'seat'], doing: ['t', 'what', 'reading'],
+    };
+    if (typeof action.t !== 'string' || !Object.hasOwn(allowed, action.t)) fail('Unsupported avatar action');
+    fields(action, allowed[action.t as string]);
+    const bool = (key: string) => { if (action[key] !== undefined && typeof action[key] !== 'boolean') fail(`Invalid ${key}`); };
+    bool('smoke'); bool('golf'); bool('reading');
+    if (action.drink !== undefined && action.drink !== null && !DRINKS.includes(action.drink as string)) fail('Invalid drink');
+    if (action.throwing !== undefined && action.throwing !== null && !BAR_GAMES.includes(action.throwing as string)) fail('Invalid throwing');
+    if (action.t === 'emote' && !EMOTES.includes(action.emote as string)) fail('Invalid emote');
+    const seat = action.seat === undefined ? undefined : text(action.seat, 80, 'seat');
+    const what = action.what === undefined ? undefined : text(action.what, 160, 'doing');
+    prune();
+    const key = `${req.conversation.id}:${identity(req, id)}`;
+    // Resolve the profile before the lease check. Do not yield between the seat check and update.
+    const avatar = (await profile(req)).profile;
+    prune();
+    let entry = presence.get(key);
+    if (!entry) {
+      if (presence.size >= 1000) throw web.error(429, 'Presence capacity reached');
+      entry = { source: Number(req.conversation.id), expires: 0, events: [], peer: {
+        id: identity(req, id), ...avatar, x: 0, y: 0, z: 0, rotY: 0, moving: false,
+        voice: false, muted: true, sharing: false, floor: 'pocket',
+      } };
+      presence.set(key, entry);
+    }
+    // Bound bursts as well as retention, before changing state.
+    if (entry.events.filter(e => e.at > Date.now() - 1000).length >= 12) throw web.error(429, 'Avatar actions are too frequent');
+    entry.expires = Date.now() + 15_000;
+    const event = (message: AvatarEvent['message']) => {
+      entry!.events.push({ seq: ++sequence, at: Date.now(), message });
+      entry!.events = entry!.events.slice(-32);
+    };
+    if (action.t === 'act') {
+      if (action.smoke !== undefined) entry.peer.smoking = action.smoke as boolean;
+      if (action.golf !== undefined) entry.peer.golfing = action.golf as boolean;
+      if (action.drink !== undefined) entry.peer.drink = action.drink === null ? undefined : action.drink as PeerInfo['drink'];
+      if (action.throwing !== undefined) entry.peer.throwing = action.throwing === null ? undefined : action.throwing as PeerInfo['throwing'];
+      event({ ...action, t: 'peer.act', id: entry.peer.id } as AvatarEvent['message']);
+    } else if (action.t === 'emote') {
+      event({ t: 'peer.emote', id: entry.peer.id, emote: action.emote } as AvatarEvent['message']);
+    } else if (action.t === 'doing') {
+      entry.peer.doing = what;
+      entry.peer.reading = action.reading === true;
+    } else if (action.t === 'sit') {
+      const occupied = seat && [...presence.values()].find(p => p !== entry && p.source === entry!.source && p.peer.seat === seat);
+      if (occupied) event({ t: 'sit.refused', seat, by: occupied.peer.name });
+      else entry.peer.seat = seat;
     }
     return snapshot(req, id);
   }, options);

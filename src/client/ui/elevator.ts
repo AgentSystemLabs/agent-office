@@ -1,5 +1,6 @@
 import './elevator.css';
 import { pocketRuntime } from '../shared/pocket/runtime';
+import { openPocketElevator, pocketElevatorOpen } from './pocket-elevator';
 import type { CloneProgress, FloorInfo, RepoChoice, ServerMsg } from '../../shared/protocol';
 import { cloneLabel, cloneStep, floorPalette, normalizeRepo, sameRepo } from '../../shared/floors';
 import { ROOF, ROOF_NAME } from '../../shared/rooftop';
@@ -55,14 +56,11 @@ function cloneBar(p: CloneProgress | undefined): HTMLElement | null {
 let current: Modal | null = null;
 
 export function elevatorPanelOpen(): boolean {
-  return !!current;
+  return !!current || pocketElevatorOpen();
 }
 
 export function openElevator(opts: ElevatorOptions): void {
-  if (pocketRuntime()) {
-    toast('This room uses the source selected in Pocket. Choose another source in the native room.', 'info');
-    return;
-  }
+  if (pocketRuntime()) return openPocketElevator();
   if (current) return;
   // Nowhere to go yet: the panel greets you. It closes like any other; the elevator (or the floor
   // name in the corner) opens it again.
