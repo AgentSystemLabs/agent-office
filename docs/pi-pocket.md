@@ -109,6 +109,19 @@ The layout fixture opens the real desktop Office DOM and styles without a render
 
 End-to-end acceptance must separately verify the real 3D world, two users, elevator switching between two chats, the master desk, child hiring, live inspector activity, human follow-ups, approvals, correct source/target isolation, reconnect/recovery, and desktop screenshots. The native inspector must also retain a computer-width viewport. Do not report readiness from a layout fixture alone.
 
+### Verified desktop browser workflow
+
+The complete `browser-check.mjs` run has passed in isolated data with real software WebGL and a scripted model:
+
+- Two authenticated users, real WASD movement, required-task rejection, and exactly one linked child at a shared desk.
+- Native child chat, human follow-up, an unsent review draft, explicit Send, and a real isolated `bash`/`printf` result.
+- The native Allow approval, unchanged parent URL, and a continuously fullscreen host.
+- Master-chat isolation and elevator switching without transferring workers or teammates.
+- Account-owned appearance in a fresh browser, desktop inspector bounds, small-window rejection, and Escape cleanup.
+- No browser exceptions and no Office WebSocket backend.
+
+Screenshots are written to `dist/screenshots/office-v2-*.png`. The CPU-only WebGL run can take several minutes. This acceptance result does not install the extension, update live Pocket, or replace the owner-approved live smoke check. Receipt recovery and authorization edge cases also have integration coverage.
+
 ## Install and recovery
 
 1. Review the Pocket SDK and extension changes separately. Test both together in isolated data.

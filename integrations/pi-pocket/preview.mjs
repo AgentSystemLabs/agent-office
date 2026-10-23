@@ -17,9 +17,12 @@ await cp(join(import.meta.dirname, 'office-v2.ts'), join(dropIns, 'office-v2.ts'
 await cp(join(import.meta.dirname, 'office-v2-client'), join(dropIns, 'office-v2-client'), { recursive: true });
 const app = await openApp(scriptedModel((request) => {
   const last = lastText(request);
-  return last.role === 'user' && last.text === 'office tool check'
+  // Pocket adds authenticated sender labels to model-visible human messages.
+  // Normalize only that label; keep linked-session safety text in the scripted echo.
+  const text = last.role === 'user' ? last.text.replace(/^\[from: [^\]\r\n]+\]\s*/, '') : last.text;
+  return last.role === 'user' && text === 'office tool check'
     ? fauxAssistantMessage([fauxToolCall('bash', {command:'printf office-tool-ok'})], {stopReason:'toolUse'})
-    : fauxAssistantMessage([fauxText(`echo: ${last.text}`)]);
+    : fauxAssistantMessage([fauxText(`echo: ${text}`)]);
 }));
 await app.setExtensionEnabled(owner(app), 'office-v2.ts', true);
 app.loader.watch();

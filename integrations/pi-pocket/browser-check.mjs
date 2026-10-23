@@ -45,12 +45,20 @@ async function open(userToken){
 async function freeMouse(game){await game.evaluate(()=>document.exitPointerLock());await until(()=>game.evaluate(()=>!document.pointerLockElement),'released mouse-look');}
 async function inspector(page){await page.locator('.office-v2-inspector-view iframe').waitFor();const view=await frame(page,'.office-v2-inspector-view iframe');await view.locator('.composer textarea').waitFor();assert.equal(await view.locator('.sidebar,.ext-page').count(),0);return view;}
 async function send(view,text){await view.locator('.composer textarea').fill(text);await view.getByRole('button',{name:'Send',exact:true}).click();await view.getByText(`echo: ${text}`,{exact:true}).waitFor();}
-async function closeInspector(page){await page.getByRole('button',{name:'Close inspector',exact:true}).press('Enter');await page.locator('.office-v2-inspector').waitFor({state:'detached'});}
-async function menu(game,page,label){await game.locator('#scene').focus();await page.keyboard.press('Tab');await game.locator('.menu-item').filter({hasText:label}).first().press('Enter');}
+async function closeInspector(page){await page.getByRole('button',{name:'Close inspector',exact:true}).press('Enter');await page.locator('.office-v2-inspector').waitFor({state:'detached'});const game=await frame(page,'.office-v2-worldframe');await game.locator('#modal-root .backdrop').waitFor({state:'detached'});}
+async function menu(game,page,label){
+  const toggle=game.getByRole('button',{name:'Menu',exact:true});
+  // Parent focus restoration and pointer-lock changes can land after inspector DOM removal.
+  for(let attempt=0;attempt<4&&await toggle.getAttribute('aria-expanded')!=='true';attempt++){
+    await toggle.focus();await page.keyboard.press('Tab');await page.waitForTimeout(500);
+  }
+  await game.locator('.menu-item').filter({hasText:label}).first().press('Enter');
+}
 async function fullscreen(page){if(!await page.evaluate(()=>!!document.fullscreenElement))await page.getByRole('button',{name:'Fullscreen',exact:true}).press('Enter');assert.equal(await page.evaluate(()=>document.fullscreenElement?.classList.contains('office-v2-world')),true);}
 async function bounds(page){assert.equal(await page.getByRole('button',{name:'Close inspector'}).evaluate(el=>{const r=el.getBoundingClientRect();return r.width>=32&&r.height>=32&&r.x>=0&&r.y>=0&&r.right<=innerWidth+1&&r.bottom<=innerHeight+1;}),true);}
 try{
   const owner=await open(app.config.ownerToken);
+  console.log('Real WebGL:',await owner.game.evaluate(()=>{const canvas=document.querySelector('#scene');const gl=canvas.getContext('webgl2');const debug=gl.getExtension('WEBGL_debug_renderer_info');return{width:canvas.width,height:canvas.height,antialias:gl.getContextAttributes().antialias,renderer:debug?gl.getParameter(debug.UNMASKED_RENDERER_WEBGL):'masked'};}));
   // A reader's native inspector pauses drawing, not the real world, simulation, or presence.
   // Keep only one software-rendered world drawing at a time on this CPU-only acceptance host.
   await owner.page.getByRole('button',{name:'Master chat',exact:true}).press('Enter');
@@ -74,7 +82,7 @@ try{
 
   // Use the actual movement controls to leave the elevator and approach a regular desk.
   await owner.page.bringToFront();
-  // Closing the inspector restores pointer lock. Tab opens the menu and yields it before a DOM click.
+  // Closing the inspector restores pointer lock. Keyboard activation avoids pointer-lock mouse clicks.
   await menu(owner.game,owner.page,'Settings');
   await freeMouse(owner.game);
   await owner.game.getByRole('radio',{name:'Third person',exact:true}).press('Enter');
@@ -82,7 +90,9 @@ try{
   await walk(owner,initial.snapshot.you,'w',p=>p.z>-10,'walking out of the elevator');
   await walk(owner,initial.snapshot.you,'d',p=>p.x<5.5,'walking around the board kiosk');
   await walk(owner,initial.snapshot.you,'w',p=>p.z>-7.5,'passing the board kiosk');
-  await walk(owner,initial.snapshot.you,'d',p=>p.x<1,'approaching a regular desk');
+  await walk(owner,initial.snapshot.you,'d',p=>p.x<0.8,'approaching a regular desk');
+  await walk(owner,initial.snapshot.you,'w',p=>p.z>-6.2,'entering the desk interaction circle');
+  await owner.game.locator('#hint').filter({hasText:/Hire/}).waitFor();
   await owner.page.keyboard.press('e');
   await owner.game.getByRole('textbox',{name:'Prompt',exact:true}).waitFor();
   const hire=owner.game.getByRole('dialog').filter({has:owner.game.getByRole('textbox',{name:'Prompt',exact:true})});
@@ -93,18 +103,21 @@ try{
   await until(async()=>(await state(owner.page,session,initial.snapshot.you.slice(-36))).bindings.length===1,'real child binding');
   const hired=await state(owner.page,session,initial.snapshot.you.slice(-36));
   const child=hired.bindings[0].conversationId;
-  await teammate.game.locator('#workers li').first().waitFor();
+  await teammate.game.locator('#workers li:not(.empty)').first().waitFor();
+  await owner.game.locator('#hint').filter({hasText:'Open worker conversation'}).waitFor();
   assert.equal(app.sessions().length,3,'exactly one child, separate from both master floors');
   console.log('PASS: movement, required task at E/hire, inherited real child, and shared worker desk.');
 
   await owner.page.keyboard.press('e');
   let view=await inspector(owner.page);
   assert.equal(new URL(view.url()).pathname,`/s/${child}`);
-  await view.getByText('echo: Office worker initial task',{exact:true}).waitFor();
+  // Linked-session initial tasks include Pocket's native sender and safety wrapper.
+  await view.getByText(/^echo: .*Office worker initial task$/s).waitFor();
   assert.equal(owner.page.url(),originalUrl);
   await fullscreen(owner.page);
   assert.equal(await owner.page.locator('.office-v2-inspector-view iframe').evaluate(el=>document.fullscreenElement.contains(el)),true);
   await send(view,'Human follow-up inside the office');
+  console.log('PASS: native child response and human follow-up remain inside fullscreen.');
   assert.equal(owner.page.url(),originalUrl);
   await until(async()=>(await self(owner.page,session,initial.snapshot.you))?.reading===true,'inspector reading presence');
   await closeInspector(owner.page);
@@ -116,8 +129,10 @@ try{
   await until(async()=>await view.locator('.composer textarea').inputValue()==='Review-only follow-up draft','unsent native draft');
   assert.equal(await view.getByText('echo: Review-only follow-up draft',{exact:true}).count(),0);
   await view.getByRole('button',{name:'Send',exact:true}).click();await view.getByText('echo: Review-only follow-up draft',{exact:true}).waitFor();
+  console.log('PASS: native follow-up draft stays unsent until explicit Send.');
   await view.locator('.composer textarea').fill('office tool check');await view.getByRole('button',{name:'Send',exact:true}).click();
   await view.getByText('echo: office-tool-ok',{exact:true}).waitFor();
+  console.log('PASS: scripted model ran the real isolated bash printf tool.');
   const decision=app.approvals.request({id:'office-inspector-approval',conversationId:child,taskId:999,tool:'bash',subject:'printf isolated-approval',reason:'Isolated Office inspector approval test',createdAt:Date.now()},context).catch(error=>({error}));
   await view.getByRole('button',{name:'Allow',exact:true}).waitFor();
   await bounds(owner.page);await owner.page.screenshot({path:join(screenshots,'office-v2-fullscreen-approval.png')});
@@ -136,7 +151,7 @@ try{
   await owner.game.getByRole('dialog',{name:'Elevator',exact:true}).getByRole('button',{name:/Workspace switch test project/}).press('Enter');
   await until(async()=>{const candidate=await world(owner.page);if((await boot(candidate)).snapshot.source!==Number(other))return false;owner.game=candidate;return true;},'replacement scene for the selected chat floor',60000);
   assert.equal(await owner.page.evaluate(()=>!!document.fullscreenElement),true,'scene replacement keeps the fullscreen host');
-  await teammate.game.locator('#workers li').first().waitFor();
+  await teammate.game.locator('#workers li:not(.empty)').first().waitFor();
   await until(async()=>!(await teammate.game.locator('#people').innerText()).includes('Owner'),'old-floor presence removed');
   assert.equal((await state(owner.page,other,initial.snapshot.you.slice(-36))).workers.length,0);
   await owner.page.getByRole('button',{name:'Master chat',exact:true}).press('Enter');view=await inspector(owner.page);
