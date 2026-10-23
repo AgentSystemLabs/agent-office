@@ -4,7 +4,7 @@
 //
 // Browser-safe: no node imports, the hire dialog reads this too.
 
-export const AGENT_PROVIDERS = ['claude', 'opencode', 'codex', 'grok', 'muse', 'dsh', 'pi', 'cursor', 'custom'] as const;
+export const AGENT_PROVIDERS = ['claude', 'opencode', 'codex', 'grok', 'muse', 'dsh', 'pi', 'cursor', 'goose', 'cline', 'openhands', 'custom'] as const;
 
 export type AgentProvider = (typeof AGENT_PROVIDERS)[number];
 
@@ -319,6 +319,27 @@ export const PROVIDER_META: Record<AgentProvider, ProviderMeta> = {
       invalid: 'Use a Cursor model id: letters, digits and . _ -, with any overrides in brackets, like model[effort=high] (up to 128 characters).',
     },
     usage: { note: 'Cursor uses the Cursor CLI login on the office machine. Usage and cost stay in its terminal and your Cursor account; the office does not meter them.' },
+  },
+  goose: {
+    label: 'Goose',
+    name: 'Goose',
+    bin: 'goose',
+    unpicked: 'Uses the NVIDIA provider and model already configured in Goose.',
+    usage: { note: 'Goose usage and cost stay in its terminal; the office does not meter them.' },
+  },
+  cline: {
+    label: 'Cline',
+    name: 'Cline',
+    bin: 'cline',
+    unpicked: 'Uses the NVIDIA provider and model verified for Cline on this computer.',
+    usage: { note: 'Cline usage and cost stay in its terminal; the office does not meter them.' },
+  },
+  openhands: {
+    label: 'OpenHands',
+    name: 'OpenHands',
+    bin: 'node',
+    unpicked: 'Uses the active OpenHands agent profile, configured for NVIDIA on this computer.',
+    usage: { note: 'OpenHands usage and cost stay in Agent Canvas; the office does not meter them.' },
   },
   custom: {
     label: 'Custom',

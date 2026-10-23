@@ -10,6 +10,9 @@ import { grok } from './grok.js';
 import { muse } from './muse.js';
 import { opencode } from './opencode.js';
 import { pi } from './pi.js';
+import { goose } from './goose.js';
+import { cline } from './cline.js';
+import { openhands } from './openhands.js';
 import type { SomeAdapter } from './types.js';
 
 export type { LaunchPlan, ProviderAdapter, ProviderFloor, SomeAdapter } from './types.js';
@@ -23,6 +26,9 @@ export const PROVIDERS: Record<AgentProvider, SomeAdapter> = {
   dsh,
   pi,
   cursor,
+  goose,
+  cline,
+  openhands,
   custom,
 };
 
