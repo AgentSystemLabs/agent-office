@@ -59,6 +59,7 @@ import { installLamplight } from './features/lamplight';
 import { installTelescope } from './features/telescope';
 import { installTv } from './features/tv';
 import { installVoice } from './features/voice';
+import { installMarket } from './features/market';
 import { installWaiting } from './features/waiting';
 import { installWalking } from './features/walking';
 import { installWhiteboard } from './features/whiteboard';
@@ -178,6 +179,7 @@ parts.pointer = installPointer(ctx, core, parts);
 installChat(ctx);
 parts.talk = installVoice(ctx, { tv: parts.tv });
 installDictation(ctx);
+installMarket(ctx);
 parts.hud = installHud(ctx, core, parts);
 
 // ---- Main loop ---------------------------------------------------------------------------------------

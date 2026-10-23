@@ -6,6 +6,7 @@ import { agentRoutes } from './agents.js';
 import { authRoutes } from './auth.js';
 import { fileRoutes } from './files.js';
 import { githubRoutes } from './github.js';
+import { marketRoutes } from './market.js';
 import { pageRoutes } from './pages.js';
 import { searchRoutes } from './search.js';
 import { serviceRoutes } from './services.js';
@@ -36,6 +37,8 @@ export const routes: readonly Route[] = [
   searchRoutes.search,
   serviceRoutes.forwards,
   githubRoutes.github,
+  marketRoutes.quotes,
+  marketRoutes.news,
   pageRoutes.office,
   pageRoutes.lite,
   pageRoutes.bundle,

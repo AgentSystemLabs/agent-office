@@ -35,6 +35,7 @@ export const HELP_ROWS: readonly (readonly [string, string])[] = [
   ['T', 'Chat'],
   ['G / 1–6', 'Emote: hold G, point at one and let go (or tap G and click one), or press 1–6: wave, thumbs up, clap, dance, point, facepalm. Everyone on your floor sees it'],
   ['/', 'Search the chat and every terminal on your floor, back to before the office last restarted'],
+  ['J', 'The 📈 market terminal: live stock and crypto prices and the market’s headlines, amber on black. Type a ticker (AAPL) or a coin pair (BTC-USD) and Enter adds it to your watchlist; click a row for a closer look. It’s also “Market terminal” in the Ctrl+K palette'],
   [IS_MAC ? '⌘K' : 'Ctrl+K', 'Command palette: type a few letters to find a worker, issue, PR, service, board, teammate or action. Enter opens it, Shift+Enter walks you over to it first'],
   ['V', 'Join voice. In voice, hold V to talk (push to talk): you’re muted once you let go. Leave voice from the ☰ menu'],
   ['M', 'Mute or unmute your mic in voice. ⚙️ Settings can have you join muted, for push to talk'],

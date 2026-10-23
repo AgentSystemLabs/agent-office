@@ -62,3 +62,7 @@ agent-office tunnel [office@address | url] [--port <n>] [--office-port <n>] [--n
   the worker stops it. Given an SSH address it opens the tunnel to the office too.
   See docs/tunnel.md.
 ```
+
+## Market terminal
+
+The 📈 market terminal (**J**, or *Market terminal* in the Ctrl+K palette) prices crypto pairs like `BTC-USD` from Coinbase's public prices, which need no key. Stocks and the market's headlines come from [Finnhub](https://finnhub.io/register): get a free key there and start the office with it in `AGENT_OFFICE_FINNHUB_KEY`, for example `AGENT_OFFICE_FINNHUB_KEY=... agent-office`. The key stays on the office's server. Browsers ask the office (`/api/market/quotes` and `/api/market/news`, signed-in only), and the office asks Finnhub with the key in a header, so it's never in a page or a URL. The office keeps each price for 10 seconds and the headlines for a minute, so many open terminals stay well inside the free tier's 60 calls a minute. Finnhub's free tier covers US stocks, and its prices can trail the full market by a little. It's no replacement for a broker's feed, and none of it is investment advice.

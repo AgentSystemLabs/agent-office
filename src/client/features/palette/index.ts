@@ -19,6 +19,7 @@ import { openIssue, openPull } from '../../ui/pull';
 import { openServices, serviceUrl } from '../../ui/services';
 import { openTeam } from '../../ui/team';
 import { IS_MAC } from '../../ui/termkeys';
+import { openMarket } from '../market';
 import { openWhiteboard } from '../whiteboard/ui';
 import type { InteractKind, Interactable } from '../../world/types';
 
@@ -99,6 +100,7 @@ export function installPalette(ctx: Ctx, parts: PaletteParts) {
     else if (store.me.admin) out.push({ icon: '👥', kind: 'Action', title: 'Invite people', detail: 'Accounts', keywords: ['invite teammates', 'accounts', 'team'], open: () => openAccounts(net) });
     out.push({ icon: '🖼️', kind: 'Action', title: 'Hang a picture', detail: 'On a wall of this floor', keywords: ['decorate', 'frame', 'art'], open: hanging.startHanging });
     out.push({ icon: '🔎', kind: 'Action', title: 'Search the chat and every terminal', keywords: ['find'], open: showSearch });
+    out.push({ icon: '📈', kind: 'Action', title: 'Market terminal', detail: 'Live stock and crypto prices, and the news', keywords: ['stocks', 'quotes', 'crypto', 'news', 'ticker'], open: openMarket });
 
     out.push(at('issues', 'the Issues board', { icon: '📌', kind: 'Board', title: 'Issues board', open: () => openBoard('issues', net, actions.boardActions()) }));
     out.push(at('pulls', 'the PR board', { icon: '🔀', kind: 'Board', title: 'PR board', keywords: ['pull requests'], open: () => openBoard('pulls', net, actions.boardActions()) }));

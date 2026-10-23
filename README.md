@@ -374,6 +374,7 @@ deploy/coolify.sh ssh 'node /opt/agent-office/bin/agent-office.js accounts invit
 | X | Send a worker home |
 | L | Hang a sign over a desk ("Operations", "Code cleanup") |
 | T / Enter | Chat |
+| J | The 📈 market terminal: live stock and crypto prices and headlines (stocks need a free `AGENT_OFFICE_FINNHUB_KEY`, see [Configuration](docs/configuration.md#market-terminal)) |
 | V | Join voice; then hold V to talk |
 | M | Mute / unmute in voice |
 | Ctrl + Space | Dictate into a terminal or a prompt box: hold it and talk (or hold the **🎤**) |
