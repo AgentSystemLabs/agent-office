@@ -93,10 +93,11 @@ const parts = {} as Parts;
 const { ctx, core } = createCtx(parts);
 // The office's own parts of each frame, before anything else's.
 const presentation = pocket ? pocketPresentation() : undefined;
-installLoop(ctx, core, parts, { offer2d, shouldDraw: presentation?.shouldDraw });
+installLoop(ctx, core, parts, { offer2d, shouldDraw: presentation?.shouldDraw, afterDraw: presentation?.afterDraw });
 
 // ---- Renderer & scene ---------------------------------------------------------------------------
 const canvas = $('scene') as HTMLCanvasElement;
+presentation?.prepare(canvas);
 parts.stage = createScene(canvas, makeRenderer(canvas) ?? (await (pocket ? pocketNoWebGL() : noWebGL())));
 presentation?.setup(parts.stage);
 parts.worlds = createWorlds(ctx);

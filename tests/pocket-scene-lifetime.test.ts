@@ -52,6 +52,14 @@ test('a source change unmounts the old world and cannot bind it to the new floor
     render();
     assert.equal(frameCount,1);
     assert.equal(handlers.size,1);
+    states[11]=true;
+    render();
+    assert.equal(frameCount,0,'a small window must not substitute a phone world');
+    assert.equal(handlers.size,0,'the hidden desktop scene must release its bridge');
+    states[11]=false;
+    render();
+    assert.equal(frameCount,1,'enlarging the desktop window restores the matching scene');
+    assert.equal(handlers.size,1);
     states[2]=43;
     render();
     assert.equal((states[4] as {source:number}).source,42,'the old document still exists until the passive effect runs');

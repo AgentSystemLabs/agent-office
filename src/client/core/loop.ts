@@ -22,6 +22,8 @@ export interface LoopDeps {
   offer2d(why: 'slow'): void;
   /** A host can pause expensive drawing while its external conversation view has focus. */
   shouldDraw?(frame: Frame): boolean;
+  /** Lets a host finish presentation before it budgets the next expensive frame. */
+  afterDraw?(): void;
 }
 
 /** Registers the office's own ticks: install it before anything else registers one. */
@@ -187,6 +189,7 @@ export function installLoop(ctx: Ctx, core: CoreState, parts: Pick<Parts, 'stage
   function drawFrame(f: Frame) {
     if (deps.shouldDraw && !deps.shouldDraw(f)) return;
     ctx.view.draw(f, drawScene);
+    deps.afterDraw?.();
   }
 
   /** The scene, then your hands on top of it. */

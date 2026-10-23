@@ -4,7 +4,7 @@ Back to the [README](../README.md).
 
 Office v2 is a Pocket extension. Its primary interface is the original **desktop** 3D office. Its own page fills the window and can also enter browser fullscreen. It does not use a phone-style extension panel, bottom sheet, or mobile fallback. A computer window of at least 1024 × 600 is required. There is no Office Node backend, PTY service, provider CLI, separate login, or credential copy.
 
-**This redesign requires the experimental Pocket conversation SDK additions. Stock Pocket 0.19.0 is not sufficient.** The extension checks capabilities rather than pretending that a larger window provides missing runtime APIs. Do not replace a live installation until the Pocket SDK update and the complete extension workflow have passed isolated tests.
+**This redesign requires the experimental Pocket conversation SDK additions ([Pocket PR #129](https://github.com/TannerMidd/pi-pocket/pull/129)). Stock Pocket 0.19.0 is not sufficient.** The extension checks capabilities rather than pretending that a larger window provides missing runtime APIs. Do not replace a live installation until the Pocket SDK update and the complete extension workflow have passed isolated tests.
 
 ## Room model
 
@@ -27,6 +27,8 @@ The fullscreen element belongs to the extension and contains both:
 2. the worker-inspector overlay, rendered with public `pocket.Conversation`.
 
 Fullscreen does not apply to the world iframe alone. Otherwise native chat would appear outside the fullscreen element and become unreachable.
+
+On detected software WebGL, Office disables multisample antialiasing, shadows, and outlines, lowers pixel resolution, and draws at most 5 frames per second. It budgets idle time after submission and pauses expensive drawing behind dialogs. Simulation, network synchronization, and real session activity continue. Normal hardware keeps the original rendering settings. This fallback is not a phone layout or a substitute renderer.
 
 Clicking a worker or master first refreshes its authorized binding through the extension route. The inspector then embeds the **native Pocket conversation**, with its own document, store, connection, and conversation ID. It does not navigate or retarget the parent chat. Messages, thinking, tools, approvals, the human composer, and stopping work remain core-owned controls. Drafts are never automatically sent. Opening a worker never approves a tool, takes the turn, changes a model, or starts new work.
 
