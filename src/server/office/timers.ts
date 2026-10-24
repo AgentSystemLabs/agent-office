@@ -1,7 +1,8 @@
 import type { Ctx } from './context.js';
 import { SLOW_CLIENT_BYTES } from './client.js';
+import { startReels } from '../reels/index.js';
 
-/** The office's own clocks: terminals re-sent to viewers who fell behind, and the heartbeat. Returns what stops them. */
+/** The office's own clocks: terminals re-sent to viewers who fell behind, the heartbeat and the reels studio's. Returns what stops them. */
 export function startTimers(ctx: Ctx): () => void {
   const { clients } = ctx;
   const resync = setInterval(() => {
@@ -31,7 +32,10 @@ export function startTimers(ctx: Ctx): () => void {
     if (accountsMoved) ctx.accountsChanged();
   }, 20_000);
 
+  const stopReels = startReels(ctx);
+
   return () => {
+    stopReels();
     clearInterval(heartbeat);
     clearInterval(resync);
   };

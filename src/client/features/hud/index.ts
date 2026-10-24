@@ -54,6 +54,8 @@ export function installHud(ctx: Ctx, core: CoreState, parts: HudParts) {
       { id: 'queue', icon: '📋', label: 'Task queue', section: 'Open', count: () => store.queue.tasks.filter((t) => t.status !== 'done').length, title: () => 'Issues and tasks waiting for a worker', run: waiting.showQueue },
       { id: 'services', icon: '🌐', label: 'Services', section: 'Open', count: () => store.services.items.length, title: () => 'Web servers the workers are running', run: () => openServices() },
       { id: 'whiteboard', icon: '📝', label: 'Whiteboard', section: 'Open', title: () => 'Draw together, live', run: () => openWhiteboard(net) },
+      // A page of its own, in a tab beside the office: the agents' faceless short-video page (docs/reels.md).
+      { id: 'reels', icon: '🎬', label: 'Reels studio', section: 'Open', title: () => 'The reels your agents make and post: review them, change the series, see the numbers', run: () => window.open('/reels', '_blank', 'noopener') },
       // Up on the top bar while a meeting is on: what's being worked through in the meeting room.
       {
         id: 'meeting',
