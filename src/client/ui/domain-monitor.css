@@ -1,0 +1,8 @@
+.domain-monitor { overflow:auto; max-height:76vh; }
+.monitor-table { width:100%; border-collapse:collapse; font-size:13px; }
+.monitor-table th,.monitor-table td { padding:9px 7px; text-align:left; border-bottom:1px solid #8885; vertical-align:top; overflow-wrap:anywhere; }
+.monitor-table th { position:sticky; top:0; background:var(--panel,#fff4df); }
+.monitor-table small { display:block; }
+.monitor-warning,.monitor-error { color:#9d2020; font-weight:600; }
+.monitor-reachable { color:#226b3b; }
+.monitor-restricted,.monitor-redirect,.monitor-unknown { color:#795413; }
