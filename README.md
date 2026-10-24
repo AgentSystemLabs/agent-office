@@ -1,4 +1,6 @@
 > [!WARNING]
+> Local domain monitoring: [Cloudflare status setup and coverage](docs/cloudflare-monitor.md). The Office computer performs the checks with a locally referenced credential file; no monitor is deployed to the websites.
+>
 > **Work in progress.** Agent Office is built for one person's workflow — mine — and it changes fast as I iterate on it.
 > Expect breaking changes between releases: keys that move, screens that get redrawn, features that come and go
 > without notice. If it's close to what you want, fork or clone it and bend it into what you need it to be.
@@ -91,6 +93,8 @@ agent-office setup                          # the first-start walkthrough again 
 ```
 
 Every option is in [docs/configuration.md](docs/configuration.md). Choosing models and providers per worker is in [docs/agents.md](docs/agents.md).
+
+This local integration build also offers **Goose**, **Cline**, and **OpenHands** in the worker picker. The three agents use their existing NVIDIA credentials and settings; Agent Office does not store an NVIDIA key. Goose and Cline run in their interactive terminals. OpenHands connects to the running Agent Canvas service on `127.0.0.1:8000` through a local terminal bridge. See [the local agent setup and recovery notes](docs/agents.md#goose-cline-and-openhands-in-this-local-build).
 
 To run it from a clone instead:
 

@@ -308,7 +308,7 @@ export class Floor {
     this.decor = new Decor(dataDir);
     this.jukebox = new Jukebox(dataDir);
     this.whiteboard = new Whiteboard(dataDir);
-    this.ready = this.workers.start();
+    this.ready = this.workers.start().then(() => this.queue.restored());
 
     void this.github.refresh();
     // A floor with people on it, or work under way, keeps its boards fresh; the others check in now and then.

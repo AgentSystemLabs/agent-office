@@ -20,6 +20,7 @@ import { openBoard } from './ui/boards';
 import type { BoardActions } from './ui/github/prompts';
 import { openPull, routePullMessage } from './ui/pull';
 import { openQueue } from './ui/queue';
+import { mountDomainMonitorLink } from './ui/domain-monitor';
 import { openAsk } from './ui/ask';
 import { openMeeting, type MeetingPreset } from './ui/meeting';
 import { openSignIns } from './ui/signins';
@@ -320,6 +321,7 @@ function showMeeting(preset?: MeetingPreset) {
 $('btn-issues').addEventListener('click', () => openBoard('issues', net, boardActions()));
 $('btn-pulls').addEventListener('click', () => openBoard('pulls', net, boardActions()));
 $('btn-queue').addEventListener('click', () => openQueue(net, { openTerminal: openWorker }));
+mountDomainMonitorLink($('btn-queue'));
 $('btn-new').addEventListener('click', () => sendToWorker('✨ New task'));
 
 function renderNav() {

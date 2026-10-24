@@ -1,8 +1,10 @@
 import type { Ctx } from './context.js';
 import { SLOW_CLIENT_BYTES } from './client.js';
+import { startDomainMonitor } from '../domain-monitor/index.js';
 
 /** The office's own clocks: terminals re-sent to viewers who fell behind, and the heartbeat. Returns what stops them. */
 export function startTimers(ctx: Ctx): () => void {
+  const stopDomainMonitor = startDomainMonitor(ctx);
   const { clients } = ctx;
   const resync = setInterval(() => {
     for (const c of clients.values()) {
@@ -32,6 +34,7 @@ export function startTimers(ctx: Ctx): () => void {
   }, 20_000);
 
   return () => {
+    stopDomainMonitor();
     clearInterval(heartbeat);
     clearInterval(resync);
   };

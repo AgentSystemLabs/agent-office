@@ -23,9 +23,21 @@ export function defaultShell(): string {
   return process.env.SHELL || (WIN ? process.env.COMSPEC || 'cmd.exe' : '/bin/bash');
 }
 
+function shellFamily(shell: string): 'powershell' | 'cmd' | 'unix' {
+  const name = shell.split(/[\\/]/).pop()?.toLowerCase().replace(/\.exe$/, '');
+  return name === 'powershell' || name === 'pwsh' ? 'powershell' : name === 'cmd' ? 'cmd' : 'unix';
+}
+
+export function shellInteractiveArgs(shell = defaultShell()): string[] {
+  const family = shellFamily(shell);
+  return family === 'powershell' ? ['-NoLogo', '-NoProfile'] : family === 'cmd' ? ['/d'] : ['-l'];
+}
+
 /** How to have the default shell run one command line. */
-export function shellRun(line: string): string[] {
-  return WIN && !process.env.SHELL ? ['/d', '/s', '/c', line] : ['-l', '-i', '-c', line];
+export function shellRun(line: string, shell = defaultShell()): string[] {
+  const family = shellFamily(shell);
+  return family === 'powershell' ? ['-NoLogo', '-NoProfile', '-Command', line]
+    : family === 'cmd' ? ['/d', '/s', '/c', line] : ['-l', '-i', '-c', line];
 }
 
 export function resolveCommand(cmd: string): string | null {
@@ -52,7 +64,7 @@ export function resolveCommand(cmd: string): string | null {
     const found = usable(path.join(dir, cmd));
     if (found) return found;
   }
-  if (WIN && !process.env.SHELL) return null;
+  if (WIN && shellFamily(defaultShell()) !== 'unix') return null;
   try {
     const found = execFileSync(defaultShell(), ['-l', '-i', '-c', `command -v ${shq(cmd)}`], { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] })
       .trim()

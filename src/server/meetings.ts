@@ -10,6 +10,7 @@ import { validateWorkerEffort, validateWorkerModel } from './agents.js';
 import { providerMeta, takesEffort, takesModel } from '../shared/providers.js';
 import { gitError, type WorktreeRef, type WorktreeState } from './worktrees.js';
 import { PROMPTS, fillPrompt, type PromptId, type PromptVars } from '../shared/prompts.js';
+import { numbered, list, firstLine, clamp } from './meeting-format.js';
 
 const execFileP = promisify(execFile);
 
@@ -224,6 +225,26 @@ export class MeetingRoom {
     const m = this.current;
     if (!m || m.status !== 'running') return 'No meeting is on';
     this.halt(m, `stopped by ${by}`);
+    return undefined;
+  }
+
+  /** Continue the same stopped meeting, retaining notes written after its last status update. */
+  resume(by: string): string | undefined {
+    const m = this.current;
+    if (!m || m.status !== 'stopped' || m.cleared) return 'No stopped meeting can be resumed';
+    const workers = new Map(this.workers.list().map(w => [w.id, w]));
+    for (const seat of m.seats) {
+      const worker = seat.workerId && workers.get(seat.workerId);
+      if (!worker || worker.meeting !== m.id || worker.status === 'exited' || worker.status === 'offline') return 'Resume the original meeting workers before continuing this meeting';
+    }
+    m.status = 'running';
+    delete m.reason;
+    delete m.finishedAt;
+    this.readySince.clear();
+    for (const turn of m.turns) if (turn.state !== 'done') delete turn.retried;
+    this.events.toast(`${by} resumed the meeting on “${m.title}”`, 'info');
+    this.changed();
+    this.pump();
     return undefined;
   }
 
@@ -734,31 +755,4 @@ function readStart(file: string, bytes: number): string {
   } finally {
     closeSync(fd);
   }
-}
-
-/** Roles that repeat get numbered, so each worker at the table has one of its own: Engineer 1, Engineer 2. */
-function numbered(roles: string[]): string[] {
-  const seen = new Map<string, number>();
-  const count = new Map<string, number>();
-  for (const r of roles) count.set(r.toLowerCase(), (count.get(r.toLowerCase()) ?? 0) + 1);
-  return roles.map((r) => {
-    const key = r.toLowerCase();
-    if ((count.get(key) ?? 0) < 2) return r;
-    const n = (seen.get(key) ?? 0) + 1;
-    seen.set(key, n);
-    return `${r} ${n}`;
-  });
-}
-
-/** "a", "a and b", "a, b and c". */
-function list(xs: string[]): string {
-  return xs.length < 2 ? (xs[0] ?? '') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`;
-}
-
-function firstLine(s: string): string {
-  return s.split('\n').map((l) => l.trim()).find(Boolean) ?? '';
-}
-
-function clamp(v: number, lo: number, hi: number) {
-  return Math.max(lo, Math.min(hi, v));
 }

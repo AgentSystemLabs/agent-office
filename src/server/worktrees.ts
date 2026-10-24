@@ -378,7 +378,8 @@ export function gitError(err: unknown): string {
 
 function real(p: string): string {
   try {
-    return realpathSync(p);
+    // Native canonicalization expands Windows 8.3 aliases consistently with git's long paths.
+    return realpathSync.native(p);
   } catch {
     return path.resolve(p);
   }

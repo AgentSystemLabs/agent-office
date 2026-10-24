@@ -26,6 +26,10 @@ test('detects the configured provider from Unix and Windows command paths', () =
   assert.equal(configuredProvider('cursor-agent.cmd'), 'cursor');
   // `cursor` is the editor's launcher, not the agent.
   assert.equal(configuredProvider('cursor'), 'custom');
+  // OpenHands launches its bridge with Node, but a configured Node program remains custom.
+  assert.equal(configuredProvider('node'), 'custom');
+  assert.equal(configuredProvider('C:\\Program Files\\nodejs\\node.exe'), 'custom');
+  assert.equal(providerCommand('openhands', 'claude'), 'node');
   assert.equal(configuredProvider('my-agent'), 'custom');
 });
 
@@ -107,7 +111,8 @@ test('reasoning effort joins Claude for DeepSeek Harness', () => {
   assert.match(validateWorkerEffort('agent', 'custom', 'high') ?? '', /Claude Code, OpenCode, Codex, Grok, Muse, DeepSeek Harness or Pi/);
 });
 
-test('every provider the office knows the CLI of takes a model and (but for Cursor) an effort, with the fields to pick them', () => {
+test('configurable providers offer model and effort fields; fixed NVIDIA providers explain their configuration', () => {
+  const fixedNvidia = new Set<string>(['goose', 'cline', 'openhands']);
   for (const provider of AGENT_PROVIDERS) {
     const meta = PROVIDER_META[provider];
     if (provider === 'custom') {
@@ -115,6 +120,15 @@ test('every provider the office knows the CLI of takes a model and (but for Curs
       assert.equal(meta.validModel, undefined);
       assert.equal(meta.takesEffort, undefined);
       assert.ok(meta.unpicked);
+      continue;
+    }
+    if (fixedNvidia.has(provider)) {
+      assert.ok(meta.bin, `${provider} has a command to launch`);
+      assert.ok(meta.unpicked?.includes('NVIDIA'), `${provider} explains its NVIDIA configuration`);
+      assert.equal(meta.validModel, undefined, `${provider} has no model picker`);
+      assert.equal(meta.invalidModel, undefined, `${provider} has no model validation message`);
+      assert.equal(meta.takesEffort, undefined, `${provider} has no effort picker`);
+      assert.equal(meta.models, undefined, `${provider} has no model field`);
       continue;
     }
     assert.ok(meta.validModel && meta.invalidModel, `${provider} takes a model`);

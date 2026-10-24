@@ -49,7 +49,7 @@ interface Tracked {
 
 function run(cmd: string, args: string[]): Promise<string> {
   return new Promise((resolve) => {
-    execFile(cmd, args, { encoding: 'utf8', timeout: 5000, maxBuffer: 8 * 1024 * 1024 }, (_err, out) => resolve(out ?? ''));
+    execFile(cmd, args, { encoding: 'utf8', timeout: 5000, maxBuffer: 8 * 1024 * 1024, windowsHide: true }, (_err, out) => resolve(out ?? ''));
   });
 }
 
@@ -63,6 +63,7 @@ function splitAddr(addr: string): { host: string; port: number } | null {
 }
 
 async function listeners(): Promise<Listener[]> {
+  if (process.platform === 'win32') return windowsListeners(await run('netstat.exe', ['-ano', '-p', 'tcp']));
   const out: Listener[] = [];
   if (process.platform === 'linux') {
     // `ss -p` shows the owning process for this user's sockets without root.
@@ -89,8 +90,34 @@ async function listeners(): Promise<Listener[]> {
   return out;
 }
 
+export function windowsListeners(text: string): Listener[] {
+  const out: Listener[] = [];
+  for (const line of text.split('\n')) {
+    const cols = line.trim().split(/\s+/);
+    if (cols.length !== 5 || cols[0] !== 'TCP' || cols[3] !== 'LISTENING') continue;
+    const addr = splitAddr(cols[1]);
+    const pid = Number(cols[4]);
+    if (addr && addr.port > 0 && addr.port <= 65535 && Number.isSafeInteger(pid) && pid > 0) out.push({ pid, ...addr });
+  }
+  return out;
+}
+
 async function processes(): Promise<Map<number, Proc>> {
   const procs = new Map<number, Proc>();
+  if (process.platform === 'win32') {
+    // Only process identity/ancestry is needed. CommandLine may contain credentials; do not collect it.
+    const text = await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+      'Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,Name | ConvertTo-Json -Compress']);
+    try {
+      const parsed = JSON.parse(text.replace(/^\uFEFF/, ''));
+      for (const item of Array.isArray(parsed) ? parsed : [parsed]) {
+        if (!Number.isSafeInteger(item?.ProcessId) || !Number.isSafeInteger(item?.ParentProcessId) || typeof item?.Name !== 'string') continue;
+        const browser = /^(?:chrome|msedge|firefox|crashpad).*\.exe$/i.test(item.Name);
+        procs.set(item.ProcessId, { ppid: item.ParentProcessId, args: browser ? '--remote-debugging-port' : item.Name });
+      }
+    } catch { /* A failed or truncated scan publishes no unverified process ownership. */ }
+    return procs;
+  }
   const text = await run('ps', ['-A', '-ww', '-o', 'pid=', '-o', 'ppid=', '-o', 'args=']);
   for (const line of text.split('\n')) {
     const m = /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line);
@@ -103,6 +130,8 @@ async function processes(): Promise<Map<number, Proc>> {
 async function cwds(pids: number[]): Promise<Map<number, string>> {
   const out = new Map<number, string>();
   if (!pids.length) return out;
+  // Windows CIM does not expose cwd. Only verified process ancestry is attributed there.
+  if (process.platform === 'win32') return out;
   if (process.platform === 'linux') {
     await Promise.all(pids.map(async (pid) => out.set(pid, await readlink(`/proc/${pid}/cwd`).catch(() => ''))));
     return out;

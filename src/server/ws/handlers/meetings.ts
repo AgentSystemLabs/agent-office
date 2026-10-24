@@ -38,6 +38,10 @@ export const meetingHandlers = {
     const floor = here(ctx, c);
     if (floor) ctx.warn(c, floor.meetings.stop(who));
   },
+  'meeting.resume'(ctx, c) {
+    const floor = here(ctx, c);
+    if (floor) ctx.warn(c, floor.meetings.resume(c.peer.name));
+  },
   'meeting.clear'(ctx, c) {
     const who = c.peer.name;
     const floor = here(ctx, c);

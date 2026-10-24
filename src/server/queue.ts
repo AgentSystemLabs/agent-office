@@ -63,6 +63,8 @@ export class TaskQueue {
   /** Set on shutdown: the workers' exit events must not seat anyone into a dying office. */
   private stopped = false;
   private lastStatus = new Map<string, WorkerStatus>();
+  /** Assignments whose saved worker is still being reattached by the terminal host. */
+  private recovering = new Set<string>();
 
   constructor(
     dataDir: string,
@@ -194,6 +196,12 @@ export class TaskQueue {
     this.pump();
   }
 
+  /** Called once all saved workers have been adopted or restarted. No task is resubmitted here. */
+  restored() {
+    this.recovering.clear();
+    this.pump();
+  }
+
   /** Fresh pull requests from GitHub: link each task to the PR that closes its issue (or came from its branch). */
   onPulls(pulls: GhPull[]) {
     let changed = false;
@@ -245,6 +253,8 @@ export class TaskQueue {
     for (const t of this.tasks) {
       if (t.status !== 'running' || !t.workerId) continue;
       const w = byId.get(t.workerId);
+      if (w?.status === 'offline' && this.recovering.has(w.id)) continue;
+      if (w) this.recovering.delete(w.id);
       if (!w) this.finish(t, 'killed');
       else if (FINISHED.has(w.status)) done = this.finish(t, w.status === 'done' ? 'done' : 'exited') || done;
       else continue;
@@ -404,12 +414,17 @@ export class TaskQueue {
           error: s.error,
           pr: s.pr,
         };
-        // Whatever was running died with the old office process; its worker comes back asleep at best.
+        // Workers are adopted/restarted by Workers.start(), and API-backed runs may never have stopped.
+        // Keep their assignment until startup has resolved their real state, without seating a duplicate.
         if (t.status === 'running') {
-          t.status = 'done';
-          t.outcome = 'exited';
-          t.finishedAt = Date.now();
-          t.error = 'The office restarted while it was running';
+          const worker = this.workers.list().find((w) => w.id === t.workerId && w.kind === 'agent' && w.provider === provider);
+          if (worker) this.recovering.add(worker.id);
+          else {
+            t.status = 'done';
+            t.outcome = 'exited';
+            t.finishedAt = Date.now();
+            t.error = 'The office restarted while it was running and its worker is missing';
+          }
         }
         this.tasks.push(t);
       }

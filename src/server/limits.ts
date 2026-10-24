@@ -130,7 +130,16 @@ function ask(claude: string, env: Record<string, string>): Promise<any> {
   return new Promise((resolve) => {
     let settled = false;
     let buf = '';
-    const child = spawn(claude, args, { cwd: os.tmpdir(), env, stdio: ['pipe', 'pipe', 'ignore'] });
+    const launch = () => spawn(claude, args, { cwd: os.tmpdir(), env, stdio: ['pipe', 'pipe', 'ignore'] });
+    let child: ReturnType<typeof launch>;
+    try {
+      child = launch();
+    } catch {
+      // Windows can reject a .cmd launcher synchronously (EINVAL), before an error listener exists.
+      // This optional meter must fail closed without invoking a shell or rejecting the office timer.
+      resolve(null);
+      return;
+    }
     const finish = (v: any) => {
       if (settled) return;
       settled = true;

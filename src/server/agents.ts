@@ -9,7 +9,8 @@ import { AGENT_PROVIDERS, PROVIDER_META, isAgentEffort, providerMeta, providerNa
  */
 export function configuredProvider(command: string): AgentProvider {
   const base = path.basename(command.replaceAll('\\', '/')).toLowerCase().replace(/\.(?:exe|cmd|bat|com)$/, '');
-  return AGENT_PROVIDERS.find((p) => PROVIDER_META[p].bin === base) ?? 'custom';
+  // OpenHands uses Node to run its Office bridge; Node itself is not an OpenHands agent.
+  return AGENT_PROVIDERS.find((p) => p !== 'openhands' && PROVIDER_META[p].bin === base) ?? 'custom';
 }
 
 /** The providers an office started with `configured` can hire: the ones it knows, and a custom --agent only when that's what it was started with. */

@@ -2,6 +2,7 @@ import './services.css';
 import type { ServiceInfo, ServicesState } from '../../shared/protocol';
 import { store } from '../state';
 import { h, openModal, timeAgo } from './dom';
+import { openDomainMonitor } from './domain-monitor';
 import { copy, copyButton, guessOs, openCommand, OS_LABEL, type Os } from './team';
 
 /** Whether this page came over the office's Tailscale network, where every server has its own link. */
@@ -78,6 +79,7 @@ export function openServices() {
       ? 'Every link goes through the office, so the office sign-in still guards every page.'
       : 'Tunnels go through the office, so the office password still guards every page. Keep the terminal open while you look.';
     body.replaceChildren(
+      h('button.btn', { type: 'button', onclick: () => openDomainMonitor() }, '☁️ Cloudflare domains, status and errors'),
       h(
         'p.note',
         { style: 'margin:0 0 12px' },

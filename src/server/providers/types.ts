@@ -95,6 +95,8 @@ export interface ProviderAdapter<S = undefined, P = undefined> {
   titleNoise?: RegExp;
   /** Resuming a conversation it no longer has exits before it ever starts: a fresh one is started instead. */
   freshIfResumeFails?: boolean;
+  /** Its backend retains the running turn; reconnect instead of submitting a carry-on prompt. */
+  resumesOwnRun?: boolean;
   /** Its hook route, /hooks/<id>. */
   hook?: ProviderHook<S>;
   /** The provider whose hook route its workers report on, when not their own (a custom --agent speaks Claude Code's). */

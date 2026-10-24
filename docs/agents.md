@@ -2,9 +2,9 @@
 
 Back to the [README](../README.md).
 
-Every new worker starts on the office's **Default worker**: a provider, model and effort an admin picks in ⚙️ Settings → **🤖 Workers** (the `--agent` with its own default model until someone does). The hire, ask, queue, issue and meeting windows show it on one line; click **✏️ Edit** there to pick **Claude Code**, **OpenCode**, **Codex**, **Grok**, **Muse**, **DeepSeek Harness**, **Pi** or **Cursor**, a model and an effort for just that worker or task, and **↺ Use the default** to go back. Board agents and tasks the Queue agent adds, which nobody picks for, start on the default too. Existing workers keep their provider when prompted or resumed, and queued tasks keep their choice when retried or restored after a restart.
+Every new worker starts on the office's **Default worker**: a provider, model and effort an admin picks in ⚙️ Settings → **🤖 Workers** (the `--agent` with its own default model until someone does). The hire, ask, queue, issue and meeting windows show it on one line; click **✏️ Edit** there to pick **Claude Code**, **OpenCode**, **Codex**, **Grok**, **Muse**, **DeepSeek Harness**, **Pi**, **Cursor**, **Goose**, **Cline**, or **OpenHands**, with any model and effort fields supported by that provider for just that worker or task, and **↺ Use the default** to go back. Board agents and tasks the Queue agent adds, which nobody picks for, start on the default too. Existing workers keep their provider when prompted or resumed, and queued tasks keep their choice when retried or restored after a restart.
 
-Every harness takes both a **Model** and an **Effort**, each optional: leave one on **Default** and the harness uses its own settings.
+The providers in the table take a **Model** and sometimes an **Effort**: leave one on **Default** and the harness uses its own settings. Goose, Cline, and OpenHands use the NVIDIA configurations already verified on this computer and do not offer those fields in this local build.
 
 | Harness | Model | Effort |
 | --- | --- | --- |
@@ -17,6 +17,22 @@ Every harness takes both a **Model** and an **Effort**, each optional: leave one
 | Pi | a model name or `provider/model`, typed (`--model`) | **Thinking** (`--thinking`) |
 
 The efforts are low, medium, high, extra high and max. Where a harness's own catalog says which of them a model supports (Codex and OpenCode do), the ones it doesn't are greyed out once that model is picked. A harness whose models can't be listed (its CLI isn't installed, or isn't signed in) still takes a model id typed in. A **Custom** `--agent` is run as it is, so it has neither field: set its model and effort in `--agent-args`.
+
+## Goose, Cline, and OpenHands in this local build
+
+This local build adds three provider choices. Their API credentials stay in each application's existing store; Agent Office neither requests nor stores an NVIDIA API key. The Office listener remains on `127.0.0.1` unless an operator explicitly changes `--host`.
+
+| Worker | What must already be running or installed | How it operates in the office | Restart behavior |
+| --- | --- | --- | --- |
+| Goose | `goose` CLI with its existing NVIDIA sign-in | Interactive PTY, one named session per desk, using NVIDIA Nemotron 3.5 Super VL and low thinking effort. Native hooks report work and completion to meetings and the queue. Standalone Goose preferences are unchanged. | Resumes the same named session and Office model. If that session was removed externally, the terminal reports the missing session. |
+| Cline | `cline` CLI with the existing Cline NVIDIA sign-in | Interactive PTY with the verified NVIDIA provider and model; Office requests disabled automatic approval at launch. Cline's native setting can still change: keep **Auto-approve all disabled** for manual review and approve requested actions in the terminal. | A living PTY survives an ordinary Office restart through the host process. If Cline itself exited, waking the desk starts a fresh conversation because the CLI's `--id` path ignores a new initial prompt. |
+| OpenHands | Agent Canvas running on `127.0.0.1:8000` with an active NVIDIA agent profile | A local terminal bridge follows the authenticated API. Long runs have no overall turn deadline; individual requests time out, status is reported each minute, and Ctrl+C interrupts the run. | Reconnects to an ongoing saved conversation after checking its workspace and NVIDIA model, without submitting a second prompt. If the conversation is gone, the next prompt starts a new one. |
+
+Pick one of these names when hiring a desk worker or set Goose as the default with `--agent goose`. The current local build uses each worker's verified NVIDIA model; its hire dialog has no separate model or effort field for these three. A failure to find the CLI or the Agent Canvas service appears on that worker's terminal. OpenHands actions requiring confirmation are approved in Agent Canvas.
+
+Cline uses project lifecycle hooks and its native local state mode so a shared background hub cannot lose the Office worker identity. Its existing provider store is reused. This mode is not an OS sandbox. A tool check is shown as needing input until the native tool proceeds; inspect the terminal for approval requests.
+
+A stopped meeting can be continued with **Resume meeting** while its original workers and notes remain. Completed notes are reused; a missing or exited worker must be recovered first. Windows Services can discover web servers under a worker's process tree. A detached server whose parent has already exited cannot currently be assigned reliably, so keep the preview running under its worker terminal.
 
 What's picked shows next to the worker everywhere it's named (the Workers panel, its task card, its terminal's title, the queue), by the model's name rather than its family: **Opus 5.5**, not "Opus". For Claude Code that name comes from the session itself once the worker has spoken, so a worker left on Default says which model the default is, and one switched with `/model` in its terminal says the new one.
 
