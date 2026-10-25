@@ -18,7 +18,7 @@ type Where = { path: string | readonly string[]; prefix?: never } | { prefix: st
 
 interface Answers {
   /** Only requests with this method; any method when missing, and the route answers the rest itself. */
-  method?: 'GET' | 'POST';
+  method?: 'GET' | 'POST' | 'PATCH';
 }
 
 /**

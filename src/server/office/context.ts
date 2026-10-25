@@ -17,6 +17,7 @@ import type { PlanLimitsReader } from '../limits.js';
 import type { Webhook } from '../webhook.js';
 import type { Machine } from '../machine.js';
 import type { Building, FloorDef } from '../building.js';
+import type { OfficeStructureStore } from '../office-structure.js';
 import type { Floor } from '../floor.js';
 import type { Sky } from '../sky.js';
 import type { Themes } from '../theme.js';
@@ -51,6 +52,7 @@ export interface Core {
   models: Partial<Record<AgentProvider, ModelCatalogue>>;
   /** The building: a floor per project, each with its own workers, boards and queue. */
   building: Building;
+  structure: OfficeStructureStore;
   floors: Map<string, Floor>;
 }
 

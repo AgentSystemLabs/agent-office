@@ -379,7 +379,7 @@ function interactKinds(): { kind: string; file: string }[] {
       }
     }
     // Declared any other way, the scan above wouldn't see it.
-    assert.equal([...src.matchAll(/\bInteractKinds\b/g)].length - [...src.matchAll(/interface InteractKinds\b/g)].length, file === 'world/types.ts' ? 1 : 0, `${file} names InteractKinds other than to add kinds to it`);
+    assert.equal([...src.matchAll(/\bInteractKinds\b/g)].length - [...src.matchAll(/interface InteractKinds\b/g)].length, file.replaceAll('\\', '/') === 'world/types.ts' ? 1 : 0, `${file} names InteractKinds other than to add kinds to it`);
   }
   return out;
 }

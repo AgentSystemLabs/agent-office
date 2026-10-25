@@ -18,6 +18,7 @@ import { toggleFloorMenu } from '../../ui/floormenu';
 import { openHelp } from '../../ui/hud';
 import { mountHud } from '../../ui/menu';
 import { openServices } from '../../ui/services';
+import { openStructure } from '../../ui/structure';
 import { openSettings, type SettingsPane } from '../../ui/settings';
 import { needsSigningIn, openSignIns } from '../../ui/signins';
 import { openTeam } from '../../ui/team';
@@ -69,6 +70,7 @@ export function installHud(ctx: Ctx, core: CoreState, parts: HudParts) {
       // The office has its bookshelf for them; a map of its own may not.
       { id: 'docs', icon: '📚', label: 'Docs', section: 'Open', shown: () => !inOffice(), title: () => 'Read the project’s docs', run: parts.bookshelf.showBookshelf },
       { id: 'elevator', icon: '🛗', label: () => (inOffice() ? 'Elevator' : 'Floors'), section: 'Open', count: () => store.floors.reduce((n, f) => n + (f.id === store.floor ? 0 : f.waiting), 0), title: () => (inOffice() ? 'Ride to another project' : 'Go to another project, or add one'), run: travel.showElevator },
+      { id: 'zones', icon: '🏢', label: 'Training Campus & Main Office', section: 'Open', run: () => openStructure(travel.switchFloor) },
       { id: 'roof', icon: '🍸', label: 'Rooftop bar', section: 'Open', shown: () => !core.upTop && inOffice() && builtFloors().length > 0, title: () => 'Ride the elevator up to the roof: a DJ, drinks and the city', run: () => travel.ride(ROOF) },
       // In voice, V is push to talk, so leaving is only from here.
       { id: 'voice', icon: '🎙️', label: () => (voice.inVoice ? 'Leave voice' : 'Join voice'), section: 'Together', key: () => (voice.inVoice ? undefined : 'V'), on: () => voice.inVoice, blocked: noMedia, run: () => void talk.toggleVoice() },

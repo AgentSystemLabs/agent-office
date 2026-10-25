@@ -48,6 +48,10 @@ They're in `core/registry.ts`, and each is a field of `ctx`. Every registration 
 
 ## Server
 
+### AI Office structure
+
+`src/server/office-structure.ts` owns the versioned Zone/Department metadata and resolves old floors to Main Office / Software Engineering without changing `floors.json`. `src/server/http/routes/structure.ts` exposes signed-in reads and admin-only edits. Types live in `src/shared/protocol/zones.ts` and `departments.ts`; the 3D and `/lite` views share `src/client/ui/structure.ts`. The data and later delivery phases are described in [AI Office architecture](ai-office-architecture.md).
+
 - **`server.ts`** is the composition root: `startServer` builds the office's context a stage at a time, starts the hook server, opens the floors, and hands the context to the HTTP handler and the WebSocket.
 - **`office/`** is that context (`Ctx` in `office/context.ts`: the building-wide services, sending to browsers, the floors, the people in the office, going between floors, and the checks before something happens) and the pieces that make it.
 - **`ws/`** takes the sockets. Each domain's messages are handled in `ws/handlers/<domain>.ts`, a map from message type to handler that `satisfies HandlerMap<ItsClientMsg>`, and `ws/handlers/index.ts` puts them all in one `HandlerMap<ClientMsg>`: a message type with no handler, or a handler for a type that doesn't exist, fails the typecheck. The same file lists the features that keep something per person on a floor (`features`: what each lets go of when someone is `leaving` a floor, and once their socket has `closed`) and the pieces of what someone arriving on a floor is sent (`views`, one for each field of `FloorView`, put together by `office/views.ts`).

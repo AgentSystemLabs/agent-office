@@ -30,6 +30,8 @@ export * from './protocol/settings.js';
 export * from './protocol/toys.js';
 export * from './protocol/usage.js';
 export * from './protocol/workers.js';
+export * from './protocol/zones.js';
+export * from './protocol/departments.js';
 
 export type ClientMsg =
   | PresenceClientMsg

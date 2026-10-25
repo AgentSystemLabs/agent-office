@@ -1,0 +1,14 @@
+.structure-window { width: min(680px, 96vw); max-height: 88dvh; display: flex; flex-direction: column; }
+.structure-window > header { display: flex; align-items: center; justify-content: space-between; }
+.structure-body { overflow: auto; padding: 12px 18px 20px; display: grid; gap: 10px; }
+.structure-tabs { display: flex; gap: 8px; flex-wrap: wrap; }
+.structure-note { margin: 0; color: var(--muted); font-size: 13px; }
+.structure-department { border: 2px solid var(--ink); border-left: 8px solid; border-radius: var(--radius); padding: 9px; display: grid; gap: 7px; background: #fff; }
+.structure-department-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.structure-floor { width: 100%; justify-content: flex-start; }
+.structure-empty { color: var(--muted); font-size: 13px; }
+.structure-assign, .structure-add, .structure-edit { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding-top: 10px; border-top: 1px solid var(--ink); }
+.structure-assign h3, .structure-add h3 { width: 100%; margin: 0; font-size: 15px; }
+.structure-assign select, .structure-add input, .structure-edit input { min-height: 38px; }
+.structure-editor { width: min(420px, 94vw); padding: 16px; }
+.structure-edit label { display: flex; align-items: center; gap: 8px; }

@@ -9,6 +9,7 @@ import { githubRoutes } from './github.js';
 import { pageRoutes } from './pages.js';
 import { searchRoutes } from './search.js';
 import { serviceRoutes } from './services.js';
+import { structureRoutes } from './structure.js';
 
 export const routes: readonly Route[] = [
   // Anyone.
@@ -27,6 +28,11 @@ export const routes: readonly Route[] = [
   pageRoutes.favicon,
   // Signed in.
   authRoutes.whoami,
+  structureRoutes.zones,
+  structureRoutes.departments,
+  structureRoutes.addDepartment,
+  structureRoutes.updateDepartment,
+  structureRoutes.assignFloor,
   agentRoutes.models,
   fileRoutes.image,
   fileRoutes.whiteboardFile,

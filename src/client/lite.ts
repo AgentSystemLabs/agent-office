@@ -23,6 +23,7 @@ import { openQueue } from './ui/queue';
 import { openAsk } from './ui/ask';
 import { openMeeting, type MeetingPreset } from './ui/meeting';
 import { openSignIns } from './ui/signins';
+import { openStructure } from './ui/structure';
 import { modelBadge, providerLabel } from './ui/provider';
 import { byUrgency, waitingInOrder, waitingLabel } from './nextup';
 import { askNotifyPermission, DesktopNotifier, notifyPermission, waitingOnSomeone } from './notify';
@@ -95,6 +96,7 @@ function offTheRoof() {
 
 // ---- The floor you're on ------------------------------------------------------------------------
 const floorSelect = $('floor') as HTMLSelectElement;
+$('btn-zones').addEventListener('click', () => openStructure((floor) => net.send({ t: 'floor.go', floor })));
 const floorLabel = (f: FloorInfo) => `${f.name}${f.cloning ? ` (${cloneLabel(f.clone)})` : f.waiting ? ` · 🙋 ${f.waiting}` : ''}`;
 
 function renderFloors() {
