@@ -49,7 +49,7 @@ export const workerHandlers = {
   },
   'worker.resume'(ctx, c, msg) {
     const w = workerOf(ctx, msg.workerId);
-    ctx.warn(c, w ? w.floor.workers.resume(w.wid) : 'No such worker');
+    ctx.warn(c, w ? w.floor.workers.resume(w.wid, str(msg.prompt, 20000) || undefined) : 'No such worker');
   },
   'worker.kill'(ctx, c, msg) {
     const who = c.peer.name;

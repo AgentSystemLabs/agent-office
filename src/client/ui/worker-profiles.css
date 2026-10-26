@@ -1,0 +1,10 @@
+.worker-profiles { width: min(1100px, 94vw); }
+.worker-profile-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(245px, 1fr)); gap: 12px; }
+.worker-profile { border: 2px solid var(--line, #303248); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+.worker-profile h3, .worker-profile p { margin: 0; }
+.worker-profile p { font-size: 12px; line-height: 1.5; }
+.worker-profile-route { font-size: 11px; overflow-wrap: anywhere; }
+.worker-profile-hold { color: #9b3426; font-size: 12px; }
+.worker-profile .btn { margin-top: auto; }
+.worker-profile-task { width: min(620px, 94vw); }
+.worker-profile-prompt { display: block; width: 100%; margin: 14px 0; box-sizing: border-box; }

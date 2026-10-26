@@ -10,6 +10,12 @@ Already have a checkout? Pick its repository anyway: a checkout of it that's alr
 
 ## Command line
 
+An issue board normally loads 300 open issues and the 40 most recently closed.
+For a larger project, set `.agent-office/issue-board-limits.json` in that floor's
+checkout, for example `{"open":1000,"closed":40}`. The supported ranges are
+1–5000 open and 1–1000 closed issues; the other field keeps its default when omitted.
+This only changes how many existing GitHub records are displayed.
+
 ```
 agent-office [dir] [options]
 

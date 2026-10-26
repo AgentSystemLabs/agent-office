@@ -9,6 +9,14 @@
 
 # 🏢 Agent Office
 
+Named teams can be loaded per project from `.agent-office/worker-profiles.json`.
+The **Team** button shows the full roster count. Available and held members appear
+in the 3D office before they have a task; only assigning a task starts a CLI worker.
+An optional finite [autopilot supervisor](docs/agents.md#optional-finite-autopilot)
+can ask an idle coordinator to select the next eligible issue after the team finishes.
+**Menu → Named workers** preserves each person's name, role, exact model and
+effort, and keeps held profiles visible without starting them. See [Choosing an agent](docs/agents.md).
+
 **A 3D office your team shares with its coding agents.**
 
 Sit **Claude Code**, **Codex**, **OpenCode**, **Grok**, **Muse**, **DeepSeek Harness** and **Cursor** workers at desks, watch each one's terminal on the laptop in front of it,

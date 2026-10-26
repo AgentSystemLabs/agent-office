@@ -9,6 +9,7 @@ import { githubRoutes } from './github.js';
 import { pageRoutes } from './pages.js';
 import { searchRoutes } from './search.js';
 import { serviceRoutes } from './services.js';
+import { workerProfileRoutes } from './worker-profiles.js';
 
 export const routes: readonly Route[] = [
   // Anyone.
@@ -28,6 +29,7 @@ export const routes: readonly Route[] = [
   // Signed in.
   authRoutes.whoami,
   agentRoutes.models,
+  workerProfileRoutes.profiles,
   fileRoutes.image,
   fileRoutes.whiteboardFile,
   fileRoutes.termDrop,
