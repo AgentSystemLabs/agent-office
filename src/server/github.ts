@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import type { GhCheck, GhCloseReason, GhComment, GhIssue, GhIssueDetail, GhLabel, GhMergeMethod, GhPull, GhPullDetail, GhRepoInfo, GhReviewComment, GhState } from '../shared/protocol.js';
 import type { GhAs } from './signins.js';
+import { issueBoardLimits } from './issue-board-limits.js';
 
 const REFRESH_MS = 90_000;
 /** How long the repo's list of labels is kept before the label picker asks GitHub again. */
@@ -456,9 +457,10 @@ export class GitHub {
     try {
       // Open and closed separately, so old open issues are never crowded out by recent closed ones.
       const fields = 'number,title,state,url,author,labels,assignees,createdAt,updatedAt,body,comments';
+      const limit = issueBoardLimits(this.dir);
       const [open, closed] = await Promise.all([
-        this.runGh(['issue', 'list', '--state', 'open', '--limit', '300', '--json', fields], this.dir),
-        this.runGh(['issue', 'list', '--state', 'closed', '--limit', '40', '--json', fields], this.dir),
+        this.runGh(['issue', 'list', '--state', 'open', '--limit', String(limit.open), '--json', fields], this.dir),
+        this.runGh(['issue', 'list', '--state', 'closed', '--limit', String(limit.closed), '--json', fields], this.dir),
       ]);
       const fetched: GhIssue[] = [...JSON.parse(open), ...JSON.parse(closed)].map((i: any) => ({
         number: i.number,

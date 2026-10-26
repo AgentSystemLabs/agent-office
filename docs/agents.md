@@ -1,5 +1,14 @@
 # Choosing an agent
 
+Named teams can be configured per floor in `.agent-office/worker-profiles.json`.
+Open **Menu → Named workers** to see each name, role, provider, model, effort and
+source hold. **Give a task** starts that exact profile in its own worktree and
+uses its name at the desk. It never substitutes a missing model or effort.
+Profiles with `enabled: false`, nonempty `holds`, or an invalid route cannot start.
+The file contains an array of `{id,name,description,provider,model,effort,enabled,holds}`.
+Keep credentials out of it. This configuration does not change GitHub issues or
+release source execution holds.
+
 Back to the [README](../README.md).
 
 Every new worker starts on the office's **Default worker**: a provider, model and effort an admin picks in ⚙️ Settings → **🤖 Workers** (the `--agent` with its own default model until someone does). The hire, ask, queue, issue and meeting windows show it on one line; click **✏️ Edit** there to pick **Claude Code**, **OpenCode**, **Codex**, **Grok**, **Muse**, **DeepSeek Harness**, **Pi** or **Cursor**, a model and an effort for just that worker or task, and **↺ Use the default** to go back. Board agents and tasks the Queue agent adds, which nobody picks for, start on the default too. Existing workers keep their provider when prompted or resumed, and queued tasks keep their choice when retried or restored after a restart.
