@@ -1408,6 +1408,28 @@ test('a restart that takes a mid-turn worker down resumes it with continue; a fi
   assert.equal(promptOf(of('finished')), undefined);
 });
 
+test('interrupted-only restoration leaves completed desks asleep and resumes interrupted work', async (t) => {
+  const f = carryOnFixture(t);
+  const before = manager(f, f.claude, []);
+  await hireInState(f, before, 'desk-1', 'unfinished', 'working');
+  const finished = await hireInState(f, before, 'desk-2', 'finished', 'done');
+  before.shutdown(true);
+  await new Promise(resolve => setTimeout(resolve, 200));
+  const after = manager(f, f.claude, []); t.after(() => after.shutdown());
+  const previous = process.env.AGENT_OFFICE_RESTORE_WORKERS;
+  process.env.AGENT_OFFICE_RESTORE_WORKERS = 'interrupted';
+  try {
+    await after.start();
+    after.wakeAll(); // Visiting/reconnecting to a floor must honor the same policy.
+    assert.equal(after.get(finished.id)?.status, 'offline');
+  }
+  finally { if (previous === undefined) delete process.env.AGENT_OFFICE_RESTORE_WORKERS; else process.env.AGENT_OFFICE_RESTORE_WORKERS = previous; }
+  await waitFor(() => launches(f), list => list.length >= 3);
+  assert.equal(after.get(finished.id)?.status, 'offline');
+  assert.equal(launches(f).length, 3);
+  assert.equal(promptOf(launches(f)[2]), CARRY_ON_PROMPT);
+});
+
 test('a worker whose terminal outlives the office is picked back up mid-turn, not relaunched or told to continue', async (t) => {
   const f = carryOnFixture(t);
   const before = manager(f, f.claude, []);

@@ -14,6 +14,42 @@ The file contains an array of `{id,name,description,provider,model,effort,enable
 Keep credentials out of it. This configuration does not change GitHub issues or
 release source execution holds.
 
+## Optional finite autopilot
+
+`node bin/office-autopilot.js /absolute/path/to/config.json` runs an opt-in supervisor.
+It waits for current workers and QA, then asks a configured named coordinator to
+select suitable issues. It never changes GitHub tasks itself. Source holds,
+assignees, reserved issues, completed native stage markers and prior inspections
+exclude work. An unheld issue without `execution:ready` is **contract preparation
+only**; ready work still requires validating its current contract and dependencies.
+The named-team window shows the supervisor's actual status.
+
+The local JSON configuration requires `baseUrl`, `origin`, `floor`, `repository`,
+`projectDir`, `passwordFile` (the office password file), `stateFile`,
+`coordinatorName`, `enabled`, `expiresAt` (Unix milliseconds), `maxRounds` (1–20),
+`maxNewWorkers` (1–4 per round), and `pollSeconds` (15–600). Optional
+`externalStatusFile`/`externalQueueFile` read a native coordinator's
+`completed_jobs`, `pending_reconciliation`, and `tasks[].issue`; `reservedIssues`
+protects other known writers. `instructions` adds local project restrictions.
+Keep this configuration and its credentials outside Git. Run only one instance,
+using a supervisor and an OS lock such as `flock`; do not extend a running
+campaign's expiry or reuse its state for another campaign.
+
+Each cycle is written to the state journal before sending. A lost response or
+restart during dispatch blocks replay for reconciliation. The coordinator writes
+a cycle-specific decision manifest before another selection. Rounds, wall-clock
+expiry and per-worker 15-minute instructions bound the campaign; use the launcher’s
+own resource/lease guards as well. This supervisor does not install or bypass those
+guards. `--once` runs one observation for diagnostics. The authenticated profile
+POST accepts `reuseIdle: true` to reuse a matching idle/offline coordinator, refusing
+busy workers, held profiles and changed model routes.
+
+Set `AGENT_OFFICE_RESTORE_WORKERS=interrupted` to leave completed or failed
+terminals asleep after an office restart or a page/floor visit, while retaining live terminals and
+resuming genuinely interrupted turns. The default still wakes every saved worker.
+This prevents a server update from opening an idle CLI for every old desk and
+reserving capacity that the next queued task needs.
+
 Back to the [README](../README.md).
 
 Every new worker starts on the office's **Default worker**: a provider, model and effort an admin picks in ⚙️ Settings → **🤖 Workers** (the `--agent` with its own default model until someone does). The hire, ask, queue, issue and meeting windows show it on one line; click **✏️ Edit** there to pick **Claude Code**, **OpenCode**, **Codex**, **Grok**, **Muse**, **DeepSeek Harness**, **Pi** or **Cursor**, a model and an effort for just that worker or task, and **↺ Use the default** to go back. Board agents and tasks the Queue agent adds, which nobody picks for, start on the default too. Existing workers keep their provider when prompted or resumed, and queued tasks keep their choice when retried or restored after a restart.

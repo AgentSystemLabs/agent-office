@@ -4,6 +4,18 @@ import { isAgentEffort, isAgentProvider } from '../shared/protocol.js';
 import type { WorkerProfile } from '../shared/worker-profiles.js';
 import { validateWorkerEffort, validateWorkerModel } from './agents.js';
 
+/** Optional local supervisor status. Only two bounded public fields are exposed. */
+export function loadAutopilotStatus(dataDir: string): { state: string; summary: string } | undefined {
+  try {
+    const file = path.join(dataDir, 'autopilot-status.json');
+    const stat = lstatSync(file);
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 16_000) return;
+    const value = JSON.parse(readFileSync(file, 'utf8'));
+    if (typeof value?.state !== 'string' || typeof value?.summary !== 'string') return;
+    return { state: value.state.slice(0, 80), summary: value.summary.slice(0, 500) };
+  } catch { return; }
+}
+
 export function parseWorkerProfiles(value: unknown): WorkerProfile[] {
   if (!Array.isArray(value) || value.length > 100) throw new Error('Profiles must be a list of at most 100 entries');
   const ids = new Set<string>();

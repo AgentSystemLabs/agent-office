@@ -18,6 +18,7 @@ export function openWorkerProfiles(focusId?: string) {
     if (!response.ok) throw new Error(result.error || 'Could not load profiles');
     const profiles: WorkerProfile[] = result.profiles;
     status.textContent = profiles.length ? `${profiles.length} profiles · ${profiles.filter(profile => profile.enabled).length} available · ${profiles.filter(profile => !profile.enabled).length} held. Model and effort come from each profile.` : 'No named profiles configured for this floor.';
+    if (result.autopilot) status.after(h('p', {}, `Autopilot: ${result.autopilot.state} · ${result.autopilot.summary}`));
     for (const profile of profiles) {
       const card = h('article.worker-profile');
       const current = [...store.workers.values()].find(worker => worker.name === profile.name);

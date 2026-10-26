@@ -16,6 +16,7 @@ import { DSH_PROFILE_DEFAULT } from '../dsh.js';
 import { DropStore } from '../drops.js';
 import type { Capacity } from '../machine.js';
 import { PROVIDERS, providerAdapter, titleNoise, type LaunchPlan, type ProviderFloor } from '../providers/index.js';
+import { noteBootTimeout } from './startup.js';
 import { launchAcp } from './acp.js';
 import { clockWork } from './clock.js';
 import { childEnv } from './env.js';
@@ -357,9 +358,9 @@ export class WorkerManager {
   }
 
   /** Starts every worker that isn't running: nobody should be found asleep at their desk. */
-  wakeAll() {
+  wakeAll(interruptedOnly = process.env.AGENT_OFFICE_RESTORE_WORKERS === 'interrupted') {
     // A DeepSeek Harness worker has no PTY but is still running: only the ones that are gone wake up.
-    for (const w of this.workers.values()) if (!w.pty && !w.dsh) this.resume(w.info.id);
+    for (const w of this.workers.values()) if (!w.pty && !w.dsh && (!interruptedOnly || w.interrupted)) this.resume(w.info.id);
   }
 
   /**
@@ -832,11 +833,8 @@ export class WorkerManager {
     // blocked on a human: folder trust dialog, login, first-run onboarding. Flag it so it jumps.
     setTimeout(() => {
       if (info.status !== 'starting' || w.pty !== proc) return;
-      if (adapter?.bootHint) {
-        w.bootBlocked = true;
-        info.activity = adapter.bootHint;
-        this.setStatus(w, 'needs_input');
-      } else this.setStatus(w, 'idle');
+      if (adapter?.bootHint) noteBootTimeout(this.handleOf(w), adapter.bootHint, w.snapshot?.() ?? '');
+      else this.setStatus(w, 'idle');
     }, 12000);
   }
 
