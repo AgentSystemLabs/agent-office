@@ -4,7 +4,7 @@ import { h, openModal } from './dom';
 import './worker-profiles.css';
 
 /** Named profiles are local configuration, separate from online human accounts. */
-export function openWorkerProfiles() {
+export function openWorkerProfiles(focusId?: string) {
   const content = h('div.modal.worker-profiles');
   const status = h('p.dim', {}, 'Loading worker profiles…');
   const list = h('div.worker-profile-grid');
@@ -28,6 +28,10 @@ export function openWorkerProfiles() {
       const hire = h('button.btn', { disabled: !profile.enabled || !!current, onclick: () => requestTask(profile) }, current ? 'Already at a desk' : profile.enabled ? 'Give a task' : 'Held by source');
       card.append(hire);
       list.append(card);
+      if (profile.id === focusId) {
+        card.tabIndex = -1;
+        requestAnimationFrame(() => { card.scrollIntoView({ block: 'center' }); card.focus(); });
+      }
     }
   }).catch(error => { status.textContent = error.message; });
 

@@ -10,6 +10,8 @@
 # 🏢 Agent Office
 
 Named teams can be loaded per project from `.agent-office/worker-profiles.json`.
+The **Team** button shows the full roster count. Available and held members appear
+in the 3D office before they have a task; only assigning a task starts a CLI worker.
 **Menu → Named workers** preserves each person's name, role, exact model and
 effort, and keeps held profiles visible without starting them. See [Choosing an agent](docs/agents.md).
 

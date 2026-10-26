@@ -1,6 +1,11 @@
 # Choosing an agent
 
 Named teams can be configured per floor in `.agent-office/worker-profiles.json`.
+The **Team** button is always visible on a floor with profiles and counts the entire
+roster, including held members. In the office map, members without a running worker
+appear at free desks or in the team area, labelled **Available** or **Held by source**.
+Press **E** at a member to view their profile. These avatars do not start terminals
+or count as running workers; source holds stay in effect when assigning a task.
 Open **Menu → Named workers** to see each name, role, provider, model, effort and
 source hold. **Give a task** starts that exact profile in its own worktree and
 uses its name at the desk. It never substitutes a missing model or effort.

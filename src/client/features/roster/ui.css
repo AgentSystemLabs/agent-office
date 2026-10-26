@@ -1,0 +1,2 @@
+#roster-team { position: absolute; top: 66px; left: 12px; }
+#roster-team[hidden] { display: none; }
