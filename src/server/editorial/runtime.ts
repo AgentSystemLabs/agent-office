@@ -56,8 +56,13 @@ export class EditorialRuntime {
   }
 
   start(): void {
-    this.orchestrator.start();
+    this.orchestrator.start(this.config.autonomousMode);
     this.telegram.start();
+  }
+
+  async runPending(projectId?: string): Promise<void> {
+    this.repo.audit('owner', 'queue.manual-run', projectId, undefined, undefined, { autonomousMode: this.config.autonomousMode });
+    await this.orchestrator.pump(projectId);
   }
 
   bindAgentOffice(ctx: Parameters<AgentOfficeAdapter['bind']>[0]): void {
@@ -80,7 +85,7 @@ export class EditorialRuntime {
     assertTaskAuthority(actor, 'create');
     const contract = { ...input, taskId: id('task') };
     this.repo.createTask(contract);
-    void this.orchestrator.pump();
+    if (this.config.autonomousMode) void this.orchestrator.pump();
     return contract;
   }
 
@@ -183,7 +188,7 @@ export class EditorialRuntime {
   snapshot(): DashboardSnapshot {
     const usage = this.repo.usageTotals();
     return {
-      settings: { brandName: 'Editorial JeyTid', interfaceLanguage: 'es', editorialLanguage: 'es-419', timezone: this.config.timezone, ownerId: this.config.ownerId, authorizedChatIds: this.config.authorizedChatIds, markets: [], paidAdvertising: this.config.paidAdvertising, maxConcurrentGenerations: this.config.maxConcurrentGenerations, budgetUsd: this.config.budgetUsd, warningThresholdUsd: this.config.warningThresholdUsd, provider: this.provider.id, textModel: this.config.textModel, imageModel: this.config.imageModel },
+      settings: { brandName: 'Editorial JeyTid', interfaceLanguage: 'es', editorialLanguage: 'es-419', timezone: this.config.timezone, ownerId: this.config.ownerId, authorizedChatIds: this.config.authorizedChatIds, markets: [], paidAdvertising: this.config.paidAdvertising, maxConcurrentGenerations: this.config.maxConcurrentGenerations, budgetUsd: this.config.budgetUsd, warningThresholdUsd: this.config.warningThresholdUsd, provider: this.provider.id, textModel: this.config.textModel, imageModel: this.config.imageModel, autonomousMode: this.config.autonomousMode },
       projects: this.repo.listProjects(),
       tasks: this.repo.listTasks().map(({ contract, state, attempts, updatedAt }) => ({ ...contract, state, attempts, updatedAt })),
       revisions: this.repo.listRevisions(),

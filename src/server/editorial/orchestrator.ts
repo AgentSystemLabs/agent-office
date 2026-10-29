@@ -32,9 +32,12 @@ export class EditorialOrchestrator {
 
   constructor(readonly repo: EditorialRepository, readonly options: OrchestratorOptions) {}
 
-  start(): void {
+  start(automatic = true): void {
     this.stopped = false;
     this.repo.recoverExpiredLeases();
+    if (this.timer) clearInterval(this.timer);
+    this.timer = undefined;
+    if (!automatic) return;
     this.timer = setInterval(() => this.pump(), this.options.pollMs);
     void this.pump();
   }
@@ -42,17 +45,18 @@ export class EditorialOrchestrator {
   stop(): void {
     this.stopped = true;
     if (this.timer) clearInterval(this.timer);
+    this.timer = undefined;
     for (const run of this.active.values()) run.controller.abort();
     this.active.clear();
   }
 
-  async pump(): Promise<void> {
+  async pump(projectId?: string): Promise<void> {
     if (this.stopped || this.pumping) return;
     this.pumping = true;
     try {
       this.repo.recoverExpiredLeases();
       while (!this.stopped && this.active.size < Math.max(1, Math.floor(this.options.maxConcurrent))) {
-        const taskId = this.repo.readyTasks(1)[0];
+        const taskId = this.repo.readyTasks(1, projectId)[0];
         if (!taskId) break;
         const task = this.repo.getTask(taskId);
         if (!task) break;
@@ -74,7 +78,7 @@ export class EditorialOrchestrator {
         this.active.set(taskId, { owner: leaseOwner, controller, generation: claimed.generation });
         this.repo.recordRun({ runId, taskId, roleId: claimed.contract.roleId, provider: 'pending', profileVersion: 'pending', status: 'started', startedAt: now() });
         this.options.onEvent?.({ type: 'task_started', taskId, runId });
-        void this.execute(claimed.contract, taskId, claimed.generation, leaseOwner, runId, reservationId, controller);
+        void this.execute(claimed.contract, taskId, claimed.generation, leaseOwner, runId, reservationId, controller, projectId);
       }
     } finally {
       this.pumping = false;
@@ -89,7 +93,7 @@ export class EditorialOrchestrator {
     return changed;
   }
 
-  private async execute(task: TaskContract, taskId: string, generation: number, leaseOwner: string, runId: string, reservationId: string, controller: AbortController): Promise<void> {
+  private async execute(task: TaskContract, taskId: string, generation: number, leaseOwner: string, runId: string, reservationId: string, controller: AbortController, pumpProjectId?: string): Promise<void> {
     const heartbeatTimer = setInterval(() => {
       const ok = this.repo.heartbeat(taskId, leaseOwner, new Date(Date.now() + this.options.leaseMs).toISOString());
       if (!ok) controller.abort();
@@ -116,7 +120,7 @@ export class EditorialOrchestrator {
       clearInterval(heartbeatTimer);
       clearTimeout(timeout);
       this.active.delete(taskId);
-      void this.pump();
+      void this.pump(pumpProjectId);
     }
   }
 }

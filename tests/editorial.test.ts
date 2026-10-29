@@ -107,6 +107,40 @@ test('budget reservations are atomic and late task results cannot overwrite canc
   }
 });
 
+test('supervised mode leaves new tasks pending until the owner runs the queue', async () => {
+  const root = tempDir('editorial-supervised');
+  const runtime = new EditorialRuntime(root, { EDITORIAL_PROVIDER: 'mock', EDITORIAL_AUTONOMOUS_MODE: '0' });
+  try {
+    const project = runtime.createProject(seededBrief('Supervisado'));
+    const task = runtime.createTask('owner', contract(project.id));
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    assert.equal(runtime.repo.getTask(task.taskId)?.state, 'pending');
+    await runtime.runPending(project.id);
+    for (let attempt = 0; attempt < 40 && runtime.repo.getTask(task.taskId)?.state === 'running'; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(runtime.repo.getTask(task.taskId)?.state, 'completed');
+    assert.equal(runtime.snapshot().settings.autonomousMode, false);
+  } finally {
+    runtime.shutdown();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('autonomous mode starts the queue without a manual trigger', async () => {
+  const root = tempDir('editorial-autonomous');
+  const runtime = new EditorialRuntime(root, { EDITORIAL_PROVIDER: 'mock', EDITORIAL_AUTONOMOUS_MODE: '1' });
+  try {
+    runtime.start();
+    const project = runtime.createProject(seededBrief('Autónomo'));
+    const task = runtime.createTask('owner', contract(project.id));
+    for (let attempt = 0; attempt < 80 && runtime.repo.getTask(task.taskId)?.state !== 'completed'; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(runtime.repo.getTask(task.taskId)?.state, 'completed');
+    assert.equal(runtime.snapshot().settings.autonomousMode, true);
+  } finally {
+    runtime.shutdown();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('OpenAI adapter sends documented request shape without calling a real service', async () => {
   const requests: Array<{ url: string; init: RequestInit }> = [];
   const provider = new OpenAIEditorialProvider({ apiKey: 'api-key-test-only', baseUrl: 'https://example.invalid/v1', fetchImpl: async (input, init = {}) => {

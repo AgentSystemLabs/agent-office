@@ -43,7 +43,8 @@
           const data = await response.json();
           if (!response.ok) throw new Error(data.error || 'No disponible');
           const configured = Object.values(data.connectors || {}).filter((value) => value.configured).length;
-          status.innerHTML = `<strong>Proveedor:</strong> ${esc(data.settings.provider)} · <strong>Conexiones configuradas:</strong> ${configured} · <strong>Costos:</strong> $${Number(data.costs.observedUsd || 0).toFixed(4)} observados / $${Number(data.costs.estimatedUsd || 0).toFixed(4)} estimados`;
+          const mode = data.settings.autonomousMode ? 'autónomo' : 'supervisado';
+          status.innerHTML = `<strong>Modo:</strong> ${mode} · <strong>Proveedor:</strong> ${esc(data.settings.provider)} · <strong>Conexiones configuradas:</strong> ${configured} · <strong>Costos:</strong> $${Number(data.costs.observedUsd || 0).toFixed(4)} observados / $${Number(data.costs.estimatedUsd || 0).toFixed(4)} estimados`;
           grid.innerHTML = [
             `<article class="card"><h2>Libros</h2>${list(data.projects || [], (item) => `<li><strong>${esc(item.title)}</strong><br><code>${esc(item.id)}</code> · <span class="state">${esc(item.stage)}</span></li>`)}</article>`,
             `<article class="card"><h2>Tareas y dependencias</h2>${list(data.tasks || [], (item) => `<li><strong>${esc(item.roleId)}</strong> · <span class="state ${item.state === 'failed' ? 'error' : item.state === 'waiting_user' ? 'warn' : ''}">${esc(item.state)}</span><br>${esc(item.objective)}</li>`)}</article>`,

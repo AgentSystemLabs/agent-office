@@ -74,7 +74,9 @@ export class TelegramBot {
     const command = head.toLowerCase().split('@')[0];
     const arg = rest.join(' ').trim();
     if (command === '/start' || command === '/ayuda') return this.sendText(chatId, helpText());
-    if (command === '/configurar') return this.sendText(chatId, `Configuración editorial\nZona horaria: ${this.runtime.config.timezone}\nProveedor: ${this.runtime.provider.id} (${this.runtime.provider.configured ? 'configurado' : 'sin credencial'})\nTelegram: configurado\nMáximo simultáneo: ${this.runtime.config.maxConcurrentGenerations}`);
+    if (command === '/configurar') return this.sendText(chatId, `Configuración editorial\nZona horaria: ${this.runtime.config.timezone}\nProveedor: ${this.runtime.provider.id} (${this.runtime.provider.configured ? 'configurado' : 'sin credencial'})\nTelegram: ${this.configured ? 'configurado' : 'sin credencial'}\nModo de ejecución: ${this.runtime.config.autonomousMode ? 'autónomo' : 'supervisado'}\nMáximo simultáneo: ${this.runtime.config.maxConcurrentGenerations}`);
+    if (command === '/modo') return this.sendText(chatId, formatMode(this.runtime));
+    if (command === '/ejecutar') return this.runPending(chatId, arg);
     if (command === '/proyectos') return this.sendText(chatId, formatProjects(this.runtime.snapshot().projects));
     if (command === '/agentes') return this.sendText(chatId, Object.values(runtimeSnapshotProfiles()).map((profile) => `${profile.displayName} — ${profile.id}`).join('\n'));
     if (command === '/estado') return this.sendText(chatId, formatProjectStatus(this.runtime, arg));
@@ -122,6 +124,12 @@ export class TelegramBot {
   private async cancel(chatId: string, taskId: string): Promise<void> {
     if (!taskId || !this.runtime.orchestrator.cancel(taskId)) return this.sendText(chatId, 'No se pudo cancelar esa tarea o ya no está activa.');
     await this.sendText(chatId, `Tarea cancelada: ${taskId}.`);
+  }
+
+  private async runPending(chatId: string, projectId: string): Promise<void> {
+    if (projectId && !this.runtime.repo.getProject(projectId)) return this.sendText(chatId, 'Indica un project_id válido o deja el comando sin argumento para ejecutar toda la cola.');
+    await this.runtime.runPending(projectId || undefined);
+    await this.sendText(chatId, projectId ? `Ejecución iniciada para ${projectId}. Consulta /tareas ${projectId}.` : 'Ejecución iniciada para la cola editorial. Consulta /tareas o /proyectos.');
   }
 
   private async approvals(chatId: string): Promise<void> {
@@ -201,7 +209,13 @@ function splitMessage(text: string, limit: number): string[] {
 }
 
 function helpText(): string {
-  return ['/start /ayuda — guía', '/configurar — conexiones y límites', '/nuevo_libro <título> — crear proyecto', '/ideas [contexto] — propuestas persistidas', '/proyectos — listar libros', '/estado <project_id>', '/agentes — once perfiles', '/tareas <project_id>', '/costos — presupuesto y consumo', '/aprobaciones — decisiones pendientes', '/publicar <release_id> — preparar asistencia, sin publicar externamente', '/redes /calendario — marketing', '/pausar <project_id> /continuar <project_id>', '/cancelar <task_id>', 'Adjuntos: caption = project_id; máximo 20 MB'].join('\n');
+  return ['/start /ayuda — guía', '/configurar — conexiones y límites', '/modo — autónomo o supervisado', '/ejecutar [project_id] — iniciar tareas pendientes', '/nuevo_libro <título> — crear proyecto', '/ideas [contexto] — propuestas persistidas', '/proyectos — listar libros', '/estado <project_id>', '/agentes — once perfiles', '/tareas <project_id>', '/costos — presupuesto y consumo', '/aprobaciones — decisiones pendientes', '/publicar <release_id> — preparar asistencia, sin publicar externamente', '/redes /calendario — marketing', '/pausar <project_id> /continuar <project_id>', '/cancelar <task_id>', 'Adjuntos: caption = project_id; máximo 20 MB'].join('\n');
+}
+
+function formatMode(runtime: EditorialRuntime): string {
+  return runtime.config.autonomousMode
+    ? 'Modo autónomo: las tareas elegibles se ejecutan solas. Tú puedes observarlas desde /editorial o Telegram; publicación, gastos y acciones externas siguen requiriendo aprobación.'
+    : 'Modo supervisado: las tareas se quedan pendientes hasta que uses /ejecutar [project_id]. Las acciones sensibles siguen requiriendo aprobación.';
 }
 
 function formatProjects(projects: ProjectRecord[]): string {

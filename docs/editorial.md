@@ -23,6 +23,7 @@ $env:TELEGRAM_BOT_TOKEN = "<token entregado por BotFather>"
 $env:TELEGRAM_OWNER_ID = "<id numérico del propietario>"
 $env:TELEGRAM_ALLOWED_CHAT_IDS = "<id numérico del chat>"
 $env:EDITORIAL_PROVIDER = "mock" # cambia a openai solo con OPENAI_API_KEY
+$env:EDITORIAL_AUTONOMOUS_MODE = "0" # 1 ejecuta tareas elegibles sin pedir confirmación por tarea
 $env:EDITORIAL_BUDGET_USD = "5"
 $env:EDITORIAL_MAX_CONCURRENT = "3"
 ```
@@ -68,6 +69,8 @@ Comandos principales:
 /proyectos
 /estado <project_id>
 /tareas [project_id]
+/modo
+/ejecutar [project_id]
 /agentes
 /costos
 /aprobaciones
@@ -75,6 +78,14 @@ Comandos principales:
 /pausar <project_id>   /continuar <project_id>
 /cancelar <task_id>
 ```
+
+En modo `supervisado` (`EDITORIAL_AUTONOMOUS_MODE=0`, valor predeterminado), crear un libro o una
+tarea deja la cola pendiente; el propietario inicia el trabajo con `/ejecutar project_id` o
+`/ejecutar` para toda la cola. En modo `autónomo` (`EDITORIAL_AUTONOMOUS_MODE=1`), el orquestador
+revisa la cola periódicamente y ejecuta las tareas elegibles sin confirmación individual. La vista
+`/editorial`, `/modo`, `/estado` y `/tareas` permiten observar el avance. Este modo no autoriza por
+sí mismo publicación externa, gasto publicitario, login en KDP ni publicación social: esas acciones
+siguen sujetas a la política de aprobación del propietario.
 
 Un documento adjunto debe llevar `project_id` al inicio del caption y no puede superar 20 MB. Los
 botones de aprobación llevan solo el id opaco de la aprobación; el token secreto nunca se envía en

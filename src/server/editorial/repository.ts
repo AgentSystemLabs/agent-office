@@ -76,10 +76,12 @@ export class EditorialRepository {
     return rows.map(taskRow);
   }
 
-  readyTasks(limit: number): string[] {
-    const rows = this.db.all<{ id: string }>(`SELECT t.id FROM tasks t WHERE t.state IN ('pending','ready','uncertain') AND NOT EXISTS (
+  readyTasks(limit: number, projectId?: string): string[] {
+    const projectFilter = projectId ? ' AND t.project_id = ?' : '';
+    const query = `SELECT t.id FROM tasks t WHERE t.state IN ('pending','ready','uncertain')${projectFilter} AND NOT EXISTS (
       SELECT 1 FROM task_dependencies d JOIN tasks dep ON dep.id = d.depends_on WHERE d.task_id = t.id AND dep.state <> 'completed'
-    ) ORDER BY t.created_at LIMIT ?`, limit);
+    ) ORDER BY t.created_at LIMIT ?`;
+    const rows = projectId ? this.db.all<{ id: string }>(query, projectId, limit) : this.db.all<{ id: string }>(query, limit);
     return rows.map((row) => row.id);
   }
 

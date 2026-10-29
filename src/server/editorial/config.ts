@@ -21,6 +21,7 @@ export interface EditorialConfig {
   provider: string;
   textModel: string;
   imageModel: string;
+  autonomousMode: boolean;
   paidAdvertising: boolean;
   agentOfficeFloor?: string;
   agentOfficeProvider: 'claude' | 'opencode' | 'codex' | 'grok' | 'muse' | 'dsh' | 'pi' | 'cursor' | 'custom';
@@ -46,6 +47,7 @@ export function loadEditorialConfig(dataDir: string, env: NodeJS.ProcessEnv = pr
     provider: env.EDITORIAL_PROVIDER?.trim().toLowerCase() || 'mock',
     textModel: env.EDITORIAL_TEXT_MODEL?.trim() || 'configured-text-model',
     imageModel: env.EDITORIAL_IMAGE_MODEL?.trim() || 'gpt-image-1',
+    autonomousMode: booleanValue(env.EDITORIAL_AUTONOMOUS_MODE),
     paidAdvertising: env.EDITORIAL_PAID_ADVERTISING === '1' || env.EDITORIAL_PAID_ADVERTISING === 'true',
     agentOfficeFloor: env.EDITORIAL_AGENT_OFFICE_FLOOR?.trim() || undefined,
     agentOfficeProvider: validOfficeProvider(env.EDITORIAL_AGENT_OFFICE_PROVIDER),
@@ -70,6 +72,10 @@ function positiveNumber(value: string | undefined): number | undefined {
   if (!value) return undefined;
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
+}
+
+function booleanValue(value: string | undefined): boolean {
+  return value?.trim().toLowerCase() === '1' || value?.trim().toLowerCase() === 'true';
 }
 
 function validOfficeProvider(value: string | undefined): EditorialConfig['agentOfficeProvider'] {

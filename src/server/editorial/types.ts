@@ -158,6 +158,7 @@ export interface OwnerSettings {
   provider: string;
   textModel: string;
   imageModel: string;
+  autonomousMode: boolean;
 }
 
 export interface ProjectBrief {
