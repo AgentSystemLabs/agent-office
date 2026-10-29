@@ -1,0 +1,21 @@
+# Editorial JeyTid — tareas
+
+- [ ] T1. Tipos, validadores, estados, roles, perfiles y matriz de capacidades.
+- [ ] T2. Migraciones SQLite, repositorios, hashes, auditoría y artefactos.
+- [ ] T3. Permisos, invalidación, aprobaciones y releases inmutables.
+- [ ] T4. Cola durable, leases, checkpoints, límites, pausa/cancelación y recuperación.
+- [ ] T5. Adaptador Agent Office y once perfiles configurables.
+- [ ] T6. Proveedores mock/OpenAI de texto e imagen.
+- [ ] T7. Documentos, EPUB, PDF, renderizados, manifiestos y paquetes.
+- [ ] Checkpoint A: fundamentos verificables.
+- [ ] T8. Runtime integrado, configuración, CLI, salud, apagado y backups.
+- [ ] T9. Telegram: polling, comandos, archivos, callbacks y notificaciones.
+- [ ] T10. API y vista `/editorial`.
+- [ ] T11. Flujo editorial, memoria/canon y fuentes.
+- [ ] T12. Derechos, auditoría, findings y release.
+- [ ] T13. Preparación KDP y asistencia realista.
+- [ ] T14. Marketing, calendario y conector social opcional.
+- [ ] T15. Demo reproducible sin publicación ni publicidad.
+- [ ] T16. Pruebas de aceptación, restauración y secretos.
+- [ ] T17. Documentación, matriz, fuentes y entrega.
+- [ ] Checkpoint B: typecheck, tests, build, demo y diagnóstico.
