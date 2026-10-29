@@ -21,5 +21,5 @@
 - [ ] Checkpoint B: typecheck, tests, build, demo y diagnóstico; typecheck/build/demo pasan, la suite completa base no termina limpia por fallos heredados.
 - [x] T18. Modo autónomo configurable, supervisado por defecto y visible en snapshot.
 - [x] T19. Orquestación automática condicionada y ejecución manual por proyecto.
-- [x] T20. Comandos Telegram `/modo` y `/ejecutar`, ayuda y documentación.
+- [x] T20. Comandos Telegram `/modo [autonomo|supervisado]` y `/ejecutar`, ayuda y documentación.
 - [x] Checkpoint C: pruebas focalizadas, typecheck, build y escaneo de secretos.

@@ -141,6 +141,20 @@ test('autonomous mode starts the queue without a manual trigger', async () => {
   }
 });
 
+test('owner can switch the current runtime between autonomous and supervised modes', () => {
+  const root = tempDir('editorial-mode-switch');
+  const runtime = new EditorialRuntime(root, { EDITORIAL_PROVIDER: 'mock', EDITORIAL_AUTONOMOUS_MODE: '0' });
+  try {
+    runtime.setAutonomousMode(true);
+    assert.equal(runtime.config.autonomousMode, true);
+    runtime.setAutonomousMode(false);
+    assert.equal(runtime.config.autonomousMode, false);
+  } finally {
+    runtime.shutdown();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('OpenAI adapter sends documented request shape without calling a real service', async () => {
   const requests: Array<{ url: string; init: RequestInit }> = [];
   const provider = new OpenAIEditorialProvider({ apiKey: 'api-key-test-only', baseUrl: 'https://example.invalid/v1', fetchImpl: async (input, init = {}) => {

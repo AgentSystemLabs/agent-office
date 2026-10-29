@@ -115,7 +115,7 @@ mock en una conexión real: cada capacidad se etiqueta con su evidencia y depend
   reflejarla en la configuración y el snapshot sin exponer credenciales.
 - [x] T19. Permitir que el orquestador se ejecute automáticamente solo en modo autónomo y ofrecer
   ejecución manual filtrada por proyecto en modo supervisado.
-- [x] T20. Exponer `/modo` y `/ejecutar [project_id]` en Telegram, actualizar la ayuda y documentar
+- [x] T20. Exponer `/modo [autonomo|supervisado]` y `/ejecutar [project_id]` en Telegram, actualizar la ayuda y documentar
   el flujo de propietario único; conservar aprobaciones para publicación, gastos y acciones externas.
 - [x] Checkpoint C: pruebas de modo supervisado/autónomo, typecheck, build y revisión de secretos.
 

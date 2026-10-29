@@ -75,7 +75,7 @@ export class TelegramBot {
     const arg = rest.join(' ').trim();
     if (command === '/start' || command === '/ayuda') return this.sendText(chatId, helpText());
     if (command === '/configurar') return this.sendText(chatId, `Configuración editorial\nZona horaria: ${this.runtime.config.timezone}\nProveedor: ${this.runtime.provider.id} (${this.runtime.provider.configured ? 'configurado' : 'sin credencial'})\nTelegram: ${this.configured ? 'configurado' : 'sin credencial'}\nModo de ejecución: ${this.runtime.config.autonomousMode ? 'autónomo' : 'supervisado'}\nMáximo simultáneo: ${this.runtime.config.maxConcurrentGenerations}`);
-    if (command === '/modo') return this.sendText(chatId, formatMode(this.runtime));
+    if (command === '/modo') return this.mode(chatId, arg);
     if (command === '/ejecutar') return this.runPending(chatId, arg);
     if (command === '/proyectos') return this.sendText(chatId, formatProjects(this.runtime.snapshot().projects));
     if (command === '/agentes') return this.sendText(chatId, Object.values(runtimeSnapshotProfiles()).map((profile) => `${profile.displayName} — ${profile.id}`).join('\n'));
@@ -130,6 +130,15 @@ export class TelegramBot {
     if (projectId && !this.runtime.repo.getProject(projectId)) return this.sendText(chatId, 'Indica un project_id válido o deja el comando sin argumento para ejecutar toda la cola.');
     await this.runtime.runPending(projectId || undefined);
     await this.sendText(chatId, projectId ? `Ejecución iniciada para ${projectId}. Consulta /tareas ${projectId}.` : 'Ejecución iniciada para la cola editorial. Consulta /tareas o /proyectos.');
+  }
+
+  private async mode(chatId: string, requested: string): Promise<void> {
+    const normalized = requested.toLowerCase();
+    if (!requested) return this.sendText(chatId, formatMode(this.runtime));
+    if (['autonomo', 'autónomo', 'auto'].includes(normalized)) this.runtime.setAutonomousMode(true);
+    else if (['supervisado', 'manual'].includes(normalized)) this.runtime.setAutonomousMode(false);
+    else return this.sendText(chatId, 'Usa /modo autonomo, /modo supervisado o /modo para consultar el estado.');
+    await this.sendText(chatId, formatMode(this.runtime));
   }
 
   private async approvals(chatId: string): Promise<void> {
@@ -209,7 +218,7 @@ function splitMessage(text: string, limit: number): string[] {
 }
 
 function helpText(): string {
-  return ['/start /ayuda — guía', '/configurar — conexiones y límites', '/modo — autónomo o supervisado', '/ejecutar [project_id] — iniciar tareas pendientes', '/nuevo_libro <título> — crear proyecto', '/ideas [contexto] — propuestas persistidas', '/proyectos — listar libros', '/estado <project_id>', '/agentes — once perfiles', '/tareas <project_id>', '/costos — presupuesto y consumo', '/aprobaciones — decisiones pendientes', '/publicar <release_id> — preparar asistencia, sin publicar externamente', '/redes /calendario — marketing', '/pausar <project_id> /continuar <project_id>', '/cancelar <task_id>', 'Adjuntos: caption = project_id; máximo 20 MB'].join('\n');
+  return ['/start /ayuda — guía', '/configurar — conexiones y límites', '/modo [autonomo|supervisado] — consultar o cambiar el modo', '/ejecutar [project_id] — iniciar tareas pendientes', '/nuevo_libro <título> — crear proyecto', '/ideas [contexto] — propuestas persistidas', '/proyectos — listar libros', '/estado <project_id>', '/agentes — once perfiles', '/tareas <project_id>', '/costos — presupuesto y consumo', '/aprobaciones — decisiones pendientes', '/publicar <release_id> — preparar asistencia, sin publicar externamente', '/redes /calendario — marketing', '/pausar <project_id> /continuar <project_id>', '/cancelar <task_id>', 'Adjuntos: caption = project_id; máximo 20 MB'].join('\n');
 }
 
 function formatMode(runtime: EditorialRuntime): string {

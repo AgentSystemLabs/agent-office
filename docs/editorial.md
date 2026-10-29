@@ -83,7 +83,9 @@ En modo `supervisado` (`EDITORIAL_AUTONOMOUS_MODE=0`, valor predeterminado), cre
 tarea deja la cola pendiente; el propietario inicia el trabajo con `/ejecutar project_id` o
 `/ejecutar` para toda la cola. En modo `autónomo` (`EDITORIAL_AUTONOMOUS_MODE=1`), el orquestador
 revisa la cola periódicamente y ejecuta las tareas elegibles sin confirmación individual. La vista
-`/editorial`, `/modo`, `/estado` y `/tareas` permiten observar el avance. Este modo no autoriza por
+`/editorial`, `/modo`, `/estado` y `/tareas` permiten observar el avance. El propietario puede cambiar
+el modo del proceso actual con `/modo autonomo` o `/modo supervisado`; para conservar la elección
+después de reiniciar, actualiza `EDITORIAL_AUTONOMOUS_MODE`. Este modo no autoriza por
 sí mismo publicación externa, gasto publicitario, login en KDP ni publicación social: esas acciones
 siguen sujetas a la política de aprobación del propietario.
 

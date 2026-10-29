@@ -60,6 +60,13 @@ export class EditorialRuntime {
     this.telegram.start();
   }
 
+  setAutonomousMode(enabled: boolean): void {
+    if (this.config.autonomousMode === enabled) return;
+    this.config.autonomousMode = enabled;
+    this.orchestrator.start(enabled);
+    this.repo.audit('owner', 'queue.mode-change', undefined, undefined, undefined, { autonomousMode: enabled });
+  }
+
   async runPending(projectId?: string): Promise<void> {
     this.repo.audit('owner', 'queue.manual-run', projectId, undefined, undefined, { autonomousMode: this.config.autonomousMode });
     await this.orchestrator.pump(projectId);
