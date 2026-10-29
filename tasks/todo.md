@@ -19,7 +19,7 @@
 - [x] T16. Pruebas focalizadas de aceptación, restauración y ausencia de credenciales reales; la suite base conserva fallos heredados.
 - [x] T17. Documentación, matriz, fuentes y entrega.
 - [ ] Checkpoint B: typecheck, tests, build, demo y diagnóstico; typecheck/build/demo pasan, la suite completa base no termina limpia por fallos heredados.
-- [ ] T18. Modo autónomo configurable, supervisado por defecto y visible en snapshot.
-- [ ] T19. Orquestación automática condicionada y ejecución manual por proyecto.
-- [ ] T20. Comandos Telegram `/modo` y `/ejecutar`, ayuda y documentación.
-- [ ] Checkpoint C: pruebas focalizadas, typecheck, build y escaneo de secretos.
+- [x] T18. Modo autónomo configurable, supervisado por defecto y visible en snapshot.
+- [x] T19. Orquestación automática condicionada y ejecución manual por proyecto.
+- [x] T20. Comandos Telegram `/modo` y `/ejecutar`, ayuda y documentación.
+- [x] Checkpoint C: pruebas focalizadas, typecheck, build y escaneo de secretos.

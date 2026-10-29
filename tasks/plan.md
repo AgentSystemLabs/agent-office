@@ -111,13 +111,13 @@ mock en una conexión real: cada capacidad se etiqueta con su evidencia y depend
 
 ### Fase 6: Operación autónoma con propietario observador
 
-- [ ] T18. Añadir una bandera de modo autónomo, con supervisado como valor seguro por defecto, y
+- [x] T18. Añadir una bandera de modo autónomo, con supervisado como valor seguro por defecto, y
   reflejarla en la configuración y el snapshot sin exponer credenciales.
-- [ ] T19. Permitir que el orquestador se ejecute automáticamente solo en modo autónomo y ofrecer
+- [x] T19. Permitir que el orquestador se ejecute automáticamente solo en modo autónomo y ofrecer
   ejecución manual filtrada por proyecto en modo supervisado.
-- [ ] T20. Exponer `/modo` y `/ejecutar [project_id]` en Telegram, actualizar la ayuda y documentar
+- [x] T20. Exponer `/modo` y `/ejecutar [project_id]` en Telegram, actualizar la ayuda y documentar
   el flujo de propietario único; conservar aprobaciones para publicación, gastos y acciones externas.
-- [ ] Checkpoint C: pruebas de modo supervisado/autónomo, typecheck, build y revisión de secretos.
+- [x] Checkpoint C: pruebas de modo supervisado/autónomo, typecheck, build y revisión de secretos.
 
 ## Riesgos y mitigaciones
 
