@@ -416,6 +416,7 @@ Every change to the app that lands on `main` is published as a GitHub release by
 - [Azure reference](docs/azure.md): picking a VM size, pausing, and everything `deploy/azure.sh` does
 - [How it works](docs/how-it-works.md): the architecture, and security notes
 - [Code layout](docs/code-layout.md): where the code lives, adding a feature or an agent provider, and the size guard
+- [Editorial brief](docs/editorial/brief-canon-plan.md): initial brief, canon, plan, evidence register and blockers
 
 ## License
 
