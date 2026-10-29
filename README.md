@@ -92,6 +92,18 @@ agent-office setup                          # the first-start walkthrough again 
 
 Every option is in [docs/configuration.md](docs/configuration.md). Choosing models and providers per worker is in [docs/agents.md](docs/agents.md).
 
+### Editorial JeyTid (optional)
+
+This checkout also contains an optional private editorial subsystem for a single owner. It is
+disabled by default so the base office keeps its Node 20 behavior. Enable it on Node 22.5+ with
+`EDITORIAL_ENABLED=1`; it persists projects, revisions, tasks, artifacts, approvals, costs and
+backups under the office data directory and exposes the authenticated `/editorial` view. Telegram,
+OpenAI and Mastodon remain opt-in connectors and are never reported as connected without their
+credentials and an observed response.
+
+See [docs/editorial.md](docs/editorial.md) for setup, commands, recovery, capability limits and the
+official sources used by the adapters. A local mock demo is available with `agent-office editorial demo`.
+
 To run it from a clone instead:
 
 ```bash
