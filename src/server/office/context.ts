@@ -28,6 +28,7 @@ import type { Arcade, HighScores } from '../cabinet.js';
 import type { AgentProvider, FloorInfo, Me, ServerMsg, ServiceInfo, ServicesState, SignInKind } from '../../shared/protocol.js';
 import type { Client } from './client.js';
 import type { Spot } from './input.js';
+import type { EditorialRuntime } from '../editorial/runtime.js';
 
 export type ToastLevel = Extract<ServerMsg, { t: 'toast' }>['level'];
 
@@ -52,6 +53,8 @@ export interface Core {
   /** The building: a floor per project, each with its own workers, boards and queue. */
   building: Building;
   floors: Map<string, Floor>;
+  /** Optional personal editorial subsystem; enabled with EDITORIAL_ENABLED=1. */
+  editorial?: EditorialRuntime;
 }
 
 /** Made once the hook server listens, before any floor opens (office/services.ts). */

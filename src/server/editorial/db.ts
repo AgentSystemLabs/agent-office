@@ -222,6 +222,10 @@ export class EditorialDatabase {
     this.db.close();
   }
 
+  checkpoint(): void {
+    this.db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+  }
+
   run(sql: string, ...params: DbValue[]) {
     return this.db.prepare(sql).run(...params);
   }

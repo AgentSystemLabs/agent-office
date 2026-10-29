@@ -29,11 +29,12 @@ export async function startServer(cfg: Config, opts: StartOptions = {}) {
   // running from the last office while the floors open.
   const ctx = {} as Ctx;
   Object.assign(ctx, messaging(ctx), floorHelpers(ctx), people(ctx), navigation(ctx), gates(ctx));
-  Object.assign(ctx, createCore(ctx, cfg, publicDir));
+  Object.assign(ctx, await createCore(ctx, cfg, publicDir));
   const { hookServer, hookPort } = await startHookServer(ctx);
   Object.assign(ctx, createServices(ctx));
   Object.assign(ctx, await openFloors(ctx, hookPort));
   Object.assign(ctx, createLateServices(ctx));
+  ctx.editorial?.bindAgentOffice(ctx);
 
   // --- HTTP ------------------------------------------------------------------------------------
   const handler = requestHandler(ctx, routes);
@@ -50,6 +51,7 @@ export async function startServer(cfg: Config, opts: StartOptions = {}) {
   const { services, tailnet } = ctx;
   services.start();
   tailnet.start(() => services.list().map((s) => s.port));
+  ctx.editorial?.start();
 
   /** With `keep` (a restart), workers' terminals keep running for the next office to pick up. */
   const shutdown = (keep = false) => {
@@ -69,6 +71,7 @@ export async function startServer(cfg: Config, opts: StartOptions = {}) {
     ctx.limits.close();
     for (const a of ctx.accountLimits.values()) a.reader.close();
     ctx.signins.shutdown();
+    ctx.editorial?.shutdown();
     for (const c of ctx.clients.values()) c.ws.close();
     server.close();
     hookServer.close();

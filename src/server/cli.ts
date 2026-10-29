@@ -6,6 +6,10 @@ import { tildify } from './building.js';
 import { openBrowser } from './browser.js';
 
 const argv = process.argv.slice(2);
+if (argv[0] === 'editorial') {
+  const { editorialCommand } = await import('./editorial/cli.js');
+  process.exit(await editorialCommand(argv.slice(1)));
+}
 if (argv[0] === 'prune') {
   const { prune } = await import('./prune.js');
   process.exit(await prune(argv.slice(1)));

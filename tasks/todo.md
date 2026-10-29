@@ -1,21 +1,21 @@
 # Editorial JeyTid — tareas
 
-- [ ] T1. Tipos, validadores, estados, roles, perfiles y matriz de capacidades.
-- [ ] T2. Migraciones SQLite, repositorios, hashes, auditoría y artefactos.
-- [ ] T3. Permisos, invalidación, aprobaciones y releases inmutables.
-- [ ] T4. Cola durable, leases, checkpoints, límites, pausa/cancelación y recuperación.
-- [ ] T5. Adaptador Agent Office y once perfiles configurables.
-- [ ] T6. Proveedores mock/OpenAI de texto e imagen.
-- [ ] T7. Documentos, EPUB, PDF, renderizados, manifiestos y paquetes.
-- [ ] Checkpoint A: fundamentos verificables.
-- [ ] T8. Runtime integrado, configuración, CLI, salud, apagado y backups.
-- [ ] T9. Telegram: polling, comandos, archivos, callbacks y notificaciones.
-- [ ] T10. API y vista `/editorial`.
-- [ ] T11. Flujo editorial, memoria/canon y fuentes.
-- [ ] T12. Derechos, auditoría, findings y release.
-- [ ] T13. Preparación KDP y asistencia realista.
-- [ ] T14. Marketing, calendario y conector social opcional.
-- [ ] T15. Demo reproducible sin publicación ni publicidad.
-- [ ] T16. Pruebas de aceptación, restauración y secretos.
-- [ ] T17. Documentación, matriz, fuentes y entrega.
-- [ ] Checkpoint B: typecheck, tests, build, demo y diagnóstico.
+- [x] T1. Tipos, validadores, estados, roles, perfiles y matriz de capacidades.
+- [x] T2. Migraciones SQLite, repositorios, hashes, auditoría y artefactos.
+- [x] T3. Permisos, invalidación, aprobaciones y releases inmutables.
+- [x] T4. Cola durable, leases, checkpoints, límites, pausa/cancelación y recuperación.
+- [x] T5. Adaptador Agent Office y once perfiles configurables.
+- [x] T6. Proveedores mock/OpenAI de texto e imagen.
+- [x] T7. Documentos, EPUB, PDF, renderizados, manifiestos y paquetes.
+- [x] Checkpoint A: fundamentos verificables.
+- [x] T8. Runtime integrado, configuración, CLI, salud, apagado y backups/restauración.
+- [x] T9. Telegram: polling, comandos, archivos, callbacks y notificaciones.
+- [x] T10. API y vista `/editorial`.
+- [x] T11. Flujo editorial, memoria/canon y fuentes.
+- [x] T12. Derechos, auditoría, findings y release.
+- [x] T13. Preparación KDP y asistencia realista.
+- [x] T14. Marketing, calendario y conector social opcional.
+- [x] T15. Demo reproducible sin publicación ni publicidad.
+- [x] T16. Pruebas focalizadas de aceptación, restauración y ausencia de credenciales reales; la suite base conserva fallos heredados.
+- [x] T17. Documentación, matriz, fuentes y entrega.
+- [ ] Checkpoint B: typecheck, tests, build, demo y diagnóstico; typecheck/build/demo pasan, la suite completa base no termina limpia por fallos heredados.

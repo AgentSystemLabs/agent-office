@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import type { EditorialRepository } from './repository.js';
 import { hashText, id, json, now } from './ids.js';
 import { canUseApproval, roleCanApprove, roleCanAssignTask, roleCanCreateTask, roleCanPublish } from './state.js';
@@ -51,6 +51,32 @@ export function consumeApproval(repo: EditorialRepository, actor: Actor, token: 
   return record;
 }
 
+export function approveApproval(repo: EditorialRepository, actor: Actor, approvalId: string, ownerId: string): ApprovalRecord {
+  if (actor !== 'owner') throw new Error('Only the owner can approve a decision');
+  const record = repo.approveApproval(approvalId, ownerId);
+  if (!record) throw new Error('Approval is invalid, expired, or already decided');
+  repo.audit(actor, 'approval.approve', record.projectId, record.subjectId, record.subjectHash, { action: record.action });
+  return record;
+}
+
+export function rejectApproval(repo: EditorialRepository, actor: Actor, approvalId: string, ownerId: string): ApprovalRecord {
+  if (actor !== 'owner') throw new Error('Only the owner can reject a decision');
+  const record = repo.rejectApproval(approvalId, ownerId);
+  if (!record) throw new Error('Approval is invalid or already decided');
+  repo.audit(actor, 'approval.reject', record.projectId, record.subjectId, record.subjectHash, { action: record.action });
+  return record;
+}
+
+export function consumeApprovedApproval(repo: EditorialRepository, actor: Actor, approval: ApprovalRecord, expectedSubject: unknown, ownerId: string): ApprovalRecord {
+  if (actor !== 'owner') throw new Error('Only the owner can consume an approval');
+  const subjectHash = hashText(json(expectedSubject));
+  if (approval.ownerId !== ownerId || approval.subjectHash !== subjectHash || !canUseApproval(approval.state, approval.expiresAt)) throw new Error('Approval is invalid, expired, or for another version');
+  const consumed = repo.consumeApprovalById(approval.id, ownerId, subjectHash);
+  if (!consumed) throw new Error('Approval was already consumed or changed');
+  repo.audit(actor, 'approval.consume', approval.projectId, approval.subjectId, subjectHash, { action: approval.action });
+  return consumed;
+}
+
 export function createReleaseCandidate(repo: EditorialRepository, project: ProjectRecord, artifacts: ArtifactRef[], metadata: Record<string, unknown>, auditStatus: ReleaseCandidate['auditStatus'] = 'not_run'): ReleaseCandidate {
   const owned = artifacts.filter((artifact) => artifact.projectId === project.id);
   if (owned.length !== artifacts.length || artifacts.length === 0) throw new Error('Release artifacts must belong to the project and cannot be empty');
@@ -63,7 +89,7 @@ export function createReleaseCandidate(repo: EditorialRepository, project: Proje
 }
 
 export function assertReleaseIsPublishable(repo: EditorialRepository, candidate: ReleaseCandidate, approval: ApprovalRecord): void {
-  if (candidate.auditStatus !== 'approved' || candidate.state !== 'approved') throw new Error('Release candidate is not independently audited and approved');
+  if (candidate.auditStatus !== 'approved' || !['approved', 'prepared'].includes(candidate.state)) throw new Error('Release candidate is not independently audited and approved');
   if (approval.action !== 'publish' || approval.subjectId !== candidate.id || approval.subjectHash !== hashText(json(candidate))) throw new Error('Approval does not match the exact release candidate');
   if (!canUseApproval(approval.state, approval.expiresAt)) throw new Error('Approval is not usable');
 }

@@ -67,5 +67,5 @@ export function roleCanPublish(actor: 'owner' | 'orchestrator' | RoleId): boolea
 }
 
 export function canUseApproval(state: ApprovalState, expiresAt: string, now = new Date()): boolean {
-  return state === 'pending' && Date.parse(expiresAt) > now.getTime();
+  return (state === 'pending' || state === 'approved') && Date.parse(expiresAt) > now.getTime();
 }

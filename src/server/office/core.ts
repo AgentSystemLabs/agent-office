@@ -15,7 +15,7 @@ import type { Core, Ctx } from './context.js';
 import type { Client } from './client.js';
 
 /** The first of the office: accounts and sign-in, the people in it, chat, the arcade, and the building's floors. */
-export function createCore(ctx: Ctx, cfg: Config, publicDir: string): Core {
+export async function createCore(ctx: Ctx, cfg: Config, publicDir: string): Promise<Core> {
   const accounts = new Accounts(cfg.dataDir);
   const auth = new Auth(cfg.verifier, cfg.salt, cfg.secret, accounts);
   const clients = new Map<string, Client>();
@@ -44,5 +44,13 @@ export function createCore(ctx: Ctx, cfg: Config, publicDir: string): Core {
     if (err) console.error(`agent-office: --projects: ${err}`);
   }
   const floors = new Map<string, Floor>();
-  return { cfg, publicDir, accounts, auth, clients, chat, highScores, arcade, officeName, models, building, floors };
+  // Keep the base office compatible with Node 20: node:sqlite is loaded only when the optional
+  // editorial subsystem is explicitly enabled. Editorial itself documents Node 22.5+.
+  let editorial: Core['editorial'];
+  if (process.env.EDITORIAL_ENABLED === '1') {
+    const [major, minor] = process.versions.node.split('.').map(Number);
+    if (major < 22 || (major === 22 && minor < 5)) throw new Error('Editorial requires Node 22.5+ because it uses node:sqlite; leave EDITORIAL_ENABLED unset for the Node 20 base office.');
+    editorial = new (await import('../editorial/runtime.js')).EditorialRuntime(cfg.dataDir);
+  }
+  return { cfg, publicDir, accounts, auth, clients, chat, highScores, arcade, officeName, models, building, floors, editorial };
 }

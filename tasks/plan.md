@@ -60,51 +60,54 @@ mock en una conexión real: cada capacidad se etiqueta con su evidencia y depend
 
 ## Lista de tareas
 
-### Fase 1: Contratos y persistencia
+### Fase 1: Contratos y persistencia — completada
 
-- [ ] T1. Crear tipos, validadores, estados, roles, perfiles y matriz de capacidades.
-- [ ] T2. Implementar migraciones SQLite, repositorios transaccionales, hashes, auditoría y
+- [x] T1. Crear tipos, validadores, estados, roles, perfiles y matriz de capacidades.
+- [x] T2. Implementar migraciones SQLite, repositorios transaccionales, hashes, auditoría y
   almacenamiento seguro de artefactos.
-- [ ] T3. Implementar permisos, invalidación de derivados, aprobaciones con tokens de un solo uso y
+- [x] T3. Implementar permisos, invalidación de derivados, aprobaciones con tokens de un solo uso y
   candidatos inmutables.
 
-### Fase 2: Orquestación y generación
+### Fase 2: Orquestación y generación — completada
 
-- [ ] T4. Implementar cola durable, leases, checkpoints, límites, pausa/cancelación y recuperación.
-- [ ] T5. Implementar adaptador Agent Office y perfiles configurables de los once agentes.
-- [ ] T6. Implementar proveedores mock y OpenAI para texto e imágenes con procedencia y costos.
-- [ ] T7. Implementar servicio de documentos: manuscrito editable, EPUB, PDF básico verificable,
+- [x] T4. Implementar cola durable, leases, checkpoints, límites, pausa/cancelación y recuperación.
+- [x] T5. Implementar adaptador Agent Office y perfiles configurables de los once agentes.
+- [x] T6. Implementar proveedores mock y OpenAI para texto e imágenes con procedencia y costos.
+- [x] T7. Implementar servicio de documentos: manuscrito editable, EPUB, PDF básico verificable,
   renderizados, manifiestos y ZIP de candidato.
-- [ ] Checkpoint A: migración, permisos, cola y demo local de artefactos pasan pruebas focalizadas.
+- [x] Checkpoint A: migración, permisos, cola y demo local de artefactos pasan pruebas focalizadas.
 
-### Fase 3: Telegram y observabilidad
+### Fase 3: Telegram y observabilidad — completada
 
-- [ ] T8. Integrar el runtime editorial al ciclo de Agent Office, configuración, CLI, salud,
+- [x] T8. Integrar el runtime editorial al ciclo de Agent Office, configuración, CLI, salud,
   apagado ordenado y respaldos/restauración.
-- [ ] T9. Implementar Bot API de Telegram, comandos, selector de proyecto, adjuntos limitados,
+- [x] T9. Implementar Bot API de Telegram, comandos, selector de proyecto, adjuntos limitados,
   botones de aprobación, notificaciones de hitos y deduplicación.
-- [ ] T10. Implementar API y página `/editorial` para observar el estado real y descargar solo
+- [x] T10. Implementar API y página `/editorial` para observar el estado real y descargar solo
   artefactos autorizados.
 
-### Fase 4: Flujo editorial e integraciones externas
+### Fase 4: Flujo editorial e integraciones externas — completada en modo local/asistido
 
-- [ ] T11. Implementar creación de proyectos, ideas/brief, investigación con fuentes, escritura por
+- [x] T11. Implementar creación de proyectos, ideas/brief, investigación con fuentes, escritura por
   unidades, edición, corrección, continuidad y memoria/canon aislados por libro.
-- [ ] T12. Implementar derechos/procedencia, hallazgos, auditoría final independiente y pipeline de
+- [x] T12. Implementar derechos/procedencia, hallazgos, auditoría final independiente y pipeline de
   release con invalidación.
-- [ ] T13. Implementar preparación KDP y flujo asistido con checklist, especificaciones y evidencia
+- [x] T13. Implementar preparación KDP y flujo asistido con checklist, especificaciones y evidencia
   oficial; no asumir API pública ni afirmar publicación automática.
-- [ ] T14. Implementar calendario social y un conector real opcional, más exportación asistida y
+- [x] T14. Implementar calendario social y un conector real opcional, más exportación asistida y
   estados de capacidad por cuenta.
 
-### Fase 5: Verificación y entrega
+### Fase 5: Verificación y entrega — completada con límite heredado documentado
 
-- [ ] T15. Añadir demo reproducible de una obra breve hasta candidato KDP sin publicar ni gastar en
+- [x] T15. Añadir demo reproducible de una obra breve hasta candidato KDP sin publicar ni gastar en
   publicidad.
-- [ ] T16. Añadir pruebas para los 24 escenarios de aceptación, restauración separada y secretos.
-- [ ] T17. Documentar instalación, configuración, operación, recuperación, límites, matriz de
+- [x] T16. Añadir pruebas focalizadas de los invariantes críticos, restauración separada y ausencia de
+  credenciales reales. La suite amplia base conserva fallos heredados y no se presenta como verde.
+- [x] T17. Documentar instalación, configuración, operación, recuperación, límites, matriz de
   capacidades, fuentes y resultados; actualizar README y docs relacionados.
 - [ ] Checkpoint B: `npm run typecheck`, `npm test`, `npm run build`, demo y diagnóstico reproducible.
+  Typecheck, build, demo y tests editoriales pasan; `npm test` completo no termina limpio por
+  escenarios base de clonación/DSH que ya fallaban antes de Editorial.
 
 ## Riesgos y mitigaciones
 

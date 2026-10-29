@@ -57,6 +57,7 @@ export const CAPABILITY_STATES = ['implemented', 'tested_local', 'tested_real', 
 export type CapabilityState = (typeof CAPABILITY_STATES)[number];
 
 export const ARTIFACT_TYPES = [
+  'source_upload',
   'brief',
   'research_dossier',
   'manuscript_source',
@@ -78,6 +79,67 @@ export const ARTIFACT_TYPES = [
   'release_package',
 ] as const;
 export type ArtifactType = (typeof ARTIFACT_TYPES)[number];
+
+export interface RevisionRecord {
+  id: string;
+  projectId: string;
+  kind: string;
+  parentId?: string;
+  contentHash: string;
+  manifest: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface SourceRecord {
+  id: string;
+  projectId: string;
+  url?: string;
+  identifier?: string;
+  title?: string;
+  observedAt: string;
+  notes?: string;
+  claims: string[];
+}
+
+export interface RightsRecord {
+  id: string;
+  projectId: string;
+  artifactId?: string;
+  origin: string;
+  creator?: string;
+  license?: string;
+  evidence?: string;
+  aiStatus: string;
+  conditions?: string;
+  status: string;
+  updatedAt: string;
+}
+
+export interface SocialAccountRecord {
+  id: string;
+  platform: string;
+  accountLabel: string;
+  tokenRef?: string;
+  capabilities: string[];
+  status: string;
+  metadata: Record<string, unknown>;
+  updatedAt: string;
+}
+
+export interface SocialPostRecord {
+  id: string;
+  projectId: string;
+  accountId?: string;
+  contentHash: string;
+  content: Record<string, unknown>;
+  scheduledAt?: string;
+  timezone: string;
+  state: string;
+  remoteId?: string;
+  remoteUrl?: string;
+  lastError?: string;
+  updatedAt: string;
+}
 
 export interface OwnerSettings {
   brandName: string;
@@ -276,10 +338,16 @@ export interface DashboardSnapshot {
   settings: OwnerSettings;
   projects: ProjectRecord[];
   tasks: Array<TaskContract & { state: TaskState; attempts: number; updatedAt: string }>;
+  revisions: RevisionRecord[];
+  artifacts: ArtifactRef[];
+  sources: SourceRecord[];
+  rights: RightsRecord[];
   runs: AgentRunRecord[];
   approvals: ApprovalRecord[];
   releases: ReleaseCandidate[];
   findings: Finding[];
+  socialAccounts: SocialAccountRecord[];
+  socialPosts: SocialPostRecord[];
   capabilities: CapabilityRow[];
   connectors: Record<string, { configured: boolean; capabilities: string[]; limitation?: string }>;
   costs: { estimatedUsd: number; observedUsd: number; budgetUsd?: number };

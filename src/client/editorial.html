@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Editorial JeyTid</title>
+    <style>
+      :root { color-scheme: light; font-family: system-ui, sans-serif; background: #f6f1e8; color: #182033; }
+      body { margin: 0; padding: 24px; }
+      main { max-width: 1180px; margin: auto; }
+      header { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+      h1 { margin: 0; font-size: 28px; }
+      a, button { color: inherit; }
+      .toolbar { display: flex; gap: 8px; align-items: center; }
+      button { border: 2px solid #182033; border-radius: 9px; padding: 7px 12px; background: #fff; cursor: pointer; font-weight: 700; }
+      .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; margin-top: 20px; }
+      .card { background: #fff; border: 2px solid #182033; border-radius: 14px; padding: 16px; box-shadow: 4px 4px 0 #182033; }
+      .card h2 { margin: 0 0 10px; font-size: 16px; }
+      .muted { color: #5c6273; font-size: 13px; }
+      ul { padding-left: 20px; margin: 8px 0 0; }
+      li { margin: 5px 0; overflow-wrap: anywhere; }
+      code { font-size: 12px; }
+      .state { display: inline-block; border-radius: 999px; padding: 2px 8px; background: #e7f4dd; font-size: 12px; font-weight: 800; }
+      .warn { background: #fff1c9; }
+      .error { background: #ffe0df; }
+      pre { white-space: pre-wrap; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header><div><h1>📚 Editorial JeyTid</h1><p class="muted">Estado operativo, dependencias, artefactos, aprobaciones y conectores.</p></div><div class="toolbar"><a href="/">← Agent Office</a><button id="refresh">Actualizar</button></div></header>
+      <section id="status" class="card" style="margin-top:20px">Cargando…</section>
+      <div id="grid" class="grid"></div>
+    </main>
+    <script>
+      const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+      const list = (items, render) => items.length ? `<ul>${items.map(render).join('')}</ul>` : '<p class="muted">Sin registros.</p>';
+      async function load() {
+        const status = document.getElementById('status');
+        const grid = document.getElementById('grid');
+        try {
+          const response = await fetch('/api/editorial/overview', { headers: { accept: 'application/json' } });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || 'No disponible');
+          const configured = Object.values(data.connectors || {}).filter((value) => value.configured).length;
+          status.innerHTML = `<strong>Proveedor:</strong> ${esc(data.settings.provider)} · <strong>Conexiones configuradas:</strong> ${configured} · <strong>Costos:</strong> $${Number(data.costs.observedUsd || 0).toFixed(4)} observados / $${Number(data.costs.estimatedUsd || 0).toFixed(4)} estimados`;
+          grid.innerHTML = [
+            `<article class="card"><h2>Libros</h2>${list(data.projects || [], (item) => `<li><strong>${esc(item.title)}</strong><br><code>${esc(item.id)}</code> · <span class="state">${esc(item.stage)}</span></li>`)}</article>`,
+            `<article class="card"><h2>Tareas y dependencias</h2>${list(data.tasks || [], (item) => `<li><strong>${esc(item.roleId)}</strong> · <span class="state ${item.state === 'failed' ? 'error' : item.state === 'waiting_user' ? 'warn' : ''}">${esc(item.state)}</span><br>${esc(item.objective)}</li>`)}</article>`,
+            `<article class="card"><h2>Agentes y runs</h2>${list(data.runs || [], (item) => `<li>${esc(item.roleId)} · ${esc(item.provider)} · ${esc(item.status)}<br><code>${esc(item.runId)}</code></li>`)}</article>`,
+            `<article class="card"><h2>Aprobaciones</h2>${list(data.approvals || [], (item) => `<li>${esc(item.action)} · ${esc(item.state)}<br><code>${esc(item.subjectId)}</code></li>`)}</article>`,
+            `<article class="card"><h2>Hallazgos</h2>${list(data.findings || [], (item) => `<li><strong>${esc(item.severity)}</strong> · ${esc(item.title)}<br>${esc(item.detail)}</li>`)}</article>`,
+            `<article class="card"><h2>Capacidades</h2>${list(data.capabilities || [], (item) => `<li>${esc(item.capability)} · <span class="state ${item.state === 'unsupported' ? 'error' : item.state === 'requires_config' ? 'warn' : ''}">${esc(item.state)}</span>${item.limitation ? `<br><span class="muted">${esc(item.limitation)}</span>` : ''}</li>`)}</article>`,
+            `<article class="card"><h2>Revisiones y archivos</h2><p><strong>${(data.revisions || []).length}</strong> revisiones · <strong>${(data.artifacts || []).length}</strong> artefactos</p>${list(data.artifacts || [], (item) => `<li>${esc(item.type)} · <code>${esc(item.id)}</code><br><span class="muted">${esc(item.sha256.slice(0, 16))}…</span></li>`)}</article>`,
+            `<article class="card"><h2>Releases</h2>${list(data.releases || [], (item) => `<li><strong>${esc(item.state)}</strong> · ${esc(item.auditStatus)}<br><code>${esc(item.id)}</code></li>`)}</article>`,
+            `<article class="card"><h2>Calendario social</h2>${list(data.socialPosts || [], (item) => `<li>${esc(item.scheduledAt || 'sin fecha')} · <span class="state ${item.state === 'published' ? '' : 'warn'}">${esc(item.state)}</span><br>${esc(item.content?.text || '')}</li>`)}</article>`
+          ].join('');
+        } catch (error) {
+          status.innerHTML = `<strong>No disponible:</strong> ${esc(error.message)}`;
+          grid.innerHTML = '';
+        }
+      }
+      document.getElementById('refresh').addEventListener('click', load);
+      load();
+    </script>
+  </body>
+</html>
