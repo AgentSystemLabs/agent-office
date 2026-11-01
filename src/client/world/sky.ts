@@ -581,7 +581,8 @@ export class Sky {
   setRoof(on: boolean, drop = 0) {
     this.roof = on;
     this.roofStreet = -drop;
-    uniforms.skyInside.value = uniforms.skyClearRooms.value = on || this.indoors ? 0 : 1;
+    uniforms.skyInside.value = on || this.indoors ? 0 : 1;
+    uniforms.skyClearRooms.value = this.indoors ? 0 : 1;
   }
 
   /**
