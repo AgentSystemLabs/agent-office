@@ -48,17 +48,20 @@ test('unlit fogged materials get the same indoor fog clearing', () => {
   assert.ok('skyWing' in shader.uniforms);
 });
 
-test('room fog clearing is enabled for office floors, the garage and street, but not other maps or the roof', () => {
+test('room fog clearing is enabled for office floors, the garage and street, and kept on the roof, but not other maps', () => {
   const shader = compile(new THREE.MeshBasicMaterial({ fog: true }));
   const clearRooms = () => (shader.uniforms.skyClearRooms as { value: number }).value;
+  const inside = () => (shader.uniforms.skyInside as { value: number }).value;
   const sky = { roof: false, indoors: false, roofStreet: 0 } as unknown as Sky;
   Sky.prototype.setIndoors.call(sky, false);
   Sky.prototype.setRoof.call(sky, false);
   assert.equal(clearRooms(), 1, 'office floors, garage and street clear fog from room fragments');
   Sky.prototype.setRoof.call(sky, true);
-  assert.equal(clearRooms(), 0, 'the rooftop is outdoors, so its fog stays whole');
+  assert.equal(clearRooms(), 1, 'the rooftop stays outdoors but keeps clearing fog from the office interior below');
+  assert.equal(inside(), 0, 'the rooftop takes no lamplight from the office under your feet');
   Sky.prototype.setRoof.call(sky, false);
   assert.equal(clearRooms(), 1, 'returning from the roof to the office re-enables room clearing');
   Sky.prototype.setIndoors.call(sky, true);
   assert.equal(clearRooms(), 0, 'enclosed alternate maps do not use the office room boxes to clear fog');
+  assert.equal(inside(), 0, 'enclosed alternate maps take no office lamplight either');
 });
