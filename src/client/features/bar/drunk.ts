@@ -57,9 +57,13 @@ export class DrunkVision {
   private readonly scene = new THREE.Scene();
   private readonly camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
   private readonly mat: THREE.ShaderMaterial;
+  private readonly warmMap = new THREE.DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1);
   private readonly size = new THREE.Vector2();
+  private prepared = false;
 
   constructor(private renderer: THREE.WebGLRenderer) {
+    this.warmMap.colorSpace = THREE.SRGBColorSpace;
+    this.warmMap.needsUpdate = true;
     this.mat = new THREE.ShaderMaterial({
       uniforms: {
         map: { value: null },
@@ -78,8 +82,24 @@ export class DrunkVision {
     this.scene.add(quad);
   }
 
-  /** Sends what's drawn next into the texture instead of onto the screen. */
-  begin() {
+  /** Allocates the target and compiles the shader before the first visible drunk frame needs them. */
+  prepare() {
+    const target = this.ensureTarget();
+    if (this.prepared) return;
+    const previous = this.renderer.getRenderTarget();
+    const u = this.mat.uniforms;
+    u.map.value = this.warmMap;
+    u.amount.value = 0;
+    u.time.value = 0;
+    u.motion.value = 0;
+    u.texel.value.set(1 / target.width, 1 / target.height);
+    this.renderer.setRenderTarget(target);
+    this.renderer.render(this.scene, this.camera);
+    this.renderer.setRenderTarget(previous);
+    this.prepared = true;
+  }
+
+  private ensureTarget(): THREE.WebGLRenderTarget {
     // At no more than 1.5 pixels to a CSS pixel: it's all going to be smeared anyway.
     const css = this.renderer.getSize(this.size);
     const scale = Math.min(this.renderer.getPixelRatio(), 1.5);
@@ -89,8 +109,15 @@ export class DrunkVision {
       this.target?.dispose();
       // An sRGB target keeps the darks from banding in 8 bits; multisampled, like the screen.
       this.target = new THREE.WebGLRenderTarget(w, h, { samples: 4, colorSpace: THREE.SRGBColorSpace });
+      this.prepared = false;
     }
-    this.renderer.setRenderTarget(this.target);
+    return this.target;
+  }
+
+  /** Sends what's drawn next into the texture instead of onto the screen. */
+  begin() {
+    const target = this.ensureTarget();
+    this.renderer.setRenderTarget(target);
   }
 
   /** Puts the frame on the screen, `amount` drunk (see Booze.amount); `motion` false holds it still. */
@@ -110,5 +137,6 @@ export class DrunkVision {
   release() {
     this.target?.dispose();
     this.target = null;
+    this.prepared = false;
   }
 }

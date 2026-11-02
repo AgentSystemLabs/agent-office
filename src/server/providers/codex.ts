@@ -61,6 +61,7 @@ function tracker(s: CodexState): ToolTracker {
         s.tools.delete(toolUseId);
         s.pending.delete(toolUseId);
       }
+      if (!s.tools.size) s.permissionUnknown = false;
     },
     waiting: () => !!(s.pending.size || s.permissionUnknown),
   };

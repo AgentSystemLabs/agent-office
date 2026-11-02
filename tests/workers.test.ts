@@ -677,6 +677,36 @@ test('Codex workers preserve native approvals, follow authenticated root hooks, 
   assert.equal(restored.get(worker.id)?.status, 'idle');
 });
 
+test('a Codex board agent stops needing input when the permission tool finishes without a matching prompt id', async (t) => {
+  const f = fixture();
+  isolateProviderEnvironment(f, t);
+  const oldLog = process.env.FAKE_AGENT_LOG;
+  process.env.FAKE_AGENT_LOG = f.log;
+  t.after(() => { if (oldLog === undefined) delete process.env.FAKE_AGENT_LOG; else process.env.FAKE_AGENT_LOG = oldLog; f.close(); });
+  const workers = manager(f, f.codex, [], []);
+  t.after(() => workers.shutdown());
+
+  const asked = workers.station('station-queue', 'Ada', 'Queue the maintenance issues');
+  assert.equal(typeof asked, 'object');
+  if (typeof asked === 'string') return;
+  const id = asked.info.id;
+  const calls = await waitFor(f.read, x => x.some(r => r.kind === 'codex'));
+  const token = calls.find(r => r.kind === 'codex')!.env.hookToken!;
+  const hook = (event: string, extra = {}) => workers.handleCodexHook(id, token, event, { session_id: 'queue-codex', ...extra });
+
+  assert.equal(hook('SessionStart', { source: 'startup' }), true);
+  assert.equal(asked.info.status, 'idle');
+  assert.equal(hook('UserPromptSubmit', { prompt: 'Queue the maintenance issues' }), true);
+  assert.equal(asked.info.status, 'working');
+  assert.equal(hook('PreToolUse', { tool_name: 'exec_command', tool_use_id: 'call-shell' }), true);
+  assert.equal(hook('PermissionRequest', { tool_name: 'shell' }), true);
+  assert.equal(asked.info.status, 'needs_input');
+  assert.equal(hook('PostToolUse', { tool_name: 'exec_command', tool_use_id: 'call-shell' }), true);
+  assert.equal(asked.info.status, 'working');
+  assert.equal(hook('Stop'), true);
+  assert.equal(asked.info.status, 'done');
+});
+
 
 test('Grok workers isolate GROK_HOME, follow authenticated hooks, and resume their session', async (t) => {
   const f = fixture();

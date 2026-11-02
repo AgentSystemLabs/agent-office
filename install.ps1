@@ -123,7 +123,14 @@
           # still open when it was pruned) is the usual cause.
           if (Test-Path -LiteralPath $dest) { throw "$dest is in the way; remove it and run this again" }
           Step "Installing Agent Office $tag"
-          # Exactly the dependency versions the release was tested with (its npm-shrinkwrap.json).
+          # Exactly the dependency versions the release was tested with (its npm-shrinkwrap.json). npm
+          # 12's `npm ci` reads only package-lock.json and refuses a package with just a shrinkwrap
+          # (#278), so give it the same file under that name too; older npm read the shrinkwrap first.
+          $shrinkwrap = Join-Path $pkg 'npm-shrinkwrap.json'
+          $lockfile = Join-Path $pkg 'package-lock.json'
+          if ((Test-Path -LiteralPath $shrinkwrap) -and -not (Test-Path -LiteralPath $lockfile)) {
+            Copy-Item -LiteralPath $shrinkwrap -Destination $lockfile
+          }
           Push-Location -LiteralPath $pkg
           # Out-Host, or npm's output would become part of this function's return value.
           try { & $npm ci --omit=dev --no-audit --no-fund --loglevel=error | Out-Host } finally { Pop-Location }
