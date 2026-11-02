@@ -10,19 +10,21 @@ import { h } from './dom';
 const md = new Marked({ gfm: true, breaks: true });
 const mdFile = new Marked({ gfm: true });
 
-const purify = DOMPurify(window);
-purify.addHook('afterSanitizeAttributes', (node) => {
-  if (node.tagName === 'A') {
-    node.setAttribute('target', '_blank');
-    node.setAttribute('rel', 'noopener noreferrer');
-  } else if (node.tagName === 'IMG') {
-    node.setAttribute('loading', 'lazy');
-    node.setAttribute('referrerpolicy', 'no-referrer');
-  } else if (node.tagName === 'INPUT') {
-    // Task list boxes: show them ticked or not, but they don't do anything here.
-    node.setAttribute('disabled', '');
-  }
-});
+const purify = typeof window !== 'undefined' ? DOMPurify(window) : (DOMPurify as any);
+if (purify?.addHook) {
+  purify.addHook('afterSanitizeAttributes', (node: any) => {
+    if (node.tagName === 'A') {
+      node.setAttribute('target', '_blank');
+      node.setAttribute('rel', 'noopener noreferrer');
+    } else if (node.tagName === 'IMG') {
+      node.setAttribute('loading', 'lazy');
+      node.setAttribute('referrerpolicy', 'no-referrer');
+    } else if (node.tagName === 'INPUT') {
+      // Task list boxes: show them ticked or not, but they don't do anything here.
+      node.setAttribute('disabled', '');
+    }
+  });
+}
 
 const ALERTS: Record<string, string> = { NOTE: 'ℹ️ Note', TIP: '💡 Tip', IMPORTANT: '❗ Important', WARNING: '⚠️ Warning', CAUTION: '🛑 Caution' };
 

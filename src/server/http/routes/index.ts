@@ -4,6 +4,7 @@
 import type { Route } from '../router.js';
 import { agentRoutes } from './agents.js';
 import { authRoutes } from './auth.js';
+import { boardRoutes } from './boards.js';
 import { fileRoutes } from './files.js';
 import { githubRoutes } from './github.js';
 import { pageRoutes } from './pages.js';
@@ -39,6 +40,10 @@ export const routes: readonly Route[] = [
   serviceRoutes.stop,
   serviceRoutes.logs,
   githubRoutes.github,
+  boardRoutes.boards,
+  boardRoutes.boardConfigSave,
+  boardRoutes.boardRefresh,
+  boardRoutes.boardAssign,
   pageRoutes.pluginFiles,
   pageRoutes.pluginProjects,
   pageRoutes.pluginProjectsSave,

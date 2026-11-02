@@ -9,7 +9,7 @@ import type { Ctx } from '../office/context.js';
 import { PluginRegistry } from './registry.js';
 import { candidatePluginDirs, candidatePluginFiles, detectEntryPath, parseGitUrl, getPluginDir, resolvePluginEntry, fetchLatestRelease } from './entry.js';
 import { pluginFilePath, pluginSettingsPagePath } from './plugin-files.js';
-import type { AgentProviderPlugin, FloorProvider, IssuesAdapter, OfficePlugin, ProjectConfig, ProjectsProvider, PullsAdapter, QueueAdapter, ServicesProvider } from './types.js';
+import type { AgentProviderPlugin, BoardAdapter, FloorProvider, IssuesAdapter, OfficePlugin, ProjectConfig, ProjectsProvider, PullsAdapter, QueueAdapter, ServicesProvider } from './types.js';
 import type { AgentProvider } from '../../shared/providers.js';
 import { PROVIDER_META, registerAgentProvider, unregisterAgentProvider } from '../../shared/providers.js';
 import { registerAgentProviderAdapter, unregisterAgentProviderAdapter } from '../providers/index.js';
@@ -391,6 +391,15 @@ export class PluginManager {
         }
         return all;
       },
+      async issueDetail(floor: Floor, n: number, me?: string) {
+        for (const a of adapters) {
+          if (a.issueDetail) {
+            const res = await a.issueDetail(floor, n, me);
+            if (res) return res;
+          }
+        }
+        return null;
+      },
     };
   }
 
@@ -409,6 +418,24 @@ export class PluginManager {
         }
         return all;
       },
+      async pullDetail(floor: Floor, n: number, me?: string) {
+        for (const a of adapters) {
+          if (a.pullDetail) {
+            const res = await a.pullDetail(floor, n, me);
+            if (res) return res;
+          }
+        }
+        return null;
+      },
+      async pullDiff(floor: Floor, n: number) {
+        for (const a of adapters) {
+          if (a.pullDiff) {
+            const res = await a.pullDiff(floor, n);
+            if (res !== null && res !== undefined) return res;
+          }
+        }
+        return null;
+      },
     };
   }
 
@@ -424,6 +451,14 @@ export class PluginManager {
       if (p.servicesProvider) return p.servicesProvider;
     }
     return null;
+  }
+
+  listBoardAdapters(): BoardAdapter[] {
+    return [...this.plugins.values()].flatMap((p) => p.boardAdapters || []);
+  }
+
+  getBoardAdapter(boardId: string): BoardAdapter | null {
+    return this.listBoardAdapters().find((a) => a.getBoardDef().id === boardId) ?? null;
   }
 
   decorateFloor(floor: Floor, info: FloorInfo): void {

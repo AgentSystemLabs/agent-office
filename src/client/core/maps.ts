@@ -31,14 +31,19 @@ export function installMaps(ctx: Ctx, core: CoreState, parts: MapsParts) {
   // A brand-new floor can arrive before the elevator's list says what color it is.
   store.on('floors', paintFloor);
 
+  let lastAppliedPlanId = '';
+
   /**
    * The building changed maps (or you arrived and it's not the office): the old world goes, the new
    * one's put up, every worker sits down in its seat there, and you come in where it has you arrive.
    */
   function applyMap() {
     const { worlds, views, boards, travel } = parts;
-    const next = worlds.worldFor(store.plan());
-    if (next.world === worlds.world()) return;
+    const currentPlan = store.plan();
+    const planStamp = `${currentPlan.id}:${JSON.stringify(currentPlan.config?.props ?? [])}:${JSON.stringify(currentPlan.config?.openings ?? [])}:${JSON.stringify(currentPlan.config?.closedWindows ?? [])}:${JSON.stringify(currentPlan.config?.machineMonitor ?? {})}:${JSON.stringify(currentPlan.config?.hiddenBoards ?? [])}`;
+    if (worlds.world().plan.id === currentPlan.id && lastAppliedPlanId === planStamp) return;
+    lastAppliedPlanId = planStamp;
+    const next = worlds.worldFor(currentPlan);
     // Everyone gets up from the old map's seats; they sit down in the new one's below.
     for (const [id, v] of views.workerViews) {
       worlds.court()?.release(id);
@@ -68,11 +73,13 @@ export function installMaps(ctx: Ctx, core: CoreState, parts: MapsParts) {
     const world = worlds.world();
     world.group.visible = !core.upTop;
     if (!core.upTop) player.colliders = world.colliders;
-    player.room = { ...plan().bounds, ...world.room };
+    player.room = { ...plan().bounds, ...world.room, indoorAreas: plan().config?.indoorAreas };
     if (!core.upTop && !inOffice()) player.street = streetOf(world);
     sky.setIndoors(world.room.enclosed);
     // What you hear: the office's fridge, or the hall's own windows and gong.
     sound.setHall(world.acoustics ? { bounds: plan().bounds, ...world.acoustics } : null);
+    sound.setIndoorAreas(plan().config?.indoorAreas ?? []);
+    sky.setIndoorAreas(plan().config?.indoorAreas ?? []);
     // The office's own: the holiday decorations round it and the street, the dog, the jukebox.
     holiday.group.visible = inOffice() && !core.upTop;
     parts.dog.root.visible = inOffice() && !!store.dog;
@@ -132,6 +139,9 @@ export function installMaps(ctx: Ctx, core: CoreState, parts: MapsParts) {
     badge.classList.toggle('hidden', !elsewhere);
     $('project').title = elsewhere ? `${elsewhere} worker${elsewhere === 1 ? '' : 's'} on other floors waiting on someone — click to go there` : 'Floors: go to another project';
   }
+
+  // Initial apply of current plan so custom map overrides take effect immediately
+  setTimeout(applyMap, 0);
 
   return { paintFloor, applyMap, offTheRoof, noticeWaiting };
 }

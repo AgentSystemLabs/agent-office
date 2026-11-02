@@ -90,6 +90,7 @@ export interface GhReviewComment {
   line: number | null;
   /** LEFT is the old file's line numbers, RIGHT the new file's. */
   side: 'LEFT' | 'RIGHT';
+  diffHunk?: string;
 }
 
 export interface GhCheck {

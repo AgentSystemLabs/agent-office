@@ -98,6 +98,10 @@ export const settingsHandlers = {
     }
     mapNews(ctx, was, who);
   },
+  'map.openFolder'(ctx, c) {
+    if (!ctx.meOf(c.accountId).admin) return ctx.warn(c, 'Only admins can open folders on the server host');
+    ctx.maps.openFolder();
+  },
   'leaveOnMerge.set'(ctx, c, msg) {
     const who = c.peer.name;
     const on = msg.on === true;

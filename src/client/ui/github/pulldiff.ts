@@ -222,6 +222,112 @@ export function renderFileDiff(f: DiffFile, comments: GhReviewComment[], itemUrl
   return out;
 }
 
+export function linesFromDiffHunk(diffHunk: string): DiffLine[] {
+  const lines: DiffLine[] = [];
+  let oldLine = 0;
+  let newLine = 0;
+  for (const raw of diffHunk.split('\n')) {
+    if (!raw.trim()) continue;
+    if (raw.startsWith('@@')) {
+      const m = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(raw);
+      if (m) {
+        oldLine = Number(m[1]);
+        newLine = Number(m[2]);
+      }
+      lines.push({ kind: 'hunk', text: raw });
+      continue;
+    }
+    const sign = raw[0];
+    const text = raw.slice(1);
+    if (sign === '+') {
+      lines.push({ kind: 'add', text, new: newLine++ });
+    } else if (sign === '-') {
+      lines.push({ kind: 'del', text, old: oldLine++ });
+    } else if (sign === ' ') {
+      lines.push({ kind: 'ctx', text, old: oldLine++, new: newLine++ });
+    } else if (sign === '\\') {
+      lines.push({ kind: 'note', text: raw.slice(2) });
+    }
+  }
+  return lines;
+}
+
+export function extractSnippetLines(
+  files: DiffFile[] | null,
+  path: string,
+  line: number | null,
+  side: 'LEFT' | 'RIGHT',
+  diffHunk?: string,
+): DiffLine[] {
+  if (files && line != null) {
+    const f = files.find((x) => x.path === path);
+    if (f) {
+      let targetIdx = -1;
+      if (side === 'LEFT') {
+        targetIdx = f.lines.findIndex((l) => l.old === line && l.kind !== 'add');
+      } else {
+        targetIdx = f.lines.findIndex((l) => l.new === line);
+      }
+      if (targetIdx === -1) {
+        targetIdx = f.lines.findIndex((l) => l.new === line || l.old === line);
+      }
+      if (targetIdx !== -1) {
+        let start = targetIdx;
+        let ctxBefore = 0;
+        while (start > 0) {
+          const prev = f.lines[start - 1];
+          if (prev.kind === 'hunk') break;
+          if (prev.kind === 'ctx') {
+            if (ctxBefore >= 3) break;
+            ctxBefore++;
+          }
+          start--;
+        }
+        let end = targetIdx + 1;
+        let ctxAfter = 0;
+        while (end < f.lines.length) {
+          const next = f.lines[end];
+          if (next.kind === 'hunk') break;
+          if (next.kind === 'ctx') {
+            if (ctxAfter >= 2) break;
+            ctxAfter++;
+          }
+          end++;
+        }
+        const snippet = f.lines.slice(start, end).filter((l) => l.kind !== 'hunk');
+        if (snippet.length) return snippet;
+      }
+    }
+  }
+  if (diffHunk) {
+    return linesFromDiffHunk(diffHunk).filter((l) => l.kind !== 'hunk');
+  }
+  return [];
+}
+
+export function renderSnippet(lines: DiffLine[], onclick?: () => void): HTMLElement | null {
+  if (!lines.length) return null;
+  const container = h('div.pd-lines.gh-thread-snippet');
+  for (const l of lines) {
+    if (l.kind === 'hunk' || l.kind === 'note') continue;
+    const sign = l.kind === 'add' ? '+' : l.kind === 'del' ? '−' : ' ';
+    const row = h(
+      'div.pd-l',
+      { class: l.kind },
+      h('span.pd-n', {}, l.old != null ? String(l.old) : ''),
+      h('span.pd-n', {}, l.new != null ? String(l.new) : ''),
+      h('span.pd-code', { 'data-sign': sign }, l.text),
+    );
+    container.append(row);
+  }
+  if (onclick) {
+    container.style.cursor = 'pointer';
+    container.title = 'Click to show in diff';
+    container.addEventListener('click', onclick);
+  }
+  return container;
+}
+
 // ---- The file list as a folder tree --------------------------------------------------------------
 
 export interface TreeDir {

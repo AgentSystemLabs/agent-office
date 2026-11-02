@@ -8,6 +8,7 @@ import type { AirlockView } from './station/airlock';
 import type { Person } from './character';
 import type { Area } from './confetti';
 import type { Gong } from '../features/gong/world';
+import type { MapPropsView } from './office/map-props';
 import type { Collider, DeskView, Interactable, Office } from './types';
 import type { SkyLights } from './sky';
 
@@ -45,6 +46,8 @@ export interface World {
   meetingSign?: THREE.Mesh;
   /** The gong a merged pull request rings, if the map has one. */
   gong?: Gong;
+  /** Custom map props: meeting signs, meeting boards, etc. */
+  mapProps?: MapPropsView;
   nav: NavGrid;
   ways: Ways;
   /** Where confetti rains when a pull request merges, and from how high over each spot. */
@@ -96,9 +99,9 @@ function ceilingOver(x: number, z: number): number {
  * The office as a world. `upstairs` says whether this floor is above the bottom one (no exit door:
  * workers leave by the balcony), and `wing` how many rows its back office is built out (see WING).
  */
-export function officeWorld(office: Office, upstairs: () => boolean, wing: () => number): World {
+export function officeWorld(office: Office, upstairs: () => boolean, wing: () => number, customPlan?: MapPlan): World {
   return {
-    plan: OFFICE_PLAN,
+    plan: customPlan ?? OFFICE_PLAN,
     group: office.group,
     colliders: office.colliders,
     interactables: office.interactables,
@@ -108,6 +111,7 @@ export function officeWorld(office: Office, upstairs: () => boolean, wing: () =>
     meetingBoard: office.meetingBoard,
     meetingSign: office.meetingSign,
     gong: office.gong,
+    mapProps: office.mapProps,
     get nav() {
       return officeNav(wing());
     },

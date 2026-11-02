@@ -12,7 +12,7 @@ import { checksList, conflicted, mergeStatus, openMerge } from './merge';
 import { avatar, commentCard, errorBox, nodes, REVIEW_BADGE, spinnerRow, stateOf } from './pieces';
 import { FILES_KEY, mergePref, pref, savePref, TAB_KEY } from './prefs';
 import { fixAndMergePrompt, fixConflictsPrompt, pullContext, pullVars, reviewPrompt, type BoardActions } from './prompts';
-import { buildTree, looksGenerated, parseDiff, renderFileDiff, renderThread, repliesOf, Reviewed, STATUS_WORD, treeOrder, type DiffFile, type TreeDir } from './pulldiff';
+import { buildTree, extractSnippetLines, looksGenerated, parseDiff, renderFileDiff, renderSnippet, renderThread, repliesOf, Reviewed, STATUS_WORD, treeOrder, type DiffFile, type TreeDir } from './pulldiff';
 
 // The window behind a card on the PR board. A PR opens on its conversation (description, comments,
 // reviews, line comments, checks) with a Files tab for the diff, where you tick files off as
@@ -144,23 +144,28 @@ export function openPull(first: GhPull, net: Net, actions: BoardActions) {
       ...d.reviews.map((r) => ({ at: r.createdAt, node: commentCard(r, itemUrl, '', REVIEW_BADGE[r.state ?? ''] ?? [r.state?.toLowerCase() ?? 'reviewed', '']) })),
       ...d.reviewComments
         .filter((c) => !c.replyTo)
-        .map((c) => ({
-          at: c.createdAt,
-          node: h(
-            'article.gh-card.gh-thread',
-            {},
-            h(
-              'header',
+        .map((c) => {
+          const snippetLines = extractSnippetLines(files, c.path, c.line, c.side, c.diffHunk);
+          const snippetEl = renderSnippet(snippetLines, c.line != null ? () => showInDiff(c) : undefined);
+          return {
+            at: c.createdAt,
+            node: h(
+              'article.gh-card.gh-thread',
               {},
-              h('span', {}, '💬'),
-              h('code', { title: c.path }, `${c.path}${c.line ? `:${c.line}` : ''}`),
-              c.line == null ? h('span.gh-badge.muted', {}, 'outdated') : null,
-              h('span.grow'),
-              c.line != null ? h('button.btn', { type: 'button', onclick: () => showInDiff(c) }, 'Show in diff') : null,
+              h(
+                'header',
+                {},
+                h('span', {}, '💬'),
+                h('code', { title: c.path }, `${c.path}${c.line ? `:${c.line}` : ''}`),
+                c.line == null ? h('span.gh-badge.muted', {}, 'outdated') : null,
+                h('span.grow'),
+                c.line != null ? h('button.btn', { type: 'button', onclick: () => showInDiff(c) }, 'Show in diff') : null,
+              ),
+              snippetEl,
+              renderThread(c, replies, itemUrl),
             ),
-            renderThread(c, replies, itemUrl),
-          ),
-        })),
+          };
+        }),
     ].sort((a, b) => a.at.localeCompare(b.at));
     thread.append(...items.map((x) => x.node));
     if (!items.length) thread.append(h('p.gh-quiet', {}, 'No comments or reviews yet.'));
@@ -493,7 +498,7 @@ export function openPull(first: GhPull, net: Net, actions: BoardActions) {
         files = parseDiff(text);
       })
       .catch((err) => g === generation && (diffError = (err as Error).message))
-      .finally(() => g === generation && (setupFiles(), renderFrame()));
+      .finally(() => g === generation && (setupFiles(), renderFrame(), renderConv()));
     renderFrame();
   }
   reload.addEventListener('click', () => {

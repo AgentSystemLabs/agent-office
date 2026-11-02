@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { BALCONY_DOOR, EXIT_DOOR, FLOOR, WALL_HEIGHT, WALL_T, WINDOWS, WING, type Opening, type Side } from '../../../shared/layout';
+import type { MapPlan } from '../../../shared/maps';
 import type { NightParts } from '../outside';
 import { mergeByMaterial, mesh, textPlane, toon } from '../toon';
 import type { Collider } from '../types';
@@ -312,24 +313,62 @@ export function wallRun(into: THREE.Group, cols: Collider[], axis: 'x' | 'z', at
   cols.push(axis === 'x' ? { minX: u0, maxX: u1, minZ: at - T / 2, maxZ: at + T / 2, top: 99 } : { minX: at - T / 2, maxX: at + T / 2, minZ: u0, maxZ: u1, top: 99 });
 }
 
-/** Outside walls, with real windows you see out of and a door out, and the glass doors out to the balcony. */
-export const walls: Fixture = (site) => {
-  const night = site.get('night');
-  const openings = [...WINDOWS, EXIT_DOOR, BALCONY_DOOR];
-  buildWalls(site.group, site.colliders, openings, site.looks);
-  const glazing = new THREE.Group();
-  for (const o of WINDOWS) {
-    glazing.add(windowIn(o));
-    site.wall(o.wall, o.u, (o.y0 + o.y1) / 2 - 0.03, o.width + 0.2, o.y1 - o.y0 + 0.12);
-    site.group.add(wetPane(o, night.wetGlass));
+export interface WallsView {
+  updateOpenings(extra: readonly Opening[], plan?: MapPlan): void;
+}
+
+declare module '../types' {
+  interface OfficeHandles {
+    walls: WallsView;
   }
-  site.group.add(mergeByMaterial(glazing));
+}
+
+/** Outside walls, with real windows you see out of and a door out, and the glass doors out to the balcony. */
+export const walls: Fixture<'walls'> = (site) => {
+  const night = site.get('night');
+  const group = new THREE.Group();
+  site.group.add(group);
+  const wallColliders: Collider[] = [];
+  const glazing = new THREE.Group();
+  site.group.add(glazing);
+
+  function rebuildGlazing(activeWindows: Opening[]) {
+    glazing.clear();
+    const gGroup = new THREE.Group();
+    for (const o of activeWindows) {
+      gGroup.add(windowIn(o));
+      site.wall(o.wall, o.u, (o.y0 + o.y1) / 2 - 0.03, o.width + 0.2, o.y1 - o.y0 + 0.12);
+      site.group.add(wetPane(o, night.wetGlass));
+    }
+    glazing.add(mergeByMaterial(gGroup));
+  }
+
+  function updateOpenings(extra: readonly Opening[], currentPlan?: MapPlan) {
+    const thePlan = currentPlan ?? site.plan;
+    group.clear();
+    for (const c of wallColliders) {
+      const i = site.colliders.indexOf(c);
+      if (i >= 0) site.colliders.splice(i, 1);
+    }
+    wallColliders.length = 0;
+    const closed = thePlan?.config?.closedWindows ?? [];
+    const isClosed = (o: Opening) => closed.some((cw: any) => cw.wall === o.wall && Math.abs(cw.u - o.u) < 0.5);
+    const extraWindows = (thePlan?.config?.windows ?? []) as Opening[];
+    const activeWindows = [...WINDOWS.filter((o) => !isClosed(o)), ...extraWindows];
+    const openings = [...activeWindows, EXIT_DOOR, BALCONY_DOOR, ...extra];
+    buildWalls(group, wallColliders, openings, site.looks);
+    site.colliders.push(...wallColliders);
+    rebuildGlazing(activeWindows);
+  }
+
+  updateOpenings(site.extraOpenings ?? [], site.plan);
+
   // Out the glass doors on the south wall: the balcony.
   const slider = balconyDoor();
   site.group.add(slider.group);
   site.doors.push(slider.door);
   site.wall(BALCONY_DOOR.wall, BALCONY_DOOR.u, (BALCONY_DOOR.y1 + 0.1) / 2, BALCONY_DOOR.width + 0.2, BALCONY_DOOR.y1 + 0.1);
-  return {};
+  return { handle: { walls: { updateOpenings } } };
 };
 
 /** Upstairs there's no way out on the west side: the doorway is wall like the rest of it. */

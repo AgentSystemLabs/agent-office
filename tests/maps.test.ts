@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { tmpdir } from 'node:os';
+import { Maps } from '../src/server/maps.js';
 import { CASTLE } from '../src/shared/maps/castle.js';
 import { STATION } from '../src/shared/maps/station.js';
 import { DESK_BY_ID } from '../src/shared/layout.js';
@@ -195,4 +197,35 @@ test('every map in docs/maps.md loads', () => {
   assert.ok(maps.length >= 2);
   const checked = checkCustomMaps(maps.map((json) => ({ file: `${json.id}.json`, json })));
   for (const m of checked) assert.equal(m.error, undefined, `${m.file}: ${m.error}`);
+});
+
+test('docs/maps/office.json loads and plans cleanly with declarative props', () => {
+  const json = JSON.parse(readFileSync(path.join(import.meta.dirname, '..', 'docs', 'maps', 'office.json'), 'utf8'));
+  const [checked] = checkCustomMaps([{ file: 'office.json', json }]);
+  assert.equal(checked.error, undefined);
+  const plan = planOf('office-meeting-rooms', [checked]);
+  assert.equal(plan.name, 'Office (10 Meeting Rooms)');
+  assert.equal(plan.style, 'office');
+  assert.ok(plan.desks.length >= 20);
+  assert.deepEqual(plan.config?.hiddenBoards, ['issues']);
+  const jiraProp = plan.config?.props?.find((p) => p.kind === 'custom_board' && p.boardId === 'jira');
+  assert.ok(jiraProp, 'jira custom_board prop must exist');
+  assert.equal(jiraProp.x, -11.7);
+  assert.equal(jiraProp.y, 2.1);
+  assert.equal(jiraProp.z, -12.82);
+  assert.equal(jiraProp.width, 6);
+  assert.equal(jiraProp.height, 3);
+});
+
+test('Maps.openFolder creates maps directory if it does not exist', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'maps-test-'));
+  try {
+    const maps = new Maps(dir);
+    assert.equal(maps.folder, path.join(dir, 'maps'));
+    assert.equal(existsSync(maps.folder), false);
+    maps.openFolder();
+    assert.equal(existsSync(maps.folder), true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

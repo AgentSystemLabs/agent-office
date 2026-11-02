@@ -177,6 +177,9 @@ export class GitHub {
     private onPulls: (s: GhState<GhPull>) => void,
     customIssuesOrRunner?: (() => Promise<GhIssue[] | null>) | GhRunner,
     private customPulls?: () => Promise<GhPull[] | null>,
+    private customIssueDetail?: (n: number, me?: string) => Promise<GhIssueDetail | null>,
+    private customPullDetail?: (n: number, me?: string) => Promise<GhPullDetail | null>,
+    private customPullDiff?: (n: number) => Promise<string | null>,
     runGh: GhRunner = gh,
   ) {
     if (typeof customIssuesOrRunner === 'function' && customIssuesOrRunner.length > 0 && !customPulls) {
@@ -225,28 +228,22 @@ export class GitHub {
    */
   async pullDetail(n: number, me?: string): Promise<GhPullDetail> {
     const existing = this.pulls.items.find((it) => it.number === n);
+    if (existing && this.customPullDetail) {
+      const custom = await this.customPullDetail(n, me);
+      if (custom) return custom;
+    }
     if (existing && this.customPulls) {
       return {
-        number: existing.number,
-        body: existing.body,
-        state: existing.state,
-        isDraft: existing.isDraft,
-        reviewDecision: existing.reviewDecision,
-        headRefName: existing.headRefName,
-        baseRefName: existing.baseRefName,
-        mergeable: 'UNKNOWN',
-        mergeStateStatus: 'UNKNOWN',
-        commits: 1,
-        comments: [],
-        reviews: [],
-        reviewComments: [],
+        number: existing.number, body: existing.body, state: existing.state, isDraft: existing.isDraft,
+        reviewDecision: existing.reviewDecision, headRefName: existing.headRefName, baseRefName: existing.baseRefName,
+        mergeable: 'UNKNOWN', mergeStateStatus: 'UNKNOWN', commits: 1, comments: [], reviews: [], reviewComments: [],
         checks: existing.checks !== 'none' ? [{ name: 'CI', state: existing.checks === 'pass' ? 'pass' : existing.checks === 'fail' ? 'fail' : 'pending' }] : [],
         repo: { nameWithOwner: existing.headRefName || 'project', methods: ['squash', 'merge', 'rebase'] },
         viewer: me ?? '',
       };
     }
     const fields = 'number,body,state,isDraft,reviewDecision,headRefName,baseRefName,mergeable,mergeStateStatus,commits,comments,reviews,statusCheckRollup';
-    const jq = '.[] | {id, in_reply_to_id, path, line, side, body, user: .user.login, created_at, html_url}';
+    const jq = '.[] | {id, in_reply_to_id, path, line, side, body, user: .user.login, created_at, html_url, diff_hunk}';
     const [view, lines, repo, viewer] = await Promise.all([
       this.runGh(['pr', 'view', String(n), '--json', fields], this.dir),
       this.runGh(['api', `repos/{owner}/{repo}/pulls/${n}/comments?per_page=100`, '--paginate', '--jq', jq], this.dir),
@@ -268,6 +265,7 @@ export class GitHub {
         path: c.path,
         line: c.line ?? null,
         side: c.side === 'LEFT' ? 'LEFT' : 'RIGHT',
+        diffHunk: c.diff_hunk ?? undefined,
       }));
     return {
       number: p.number,
@@ -291,13 +289,21 @@ export class GitHub {
   }
 
   /** The PR's unified diff, as `git diff` prints it. */
-  pullDiff(n: number): Promise<string> {
-    if (this.customPulls) return Promise.resolve('');
+  async pullDiff(n: number): Promise<string> {
+    if (this.customPullDiff) {
+      const custom = await this.customPullDiff(n);
+      if (custom !== null && custom !== undefined) return custom;
+    }
+    if (this.customPulls) return '';
     return this.runGh(['pr', 'diff', String(n), '--color', 'never'], this.dir, 60_000);
   }
 
   async issueDetail(n: number, me?: string): Promise<GhIssueDetail> {
     const existing = this.issues.items.find((it) => it.number === n);
+    if (existing && this.customIssueDetail) {
+      const custom = await this.customIssueDetail(n, me);
+      if (custom) return custom;
+    }
     if (existing && this.customIssues) {
       return { number: existing.number, state: existing.state, body: existing.body, comments: [], viewer: me ?? '' };
     }

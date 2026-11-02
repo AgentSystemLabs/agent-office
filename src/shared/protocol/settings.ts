@@ -186,6 +186,8 @@ export type SettingsClientMsg =
   | { t: 'sky.clock'; real: boolean }
   /** Change the building's map (see MapState), or with no map, read the custom maps' folder again. */
   | { t: 'map.set'; map?: string }
+  /** Open custom maps directory in system file explorer */
+  | { t: 'map.openFolder' }
   /** Workers whose pull request merged go home by themselves (true), or wait to be sent home. */
   | { t: 'leaveOnMerge.set'; on: boolean }
   /** Rewrite one of the office's prompts (admins only); null puts the default back. */

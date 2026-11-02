@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { GONG, type Opening } from '../../../shared/layout';
 import type { WallRect } from '../../../shared/decor';
 import type { FloorPalette } from '../../../shared/floors';
 import { street } from '../outside';
@@ -27,6 +28,8 @@ import { wing } from './wing';
 import { beanbags, desks, kiosks } from './seats';
 import { meetingRoom } from './meeting-room';
 import { loft } from './loft';
+import { mapProps } from './map-props';
+import type { MapPlan } from '../../../shared/maps';
 import type { Fixture, Gives, Site } from './fixture';
 
 // The office floor, put together from its fixtures (see fixture.ts): the room and its walls, the desks
@@ -69,6 +72,7 @@ function floorPlan() {
     elevator,
     garageLift,
     gong,
+    mapProps,
     hoop,
     whiteboard,
     clearOfStairs,
@@ -79,7 +83,11 @@ function floorPlan() {
 type NoneMissing<Missing extends never> = Missing;
 export type EveryHandleGiven = NoneMissing<Exclude<keyof OfficeHandles, Gives<ReturnType<typeof floorPlan>[number]>>>;
 
-export function buildOffice(): Office {
+export function buildOffice(plan?: MapPlan): Office {
+  const gongProp = plan?.config?.props?.find((p) => p.kind === 'gong');
+  const gongAt = gongProp ? { x: gongProp.x, z: gongProp.z, rotY: gongProp.rotY ?? 0 } : GONG;
+  const extraOpenings: Opening[] = plan?.config?.openings ?? [];
+
   const group = new THREE.Group();
   const colliders: Collider[] = [];
   const interactables: Interactable[] = [];
@@ -104,6 +112,9 @@ export function buildOffice(): Office {
     desks,
     doors,
     inTheWay: [],
+    plan,
+    gongAt,
+    extraOpenings,
     get: (key) => {
       if (!(key in given)) throw new Error(`The office's ${key} isn't built yet: its fixture comes later in the plan`);
       return given[key]!;
@@ -113,8 +124,8 @@ export function buildOffice(): Office {
   // Each fixture in turn, with what it hands back.
   const updates: ((t: number, dt: number) => void)[] = [];
   const levels: ((index: number, count: number, wings: readonly number[]) => void)[] = [];
-  const plan: readonly Fixture[] = floorPlan();
-  for (const fixture of plan) {
+  const fixtures: readonly Fixture[] = floorPlan();
+  for (const fixture of fixtures) {
     const built = fixture(site);
     if (built.group) group.add(built.group);
     if (built.colliders) colliders.push(...built.colliders);
@@ -125,6 +136,13 @@ export function buildOffice(): Office {
     }
     if (built.update) updates.push(built.update);
     if (built.setLevel) levels.push(built.setLevel);
+  }
+
+  const handles = given as OfficeHandles;
+  if (gongProp) {
+    handles.gong.moveTo(gongAt);
+  } else {
+    handles.gong.moveTo(GONG);
   }
 
   const setLook = (p: FloorPalette) => {

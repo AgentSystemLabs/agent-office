@@ -2,7 +2,7 @@
 
 import type { ProviderMeta } from '../providers.js';
 
-export type PluginCapability = 'floors' | 'queue' | 'services' | 'agent' | 'issues' | 'pulls';
+export type PluginCapability = 'floors' | 'queue' | 'services' | 'agent' | 'issues' | 'pulls' | 'boards';
 
 export interface PluginManifest {
   id: string;

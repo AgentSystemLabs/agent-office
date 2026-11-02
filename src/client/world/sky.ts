@@ -17,8 +17,7 @@ import type { NightParts } from './outside';
  * same lines darken the ground outside when it's wet and lay snow on whatever faces up out there.
  */
 
-const MAX_LAMPS = 24;
-const DEG = Math.PI / 180;
+const MAX_LAMPS = 24, DEG = Math.PI / 180;
 /**
  * The furthest off the haze ever is, however high up you are: past that nothing's built (the grass
  * and the road round the office end there, the city round the roof just past it), so it hides that.
@@ -374,7 +373,6 @@ function blobTexture(inner: number): THREE.CanvasTexture {
 
 /** The back office, walls included, when the floor you're on is built out into one (see Sky.setWing). */
 let wingBox: { minX: number; maxX: number; minZ: number; maxZ: number } | null = null;
-
 /** Is (x, z) under the building, where no rain or snow falls? */
 const sheltered = (x: number, z: number) =>
   (x > B.minX - 0.05 && x < B.maxX + 0.05 && z > B.minZ - 0.05 && z < B.maxZ + 0.05) || (!!wingBox && x > wingBox.minX - 0.05 && x < wingBox.maxX + 0.05 && z > wingBox.minZ - 0.05 && z < wingBox.maxZ);
@@ -589,25 +587,23 @@ export class Sky {
    * office (false): no rain or snow falls where you are, nothing gets wet or snowy, and the office's
    * lamps and the street's don't light it (it lights itself: see World.mood).
    */
-  setIndoors(on: boolean) {
-    this.indoors = on;
-    uniforms.skyInside.value = uniforms.skyClearRooms.value = on || this.roof ? 0 : 1;
-  }
-
-  /**
-   * The floor you're on is built out `level` rows into the back office (see WING): lit like the
-   * office inside, and out of the rain.
-   */
-  setWing(level: number) {
-    const minZ = wingMinZ(level);
-    wingBox = level > 0 ? { minX: WING.minX - WALL_T, maxX: WING.maxX + WALL_T, minZ: minZ - WALL_T, maxZ: FLOOR.minZ } : null;
-    if (level > 0) uniforms.skyWing.value.set(WING.minX - 0.02, WING.maxX + 0.02, minZ - 0.02, FLOOR.minZ);
+  setIndoors(on: boolean) { this.indoors = on; uniforms.skyInside.value = uniforms.skyClearRooms.value = on || this.roof ? 0 : 1; }
+  private wingLvl = 0;
+  private applyWing() {
+    if (this.wingLvl > 0) uniforms.skyWing.value.set(WING.minX - 0.02, WING.maxX + 0.02, wingMinZ(this.wingLvl) - 0.02, FLOOR.minZ);
+    else if (this.customShelter.length > 0) uniforms.skyWing.value.set(Math.min(...this.customShelter.map((a) => a.minX)) - 0.02, Math.max(...this.customShelter.map((a) => a.maxX)) + 0.02, Math.min(...this.customShelter.map((a) => a.minZ)) - 0.02, Math.max(...this.customShelter.map((a) => a.maxZ)) + 0.02);
     else uniforms.skyWing.value.set(1, 0, 1, 0);
   }
-
+  setWing(level: number) {
+    this.wingLvl = level;
+    wingBox = level > 0 ? { minX: WING.minX - WALL_T, maxX: WING.maxX + WALL_T, minZ: wingMinZ(level) - WALL_T, maxZ: FLOOR.minZ } : null;
+    this.applyWing();
+  }
+  private customShelter: { minX: number; maxX: number; minZ: number; maxZ: number }[] = [];
+  setIndoorAreas(b: { minX: number; maxX: number; minZ: number; maxZ: number }[]) { this.customShelter = b; this.applyWing(); }
   /** Under a roof, out of the rain: the building, unless you're up on top of it. */
   private sheltered(x: number, z: number): boolean {
-    return this.indoors || (!this.roof && sheltered(x, z));
+    return this.indoors || (!this.roof && (sheltered(x, z) || this.customShelter.some((s) => x >= s.minX - 0.05 && x <= s.maxX + 0.05 && z >= s.minZ - 0.05 && z <= s.maxZ + 0.05)));
   }
 
   /** Whether the lamps' light (and wet and snow) apply: off while your hands are drawn. */

@@ -18,6 +18,8 @@ export interface WingView {
   level: number;
   /** Builds it out `level` rows (or walls it up): walls, floor, ceiling, desks and all. */
   set(level: number): void;
+  /** Moves the grow sign to a custom position. */
+  moveSign(at: { x: number; y: number; z: number }): void;
 }
 
 /** The sign that says there's room to grow, painted for how far the back office is built out. */
@@ -203,12 +205,21 @@ export function buildWing(group: THREE.Group, colliders: Collider[], interactabl
 
       // The sign on whichever wall is at the back: low on the old wall, up over the desks and their
       // lamps once they're there, where it reads from across the room.
-      sign.position.set(midX, level ? 5.3 : 2.4, back + 0.05);
-      it.z = back + 0.3;
+      if (!customSignPos) {
+        sign.position.set(midX, level ? 5.3 : 2.4, back + 0.05);
+        it.z = back + 0.3;
+      }
       paintGrowSign(canvas, level);
       tex.needsUpdate = true;
     },
+    moveSign(at) {
+      customSignPos = at;
+      sign.position.set(at.x, at.y, at.z);
+      it.x = at.x;
+      it.z = at.z + 0.3;
+    },
   };
+  let customSignPos: { x: number; y: number; z: number } | null = null;
   void document.fonts?.ready.then(() => {
     paintGrowSign(canvas, Math.max(0, view.level));
     tex.needsUpdate = true;

@@ -6,7 +6,7 @@
 
 export const AGENT_PROVIDERS = ['claude', 'opencode', 'codex', 'grok', 'muse', 'dsh', 'pi', 'cursor', 'custom'] as const;
 
-export type AgentProvider = (typeof AGENT_PROVIDERS)[number];
+export type AgentProvider = (typeof AGENT_PROVIDERS)[number] | (string & {});
 
 export function isAgentProvider(value: unknown): value is AgentProvider {
   return (AGENT_PROVIDERS as readonly unknown[]).includes(value);

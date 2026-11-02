@@ -60,7 +60,8 @@ export interface Hud {
  * The HUD: the top bar's dock (what you pinned, what needs you now, the workers and the ☰ menu),
  * and the panels you choose to show. Everything else waits in the menu, so the office stays in view.
  */
-export function mountHud(actions: HudAction[], settings: Settings, save: () => void): Hud {
+export function mountHud(actions: HudAction[], settings: Settings, save: () => void, extraActions?: () => HudAction[]): Hud {
+  const getActions = () => (extraActions ? [...actions, ...extraActions()] : actions);
   const dock = $('dock');
   const labelOf = (a: HudAction) => (typeof a.label === 'string' ? a.label : a.label());
   const iconOf = (a: HudAction) => (typeof a.icon === 'string' ? a.icon : a.icon());
@@ -125,7 +126,7 @@ export function mountHud(actions: HudAction[], settings: Settings, save: () => v
   }
 
   function render() {
-    const items: HTMLElement[] = actions.filter((a) => offered(a) && (pinned(a) || a.status?.())).map(dockButton);
+    const items: HTMLElement[] = getActions().filter((a) => offered(a) && (pinned(a) || a.status?.())).map(dockButton);
     const people = store.peers.size;
     if (people > 1 || settings.hud.people) items.push(panelChip('people', '👥', 'People', people, `${people} in the office`));
     const workers = [...store.workers.values()];
@@ -197,7 +198,7 @@ export function mountHud(actions: HudAction[], settings: Settings, save: () => v
       return item;
     };
     const section = (name: string, rows: HTMLElement[]) => (rows.length ? [h('div.menu-sec', {}, name), ...rows] : []);
-    const rows = (s: HudAction['section']) => actions.filter((a) => a.section === s && offered(a)).map(row);
+    const rows = (s: HudAction['section']) => getActions().filter((a) => a.section === s && offered(a)).map(row);
     const el = h(
       'div.hud-menu',
       { role: 'menu', 'aria-label': 'Menu' },
@@ -278,7 +279,7 @@ export function mountHud(actions: HudAction[], settings: Settings, save: () => v
     },
     true,
   );
-  for (const t of ['workers', 'peers', 'issues', 'pulls', 'services', 'queue', 'meeting', 'upgrade', 'me', 'floors', 'signins'] as Topic[]) store.on(t, render);
+  for (const t of ['workers', 'peers', 'issues', 'pulls', 'services', 'queue', 'meeting', 'upgrade', 'me', 'floors', 'signins', 'boards'] as Topic[]) store.on(t, render);
   applyPanels();
   render();
   return { refresh: render, toggleMenu };

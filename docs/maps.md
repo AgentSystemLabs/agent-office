@@ -71,7 +71,7 @@ The station works the same way. This one has a quieter crew: no First Officer, a
 }
 ```
 
-To change the lists (move a pillar, resize the hall and everything in it), start from a copy of the whole map instead: [`docs/maps/castle.json`](maps/castle.json) is the castle, as a map of your own called *My castle*, and [`docs/maps/station.json`](maps/station.json) the station, as *My station*. Copy one into the folder and it's in Settings; change what you like from there.
+To change the lists (move a pillar, resize the hall and everything in it), start from a copy of the whole map instead: [`docs/maps/castle.json`](maps/castle.json) is the castle, as a map of your own called *My castle*, [`docs/maps/station.json`](maps/station.json) the station, as *My station*, and [`docs/maps/office.json`](maps/office.json) the office, as *Office (10 Meeting Rooms)*. Copy one into the folder and it's in Settings; change what you like from there.
 
 Or write one from nothing. This is about the least a map can be: a hall, a door, tables to seat 32, the board agents, a meeting table and the four boards. Everything else (the throne, the line, the herald, the props) is optional:
 

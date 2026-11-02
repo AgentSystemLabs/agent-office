@@ -169,6 +169,16 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
   const mapRow = h('div.seg', { role: 'radiogroup', 'aria-label': 'Map' });
   const mapNote = h('p.setting-note');
   const mapBad = h('p.setting-note.bad', { style: 'white-space: pre-line' });
+  const openFolderBtn = h(
+    'button.btn',
+    {
+      type: 'button',
+      title: 'Open custom maps folder on your computer',
+      onclick: () => net.send({ t: 'map.openFolder' }),
+    },
+    '📁 Open maps folder',
+  );
+  const mapActions = h('div.seg', { style: 'margin-top:8px' }, openFolderBtn);
   const paintMap = () => {
     const { pick, by, at, custom } = store.map;
     const choices = mapChoices(custom);
@@ -486,7 +496,7 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
       setting('Team notifications (Slack / Discord)', 'office', h('div.webhook', {}, hookInput, hookSave), hookActions, hookStatus),
     ],
     building: [
-      setting('Map', 'office', mapRow, mapNote, mapBad),
+      setting('Map', 'office', mapRow, mapNote, mapActions, mapBad),
       setting('Holiday theme', 'office', themeRow, themeNote),
       ...(sky ? [sky.section] : []),
       dogSection,

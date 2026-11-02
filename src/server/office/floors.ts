@@ -122,6 +122,7 @@ export async function openFloors(ctx: Ctx, hookPort: number): Promise<FloorsOpen
     issuesAdapter: () => ctx.plugins?.getIssuesAdapter(),
     pullsAdapter: () => ctx.plugins?.getPullsAdapter(),
     queueAdapter: () => ctx.plugins?.getQueueAdapter(),
+    boardAdapters: () => ctx.plugins?.listBoardAdapters() ?? [],
     emit: ctx.toFloor,
     toast: ctx.toastFloor,
     termData: (workerId, data, viewers) => {

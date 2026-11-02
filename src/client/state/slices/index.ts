@@ -33,6 +33,7 @@ import { upgrade } from './upgrade';
 import { usage } from './usage';
 import { whiteboard } from './whiteboard';
 import { plugins } from './plugins';
+import { boards } from './boards';
 
 export const SLICES: readonly Slice[] = [
   presence,
@@ -63,4 +64,5 @@ export const SLICES: readonly Slice[] = [
   accounts,
   signins,
   plugins,
+  boards,
 ];

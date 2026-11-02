@@ -34,7 +34,8 @@ export function installPlace(ctx: Ctx, core: CoreState, parts: Pick<Parts, 'worl
   function indoors(): boolean {
     const p = player.pos;
     if (core.upTop || !inOffice() || p.y < -1 || p.y > WALL_HEIGHT) return false;
-    return (p.x > FLOOR.minX && p.x < FLOOR.maxX && p.z > FLOOR.minZ && p.z < FLOOR.maxZ) || inWing(p.x, p.z, parts.worlds.officeWing());
+    const inAreas = plan().config?.indoorAreas?.some((b) => p.x >= b.minX && p.x <= b.maxX && p.z >= b.minZ && p.z <= b.maxZ);
+    return (p.x > FLOOR.minX && p.x < FLOOR.maxX && p.z > FLOOR.minZ && p.z < FLOOR.maxZ) || inWing(p.x, p.z, parts.worlds.officeWing()) || !!inAreas;
   }
 
   /** On your feet at `at`, facing `rotY` and looking straight ahead. */

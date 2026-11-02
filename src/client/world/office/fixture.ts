@@ -1,5 +1,7 @@
 import type * as THREE from 'three';
 import type { WallId } from '../../../shared/decor';
+import type { Opening } from '../../../shared/layout';
+import type { MapPlan } from '../../../shared/maps';
 import type { Collider, DeskView, Interactable, OfficeHandles } from '../types';
 import type { Looks } from './materials';
 import type { Door } from './shell';
@@ -30,6 +32,12 @@ export interface Site {
   readonly doors: Door[];
   /** What stands in the way into the back office, and its collider, put away while that's built out. */
   readonly inTheWay: { group: THREE.Group; collider: Collider }[];
+  /** The active map plan, if building a custom office map. */
+  readonly plan?: MapPlan;
+  /** Override gong position, if any. */
+  readonly gongAt?: { x: number; y?: number; z: number; rotY?: number };
+  /** Extra openings for doors/hallways in walls. */
+  readonly extraOpenings?: readonly Opening[];
   /** What a fixture before this one gives the office. It throws if that one's further down the list. */
   get<K extends keyof OfficeHandles>(key: K): OfficeHandles[K];
 }

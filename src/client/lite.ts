@@ -17,6 +17,7 @@ import { openTerminal, openTerminalFor, routeTerminalMessage } from './ui/termin
 import { openChanges, openChangesFor, routeChangesMessage } from './ui/changes';
 import { lostWorktreeDialog, openPrompt, routeWorktreeMessage, sendHomeDialog } from './ui/prompt';
 import { openBoard } from './ui/boards';
+import { openCustomBoard } from './ui/custom-board';
 import type { BoardActions } from './ui/github/prompts';
 import { openPull, routePullMessage } from './ui/pull';
 import { openQueue } from './ui/queue';
@@ -323,14 +324,41 @@ $('btn-queue').addEventListener('click', () => openQueue(net, { openTerminal: op
 $('btn-new').addEventListener('click', () => sendToWorker('✨ New task'));
 
 function renderNav() {
-  const count = (id: string, n: number) => ($(id).querySelector('.n')!.textContent = n ? String(n) : '');
+  const count = (id: string, n: number) => {
+    const el = document.getElementById(id);
+    if (el) el.querySelector('.n')!.textContent = n ? String(n) : '';
+  };
   count('btn-issues', store.issues.items.filter((i) => i.state === 'OPEN').length);
   count('btn-pulls', store.pulls.items.filter((p) => p.state === 'OPEN').length);
   count('btn-queue', store.queue.tasks.filter((t) => t.status !== 'done').length);
+
+  const nav = document.querySelector('.lite-nav');
+  if (nav) {
+    const newBtn = $('btn-new');
+    for (const [boardId, b] of store.customBoards) {
+      const btnId = `btn-board-${boardId}`;
+      let btn = document.getElementById(btnId);
+      const uncompleted = b.cards?.filter((c) => c.state !== 'CLOSED').length ?? 0;
+      if (!btn) {
+        btn = h(
+          'button.btn',
+          { id: btnId, type: 'button', onclick: () => openCustomBoard(boardId, net, boardActions()) },
+          `${b.def.icon || '🎯'} ${b.def.label || boardId} `,
+          h('span.n', {}, uncompleted ? String(uncompleted) : ''),
+        );
+        if (newBtn) nav.insertBefore(btn, newBtn);
+        else nav.append(btn);
+      } else {
+        const nEl = btn.querySelector('.n');
+        if (nEl) nEl.textContent = uncompleted ? String(uncompleted) : '';
+      }
+    }
+  }
 }
 store.on('issues', renderNav);
 store.on('pulls', renderNav);
 store.on('queue', renderNav);
+store.on('boards', renderNav);
 
 // ---- What you have open, for the others (see PeerInfo.doing) -----------------------------------
 let doingSent: string | undefined;

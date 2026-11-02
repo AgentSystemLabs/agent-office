@@ -183,6 +183,9 @@ export class AudioCore {
     for (const tick of this.tickers) tick(now);
   }
 
+  /** Custom indoor areas from active map plan. */
+  indoorAreas: { minX: number; maxX: number; minZ: number; maxZ: number }[] = [];
+
   /** Where your ears are: in the office, where rain is muffled by the glass, in the garage, or out in it. */
   where(): 'office' | 'garage' | 'out' {
     const { x, y, z } = this.listener;
@@ -190,8 +193,9 @@ export class AudioCore {
       const b = this.hall.bounds;
       return x > b.minX && x < b.maxX && z > b.minZ && z < b.maxZ ? 'office' : 'out';
     }
+    const inAreas = this.indoorAreas.some((b) => x >= b.minX && x <= b.maxX && z >= b.minZ && z <= b.maxZ);
     const under = (m: number) => x > FLOOR.minX - m && x < FLOOR.maxX + m && z > FLOOR.minZ - m && z < FLOOR.maxZ + m;
-    if ((under(0) || inWing(x, z, this.wing)) && y > -0.5) return 'office';
+    if ((under(0) || inWing(x, z, this.wing) || inAreas) && y > -0.5) return 'office';
     return under(0.3) ? 'garage' : 'out';
   }
 

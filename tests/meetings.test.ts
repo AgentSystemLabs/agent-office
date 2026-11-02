@@ -338,3 +338,18 @@ test('a pattern with a set number of rounds says so, and names them; a range is 
   assert.equal(f.start({ pattern: 'lead', rounds: 5 }), undefined);
   assert.equal(f.room.state().current!.rounds, 3);
 });
+
+test('a meeting seats workers with a plugin-registered provider', async (t) => {
+  const { registerAgentProvider, unregisterAgentProvider } = await import('../src/shared/providers.js');
+  registerAgentProvider('openfox', { label: 'OpenFox', name: 'OpenFox', bin: 'openfox', usage: { reports: true, note: 'tracked by OpenFox' } });
+  const f = fixture();
+  t.after(() => {
+    unregisterAgentProvider('openfox');
+    f.close();
+  });
+  assert.equal(f.start({ provider: 'openfox' as never }), undefined);
+  assert.equal(f.room.state().current?.provider, 'openfox');
+  assert.ok(f.workers.length > 0);
+  assert.equal(f.workers[0].provider, 'openfox');
+});
+

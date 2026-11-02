@@ -29,8 +29,8 @@ export function createWorlds(ctx: Ctx) {
   const { office, scene } = ctx;
   const theOffice = officeWorld(office, () => office.stack.state.index > 0, () => officeWing());
   let world: World = theOffice;
-  /** Whether the building's on the office's own map, with everything that has (the elevator, the balcony, the lounge…). */
-  const inOffice = () => world === theOffice;
+  /** Whether the building's on an office-style map (the elevator, the balcony, the lounge…). */
+  const inOffice = () => world.plan.style === 'office';
   /** Where everything is on the building's map: its seats by id, and places to sit. */
   const plan = (): MapPlan => world.plan;
   /** On a castle-style map: its workers walking between their seats and the line for the throne. */
@@ -44,7 +44,17 @@ export function createWorlds(ctx: Ctx) {
 
   /** The world for `p`: the office, or the one its style's builder puts up for it, the first time it's wanted. */
   function worldFor(p: MapPlan): MapWorld {
-    if (p.style === 'office') return { world: theOffice, court: null, idle: officeIdle };
+    if (p.style === 'office') {
+      theOffice.plan = p;
+      office.walls.updateOpenings(p.config?.openings ?? [], p);
+      office.mapProps.updateProps(p.config?.props ?? []);
+      office.hiddenBoards.updateHidden(p.config?.hiddenBoards ?? []);
+      if (p.config?.machineMonitor) {
+        office.machineMonitor.move(p.config.machineMonitor);
+      }
+      office.stack.set(office.stack.state, p);
+      return { world: theOffice, court: null, idle: officeIdle };
+    }
     let b = built.get(p.id);
     // A map of your own was edited since: it's built again.
     if (b && b.plan !== p) {

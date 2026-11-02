@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
-import type { ChangesState, FloorInfo, PeerInfo, ProjectInfo, ServerMsg, WorkerInfo } from '../shared/protocol.js';
+import type { BoardCard, BoardCardDetail, ChangesState, CustomBoardDef, CustomBoardState, FloorInfo, PeerInfo, ProjectInfo, ServerMsg, WorkerInfo } from '../shared/protocol.js';
 import { isBusy } from '../shared/status.js';
 import { DESK_BY_ID } from '../shared/layout.js';
 import type { FloorDef } from './building.js';
@@ -15,7 +15,7 @@ import { Changes } from './changes.js';
 import { Decor } from './decor.js';
 import { FloorPlanStore } from './floorplan.js';
 import { Docs } from './docs.js';
-import type { IssuesAdapter, PullsAdapter, QueueAdapter } from './plugins/types.js';
+import type { BoardAdapter, IssuesAdapter, PullsAdapter, QueueAdapter } from './plugins/types.js';
 import { Dog } from './dog.js';
 import { Court } from './court.js';
 import { Jail } from './jail.js';
@@ -36,6 +36,7 @@ export interface FloorContext {
   issuesAdapter?: IssuesAdapter | (() => IssuesAdapter | null | undefined);
   pullsAdapter?: PullsAdapter | (() => PullsAdapter | null | undefined);
   queueAdapter?: QueueAdapter | (() => QueueAdapter | null | undefined);
+  boardAdapters?: () => BoardAdapter[];
   agentCmd: string;
   agentArgs: string[];
   /** The DSH profile DeepSeek Harness workers boot (see server/dsh.ts). */
@@ -237,6 +238,18 @@ export class Floor {
         const a = typeof ctx.pullsAdapter === 'function' ? ctx.pullsAdapter() : ctx.pullsAdapter;
         return a ? await a.listPulls(this) : null;
       },
+      async (n: number, me?: string) => {
+        const a = typeof ctx.issuesAdapter === 'function' ? ctx.issuesAdapter() : ctx.issuesAdapter;
+        return a?.issueDetail ? await a.issueDetail(this, n, me) : null;
+      },
+      async (n: number, me?: string) => {
+        const a = typeof ctx.pullsAdapter === 'function' ? ctx.pullsAdapter() : ctx.pullsAdapter;
+        return a?.pullDetail ? await a.pullDetail(this, n, me) : null;
+      },
+      async (n: number) => {
+        const a = typeof ctx.pullsAdapter === 'function' ? ctx.pullsAdapter() : ctx.pullsAdapter;
+        return a?.pullDiff ? await a.pullDiff(this, n) : null;
+      },
     );
     // The 📋 task queue seats workers by itself: it watches the workers and links PRs from GitHub.
     const queueAdapter = typeof ctx.queueAdapter === 'function' ? ctx.queueAdapter() : ctx.queueAdapter;
@@ -398,6 +411,96 @@ export class Floor {
   /** Someone just walked in: boards that haven't been looked at in a while get fetched again. */
   arrived() {
     if (Date.now() - Math.max(this.github.issues.fetchedAt, this.github.pulls.fetchedAt) > REFRESH_MS) void this.github.refresh();
+    for (const a of this.boardAdapters()) {
+      const st = this.customBoardStates.get(a.getBoardDef().id);
+      if (!st || !st.fetchedAt || Date.now() - st.fetchedAt > REFRESH_MS) {
+        void this.refreshBoard(a.getBoardDef().id);
+      }
+    }
+  }
+
+  private customBoardStates = new Map<string, CustomBoardState>();
+
+  boardAdapters(): BoardAdapter[] {
+    return this.ctx.boardAdapters ? this.ctx.boardAdapters() : [];
+  }
+
+  getBoardAdapter(boardId: string): BoardAdapter | null {
+    return this.boardAdapters().find((a) => a.getBoardDef().id === boardId) ?? null;
+  }
+
+  boardsState(): Record<string, CustomBoardState> {
+    const out: Record<string, CustomBoardState> = {};
+    for (const a of this.boardAdapters()) {
+      const def = a.getBoardDef();
+      const existing = this.customBoardStates.get(def.id);
+      out[def.id] = existing ?? { def, cards: [], columns: def.columns, loading: false };
+    }
+    return out;
+  }
+
+  async refreshBoard(boardId: string): Promise<CustomBoardState> {
+    const adapter = this.getBoardAdapter(boardId);
+    if (!adapter) throw new Error(`No such board: ${boardId}`);
+    let def = adapter.getBoardDef();
+    const prev = this.customBoardStates.get(boardId) ?? { def, cards: [] };
+    this.customBoardStates.set(boardId, { ...prev, loading: true });
+    this.ctx.emit(this, { t: 'board.state', boardId, state: this.customBoardStates.get(boardId)! });
+    try {
+      const cards = await adapter.listCards(this);
+      def = adapter.getBoardDef();
+      let currentUser: { displayName?: string; email?: string; name?: string } | undefined;
+      if (adapter.getCurrentUser) {
+        try {
+          currentUser = (await adapter.getCurrentUser(this)) ?? undefined;
+        } catch {
+          /* ignore */
+        }
+      }
+      const state: CustomBoardState = { def, cards, columns: def.columns, currentUser, fetchedAt: Date.now(), loading: false };
+      this.customBoardStates.set(boardId, state);
+      this.ctx.emit(this, { t: 'board.state', boardId, state });
+      return state;
+    } catch (err) {
+      def = adapter.getBoardDef();
+      const state: CustomBoardState = { def, cards: prev.cards, columns: def.columns, fetchedAt: prev.fetchedAt, loading: false, error: (err as Error).message };
+      this.customBoardStates.set(boardId, state);
+      this.ctx.emit(this, { t: 'board.state', boardId, state });
+      return state;
+    }
+  }
+
+  async listBoardCards(boardId: string): Promise<BoardCard[]> {
+    const adapter = this.getBoardAdapter(boardId);
+    if (!adapter) return [];
+    return adapter.listCards(this);
+  }
+
+  async getBoardCardDetail(boardId: string, cardId: string): Promise<BoardCardDetail | null> {
+    const adapter = this.getBoardAdapter(boardId);
+    if (!adapter?.cardDetail) return null;
+    return adapter.cardDetail(this, cardId);
+  }
+
+  async assignBoardCard(boardId: string, cardId: string, assignee?: string): Promise<BoardCard | null> {
+    const adapter = this.getBoardAdapter(boardId);
+    if (!adapter?.assignCard) throw new Error(`Board ${boardId} does not support assignment`);
+    const card = await adapter.assignCard(this, cardId, assignee);
+    void this.refreshBoard(boardId);
+    return card;
+  }
+
+  async getBoardConfig(boardId: string): Promise<Record<string, unknown> | null> {
+    const adapter = this.getBoardAdapter(boardId);
+    if (!adapter?.getConfig) return null;
+    return adapter.getConfig(this);
+  }
+
+  async saveBoardConfig(boardId: string, config: Record<string, unknown>): Promise<void> {
+    const adapter = this.getBoardAdapter(boardId);
+    if (!adapter?.saveConfig) throw new Error(`Board ${boardId} does not support saving config`);
+    await adapter.saveConfig(this, config);
+    void this.refreshBoard(boardId);
   }
 
   private active(): boolean {

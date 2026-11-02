@@ -1,7 +1,7 @@
 /* Boards */
-.modal.board { width: min(1400px, 100%); height: min(860px, calc(100vh - 32px)); }
-.modal.board .body { flex: 1; display: flex; gap: 12px; padding: 12px; background: #d8a86a; background-image: radial-gradient(rgba(0,0,0,.08) 1px, transparent 1.5px); background-size: 9px 9px; }
-.column { flex: 1; min-width: 220px; display: flex; flex-direction: column; background: rgba(255, 250, 243, .55); border: 3px solid var(--ink); border-radius: 14px; overflow: hidden; }
+.modal.board { width: min(1500px, 98vw); height: min(860px, calc(100vh - 32px)); }
+.modal.board .body { flex: 1; display: flex; flex-direction: row; overflow-x: auto; overflow-y: hidden; gap: 12px; padding: 12px; background: #d8a86a; background-image: radial-gradient(rgba(0,0,0,.08) 1px, transparent 1.5px); background-size: 9px 9px; }
+.column { flex: 1; min-width: 260px; max-width: 340px; flex-shrink: 0; display: flex; flex-direction: column; background: rgba(255, 250, 243, .55); border: 3px solid var(--ink); border-radius: 14px; overflow: hidden; }
 .column h4 { margin: 0; font-size: 14px; font-weight: 900; background: var(--paper); border-bottom: 3px solid var(--ink); }
 /* Click a column's header to filter it by label. */
 .col-head { width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 12px; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
@@ -53,3 +53,27 @@
 .qchip { padding: 1px 6px; border-radius: 999px; border: 1.5px solid var(--ink); background: #e0f2fe; color: var(--ink); font-size: 10px; font-weight: 900; }
 .qchip.running { background: #d8f5e3; }
 .qchip.done { background: #fff1de; }
+
+.card-avatar {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  vertical-align: middle;
+  object-fit: cover;
+  border: 1.5px solid var(--ink);
+  display: inline-block;
+  margin-right: 4px;
+  background: var(--paper);
+  flex-shrink: 0;
+}
+.card .meta .person {
+  display: inline-flex;
+  align-items: center;
+}
+.gh-meta .person {
+  display: inline-flex;
+  align-items: center;
+}
+.gh-item-head .card-avatar {
+  margin-right: 6px;
+}

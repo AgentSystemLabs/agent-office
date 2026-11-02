@@ -13,6 +13,7 @@ export function pluginsSetting(net?: Net) {
     agent: '🤖 Agent Provider',
     issues: '📌 Issues Board',
     pulls: '🔀 PR Board',
+    boards: '🎯 Custom Boards',
   };
 
   const paintPluginCard = (plugin: PluginManifest, isInstalled: boolean) => {

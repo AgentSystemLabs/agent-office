@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { FLOOR, LADDER, POLE, POLES, SLAB, WALL_HEIGHT, WALL_T, WINDOWS, type PoleSpot } from '../../shared/layout';
+import type { MapPlan } from '../../shared/maps';
 import type { Collider, Interactable } from './types';
 import type { Fixture } from './office/fixture';
 import { mesh, textPlane, toon } from './toon';
@@ -220,7 +221,7 @@ export interface Stack {
   /** The ceiling's tiles, for the back office's ceiling to match (its uvs are meters, like a ShapeGeometry's). */
   ceiling: THREE.Material;
   /** The floor you're on: the ladder, the hatches and the poles go where there are floors to go to. */
-  set(s: StackState): void;
+  set(s: StackState, plan?: MapPlan): void;
   state: StackState;
   /** The poles on this floor, when there's another floor for them to go to. */
   poles(): readonly PoleSpot[];
@@ -239,7 +240,8 @@ export interface Stack {
  * The floor you walk on (planks from `planks`), the slab under it, the ceiling over it, the ladder
  * and the fire poles. Their colliders go in `colliders` and change as floors come and go.
  */
-export function buildStack(colliders: Collider[], planks: THREE.Material): Stack {
+export function buildStack(colliders: Collider[], planks: THREE.Material, getPlan?: () => MapPlan | undefined): Stack {
+  let currentPlan = getPlan?.();
   const group = new THREE.Group();
   const B = { minX: FLOOR.minX - WALL_T, maxX: FLOOR.maxX + WALL_T, minZ: FLOOR.minZ - WALL_T, maxZ: FLOOR.maxZ + WALL_T };
   const concrete = toon('#d3d6dd');
@@ -391,18 +393,17 @@ export function buildStack(colliders: Collider[], planks: THREE.Material): Stack
     return o;
   };
 
-  const set = (s: StackState) => {
+  const set = (s: StackState, plan?: MapPlan) => {
+    if (plan) currentPlan = plan;
     Object.assign(state, s);
-    delete state.up;
-    delete state.down;
-    if (s.up) state.up = s.up;
-    if (s.down) state.down = s.down;
-    const { index, count } = s;
-    const others = count > 1;
-    const below = others && index > 0;
-    const above = others && index < count - 1;
-    // Every pole goes the whole way down: through this floor if there's one below, and the ceiling if there's one above.
-    const holes = below ? POLES : [];
+    delete state.up; delete state.down;
+    if (s.up) state.up = s.up; if (s.down) state.down = s.down;
+    const { index, count } = s, cfg = currentPlan?.config;
+    const hasLadder = cfg?.ladder ?? true, hasPoles = cfg?.poles ?? true;
+    const others = count > 1, below = others && index > 0, above = others && index < count - 1;
+    const lOthers = others && hasLadder, lBelow = below && hasLadder, lAbove = above && hasLadder;
+    const pOthers = others && hasPoles, pBelow = below && hasPoles, pAbove = above && hasPoles;
+    const holes = pBelow ? POLES : [];
 
     for (const o of built) {
       o.removeFromParent();
@@ -418,15 +419,13 @@ export function buildStack(colliders: Collider[], planks: THREE.Material): Stack
     mine = [];
 
     // The floor: planks, with the hatch and the pole's hole cut out when they go somewhere.
-    const floorHoles: Hole[] = [];
-    if (below) floorHoles.push(LADDER.hatch);
-    for (const p of holes) floorHoles.push({ x: p.x, z: p.z, r: POLE.hole });
+    const floorHoles: Hole[] = [...(lBelow ? [LADDER.hatch] : []), ...holes.map((p) => ({ x: p.x, z: p.z, r: POLE.hole }))];
     const floor = take(new THREE.Mesh(surface(rectOutline(FLOOR), floorHoles, -1, FLOOR), planks));
     floor.receiveShadow = true;
 
     // The slab under it (the garage's ceiling): concrete underneath, a peach band between the floors
     // outside. Where a hole goes through, the garage sees a lid of concrete, not up into the office.
-    const slabHoles: Hole[] = [...(below ? [LADDER.hatch] : []), ...holes.map((p) => ({ x: p.x, z: p.z, r: POLE.hole + 0.02 }))];
+    const slabHoles: Hole[] = [...(lBelow ? [LADDER.hatch] : []), ...holes.map((p) => ({ x: p.x, z: p.z, r: POLE.hole + 0.02 }))];
     const slabShape = new THREE.Shape(rectOutline(B).map(([x, z]) => new THREE.Vector2(x, -z)));
     slabShape.holes = slabHoles.map((h) => holePath(h, -1));
     const slabGeo = new THREE.ExtrudeGeometry(slabShape, { depth: SLAB - 0.01, bevelEnabled: false, curveSegments: 24 }).rotateX(-Math.PI / 2).translate(0, -SLAB, 0);
@@ -444,27 +443,16 @@ export function buildStack(colliders: Collider[], planks: THREE.Material): Stack
     for (const p of holes) mine.push({ ...around(p, POLE.hole), bottom: -1.4, top: -1.2 });
 
     // The ceiling: tiles, WALL_HEIGHT up, with the hatch and the poles' holes when they come from somewhere.
-    const ceilingHoles: Hole[] = [];
-    if (above) ceilingHoles.push(LADDER.hatch);
-    if (above) for (const p of POLES) ceilingHoles.push({ x: p.x, z: p.z, r: POLE.hole });
+    const ceilingHoles: Hole[] = [...(lAbove ? [LADDER.hatch] : []), ...(pAbove ? POLES.map((p) => ({ x: p.x, z: p.z, r: POLE.hole })) : [])];
     take(mesh(surface(rectOutline(FLOOR), ceilingHoles, 1), ceilingMat, 0, WALL_HEIGHT, 0, false)).receiveShadow = false;
     mine.push({ ...FLOOR, bottom: WALL_HEIGHT, top: WALL_HEIGHT + SLAB });
 
     // The ladder, when there's anywhere to climb to.
-    ladder.visible = others;
-    ladderIt.off = !others;
-    ladderBelow.visible = below;
-    ladderAbove.visible = above;
-    floorHatch.pivot.visible = below;
-    ceilingHatch.pivot.visible = above;
-    ladderDownShaft.visible = below;
-    ladderUpShaft.visible = above;
-    if (others) mine.push(ladderCollider);
+    ladder.visible = lOthers; ladderIt.off = !lOthers; ladderBelow.visible = lBelow; ladderAbove.visible = lAbove;
+    floorHatch.pivot.visible = lBelow; ceilingHatch.pivot.visible = lAbove; ladderDownShaft.visible = lBelow; ladderUpShaft.visible = lAbove;
+    if (lOthers) mine.push(ladderCollider);
     for (const sign of ladderSigns) {
-      sign.removeFromParent();
-      sign.geometry.dispose();
-      sign.material.map?.dispose();
-      sign.material.dispose();
+      sign.removeFromParent(); sign.geometry.dispose(); sign.material.map?.dispose(); sign.material.dispose();
     }
     ladderSigns = [];
     // Above the window beside it and below its sill, so they cover neither.
@@ -472,7 +460,7 @@ export function buildStack(colliders: Collider[], planks: THREE.Material): Stack
       [s.up, '⬆', LADDER_WINDOW_HEAD + 0.48],
       [s.down, '⬇', 0.62],
     ] as const) {
-      if (!others || !name) continue;
+      if (!lOthers || !name) continue;
       const sign = textPlane(`🪜 ${arrow} ${name.length > 22 ? `${name.slice(0, 21)}…` : name}`, { bg: '#ffd166', size: 44 });
       sign.scale.multiplyScalar(0.7);
       sign.position.set(FLOOR.minX + 0.02, y, LADDER.z + LADDER.width / 2 + 0.15 + (sign.geometry.parameters.width * 0.7) / 2);
@@ -482,13 +470,11 @@ export function buildStack(colliders: Collider[], planks: THREE.Material): Stack
     }
 
     for (const p of poles) {
-      p.group.visible = others;
-      p.interactable.off = !others;
-      p.down.visible = p.downShaft.visible = p.below.visible = below;
-      p.flange.visible = !above;
-      p.landing.visible = !below;
-      p.collar.visible = p.upShaft.visible = p.above.visible = above;
-      if (below) {
+      p.group.visible = pOthers; p.interactable.off = !pOthers;
+      p.down.visible = p.downShaft.visible = p.below.visible = pBelow;
+      p.flange.visible = !pAbove; p.landing.visible = !pBelow;
+      p.collar.visible = p.upShaft.visible = p.above.visible = pAbove;
+      if (pBelow) {
         // The railing, three sides of the square round the hole.
         const c = Math.round(Math.cos(p.spot.open));
         const sn = Math.round(Math.sin(p.spot.open));
@@ -504,10 +490,10 @@ export function buildStack(colliders: Collider[], planks: THREE.Material): Stack
           return { minX: p.spot.x + Math.min(...xs), maxX: p.spot.x + Math.max(...xs), minZ: p.spot.z + Math.min(...zs), maxZ: p.spot.z + Math.max(...zs) };
         });
         for (const r of rails) mine.push({ ...r, top: 1.05 });
-      } else if (others) {
+      } else if (pOthers) {
         mine.push({ ...around(p.spot, POLE.radius + 0.03), top: 99 });
       }
-      const text = below && s.down ? `🚒 ⬇ ${s.down}` : '';
+      const text = pBelow && s.down ? `🚒 ⬇ ${s.down}` : '';
       if (text !== p.signText) {
         if (p.sign) {
           p.sign.removeFromParent();
@@ -541,8 +527,8 @@ export function buildStack(colliders: Collider[], planks: THREE.Material): Stack
     ceiling: ceilingMat,
     set,
     state,
-    poles: () => (state.count > 1 ? POLES : []),
-    polesGoDown: () => state.count > 1 && state.index > 0,
+    poles: () => (state.count > 1 && (currentPlan?.config?.poles ?? true) ? POLES : []),
+    polesGoDown: () => state.count > 1 && state.index > 0 && (currentPlan?.config?.poles ?? true),
     onHatch: null,
     update(dt, people, eye) {
       const inHatch = (p: { x: number; z: number }) => p.x > LADDER.hatch.minX - 0.1 && p.x < LADDER.hatch.maxX && p.z > LADDER.hatch.minZ - 0.1 && p.z < LADDER.hatch.maxZ + 0.1;
@@ -587,9 +573,8 @@ declare module './types' {
 
 /** The office floor's floor and ceiling, with the ways up and down to the other floors through them. */
 export const stack: Fixture<'stack'> = (site) => {
-  const built = buildStack(site.colliders, site.planks);
-  built.set({ index: 0, count: 1 });
-  // The ladder and its sign, up the west wall.
-  site.wall('west', LADDER.z + 0.6, WALL_HEIGHT / 2, LADDER.width + 2.4, WALL_HEIGHT);
+  const built = buildStack(site.colliders, site.planks, () => site.plan);
+  built.set({ index: 0, count: 1 }, site.plan);
+  if (site.plan?.config?.ladder ?? true) site.wall('west', LADDER.z + 0.6, WALL_HEIGHT / 2, LADDER.width + 2.4, WALL_HEIGHT);
   return { group: built.group, interactables: built.interactables, handle: { stack: built } };
 };

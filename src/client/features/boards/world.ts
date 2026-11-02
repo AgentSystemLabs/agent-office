@@ -1,9 +1,9 @@
 import * as THREE from 'three';
-import type { GhIssue, GhPull, GhState, QueueState, QueueTask, ServiceInfo, WorkerInfo } from '../../../shared/protocol';
+import type { CustomBoardState, GhIssue, GhPull, GhState, QueueState, QueueTask, ServiceInfo, WorkerInfo } from '../../../shared/protocol';
 import { store, workerForPull } from '../../state';
 
-export const NOTE_COLORS = ['#fff7b0', '#ffd6e0', '#caffbf', '#bde0fe', '#ffe5b4'];
-export const PINS = ['#ef476f', '#118ab2', '#06d6a0', '#ffd166'];
+import { NOTE_COLORS, PINS, postItTint, itemNoteColor } from '../../ui/boards-colors.js';
+export { NOTE_COLORS, PINS, postItTint, itemNoteColor };
 
 export function wrap(ctx: CanvasRenderingContext2D, text: string, maxW: number, maxLines: number): string[] {
   const words = text.split(/\s+/);
@@ -138,7 +138,7 @@ export class BoardTexture {
       g.fillStyle = lifted ? 'rgba(0,0,0,.32)' : 'rgba(0,0,0,.25)';
       g.fillRect(-nw / 2 + (lifted ? 12 : 5), -nh / 2 + (lifted ? 16 : 7), nw, nh);
       const draft = this.kind === 'pulls' && (it as GhPull).isDraft;
-      g.fillStyle = draft ? '#e9ecef' : NOTE_COLORS[it.number % NOTE_COLORS.length];
+      g.fillStyle = draft ? '#e9ecef' : itemNoteColor(it);
       g.fillRect(-nw / 2, -nh / 2, nw, nh);
       if (lifted) {
         g.lineWidth = 6;
@@ -398,4 +398,105 @@ function clip(g: CanvasRenderingContext2D, text: string, maxW: number): string {
   let s = text;
   while (s.length > 1 && g.measureText(`${s}…`).width > maxW) s = s.slice(0, -1);
   return `${s}…`;
+}
+
+/** Cork board texture for generic custom boards (e.g. Jira). */
+export class CustomBoardTexture {
+  readonly texture: THREE.CanvasTexture;
+  private canvas = document.createElement('canvas');
+  private ctx: CanvasRenderingContext2D;
+
+  constructor() {
+    this.canvas.width = 1200;
+    this.canvas.height = 600;
+    this.ctx = this.canvas.getContext('2d')!;
+    this.texture = new THREE.CanvasTexture(this.canvas);
+    this.texture.colorSpace = THREE.SRGBColorSpace;
+    this.texture.anisotropy = 8;
+  }
+
+  render(st?: CustomBoardState) {
+    const g = this.ctx;
+    const W = this.canvas.width;
+    const H = this.canvas.height;
+    g.fillStyle = '#d8a86a';
+    g.fillRect(0, 0, W, H);
+    let seed = 7;
+    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    for (let i = 0; i < 1400; i++) {
+      g.fillStyle = rnd() > 0.5 ? 'rgba(120,70,30,.18)' : 'rgba(255,240,210,.18)';
+      g.fillRect(rnd() * W, rnd() * H, 3, 3);
+    }
+
+    const openCards = (st?.cards || []).filter((c) => c.state !== 'CLOSED');
+    if (!openCards.length) {
+      const note = st?.error ? `⚠️ ${st.error}` : st?.loading ? 'Loading…' : `${st?.def?.icon || '🎯'} ${st?.def?.label || 'Board'} · No open items 🎉`;
+      g.font = '800 36px Nunito, ui-rounded, system-ui, sans-serif';
+      const lines = wrap(g, note.replace(/`/g, ''), 760, 4);
+      const boxH = 60 + lines.length * 50;
+      g.fillStyle = '#fffaf3';
+      g.fillRect(W / 2 - 420, H / 2 - boxH / 2, 840, boxH);
+      g.fillStyle = '#2b2d42';
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      lines.forEach((line, i) => g.fillText(line, W / 2, H / 2 - ((lines.length - 1) * 50) / 2 + i * 50));
+      g.textAlign = 'left';
+      g.textBaseline = 'alphabetic';
+      this.texture.needsUpdate = true;
+      return;
+    }
+
+    const n = Math.min(openCards.length, 15);
+    const cols = n <= 2 ? n : n <= 4 ? 2 : n <= 6 ? 3 : n <= 8 ? 4 : 5;
+    const rows = Math.min(3, Math.ceil(n / cols));
+    const scale = Math.min(2, Math.max(1, 3 / Math.max(cols, rows * 1.3)));
+    const nw = Math.min(208 * scale, (W - 40) / cols - 30);
+    const nh = Math.min(164 * scale, (H - 40) / rows - 30);
+    const gx = (W - cols * nw) / (cols + 1);
+    const gy = (H - rows * nh) / (rows + 1);
+
+    openCards.slice(0, cols * rows).forEach((it, i) => {
+      const c = i % cols;
+      const r = Math.floor(i / cols);
+      const x = gx + c * (nw + gx);
+      const y = gy + r * (nh + gy);
+      const tilt = ((i * 37) % 7 - 3) * 0.012;
+
+      g.save();
+      g.translate(x + nw / 2, y + nh / 2);
+      g.rotate(tilt);
+      g.fillStyle = 'rgba(0,0,0,.25)';
+      g.fillRect(-nw / 2 + 5, -nh / 2 + 7, nw, nh);
+
+      const bg = NOTE_COLORS[i % NOTE_COLORS.length];
+      g.fillStyle = bg;
+      g.fillRect(-nw / 2, -nh / 2, nw, nh);
+
+      g.fillStyle = ['#ef476f', '#118ab2', '#06d6a0', '#ffd166'][i % 4];
+      g.beginPath();
+      g.arc(0, -nh / 2 + 12, 6, 0, Math.PI * 2);
+      g.fill();
+
+      g.fillStyle = '#2b2d42';
+      g.font = '800 18px Nunito, sans-serif';
+      g.fillText(it.id, -nw / 2 + 12, -nh / 2 + 32);
+
+      g.font = '600 15px Nunito, sans-serif';
+      const titleLines = wrap(g, it.title, nw - 24, 3);
+      titleLines.forEach((tl, idx) => {
+        g.fillText(tl, -nw / 2 + 12, -nh / 2 + 54 + idx * 18);
+      });
+
+      const bottomText = it.assignees?.[0] ? `👤 ${it.assignees[0]}` : it.type || '';
+      if (bottomText) {
+        g.font = '700 13px Nunito, sans-serif';
+        g.fillStyle = '#6b7280';
+        g.fillText(bottomText, -nw / 2 + 12, nh / 2 - 12);
+      }
+
+      g.restore();
+    });
+
+    this.texture.needsUpdate = true;
+  }
 }

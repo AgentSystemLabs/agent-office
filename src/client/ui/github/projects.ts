@@ -7,7 +7,10 @@ export interface ProjectEntry {
   name: string;
   url: string;
   token?: string;
+  color?: string;
 }
+
+const DEFAULT_PALETTE = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444', '#06b6d4', '#ec4899', '#14b8a6'];
 
 export function openProjectsSettings(net: Net) {
   const body = h('div.body');
@@ -29,11 +32,18 @@ export function openProjectsSettings(net: Net) {
   const msgEl = h('p.setting-note', { style: 'margin:8px 0;' });
 
   const nameInput = h('input', { type: 'text', placeholder: 'Name (e.g. frontend)', 'aria-label': 'Project name', style: 'flex:1;' }) as HTMLInputElement;
+  const colorInput = h('input', {
+    type: 'color',
+    value: DEFAULT_PALETTE[0],
+    title: 'Badge color',
+    'aria-label': 'Badge color',
+    style: 'width:36px;height:36px;padding:2px;border:none;border-radius:6px;cursor:pointer;background:transparent;',
+  }) as HTMLInputElement;
   const urlInput = h('input', { type: 'text', placeholder: 'Repository URL (https://github.com/owner/repo)', 'aria-label': 'Repository URL', style: 'flex:2;' }) as HTMLInputElement;
   const tokenInput = h('input', { type: 'password', placeholder: 'Token (optional for private repos)', 'aria-label': 'Token', style: 'flex:1;' }) as HTMLInputElement;
   const addBtn = h('button.btn.primary', { type: 'button' }, '➕ Add');
 
-  const addRow = h('div', { style: 'display:flex;gap:8px;align-items:center;margin-top:12px;' }, nameInput, urlInput, tokenInput, addBtn);
+  const addRow = h('div', { style: 'display:flex;gap:8px;align-items:center;margin-top:12px;' }, nameInput, colorInput, urlInput, tokenInput, addBtn);
 
   const currentFloor = store.currentFloor();
   const floorName = currentFloor?.name ?? store.project?.name ?? 'this project';
@@ -50,20 +60,36 @@ export function openProjectsSettings(net: Net) {
     }
     const table = h('table', { style: 'width:100%;border-collapse:collapse;font-size:13px;' });
     const thead = h('thead', {}, h('tr', {},
-      h('th', { style: 'text-align:left;padding:6px 8px;border-bottom:2px solid var(--ink);' }, 'Name'),
+      h('th', { style: 'text-align:left;padding:6px 8px;border-bottom:2px solid var(--ink);width:110px;' }, 'Name'),
+      h('th', { style: 'text-align:center;padding:6px 8px;border-bottom:2px solid var(--ink);width:50px;' }, 'Color'),
       h('th', { style: 'text-align:left;padding:6px 8px;border-bottom:2px solid var(--ink);' }, 'Repository URL'),
-      h('th', { style: 'text-align:left;padding:6px 8px;border-bottom:2px solid var(--ink);' }, 'Token'),
-      h('th', { style: 'padding:6px 8px;border-bottom:2px solid var(--ink);width:60px;' }, ''),
+      h('th', { style: 'text-align:left;padding:6px 8px;border-bottom:2px solid var(--ink);width:90px;' }, 'Token'),
+      h('th', { style: 'padding:6px 8px;border-bottom:2px solid var(--ink);width:50px;' }, ''),
     ));
     const tbody = h('tbody');
     projects.forEach((p, idx) => {
+      const curColor = p.color || DEFAULT_PALETTE[idx % DEFAULT_PALETTE.length];
+      const badge = h('span.label', {
+        style: `background:${curColor};color:#fff;padding:2px 8px;border-radius:6px;font-weight:700;display:inline-block;font-size:12px;`,
+      }, p.name || '—');
+      const rowPicker = h('input', {
+        type: 'color',
+        value: curColor,
+        title: 'Change badge color',
+        style: 'width:28px;height:28px;padding:1px;border:none;border-radius:4px;cursor:pointer;background:transparent;',
+      }) as HTMLInputElement;
+      rowPicker.addEventListener('input', () => {
+        p.color = rowPicker.value;
+        badge.style.background = rowPicker.value;
+      });
       const removeBtn = h('button.btn.btn-warn', { type: 'button', style: 'padding:2px 8px;font-size:12px;' }, '🗑');
       removeBtn.addEventListener('click', () => {
         projects.splice(idx, 1);
         paint();
       });
       const tr = h('tr', { style: 'border-bottom:1px solid rgba(0,0,0,0.1);' },
-        h('td', { style: 'padding:6px 8px;font-weight:700;' }, p.name || '—'),
+        h('td', { style: 'padding:6px 8px;' }, badge),
+        h('td', { style: 'padding:6px 8px;text-align:center;' }, rowPicker),
         h('td', { style: 'padding:6px 8px;word-break:break-all;' }, p.url),
         h('td', { style: 'padding:6px 8px;' }, p.token ? '••••••••' : h('span', { style: 'color:var(--muted);' }, 'None')),
         h('td', { style: 'padding:6px 8px;text-align:right;' }, removeBtn),
@@ -79,10 +105,12 @@ export function openProjectsSettings(net: Net) {
     if (!url) return urlInput.focus();
     const name = nameInput.value.trim() || url.split('/').pop()?.replace(/\.git$/, '') || 'repo';
     const token = tokenInput.value.trim() || undefined;
-    projects.push({ id: name, name, url, token });
+    const color = colorInput.value;
+    projects.push({ id: name, name, url, token, color });
     nameInput.value = '';
     urlInput.value = '';
     tokenInput.value = '';
+    colorInput.value = DEFAULT_PALETTE[projects.length % DEFAULT_PALETTE.length];
     paint();
   });
 

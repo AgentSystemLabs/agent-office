@@ -224,6 +224,7 @@ declare module '../types' {
 /** The desks, each with its chair, and what's on it. */
 export const desks: Fixture = (site) => {
   DESKS.forEach((def, i) => {
+    if (site.desks.has(def.id)) return;
     const view = buildDesk(def, i, site.looks.trim);
     site.group.add(view.group);
     site.desks.set(def.id, view);

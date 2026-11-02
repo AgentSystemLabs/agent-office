@@ -56,8 +56,8 @@ export function engineLabel(w: Pick<WorkerInfo, 'provider' | 'model' | 'effort' 
  * when it registers one. The labels on offer to the picker are read from it too (getProviderLabel),
  * so a provider a plugin registers shows up wherever the built-ins do.
  */
-export function isProviderKnown(provider: string): boolean {
-  return !!PROVIDER_META[provider];
+export function isProviderKnown(provider: string): provider is AgentProvider {
+  return !!PROVIDER_META[provider as AgentProvider];
 }
 
 /** Providers the server says this project can start. */
