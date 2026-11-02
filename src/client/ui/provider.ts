@@ -1,11 +1,21 @@
 import './provider.css';
 import type { AgentChoice, AgentEffort, AgentProvider, ProjectInfo, Usage, WorkerInfo } from '../../shared/protocol';
 import { AGENT_EFFORTS, isAgentEffort } from '../../shared/protocol';
-import { AGENT_PROVIDERS, CLAUDE_MODEL_NAMES, PROVIDER_META, claudeModelName, isAgentProvider, isClaudeModel, takesEffort, type ModelOption } from '../../shared/providers';
+import { AGENT_PROVIDERS, CLAUDE_MODEL_NAMES, PROVIDER_META, claudeModelName, isClaudeModel, takesEffort, type ModelOption, getAllProviders } from '../../shared/providers';
 import { store } from '../state';
 import { h } from './dom';
 
-export const PROVIDER_LABEL = Object.fromEntries(AGENT_PROVIDERS.map((p) => [p, PROVIDER_META[p].label])) as Record<AgentProvider, string>;
+export function getProviderLabel(provider: string): string {
+  if (PROVIDER_META[provider]?.label) return PROVIDER_META[provider].label;
+  if (provider === 'openfox') return 'OpenFox';
+  return provider.charAt(0).toUpperCase() + provider.slice(1);
+}
+
+export const PROVIDER_LABEL = new Proxy({} as Record<string, string>, {
+  get(_target, prop: string) {
+    return getProviderLabel(prop);
+  },
+});
 
 export const EFFORT_LABEL: Record<AgentEffort, string> = {
   low: 'Low',
@@ -41,24 +51,38 @@ export function engineLabel(w: Pick<WorkerInfo, 'provider' | 'model' | 'effort' 
   return badge ? `${providerLabel(w.provider, project)} · ${badge}` : providerLabel(w.provider, project);
 }
 
+/**
+ * Whether a provider is one this office can run: the table (PROVIDER_META), which a plugin adds to
+ * when it registers one. The labels on offer to the picker are read from it too (getProviderLabel),
+ * so a provider a plugin registers shows up wherever the built-ins do.
+ */
+export function isProviderKnown(provider: string): provider is AgentProvider {
+  return !!PROVIDER_META[provider as AgentProvider];
+}
+
 /** Providers the server says this project can start. */
 export function supportedProviders(project: ProjectInfo | null): AgentProvider[] {
-  const values = project?.agentProviders?.filter(isAgentProvider) ?? [];
+  const values = project?.agentProviders?.filter(isProviderKnown) ?? [];
   if (values.length) return [...new Set(values)];
-  return project?.defaultProvider && PROVIDER_LABEL[project.defaultProvider] ? [project.defaultProvider] : ['claude'];
+  if (project?.defaultProvider && isProviderKnown(project.defaultProvider)) return [project.defaultProvider];
+  const allKnown = getAllProviders().filter(isProviderKnown);
+  return allKnown.length ? allKnown : ['claude'];
 }
 
 /** Resolve old workers/tasks that have no provider metadata to the configured default. */
 export function resolvedProvider(provider: AgentProvider | undefined, project: ProjectInfo | null): AgentProvider {
   // A worker/task keeps its identity even if the office was later restarted with a
   // configuration that no longer offers that provider.
-  if (provider && PROVIDER_LABEL[provider]) return provider;
+  if (provider && isProviderKnown(provider)) return provider;
   const configured = project?.defaultProvider;
-  return configured && PROVIDER_LABEL[configured] ? configured : supportedProviders(project)[0];
+  if (configured && isProviderKnown(configured)) return configured;
+  const supported = supportedProviders(project);
+  if (isProviderKnown('openfox') && supported.includes('openfox' as AgentProvider)) return 'openfox' as AgentProvider;
+  return supported[0];
 }
 
 export function providerLabel(provider: AgentProvider | undefined, project: ProjectInfo | null): string {
-  return PROVIDER_LABEL[resolvedProvider(provider, project)];
+  return getProviderLabel(resolvedProvider(provider, project));
 }
 
 export function providerUsageTracked(provider: AgentProvider | undefined, project: ProjectInfo | null, usage?: Usage): boolean {
@@ -83,7 +107,7 @@ export function providerWaitingLabel(provider: AgentProvider | undefined, projec
 }
 
 export function providerUsageNote(provider: AgentProvider): string {
-  return PROVIDER_META[provider].usage.note;
+  return PROVIDER_META[provider]?.usage?.note ?? (provider === 'openfox' ? 'OpenFox usage is tracked by the OpenFox server.' : '');
 }
 
 /**
@@ -93,6 +117,9 @@ export function providerUsageNote(provider: AgentProvider): string {
 export function officeChoice(project: ProjectInfo | null): AgentChoice {
   const picked = store.prompts.agent;
   if (picked && supportedProviders(project).includes(picked.provider)) {
+    if (picked.provider === 'custom' && project?.defaultProvider && project.defaultProvider !== 'custom') {
+      return { provider: project.defaultProvider };
+    }
     return { provider: picked.provider, ...(picked.model ? { model: picked.model } : {}), ...(picked.effort ? { effort: picked.effort } : {}) };
   }
   return { provider: resolvedProvider(project?.defaultProvider, project) };
@@ -101,7 +128,8 @@ export function officeChoice(project: ProjectInfo | null): AgentChoice {
 /** "Claude Code · Opus · High", "Claude Code", "OpenCode · anthropic/claude-sonnet-4", "Grok · grok-4.6". */
 export function choiceLabel(choice: AgentChoice): string {
   const badge = modelBadge(choice.provider, choice.model, choice.effort);
-  return badge ? `${PROVIDER_LABEL[choice.provider]} · ${badge}` : PROVIDER_LABEL[choice.provider];
+  const label = getProviderLabel(choice.provider);
+  return badge ? `${label} · ${badge}` : label;
 }
 
 export interface ProviderPicker {
@@ -162,7 +190,7 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
   const options = supportedProviders(project);
   const fallback = resolvedProvider(project?.defaultProvider, project);
   const select = h('select.provider-select', { id, 'aria-label': 'Worker provider' }) as HTMLSelectElement;
-  for (const provider of options) select.append(h('option', { value: provider }, PROVIDER_LABEL[provider]));
+  for (const provider of options) select.append(h('option', { value: provider }, getProviderLabel(provider)));
   const note = h('small.provider-note');
   // A model is picked from a list or typed in, by provider: the two controls take turns.
   const modelLabel = h('label', {}, 'Model') as HTMLLabelElement;
@@ -178,7 +206,12 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
   const element = h('div.provider-choice', {}, h('label', { for: id }, label), select, note, fields);
 
   const value = () => (options.includes(select.value as AgentProvider) ? (select.value as AgentProvider) : fallback);
-  const meta = () => PROVIDER_META[value()];
+  const meta = () =>
+    PROVIDER_META[value()] ?? {
+      label: getProviderLabel(value()),
+      name: getProviderLabel(value()),
+      usage: { note: providerUsageNote(value()) },
+    };
   /** Its models: the ones it always has, or the ones its CLI listed. */
   const known = () => meta().models?.fixed ?? catalogues.get(value())?.list ?? [];
   /** Typed in: for a provider whose model is, and for one whose list couldn't be had. */
@@ -195,7 +228,7 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
     modelSelect.replaceChildren(h('option', { value: '' }, meta().models?.unset ?? 'Default'), ...models.map((m) => h('option', { value: m.id }, m.name ?? m.id)));
     if (id && !models.some((m) => m.id === id)) modelSelect.append(h('option', { value: id }, id));
     modelSelect.value = id;
-    if (modelInput.value.trim() !== id) modelInput.value = id;
+    if ((modelInput.value ?? '').trim() !== id) modelInput.value = id;
     suggestions.replaceChildren(...models.map((m) => h('option', { value: m.id, label: m.name })));
   };
   /** The efforts on offer: the ones the model picked takes, where its catalogue says. */
@@ -227,7 +260,7 @@ export function agentFields(project: ProjectInfo | null, id: string, initial: Ag
     else if (field.catalog && catalogue?.request) hint.textContent = `Loading ${m.label} models…`;
     else if (field.catalog && catalogue?.failed) hint.textContent = `${m.label}’s models couldn’t be listed: leave it empty for its default, or type a model id.`;
     else hint.textContent = field.hint;
-    fields.classList.toggle('hidden', !field && !m.takesEffort && !hint.textContent);
+    fields.classList.toggle('hidden', !field && !m?.takesEffort);
     paintEffort();
   };
   /** Asks the provider's CLI for its models, only once someone can see the fields. */

@@ -74,6 +74,9 @@ export interface PropConfig {
   color?: string;
   /** A torch or a brazier that lights the room (a few at most: see MAX_LIGHTS). */
   light?: boolean;
+  name?: string;
+  /** For custom_board: identifier of the board (e.g. "jira"). */
+  boardId?: string;
 }
 
 /**
@@ -204,6 +207,22 @@ export interface MapConfig {
    * panel, metal and glow.
    */
   palette?: Partial<Record<PaletteKey, string>>;
+  /** Wall openings cut into outside walls: doors or archways. */
+  openings?: { wall: 'north' | 'south' | 'east' | 'west'; u: number; width: number; y0: number; y1: number }[];
+  /** Windows in outside walls to close / remove. */
+  closedWindows?: { wall: 'north' | 'south' | 'east' | 'west'; u: number }[];
+  /** Custom windows in outside walls. */
+  windows?: { wall: 'north' | 'south' | 'east' | 'west'; u: number; width: number; y0: number; y1: number }[];
+  /** Board ids to hide on the wall (e.g. replaced by a custom board). */
+  hiddenBoards?: string[];
+  /** Position override for machine monitor screen. */
+  machineMonitor?: { x: number; y: number; z: number };
+  /** Bounding boxes of interior sheltered/indoor areas on this map: [minX, maxX, minZ, maxZ]. */
+  indoorAreas?: Bounds[];
+  /** Whether the building's ladder (on the west wall) is enabled. Defaults to true. */
+  ladder?: boolean;
+  /** Whether the building's fire poles are enabled. Defaults to true. */
+  poles?: boolean;
   /** A dungeon under the hall, with cells to lock workers up in (a castle's). */
   dungeon?: DungeonConfig | null;
   /** An airlock in a wall, to blow workers out of (a station's). */

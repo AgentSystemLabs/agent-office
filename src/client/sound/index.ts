@@ -127,6 +127,10 @@ export class OfficeSound {
     this.a.hall = hall;
   }
 
+  setIndoorAreas(areas: { minX: number; maxX: number; minZ: number; maxZ: number }[]) {
+    this.a.indoorAreas = areas;
+  }
+
   /** Up on the roof (true), or inside on a floor: the office's hum gives way to the wind and the city. */
   setOutdoors(on: boolean) {
     this.a.setOutdoors(on);

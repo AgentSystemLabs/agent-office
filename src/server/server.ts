@@ -30,6 +30,7 @@ export async function startServer(cfg: Config, opts: StartOptions = {}) {
   const ctx = {} as Ctx;
   Object.assign(ctx, messaging(ctx), floorHelpers(ctx), people(ctx), navigation(ctx), gates(ctx));
   Object.assign(ctx, createCore(ctx, cfg, publicDir));
+  await ctx.plugins.init(ctx);
   const { hookServer, hookPort } = await startHookServer(ctx);
   Object.assign(ctx, createServices(ctx));
   Object.assign(ctx, await openFloors(ctx, hookPort));
@@ -55,6 +56,7 @@ export async function startServer(cfg: Config, opts: StartOptions = {}) {
   const shutdown = (keep = false) => {
     stopTimers();
     ctx.cancelFloorsChanged();
+    void ctx.plugins.shutdown();
     ctx.arcade.flush();
     ctx.upgrader.stop();
     services.stop();

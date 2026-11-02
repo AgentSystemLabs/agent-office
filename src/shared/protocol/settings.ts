@@ -3,6 +3,7 @@
 import type { CustomMap } from '../maps/index.js';
 import type { PromptId } from '../prompts.js';
 import type { AgentChoice } from './agents.js';
+import type { PluginsState } from './plugins.js';
 
 /**
  * The prompts the office writes for workers by itself (shared/prompts.ts) and the worker everyone
@@ -185,12 +186,28 @@ export type SettingsClientMsg =
   | { t: 'sky.clock'; real: boolean }
   /** Change the building's map (see MapState), or with no map, read the custom maps' folder again. */
   | { t: 'map.set'; map?: string }
+  /** Open custom maps directory in system file explorer */
+  | { t: 'map.openFolder' }
   /** Workers whose pull request merged go home by themselves (true), or wait to be sent home. */
   | { t: 'leaveOnMerge.set'; on: boolean }
   /** Rewrite one of the office's prompts (admins only); null puts the default back. */
   | { t: 'prompts.set'; id: PromptId; text: string | null }
   /** Pick the worker everyone starts on (admins only); null goes back to the office's --agent. */
-  | { t: 'prompts.agent'; choice: AgentChoice | null };
+  | { t: 'prompts.agent'; choice: AgentChoice | null }
+  /** Request installed plugins list */
+  | { t: 'plugins.list' }
+  /** Install or enable a plugin by ID */
+  | { t: 'plugin.install'; id: string }
+  /** Uninstall or disable a plugin by ID */
+  | { t: 'plugin.uninstall'; id: string }
+  /** Open plugins directory in system file explorer */
+  | { t: 'plugin.openFolder'; id?: string }
+  /** Install a plugin from a Git URL */
+  | { t: 'plugin.installFromGit'; url: string }
+  /** Update a plugin to the latest release */
+  | { t: 'plugin.update'; id: string }
+  /** Check for plugin updates */
+  | { t: 'plugin.checkUpdates' };
 
 export type SettingsServerMsg =
   | { t: 'upgrade'; state: UpgradeState }
@@ -201,4 +218,5 @@ export type SettingsServerMsg =
   | { t: 'theme'; state: ThemeState }
   | { t: 'map'; state: MapState }
   | { t: 'prompts'; state: PromptsState }
-  | { t: 'leaveOnMerge'; state: LeaveOnMergeState };
+  | { t: 'leaveOnMerge'; state: LeaveOnMergeState }
+  | { t: 'plugins'; state: PluginsState };

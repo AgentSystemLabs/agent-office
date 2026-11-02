@@ -38,3 +38,30 @@
 .volume input[type=range]::-moz-range-thumb { width: 18px; height: 18px; border-radius: 50%; border: 3px solid var(--ink); background: var(--paper); box-shadow: 0 2px 0 var(--ink); }
 .volume input[type=range]:focus-visible::-webkit-slider-thumb { border-color: var(--accent); }
 .volume.muted input[type=range], .volume.muted .vol-pct { opacity: .45; }
+
+/* Settings: plugins */
+.plugins-list { display: flex; flex-direction: column; gap: 16px; }
+.plugin-section { display: flex; flex-direction: column; gap: 12px; }
+.plugin-section h4 { margin: 0 0 4px 0; font-size: 15px; font-weight: 800; }
+.plugin-card { padding: 14px; border: 2px solid var(--ink); border-radius: 12px; background: var(--paper-2); display: flex; flex-direction: column; gap: 8px; }
+.plugin-card.active { border-color: #2e7d32; background: #f1f8e9; }
+.plugin-card.error { border-color: #c62828; background: #ffebee; }
+.plugin-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.plugin-title-row { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.plugin-name { margin: 0; font-size: 16px; font-weight: 900; }
+.plugin-version { font-size: 12px; font-weight: 700; color: var(--muted); }
+.plugin-author { font-size: 12px; font-weight: 600; color: var(--muted); }
+.plugin-status { font-size: 11px; font-weight: 900; padding: 2px 8px; border-radius: 999px; border: 2px solid var(--ink); text-transform: uppercase; }
+.plugin-status.active { background: #a5d6a7; color: #1b5e20; }
+.plugin-status.inactive { background: #e0e0e0; color: #616161; }
+.plugin-status.error { background: #ef9a9a; color: #b71c1c; }
+.plugin-desc { margin: 0; font-size: 13.5px; font-weight: 500; line-height: 1.4; }
+.plugin-caps { display: flex; gap: 6px; flex-wrap: wrap; }
+.plugin-cap { font-size: 11px; font-weight: 700; padding: 2px 6px; background: #fff; border: 1.5px solid var(--ink); border-radius: 6px; }
+.plugin-actions { display: flex; gap: 8px; align-items: center; margin-top: 6px; flex-wrap: wrap; }
+.plugin-actions .btn { font-size: 12px; padding: 4px 10px; }
+.plugin-error { margin: 0; font-size: 12px; font-weight: 700; color: #c62828; }
+
+/* A plugin's own settings page, served by the office from the plugin's directory. */
+.plugin-settings { margin-top: 6px; }
+.plugin-settings-frame { width: 100%; height: 420px; border: 2px solid var(--ink); border-radius: 10px; background: #fff; }

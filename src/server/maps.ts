@@ -1,4 +1,5 @@
-import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { execFile } from 'node:child_process';
 import path from 'node:path';
 import type { MapState } from '../shared/protocol.js';
 import { OFFICE_MAP, checkCustomMaps, isMapChoice, planOf, type CustomMap, type MapPlan } from '../shared/maps/index.js';
@@ -36,6 +37,18 @@ export class Maps {
   /** The folder custom maps go in. */
   get folder(): string {
     return this.dir;
+  }
+
+  openFolder(): void {
+    if (!existsSync(this.dir)) {
+      try {
+        mkdirSync(this.dir, { recursive: true });
+      } catch {
+        /* ignore */
+      }
+    }
+    const cmd = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'explorer' : 'xdg-open';
+    execFile(cmd, [this.dir], () => {});
   }
 
   state(): MapState {

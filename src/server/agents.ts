@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { AGENT_PROVIDERS, PROVIDER_META, isAgentEffort, providerMeta, providerNames, type AgentProvider } from '../shared/providers.js';
+import { AGENT_PROVIDERS, PROVIDER_META, isAgentEffort, providerMeta, providerNames, getPluginProviders, getAllProviders, type AgentProvider } from '../shared/providers.js';
 
 /**
  * Finds the provider represented by the configured executable.  Keep this deliberately based on
@@ -9,17 +9,23 @@ import { AGENT_PROVIDERS, PROVIDER_META, isAgentEffort, providerMeta, providerNa
  */
 export function configuredProvider(command: string): AgentProvider {
   const base = path.basename(command.replaceAll('\\', '/')).toLowerCase().replace(/\.(?:exe|cmd|bat|com)$/, '');
-  return AGENT_PROVIDERS.find((p) => PROVIDER_META[p].bin === base) ?? 'custom';
+  for (const p of getAllProviders()) {
+    const meta = PROVIDER_META[p];
+    if (!meta) continue;
+    if (meta.matchesCommand?.(command)) return p as AgentProvider;
+    if (meta.bin === base || meta.bins?.includes(base)) return p as AgentProvider;
+  }
+  return 'custom';
 }
 
-/** The providers an office started with `configured` can hire: the ones it knows, and a custom --agent only when that's what it was started with. */
+/** The providers an office started with `configured` can hire: the ones it knows, the ones its plugins register, and a custom --agent only when that's what it was started with. */
 export function agentProviders(configured: AgentProvider): AgentProvider[] {
-  return AGENT_PROVIDERS.filter((p) => p !== 'custom' || configured === 'custom');
+  return [...AGENT_PROVIDERS, ...getPluginProviders()].filter((p) => p !== 'custom' || configured === 'custom') as AgentProvider[];
 }
 
 /** The command a provider's CLI runs as: the office's --agent when that's this provider, else its own executable. */
 export function providerCommand(provider: AgentProvider, agentCmd: string): string {
-  return configuredProvider(agentCmd) === provider ? agentCmd : (PROVIDER_META[provider].bin ?? agentCmd);
+  return configuredProvider(agentCmd) === provider ? agentCmd : (PROVIDER_META[provider]?.bin ?? agentCmd);
 }
 
 export function validateWorkerModel(kind: 'agent' | 'shell', provider: AgentProvider | undefined, model: unknown): string | undefined {
@@ -27,13 +33,13 @@ export function validateWorkerModel(kind: 'agent' | 'shell', provider: AgentProv
   if (kind === 'shell') return 'Shell workers do not have an agent model';
   const meta = providerMeta(provider);
   if (!meta?.validModel) return `Models can only be selected for ${providerNames((m) => !!m.validModel)} workers`;
-  return meta.validModel(model) ? undefined : meta.invalidModel;
+  return meta.validModel(model) ? undefined : (meta.invalidModel ?? `Invalid ${meta.label} model`);
 }
 
 /** A reasoning effort for a worker: a flag of its provider's CLI, an OpenCode model's variant, or DSH's reasoning_effort configuration option. */
 export function validateWorkerEffort(kind: 'agent' | 'shell', provider: AgentProvider | undefined, effort: unknown): string | undefined {
   if (effort === undefined) return undefined;
-  if (kind === 'shell') return 'Shell workers do not have a reasoning effort';
+  if (kind === 'shell') return 'Shell workers do not have an agent effort';
   if (!providerMeta(provider)?.takesEffort) return `Reasoning effort can only be selected for ${providerNames((m) => !!m.takesEffort)} workers`;
   return isAgentEffort(effort) ? undefined : 'Invalid effort (expected low, medium, high, xhigh or max)';
 }

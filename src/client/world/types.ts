@@ -45,6 +45,7 @@ export interface Interactable {
   deskId?: string;
   decorId?: string;
   seatId?: string;
+  boardId?: string;
   /** Which of POLES, for a fire pole. */
   pole?: number;
   /** Which of CARS (shared/garage.ts), for a car. */

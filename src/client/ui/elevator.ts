@@ -76,7 +76,7 @@ export function openElevator(opts: ElevatorOptions): void {
 
   const floorsEl = h('div.floors');
   const addEl = h('div.add');
-  const input = h('input', { type: 'text', placeholder: 'Search your repositories, or type owner/name', 'aria-label': 'Repository', autocomplete: 'off', spellcheck: 'false' }) as HTMLInputElement;
+  const input = h('input', { type: 'text', placeholder: 'Search your projects', 'aria-label': 'Project', autocomplete: 'off', spellcheck: 'false' }) as HTMLInputElement;
   const listEl = h('div.repo-list', { role: 'listbox', 'aria-label': 'Repositories' });
   const statusEl = h('div');
   const addBtn = h('button.btn.primary', { type: 'button' }, '🛗 Add floor');
@@ -114,8 +114,8 @@ export function openElevator(opts: ElevatorOptions): void {
     net.send({ t: 'floor.repos' });
   };
 
-  /** What "Add floor" would add: the row picked, else what's typed if it's owner/name. */
-  const choice = (): string | undefined => selected ?? normalizeRepo(filter);
+  /** What "Add floor" would add: the row picked, else what's typed if it's owner/name or a path. */
+  const choice = (): string | undefined => selected ?? (filter.trim().startsWith('/') || filter.trim().startsWith('~') ? filter.trim() : normalizeRepo(filter));
 
   const floorButton = (f: FloorInfo, i: number) => {
     // Down in the garage, your floor is somewhere to go back up to.
@@ -217,7 +217,6 @@ export function openElevator(opts: ElevatorOptions): void {
   const renderFloors = () => {
     const floors = store.floors;
     const built = floors.some((f) => !f.cloning);
-    // Top floor first, the way an elevator's buttons stack, with the roof over them, floor 1 and then the garage at the bottom.
     floorsEl.replaceChildren(
       ...(built ? [roofButton()] : []),
       ...(floors.length ? floors.map(floorRow).reverse() : [h('p.empty', {}, 'No floors yet.')]),
@@ -226,7 +225,7 @@ export function openElevator(opts: ElevatorOptions): void {
   };
 
   const repoRow = (r: RepoChoice) => {
-    const floor = store.floors.find((f) => sameRepo(f.repo, r.name));
+    const floor = store.floors.find((f) => sameRepo(f.repo, r.name) || sameRepo(f.dir, r.name) || sameRepo(f.name, r.name));
     const row = h(
       'div.repo',
       { role: 'option', class: selected && sameRepo(selected, r.name) ? 'sel' : '', 'aria-selected': String(!!selected && sameRepo(selected, r.name)), title: r.description ?? r.name },
@@ -276,12 +275,14 @@ export function openElevator(opts: ElevatorOptions): void {
     // owner/name that isn't in the list (someone else's public repository): offer it anyway.
     if (typed && !r.list.some((x) => sameRepo(x.name, typed))) rows.push(repoRow({ name: typed, private: false, description: 'Not in your list — the office will try to clone it' }));
     rows.push(...matches.slice(0, SHOWN).map(repoRow));
-    if (!rows.length) rows.push(h('p.empty', { style: 'padding:10px' }, r.loading ? 'Asking GitHub for your repositories…' : r.error ? '' : q ? 'Nothing matches. Type owner/name to clone any repository.' : 'No repositories.'));
+    if (!rows.length) rows.push(h('p.empty', { style: 'padding:10px' }, r.loading ? 'Loading projects…' : r.error ? '' : q ? 'Nothing matches.' : 'Every project is already a floor of this building.'));
     if (matches.length > SHOWN) rows.push(h('p.empty', { style: 'padding:8px 10px' }, `…and ${matches.length - SHOWN} more — type to narrow it down`));
     listEl.replaceChildren(...rows);
     const pick = choice();
-    const dest = pick ? `${store.projectsDir.dir}/${pick}` : `${store.projectsDir.dir}/<owner>/<repo>`;
-    const change = store.me.admin ? h('button.btn.dir-change', { type: 'button', title: 'Clone new projects into another folder on the office’s machine' }, '📁 Change folder') : null;
+    // A project may be a folder already on disk or a git repository to clone.
+    const clone = !!pick && !pick.startsWith('/') && !pick.startsWith('~');
+    const dest = pick && !clone ? pick : `${store.projectsDir.dir}/<owner>/<repo>`;
+    const change = clone && store.me.admin ? h('button.btn.dir-change', { type: 'button', title: 'Clone new projects into another folder on the office’s machine' }, '📁 Change folder') : null;
     change?.addEventListener('click', () => editDir(true));
     // While it clones: how far it's got (the office asks GitHub about it first).
     const on = addingFloor();
@@ -292,25 +293,32 @@ export function openElevator(opts: ElevatorOptions): void {
           on ? h('p.note', {}, [cloneStep(on.clone), on.clone?.detail].filter(Boolean).join(' · ')) : null,
           h('p.note', {}, 'You can close this and carry on: everyone hears when the new floor opens.'),
         ]
-      : [h('p.note', {}, `Cloned into ${dest} with this machine's gh login. Everything on the new floor works in that checkout.`, change)];
+      : [
+          clone
+            ? h('p.note', {}, `Cloned into ${dest} with this machine's gh login. Everything on the new floor works in that checkout.`)
+            : h('p.note', {}, `${dest} is already on disk. It becomes a floor, and every worker works in it.`),
+          change,
+        ];
     statusEl.replaceChildren(...lines.filter((l): l is HTMLElement => !!l), ...[r.error, error].filter(Boolean).map((e) => h('p.err', {}, e)));
-    addBtn.disabled = !!adding || !pick || store.floors.some((f) => sameRepo(f.repo, pick));
-    addBtn.textContent = adding ? '⏳ Cloning…' : pick ? `🛗 Add ${pick}` : '🛗 Add floor';
+    addBtn.disabled = !!adding || !pick || store.floors.some((f) => sameRepo(f.repo, pick) || sameRepo(f.dir, pick) || sameRepo(f.name, pick));
+    addBtn.textContent = adding ? '⏳ Adding…' : pick && !clone ? '🛗 Add this project' : pick ? `🛗 Add ${pick}` : '🛗 Add floor';
     input.disabled = !!adding;
     if (!built) {
       built = true;
+      const maxFloors = store.projectsDir.maxFloors ?? 500;
       addEl.replaceChildren(
         h('h3', {}, setup && !store.floors.length ? 'Pick your first project' : '➕ Add a project'),
         h('div.repo-search', {}, input, refreshBtn),
         listEl,
         statusEl,
+        h('p.note.max-floors-info', { style: 'margin-top:6px;font-size:12px;color:var(--muted);' }, `Showing up to ${maxFloors} projects as floors (configured in ⚙️ Settings → Building).`),
         dirEl,
       );
     }
   };
 
   /** The floor being added, once the office is cloning it (and after, when it's there). */
-  const addingFloor = () => (adding ? store.floors.find((f) => sameRepo(f.repo, adding!)) : undefined);
+  const addingFloor = () => (adding ? store.floors.find((f) => sameRepo(f.repo, adding!) || sameRepo(f.dir, adding!) || sameRepo(f.name, adding!)) : undefined);
 
   const add = (repo: string) => {
     if (adding) return;
@@ -370,7 +378,7 @@ export function openElevator(opts: ElevatorOptions): void {
     if (e.key !== 'Enter' || e.isComposing) return;
     e.preventDefault();
     const q = filter.trim().toLowerCase();
-    const matches = store.repos.list.filter((x) => !store.floors.some((f) => sameRepo(f.repo, x.name)) && (x.name.toLowerCase().includes(q) || (x.description ?? '').toLowerCase().includes(q)));
+    const matches = store.repos.list.filter((x) => !store.floors.some((f) => sameRepo(f.repo, x.name) || sameRepo(f.dir, x.name) || sameRepo(f.name, x.name)) && (x.name.toLowerCase().includes(q) || (x.description ?? '').toLowerCase().includes(q)));
     const pick = choice() ?? (q && matches.length === 1 ? matches[0].name : undefined);
     if (pick) add(pick);
   });
@@ -398,7 +406,18 @@ export function openElevator(opts: ElevatorOptions): void {
     { role: 'dialog', 'aria-label': 'Elevator' },
     h('header', {}, h('h2', {}, setup ? '🏢 Welcome to Agent Office' : '🛗 Elevator'), close),
     h('div.body', {}, intro, floorsEl, addEl),
-    h('footer', {}, h('span.grow', {}, setup ? 'Your office, one floor per project · Esc to look around first' : 'Pick a floor · Esc to stay here'), addBtn),
+    h(
+      'footer',
+      {},
+      h(
+        'span.grow',
+        {},
+        setup
+          ? 'Your office · Esc to look around first'
+          : 'Pick a floor · Esc to stay here',
+      ),
+      addBtn,
+    ),
   );
   const unsubs = [store.on('floors', () => (checkAdding(), renderFloors(), renderAdd())), store.on('repos', renderAdd), store.on('projectsDir', () => (editDir(false), renderAdd())), store.on('floor', renderFloors), store.on('peers', renderFloors), store.on('me', () => (renderFloors(), renderAdd()))];
   const modal = openModal(el, {

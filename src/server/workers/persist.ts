@@ -2,7 +2,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import type { AgentProvider, WorkerInfo, WorkerStatus, WorkerTask } from '../../shared/protocol.js';
 import { DESK_BY_ID } from '../../shared/layout.js';
-import { isAgentProvider, savedEffort, savedModel } from '../../shared/providers.js';
+import { isKnownProvider, savedEffort, savedModel } from '../../shared/providers.js';
 import { providerAdapter } from '../providers/index.js';
 import { reportedUsage } from '../reported-usage.js';
 import { restoreTracker, trackerUsage } from '../usage.js';
@@ -66,7 +66,7 @@ export function restoreWorkers(file: string, workers: Map<string, Worker>, defau
       const tracker = restoreTracker(s.tracker);
       const provider = s.kind === 'shell'
         ? undefined
-        : isAgentProvider(s.provider)
+        : isKnownProvider(s.provider)
           ? s.provider
           : tracker.transcript
             ? 'claude'

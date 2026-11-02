@@ -1,7 +1,7 @@
 import './services.css';
 import type { ServiceInfo, ServicesState } from '../../shared/protocol';
 import { store } from '../state';
-import { h, openModal, timeAgo } from './dom';
+import { h, openModal, timeAgo, toast } from './dom';
 import { copy, copyButton, guessOs, openCommand, OS_LABEL, type Os } from './team';
 
 /** Whether this page came over the office's Tailscale network, where every server has its own link. */
@@ -58,6 +58,65 @@ export function openServices() {
     body,
     footer,
   );
+
+  const controlService = async (action: 'start' | 'stop', svc: ServiceInfo) => {
+    try {
+      const name = svc.title || svc.command;
+      toast(action === 'start' ? 'Starting service…' : 'Stopping service…', 'info');
+      const res = await fetch(`/api/services/${action}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ floor: store.floor, name, command: svc.command }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        toast(data.error || `Failed to ${action} service`, 'warn');
+      } else {
+        toast(action === 'start' ? 'Service started' : 'Service stopped', 'info');
+      }
+    } catch (err) {
+      toast((err as Error).message, 'warn');
+    }
+  };
+
+  const showServiceLogs = async (svc: ServiceInfo) => {
+    const name = svc.title || svc.command;
+    const logPre = h('pre', {
+      style: 'max-height:60vh;overflow:auto;background:#1b1b1b;color:#f0f0f0;padding:12px;border-radius:10px;font-size:12px;line-height:1.45;white-space:pre-wrap;font-family:ui-monospace,Menlo,monospace;margin:0;',
+    }, 'Loading logs…');
+    const refreshLogs = h('button.btn', { type: 'button' }, '🔄 Refresh');
+    const closeLogs = h('button.btn.close', { 'aria-label': 'Close' }, '✕');
+    const logModalEl = h(
+      'div.modal',
+      { role: 'dialog', 'aria-label': `Logs: ${name}`, style: 'width:min(800px,95vw);' },
+      h('header', {}, h('h2', {}, `📜 Logs · ${name}`), refreshLogs, closeLogs),
+      h('div.body', {}, logPre),
+    );
+    const logModal = openModal(logModalEl, { doing: 'viewing service logs' });
+    closeLogs.addEventListener('click', () => logModal.close());
+
+    const loadLogs = async () => {
+      refreshLogs.disabled = true;
+      try {
+        const floorId = store.floor ?? '';
+        const res = await fetch(`/api/services/logs?floor=${encodeURIComponent(floorId)}&name=${encodeURIComponent(name)}`);
+        if (!res.ok) {
+          logPre.textContent = 'Could not load logs from service.';
+          return;
+        }
+        const data = await res.json();
+        const lines: string[] = data.logs ?? [];
+        logPre.textContent = lines.length ? lines.join('\n') : 'No logs recorded yet.';
+        logPre.scrollTop = logPre.scrollHeight;
+      } catch (err) {
+        logPre.textContent = `Error: ${(err as Error).message}`;
+      } finally {
+        refreshLogs.disabled = false;
+      }
+    };
+    refreshLogs.addEventListener('click', loadLogs);
+    void loadLogs();
+  };
 
   const pick = async (svc: ServiceInfo) => {
     const s = store.services;
@@ -120,9 +179,49 @@ export function openServices() {
     for (const svc of s.items) {
       const { who, color, branch } = describe(svc);
       const on = picked === svc.port;
+      const isStopped = svc.title?.includes('(Stopped)') || svc.workerId === 'dev-server-stopped';
+      const isDevServer =
+        svc.workerId?.startsWith('dev-server') ||
+        svc.title?.toLowerCase().includes('server') ||
+        svc.title?.toLowerCase().includes('dev') ||
+        svc.title?.includes('(Stopped)') ||
+        svc.title?.includes('(Running)');
+
+      const actionsRow = h('div', { style: 'display:inline-flex;gap:6px;margin-left:auto;align-items:center;' });
+
+      if (isDevServer) {
+        const toggleBtn = h('button.btn', {
+          type: 'button',
+          title: isStopped ? 'Start dev server' : 'Stop dev server',
+          style: isStopped
+            ? 'background:#e8f5e9;border-color:#2e7d32;color:#1b5e20;padding:2px 8px;font-size:12px;font-weight:800;'
+            : 'background:#ffebee;border-color:#c62828;color:#b71c1c;padding:2px 8px;font-size:12px;font-weight:800;',
+        }, isStopped ? '▶ Start' : '⏹ Stop');
+        toggleBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          void controlService(isStopped ? 'start' : 'stop', svc);
+        });
+
+        const logsBtn = h('button.btn', {
+          type: 'button',
+          title: 'View service logs',
+          style: 'padding:2px 8px;font-size:12px;font-weight:800;',
+        }, '📜 Logs');
+        logsBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          void showServiceLogs(svc);
+        });
+
+        actionsRow.append(toggleBtn, logsBtn);
+      }
+
       const title = direct ? `Open ${serviceUrl(svc.port)}` : `Open ${serviceUrl(svc.port)} (needs the tunnel, unless the office runs on this computer)`;
-      const open = h('a.btn', { href: serviceUrl(svc.port), target: '_blank', rel: 'noopener', title }, 'Open ↗');
-      open.addEventListener('click', (e) => e.stopPropagation());
+      if (svc.port > 0 && !isStopped) {
+        const open = h('a.btn', { href: serviceUrl(svc.port), target: '_blank', rel: 'noopener', title }, 'Open ↗');
+        open.addEventListener('click', (e) => e.stopPropagation());
+        actionsRow.append(open);
+      }
+
       const li = h(
         'li',
         { class: on ? 'on' : '', tabindex: 0, role: 'button', title: direct ? 'Copy the link' : 'Copy the tunnel command' },
@@ -133,8 +232,8 @@ export function openServices() {
           h('div.svc-title', {}, svc.title || svc.command),
           h('div.svc-meta', {}, [who, branch ? `🌿 ${branch}` : '', svc.title ? svc.command : '', `started ${timeAgo(svc.since)}`].filter(Boolean).join(' · ')),
         ),
-        h('span.svc-port', {}, `:${svc.port}`),
-        open,
+        svc.port > 0 ? h('span.svc-port', {}, `:${svc.port}`) : null,
+        actionsRow,
       );
       li.addEventListener('click', () => void pick(svc));
       li.addEventListener('keydown', (e) => {

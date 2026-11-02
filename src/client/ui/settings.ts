@@ -12,6 +12,7 @@ import { agentFields, choiceLabel, officeChoice } from './provider';
 import { openPromptEditor, rewrittenPrompts } from './prompts';
 import { outsideSetting } from './settings-sky';
 import { choiceRow } from './settings-rows';
+import { pluginsSetting } from './settings-plugins';
 
 const VIEWS: [ViewMode, string, string][] = [
   ['first', '👀 First person', 'See through your own eyes. Click the office to look around with the mouse and click things to use them. Esc frees the mouse.'],
@@ -23,7 +24,7 @@ const THEME_LABEL: Record<ThemePick, string> = { auto: '📅 By the calendar', h
 const WEBHOOK_NAME: Record<WebhookKind, string> = { slack: 'Slack', discord: 'Discord', other: 'a webhook' };
 
 /** The categories down the side of ⚙️ Settings. */
-export type SettingsPane = 'you' | 'sound' | 'notify' | 'building' | 'workers';
+export type SettingsPane = 'you' | 'sound' | 'notify' | 'building' | 'workers' | 'plugins';
 
 const PANES: { id: SettingsPane; icon: string; label: string; blurb: string }[] = [
   { id: 'you', icon: '🧍', label: 'You', blurb: 'How you look, how you see the office, and how you’re signed in.' },
@@ -31,6 +32,7 @@ const PANES: { id: SettingsPane; icon: string; label: string; blurb: string }[] 
   { id: 'notify', icon: '🔔', label: 'Notifications', blurb: 'Hear about a worker that needs someone, or finished, while you’re somewhere else.' },
   { id: 'building', icon: '🏢', label: 'Building', blurb: 'The map, the decorations, the sky, the dog, and where new floors are cloned.' },
   { id: 'workers', icon: '🤖', label: 'Workers', blurb: 'What workers start on, how many run at once, when they go home and what the office tells them.' },
+  { id: 'plugins', icon: '🔌', label: 'Plugins', blurb: 'Installed harness and extension plugins.' },
 ];
 
 /** Who a setting is for, shown by its name: some are yours alone, some the whole office's. */
@@ -118,6 +120,7 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
   // Voice chat: an open mic, or muted until you hold V.
   const talkRow = choiceRow('Voice chat', [[false, '🎙️ Open mic'], [true, '✋ Push to talk']], () => settings.pushToTalk, (pushToTalk) => change({ pushToTalk }));
   const musicRow = volumeRow('Jukebox volume', 'music', 'musicMuted');
+  const plugins = pluginsSetting(net);
 
   // The swish of the book's pages at the bookshelf, on or off.
   const pagesRow = choiceRow('Page turns at the bookshelf', [[true, '📖 On'], [false, 'Off']], () => settings.pageTurns, (pageTurns) => change({ pageTurns }));
@@ -166,6 +169,16 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
   const mapRow = h('div.seg', { role: 'radiogroup', 'aria-label': 'Map' });
   const mapNote = h('p.setting-note');
   const mapBad = h('p.setting-note.bad', { style: 'white-space: pre-line' });
+  const openFolderBtn = h(
+    'button.btn',
+    {
+      type: 'button',
+      title: 'Open custom maps folder on your computer',
+      onclick: () => net.send({ t: 'map.openFolder' }),
+    },
+    '📁 Open maps folder',
+  );
+  const mapActions = h('div.seg', { style: 'margin-top:8px' }, openFolderBtn);
   const paintMap = () => {
     const { pick, by, at, custom } = store.map;
     const choices = mapChoices(custom);
@@ -433,6 +446,29 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
   });
   dirDefault.addEventListener('click', () => net.send({ t: 'floor.projectsDir', dir: '' }));
 
+  // Max floors / projects limit in building
+  const maxFloorsInput = h('input', { type: 'text', placeholder: '500', 'aria-label': 'Max floors limit', spellcheck: 'false', autocomplete: 'off' }) as HTMLInputElement;
+  const maxFloorsSave = h('button.btn.primary', { type: 'button' }, 'Save');
+  const maxFloorsRow = h('div.webhook', {}, maxFloorsInput, maxFloorsSave);
+  const maxFloorsNote = h('p.setting-note');
+  const paintMaxFloors = () => {
+    const limit = store.projectsDir.maxFloors ?? 500;
+    const admin = store.me.admin;
+    maxFloorsInput.value = String(limit);
+    maxFloorsRow.classList.toggle('hidden', !admin);
+    maxFloorsNote.textContent = `The building displays up to ${limit} projects as floors. ${admin ? 'Admins can change this limit.' : 'An admin can change it.'}`;
+  };
+  paintMaxFloors();
+  const saveMaxFloors = () => {
+    const val = Number(maxFloorsInput.value);
+    if (!val || val < 1) return maxFloorsInput.focus();
+    net.send({ t: 'floor.maxFloors', max: val });
+  };
+  maxFloorsSave.addEventListener('click', saveMaxFloors);
+  maxFloorsInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') saveMaxFloors();
+  });
+
   // The dog on this floor: its name, breed and coat, for everyone here (see settings-dog.ts).
   const { section: dogSection, paint: paintDog } = dogSetting(net, (body) => setting('Office dog', 'floor', ...body));
 
@@ -460,17 +496,21 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
       setting('Team notifications (Slack / Discord)', 'office', h('div.webhook', {}, hookInput, hookSave), hookActions, hookStatus),
     ],
     building: [
-      setting('Map', 'office', mapRow, mapNote, mapBad),
+      setting('Map', 'office', mapRow, mapNote, mapActions, mapBad),
       setting('Holiday theme', 'office', themeRow, themeNote),
       ...(sky ? [sky.section] : []),
       dogSection,
       setting('Workspace folder', 'office', dirRow, dirActions, dirNote),
+      setting('Max floors / displayed projects', 'office', maxFloorsRow, maxFloorsNote),
     ],
     workers: [
       setting('Default worker', 'office', agentNow, agent.element, agentActions, agentNote),
       setting('Worker limit', 'office', limitRow, limitNote),
       setting('Workers whose pull request merged', 'office', leaveRow, leaveNote),
       setting('Prompts', 'office', promptsOpen, promptsNote),
+    ],
+    plugins: [
+      setting('Plugin Store & Extensions', null, plugins.element),
     ],
   };
 
@@ -514,8 +554,10 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
   const offMap = store.on('map', paintMap);
   const offLeave = store.on('leaveOnMerge', paintLeave);
   const offLimit = [store.on('machine', paintLimit), store.on('me', paintLimit)];
-  const offDir = [store.on('projectsDir', paintDir), store.on('me', paintDir)];
+  const offDir = [store.on('projectsDir', paintDir), store.on('projectsDir', paintMaxFloors), store.on('me', paintDir), store.on('me', paintMaxFloors)];
   const offPrompts = [store.on('prompts', paintAgent), store.on('prompts', paintPrompts), store.on('me', paintAgent), store.on('me', paintPrompts)];
+  const offPlugins = store.on('plugins', plugins.paint);
+  net.send({ t: 'plugins.list' });
   const modal = openModal(el, {
     doing: '⚙️ in settings',
     onClose: () => {
@@ -528,6 +570,7 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
       offLimit.forEach((off) => off());
       offDir.forEach((off) => off());
       offPrompts.forEach((off) => off());
+      offPlugins();
     },
   });
   show(first ?? lastPane);

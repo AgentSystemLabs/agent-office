@@ -134,7 +134,7 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void,
   const sayBtn = h('button.btn.primary', { type: 'submit' }, 'Send');
   const sayForm = h('form.term-say', {}, dictateField(say), sayBtn);
   const keypad = opts.keypad ? h('div.term-keypad', {}, keys, sayForm) : null;
-  const tabs = termTabs(workerId, { host, keypad, focusTerm: () => term.focus() });
+  const tabs = termTabs(workerId, { host, keypad, focusTerm: () => term.focus(), sessionUrl: info.sessionUrl });
   // What you say is typed in at the terminal's cursor, as a paste, for you to read over and send (see dictate.ts).
   const mic = dictation(
     {
@@ -341,6 +341,7 @@ export function openTerminal(net: Net, workerId: string, onChanges?: () => void,
       // Leaving with Esc while the program wanted one (you were in /skills, say): say how to send it one.
       if (byEsc && ready && screenMentionsEsc(term)) toast(`Esc left the terminal. To send ${store.workers.get(workerId)?.name ?? info.name} an Esc (to close a menu), use ⎋ Esc at the top or Ctrl+[`);
       listeners.delete(onMsg);
+      tabs.dispose();
       unsub();
       unsubPeers();
       clearInterval(typingTimer);

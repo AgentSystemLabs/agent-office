@@ -128,6 +128,15 @@ function claudeHook(h: WorkerHandle, event: string, payload: any): boolean {
     h.tracker.transcript = payload.transcript_path;
     h.persist();
   }
+  // A provider whose agent has a web UI of its own (an OpenFox session, say) says where: the worker's
+  // terminal then offers it as a tab. Only an http(s) link is taken, never anything the hook can use
+  // to point the browser somewhere else.
+  const sessionUrl = typeof payload?.web_url === 'string' ? payload.web_url : typeof payload?.embed_url === 'string' ? payload.embed_url : undefined;
+  if (sessionUrl && /^https?:\/\//.test(sessionUrl) && sessionUrl !== info.sessionUrl) {
+    info.sessionUrl = sessionUrl;
+    h.emit();
+    h.persist();
+  }
   h.scheduleScan();
   switch (event) {
     case 'SessionStart':

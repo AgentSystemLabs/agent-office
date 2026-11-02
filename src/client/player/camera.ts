@@ -19,6 +19,7 @@ export interface Room {
   wall: number;
   enclosed: boolean;
   vault?: { minX: number; maxX: number; minZ: number; maxZ: number; top: number };
+  indoorAreas?: { minX: number; maxX: number; minZ: number; maxZ: number }[];
 }
 
 /** What the camera follows you by: where you are and look, and the room you're in (see PlayerController). */
@@ -65,12 +66,16 @@ export function aimCamera(camera: THREE.PerspectiveCamera, p: Followed, bob: num
   const under = p.pos.x > R.minX && p.pos.x < R.maxX && p.pos.z > R.minZ && p.pos.z < R.maxZ;
   // In the office's back office, between its walls, and out through where the north wall was into the room.
   const back = !R.enclosed && p.pos.y > -SLAB - 0.5 && inWing(p.pos.x, p.pos.z, p.wing);
-  const indoors = ((rigged || p.pos.y > -SLAB - 0.5) && under) || back;
+  const inArea = !R.enclosed && p.pos.y > -SLAB - 0.5 && R.indoorAreas?.find((a) => p.pos.x >= a.minX && p.pos.x <= a.maxX && p.pos.z >= a.minZ && p.pos.z <= a.maxZ);
+  const indoors = ((rigged || p.pos.y > -SLAB - 0.5) && under) || back || !!inArea;
   // Down in a room under the floor (the castle's dungeon): the camera keeps inside that.
   const V = R.vault;
   if (V && p.pos.y < V.top - 0.5 && p.pos.x > V.minX && p.pos.x < V.maxX && p.pos.z > V.minZ && p.pos.z < V.maxZ) {
     cam.x = THREE.MathUtils.clamp(cam.x, V.minX + m, V.maxX - m);
     cam.z = THREE.MathUtils.clamp(cam.z, V.minZ + m, V.maxZ - m);
+  } else if (inArea) {
+    cam.x = THREE.MathUtils.clamp(cam.x, inArea.minX + m, inArea.maxX - m);
+    cam.z = THREE.MathUtils.clamp(cam.z, inArea.minZ + m, FLOOR.maxZ - m);
   } else if (back) {
     cam.x = THREE.MathUtils.clamp(cam.x, WING.minX + m, WING.maxX - m);
     cam.z = THREE.MathUtils.clamp(cam.z, wingMinZ(p.wing) + m, FLOOR.maxZ - m);

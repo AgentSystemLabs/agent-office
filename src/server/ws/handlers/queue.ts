@@ -1,18 +1,21 @@
 // The floor's task queue: adding, moving and retrying tasks, and how many workers it keeps busy.
-import { isAgentEffort, isAgentProvider, type QueueClientMsg } from '../../../shared/protocol.js';
+import { isAgentEffort, isKnownProvider, type QueueClientMsg } from '../../../shared/protocol.js';
 import { OPEN_CODE_MODEL_MAX } from '../../../shared/providers.js';
 import { num, str } from '../../office/input.js';
 import { here } from './common.js';
 import type { HandlerMap, ViewPieces } from './types.js';
 
-export const queueView: ViewPieces['queue'] = (_ctx, floor) => floor?.queue.state() ?? { tasks: [], maxWorkers: 0 };
+export const queueView: ViewPieces['queue'] = (_ctx, floor) => {
+  if (floor) void floor.queue.syncFromAdapter();
+  return floor?.queue.state() ?? { tasks: [], maxWorkers: 0 };
+};
 
 export const queueHandlers = {
   'queue.add'(ctx, c, msg) {
     const who = c.peer.name;
     const floor = here(ctx, c);
     if (!floor) return;
-    if (msg.provider !== undefined && (!isAgentProvider(msg.provider) || !floor.project.agentProviders.includes(msg.provider))) {
+    if (msg.provider !== undefined && (!isKnownProvider(msg.provider) || !floor.project.agentProviders.includes(msg.provider))) {
       ctx.warn(c, 'Unknown agent provider');
       return;
     }
@@ -28,14 +31,14 @@ export const queueHandlers = {
   },
   'queue.remove'(ctx, c, msg) {
     const floor = here(ctx, c);
-    if (floor) ctx.warn(c, floor.queue.remove(str(msg.taskId, 32)));
+    if (floor) ctx.warn(c, floor.queue.remove(str(msg.taskId, 128)));
   },
   'queue.move'(ctx, c, msg) {
-    ctx.floorOf(c)?.queue.move(str(msg.taskId, 32), num(msg.delta) < 0 ? -1 : 1);
+    ctx.floorOf(c)?.queue.move(str(msg.taskId, 128), num(msg.delta) < 0 ? -1 : 1);
   },
   'queue.retry'(ctx, c, msg) {
     const floor = here(ctx, c);
-    if (floor) ctx.warn(c, floor.queue.retry(str(msg.taskId, 32)));
+    if (floor) ctx.warn(c, floor.queue.retry(str(msg.taskId, 128)));
   },
   'queue.clear'(ctx, c) {
     ctx.floorOf(c)?.queue.clear();

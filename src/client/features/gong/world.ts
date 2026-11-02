@@ -22,6 +22,7 @@ export interface Gong {
   /** Where confetti bursts from when there's no desk to burst over: just above the frame. */
   readonly top: THREE.Vector3;
   update(dt: number): void;
+  moveTo(at: { x: number; y?: number; z: number; rotY?: number }): void;
 }
 
 /** The gong, where the office has it, or at (x, z) facing `rotY` (0 is +z, the office's way), on a floor `y` up. */
@@ -110,7 +111,9 @@ export function buildGong(at: { x: number; y?: number; z: number; rotY?: number 
     group,
     colliders,
     interactable,
-    top: new THREE.Vector3(x + ahead.x * 0.3, y + height + 0.4, z + ahead.z * 0.3),
+    get top() {
+      return new THREE.Vector3(group.position.x + ahead.x * 0.3, group.position.y + height + 0.4, group.position.z + ahead.z * 0.3);
+    },
     strike(strength = 1) {
       // Hit from the front, it swings back towards the wall first.
       swing = Math.min(0.3, swing * 0.5 + 0.16 * strength);
@@ -118,6 +121,26 @@ export function buildGong(at: { x: number; y?: number; z: number; rotY?: number 
       glow = Math.min(1, 0.6 + 0.3 * strength);
       waveT = 0;
       waveSize = 1 + strength;
+    },
+    moveTo(pos) {
+      const px = pos.x;
+      const py = pos.y ?? 0;
+      const pz = pos.z;
+      const rot = pos.rotY ?? 0;
+      group.position.set(px, py, pz);
+      group.rotation.y = rot;
+      ahead.x = Math.sin(rot);
+      ahead.z = Math.cos(rot);
+      interactable.x = px + ahead.x * 1.3;
+      interactable.y = py ? py : undefined;
+      interactable.z = pz + ahead.z * 1.3;
+      const [cMinX, cMaxX, cMinZ, cMaxZ] = rot ? boxFootprint(px, pz, width + 0.42, 0.6, rot) : [px - half - 0.12, px + half + 0.3, pz - 0.3, pz + 0.3];
+      colliders[0].minX = cMinX;
+      colliders[0].maxX = cMaxX;
+      colliders[0].minZ = cMinZ;
+      colliders[0].maxZ = cMaxZ;
+      colliders[0].top = py + height + 0.1;
+      colliders[0].bottom = py || undefined;
     },
     update(dt) {
       if (swing > 0.001) {
@@ -154,7 +177,8 @@ declare module '../../world/types' {
 
 /** The gong, just past the elevator from the PR board. */
 export const gong: Fixture<'gong'> = (site) => {
-  const built = buildGong();
-  site.wall('north', GONG.x, (GONG.height + 0.3) / 2, GONG.width + 1.2, GONG.height + 0.3);
+  const at = site.gongAt ?? GONG;
+  const built = buildGong(at);
+  site.wall('north', at.x, (GONG.height + 0.3) / 2, GONG.width + 1.2, GONG.height + 0.3);
   return { group: built.group, colliders: built.colliders, interactables: [built.interactable], update: (_t, dt) => built.update(dt), handle: { gong: built } };
 };

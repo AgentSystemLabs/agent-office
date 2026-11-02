@@ -18,10 +18,13 @@ export const OFFICE_MAP = 'office';
 /** The maps that come with the office, besides the office itself. */
 export const BUILTIN_MAPS: readonly MapConfig[] = [CASTLE, STATION];
 
+const OFFICE_PROP_KINDS = { ...PROP_KINDS, ...STATION_PROP_KINDS };
+
 /** The props each style of map can put up (see ./props.ts and ./station-props.ts): their kinds, the floor each takes and how high it reaches. */
-const STYLE_PROPS: Record<MapStyle, { kinds: Readonly<Record<string, string>>; footprint: typeof propFootprint; top(p: PropConfig): number }> = {
+const STYLE_PROPS: Record<MapStyle | 'office', { kinds: Readonly<Record<string, string>>; footprint: (p: PropConfig) => { rect?: Rect; circle?: Circle } | null; top(p: PropConfig): number }> = {
   castle: { kinds: PROP_KINDS, footprint: propFootprint, top: propTop },
   station: { kinds: STATION_PROP_KINDS, footprint: stationFootprint, top: stationTop },
+  office: { kinds: OFFICE_PROP_KINDS, footprint: (p) => propFootprint(p) ?? stationFootprint(p), top: (p) => Math.max(propTop(p), stationTop(p)) },
 };
 
 const STATION_KINDS: readonly StationKind[] = ['issues', 'pulls', 'queue'];
@@ -133,8 +136,8 @@ export function planMap(input: unknown): MapPlan {
   const id = c.id;
   if (id === OFFICE_MAP) throw new MapError('"office" is the office’s own id');
   const name = str(c.name, 'name', 40);
-  if (!(MAP_STYLES as readonly string[]).includes(c.style)) throw new MapError(`its style "${String(c.style)}" isn’t one there’s a builder for (${MAP_STYLES.join(', ')})`);
-  const style = c.style as MapStyle;
+  if (c.style !== 'office' && !(MAP_STYLES as readonly string[]).includes(c.style)) throw new MapError(`its style "${String(c.style)}" isn’t one there’s a builder for (${MAP_STYLES.join(', ')})`);
+  const style = c.style as MapStyle | 'office';
   const kinds = STYLE_PROPS[style];
   if (!isObj(c.hall)) throw new MapError('it needs a hall: { width, length, height }');
   const width = num(c.hall.width, 'hall.width', 8, 110);
@@ -158,60 +161,67 @@ export function planMap(input: unknown): MapPlan {
   const circles: Circle[] = [];
 
   // The seats at the tables: every table's side toward the middle of the hall first, then the far sides.
-  if (!Array.isArray(c.tables) || !c.tables.length) throw new MapError('it needs tables for the workers to sit at');
-  if (c.tables.length > MAP_LIMITS.tables) throw new MapError(`it has ${c.tables.length} tables, and a map can have ${MAP_LIMITS.tables}`);
-  const inner: { def: Omit<DeskDef, 'id' | 'label'>; table: string }[] = [];
-  const outer: typeof inner = [];
+  let desks: DeskDef[] = [];
+  let overflow: DeskDef[] = [];
   const tables: MapPlan['tables'] = [];
-  c.tables.forEach((t: TableConfig, i) => {
-    const what = `tables[${i}]`;
-    if (!isObj(t)) throw new MapError(`${what} should be { x, z, length, seats }`);
-    const x = num(t.x, `${what}.x`);
-    const z = num(t.z, `${what}.z`);
-    const len = num(t.length, `${what}.length`, 1, 100);
-    const w = t.width === undefined ? 1.4 : num(t.width, `${what}.width`, 0.6, 4);
-    const r = t.rotY === undefined ? 0 : num(t.rotY, `${what}.rotY`);
-    const n = num(t.seats, `${what}.seats`, 1, MAP_LIMITS.seats);
-    if (!Number.isInteger(n)) throw new MapError(`${what}.seats should be a whole number`);
-    const along = [Math.sin(r), Math.cos(r)];
-    const right = [Math.cos(r), -Math.sin(r)];
-    for (const end of [-1, 1]) inside(x + (along[0] * len * end) / 2, z + (along[1] * len * end) / 2, `the end of ${what}`);
-    // The side facing the middle of the hall is the inner one.
-    const rightInner = right[0] * x + right[1] * z <= 0;
-    const sides = t.sides ?? 'both';
-    if (sides !== 'both' && sides !== 'inner' && sides !== 'outer') throw new MapError(`${what}.sides should be "both", "inner" or "outer"`);
-    const table = typeof t.name === 'string' && t.name.trim() ? t.name.trim().slice(0, 40) : `Table ${i + 1}`;
-    rects.push(boxFootprint(x, z, w, len, r));
-    const seated: (1 | -1)[] = [];
-    tables.push({ x, z, length: len, width: w, rotY: r, seats: n, sides: seated, name: table });
-    for (const s of [1, -1] as const) {
-      const isInner = (s === 1) === rightInner;
-      if (sides !== 'both' && (sides === 'inner') !== isInner) continue;
-      seated.push(s);
-      const nx = right[0] * s;
-      const nz = right[1] * s;
-      // The bench down that side, all of it (and whoever sits on it) inside the hall.
-      rects.push(boxFootprint(x + nx * (w / 2 + BENCH_OUT), z + nz * (w / 2 + BENCH_OUT), 0.42, len - 0.2, r));
-      for (const end of [-1, 1]) inside(x + nx * (w / 2 + BENCH_OUT + 0.22) + (along[0] * (len - 0.2) * end) / 2, z + nz * (w / 2 + BENCH_OUT + 0.22) + (along[1] * (len - 0.2) * end) / 2, `the bench along ${what}`, 0);
-      const out = w / 2 - PLACE_IN;
-      for (let k = 0; k < n; k++) {
-        const t0 = (k - (n - 1) / 2) * (len / n);
-        const def = { x: x + along[0] * t0 + nx * out, z: z + along[1] * t0 + nz * out, rotY: Math.atan2(nx, nz) };
-        (isInner ? inner : outer).push({ def, table });
+  if (style === 'office' && (!Array.isArray(c.tables) || !c.tables.length)) {
+    desks = MAP_DESKS;
+    overflow = BEANBAGS;
+  } else {
+    if (!Array.isArray(c.tables) || !c.tables.length) throw new MapError('it needs tables for the workers to sit at');
+    if (c.tables.length > MAP_LIMITS.tables) throw new MapError(`it has ${c.tables.length} tables, and a map can have ${MAP_LIMITS.tables}`);
+    const inner: { def: Omit<DeskDef, 'id' | 'label'>; table: string }[] = [];
+    const outer: typeof inner = [];
+    c.tables.forEach((t: TableConfig, i) => {
+      const what = `tables[${i}]`;
+      if (!isObj(t)) throw new MapError(`${what} should be { x, z, length, seats }`);
+      const x = num(t.x, `${what}.x`);
+      const z = num(t.z, `${what}.z`);
+      const len = num(t.length, `${what}.length`, 1, 100);
+      const w = t.width === undefined ? 1.4 : num(t.width, `${what}.width`, 0.6, 4);
+      const r = t.rotY === undefined ? 0 : num(t.rotY, `${what}.rotY`);
+      const n = num(t.seats, `${what}.seats`, 1, MAP_LIMITS.seats);
+      if (!Number.isInteger(n)) throw new MapError(`${what}.seats should be a whole number`);
+      const along = [Math.sin(r), Math.cos(r)];
+      const right = [Math.cos(r), -Math.sin(r)];
+      for (const end of [-1, 1]) inside(x + (along[0] * len * end) / 2, z + (along[1] * len * end) / 2, `the end of ${what}`);
+      // The side facing the middle of the hall is the inner one.
+      const rightInner = right[0] * x + right[1] * z <= 0;
+      const sides = t.sides ?? 'both';
+      if (sides !== 'both' && sides !== 'inner' && sides !== 'outer') throw new MapError(`${what}.sides should be "both", "inner" or "outer"`);
+      const table = typeof t.name === 'string' && t.name.trim() ? t.name.trim().slice(0, 40) : `Table ${i + 1}`;
+      rects.push(boxFootprint(x, z, w, len, r));
+      const seated: (1 | -1)[] = [];
+      tables.push({ x, z, length: len, width: w, rotY: r, seats: n, sides: seated, name: table });
+      for (const s of [1, -1] as const) {
+        const isInner = (s === 1) === rightInner;
+        if (sides !== 'both' && (sides === 'inner') !== isInner) continue;
+        seated.push(s);
+        const nx = right[0] * s;
+        const nz = right[1] * s;
+        // The bench down that side, all of it (and whoever sits on it) inside the hall.
+        rects.push(boxFootprint(x + nx * (w / 2 + BENCH_OUT), z + nz * (w / 2 + BENCH_OUT), 0.42, len - 0.2, r));
+        for (const end of [-1, 1]) inside(x + nx * (w / 2 + BENCH_OUT + 0.22) + (along[0] * (len - 0.2) * end) / 2, z + nz * (w / 2 + BENCH_OUT + 0.22) + (along[1] * (len - 0.2) * end) / 2, `the bench along ${what}`, 0);
+        const out = w / 2 - PLACE_IN;
+        for (let k = 0; k < n; k++) {
+          const t0 = (k - (n - 1) / 2) * (len / n);
+          const def = { x: x + along[0] * t0 + nx * out, z: z + along[1] * t0 + nz * out, rotY: Math.atan2(nx, nz) };
+          (isInner ? inner : outer).push({ def, table });
+        }
       }
-    }
-  });
-  const all = [...inner, ...outer];
-  const need = MAP_DESKS.length + BEANBAGS.length;
-  if (all.length < need) throw new MapError(`its tables seat ${all.length}, and a map needs ${need} (${MAP_DESKS.length} seats and ${BEANBAGS.length} more for when they’re all taken)`);
-  const counts = new Map<string, number>();
-  const named = all.slice(0, need).map(({ def, table }) => {
-    const k = (counts.get(table) ?? 0) + 1;
-    counts.set(table, k);
-    return { ...def, label: `${table}, seat ${k}` };
-  });
-  const desks: DeskDef[] = named.slice(0, MAP_DESKS.length).map((d, i) => ({ ...d, id: MAP_DESKS[i].id }));
-  const overflow: DeskDef[] = named.slice(MAP_DESKS.length).map((d, i) => ({ ...d, id: BEANBAGS[i].id }));
+    });
+    const all = [...inner, ...outer];
+    const need = MAP_DESKS.length + BEANBAGS.length;
+    if (all.length < need) throw new MapError(`its tables seat ${all.length}, and a map needs ${need} (${MAP_DESKS.length} seats and ${BEANBAGS.length} more for when they’re all taken)`);
+    const counts = new Map<string, number>();
+    const named = all.slice(0, need).map(({ def, table }) => {
+      const k = (counts.get(table) ?? 0) + 1;
+      counts.set(table, k);
+      return { ...def, label: `${table}, seat ${k}` };
+    });
+    desks = named.slice(0, MAP_DESKS.length).map((d, i) => ({ ...d, id: MAP_DESKS[i].id }));
+    overflow = named.slice(MAP_DESKS.length).map((d, i) => ({ ...d, id: BEANBAGS[i].id }));
+  }
 
   // The board agents' lecterns.
   if (!isObj(c.stations)) throw new MapError('it needs stations: where the Issues, PR and Queue agents stand');

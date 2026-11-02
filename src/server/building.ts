@@ -6,6 +6,8 @@ import { FLOOR_PALETTES, MAX_FLOORS, normalizeRepo, sameRepo } from '../shared/f
 import type { CloneProgress, ProjectsDirState, RepoChoice } from '../shared/protocol.js';
 import { CloneRun, dropLog, whyCloneFailed, type CloneEnd, type CloneRunOptions } from './clone.js';
 import { gh } from './github.js';
+import { loadFloors, saveFloors } from './building-store.js';
+import { mergeFloors } from './plugin-floors.js';
 
 /** A floor as floors.json keeps it. */
 export interface FloorDef {
@@ -17,29 +19,22 @@ export interface FloorDef {
   palette: number;
   addedBy: string;
   addedAt: number;
+  /** Optional external identifier or metadata from a plugin. */
+  externalId?: string;
+  url?: string;
 }
 
 /** A projects folder picked in ⚙️ Settings (or with --projects), as projects-folder.json keeps it. */
-interface PickedDir {
-  dir: string;
-  by: string;
-  at: number;
-}
+interface PickedDir { dir: string; by: string; at: number; }
 
 /** The checkout the office was started in, once it's been taken off the building (local-floor.json). */
-interface LocalOff {
-  dir: string;
-  by: string;
-  at: number;
-}
+interface LocalOff { dir: string; by: string; at: number; }
 
 /** A floor on its way: its clone, and who can stop it besides admins. */
 interface Pending {
   def: FloorDef;
   run?: CloneRun;
-  /** The account that added it. */
   owner?: string;
-  /** GitHub says the repository has no commits yet, so there's nothing to check out. */
   empty: boolean;
 }
 
@@ -52,27 +47,25 @@ interface SavedClone extends FloorDef {
 }
 
 export interface BuildingOptions {
-  /**
-   * Clones run in this terminal (`agent-office setup`), showing git's own progress and asking
-   * there if ssh or git has a question, rather than watched by the office.
-   */
+  /** Clones run in this terminal (setup), showing git's progress rather than being watched. */
   terminal?: boolean;
   /** How clones are watched (tests shorten these). */
   clone?: Pick<CloneRunOptions, 'stallMs' | 'tickMs'>;
 }
 
-/** How long the list of repositories `gh` can see is reused before it's asked again. */
+/** How long `gh`'s repository list is reused before it's asked again. */
 const REPOS_TTL_MS = 5 * 60_000;
 const MAX_REPOS = 1000;
 
 /**
  * The floors of the building, saved in <office>/.agent-office/floors.json: which projects there are,
- * where their checkouts live, and how each floor is painted. New floors are cloned with the office
- * machine's `gh` login into <projects>/<owner>/<repo>; the projects folder can be picked in ⚙️ Settings
- * (kept in projects-folder.json).
+ * where their checkouts live, and how each floor is painted. A floor is a clone into
+ * <projects>/<owner>/<repo> (`add`), or a checkout that is already on disk (`addExisting`, for an
+ * existing project folder). The projects folder can be picked in ⚙️ Settings (projects-folder.json).
  */
 export class Building {
   private defs: FloorDef[] = [];
+  private removedIds = new Set<string>();
   private file: string;
   private pickedFile: string;
   private picked?: PickedDir;
@@ -89,6 +82,8 @@ export class Building {
   /** The floor that checkout is, while it is one. */
   private localId?: string;
   private localFile: string;
+  private maxFloorsFile: string;
+  private maxFloorsLimit: number = MAX_FLOORS;
   /** That checkout was taken off the building: a restart doesn't put it back. */
   private localOff?: LocalOff;
 
@@ -104,9 +99,30 @@ export class Building {
     this.logsDir = path.join(dataDir, 'clones');
     this.pickedFile = path.join(dataDir, 'projects-folder.json');
     this.localFile = path.join(dataDir, 'local-floor.json');
-    this.load();
+    this.maxFloorsFile = path.join(dataDir, 'max-floors.json');
+    this.defs.push(...loadFloors(this.file));
     this.loadPicked();
     this.loadLocalOff();
+    this.loadMaxFloors();
+  }
+
+  private loadMaxFloors() {
+    if (!existsSync(this.maxFloorsFile)) return;
+    try {
+      const raw = JSON.parse(readFileSync(this.maxFloorsFile, 'utf8'));
+      if (typeof raw?.max === 'number' && raw.max > 0) this.maxFloorsLimit = raw.max;
+    } catch { /* ignore */ }
+  }
+
+  setMaxFloors(max: number, by: string) {
+    this.maxFloorsLimit = Math.max(1, Math.min(2000, Math.floor(max)));
+    try {
+      writeFileSync(this.maxFloorsFile, JSON.stringify({ max: this.maxFloorsLimit, by, at: Date.now() }, null, 2), { mode: 0o600 });
+    } catch { /* ignore */ }
+  }
+
+  get maxFloors(): number {
+    return this.maxFloorsLimit;
   }
 
   /** Where new floors are cloned. Floors already there stay where they are when it moves. */
@@ -115,7 +131,7 @@ export class Building {
   }
 
   projectsDirState(): ProjectsDirState {
-    return { dir: tildify(this.projectsDir), custom: !!this.picked, by: this.picked?.by, at: this.picked?.at };
+    return { dir: tildify(this.projectsDir), custom: !!this.picked, by: this.picked?.by, at: this.picked?.at, maxFloors: this.maxFloors };
   }
 
   /** Clones new floors into `raw` from now on ('~' is the home folder; '' goes back to the default). Returns why it can't, if it can't. */
@@ -145,6 +161,47 @@ export class Building {
 
   list(): FloorDef[] {
     return this.defs;
+  }
+
+  /**
+   * Merges the floors a plugin provides into the building (see plugin-floors.ts): its own arrive, the
+   * ones it has dropped go, and everything the office and its people added stays where it is.
+   */
+  mergeList(defs: FloorDef[]) {
+    const next = mergeFloors(this.defs, defs);
+    if (JSON.stringify(this.defs) === JSON.stringify(next)) return;
+    this.defs = next;
+    this.save();
+  }
+
+  setList(defs: FloorDef[]) {
+    const filtered = defs.filter((d) => !this.removedIds.has(d.id) && !this.removedIds.has(path.resolve(d.dir)) && (!d.externalId || !this.removedIds.has(d.externalId)));
+    if (JSON.stringify(this.defs) === JSON.stringify(filtered)) return;
+    this.defs = filtered;
+    this.save();
+  }
+
+  unremove(idOrDef: string | FloorDef) {
+    const [id, dir, ext] = typeof idOrDef === 'string' ? [idOrDef, idOrDef, undefined] : [idOrDef.id, idOrDef.dir, idOrDef.externalId];
+    this.removedIds.delete(id);
+    this.removedIds.delete(path.resolve(dir));
+    if (ext) this.removedIds.delete(ext);
+  }
+
+  /** A floor for a checkout already on disk, so nothing is cloned. */
+  addExisting(dir: string, name: string, by: string, externalId?: string, url?: string): FloorDef | string {
+    const abs = path.resolve(dir);
+    this.removedIds.delete(abs); if (externalId) this.removedIds.delete(externalId);
+    const dup = this.defs.some((d) => path.resolve(d.dir) === abs || (externalId && d.externalId === externalId));
+    if (dup) return `${name} already has a floor`;
+    if (this.defs.length >= this.maxFloors) return `The building is full (${this.maxFloors} floors)`;
+    const def = this.newDef(name, externalId ? undefined : originRepo(abs), abs, by);
+    def.externalId = externalId;
+    def.url = url;
+    if (externalId) def.repo = undefined;
+    this.defs.push(def);
+    this.save();
+    return def;
   }
 
   /** Floors on their way: shown in the elevator, but nobody can ride there yet. */
@@ -266,6 +323,8 @@ export class Building {
     const def = this.defs.find((d) => d.id === id);
     if (!def) return this.pendingFloor(id) ? "That floor is still being cloned — stop it, or take it off once it's there" : 'No such floor';
     this.defs = this.defs.filter((d) => d !== def);
+    this.removedIds.add(id); this.removedIds.add(path.resolve(def.dir));
+    if (def.externalId) this.removedIds.add(def.externalId);
     if (this.isLocal(id)) {
       this.localId = undefined;
       this.setLocalOff({ dir: def.dir, by, at: Date.now() });
@@ -285,11 +344,13 @@ export class Building {
     if (!wanted) return 'Pick a repository, or type it as owner/name';
     if (this.defs.some((d) => sameRepo(d.repo, wanted))) return `${wanted} already has a floor`;
     if (this.cloning.has(wanted.toLowerCase())) return `${wanted} is already being cloned`;
-    if (this.defs.length + this.cloning.size >= MAX_FLOORS) return `The building is full (${MAX_FLOORS} floors)`;
+    if (this.defs.length + this.cloning.size >= this.maxFloors) return `The building is full (${this.maxFloors} floors)`;
     // The office's own checkout, taken off before: it moves back in where it is, not into a second clone.
     const home = this.local;
     if (this.localOff && home && sameRepo(home.repo, wanted) && existsSync(home.dir)) {
       const def = this.newDef(path.basename(home.dir), home.repo, home.dir, by);
+      this.removedIds.delete(def.id);
+      this.removedIds.delete(path.resolve(def.dir));
       started(def);
       this.defs.push(def);
       this.localId = def.id;
@@ -324,6 +385,8 @@ export class Building {
       this.cloning.delete(key);
       this.saveClones();
     }
+    this.removedIds.delete(def.id); this.removedIds.delete(path.resolve(def.dir));
+    if (def.externalId) this.removedIds.delete(def.externalId);
     this.defs.push(def);
     this.save();
     return def;
@@ -393,29 +456,6 @@ export class Building {
     return { id, name, repo, dir, palette, addedBy: by, addedAt: Date.now() };
   }
 
-  private load() {
-    if (!existsSync(this.file)) return;
-    try {
-      const saved = JSON.parse(readFileSync(this.file, 'utf8')) as Partial<FloorDef>[];
-      const ids = new Set<string>();
-      for (const s of Array.isArray(saved) ? saved : []) {
-        if (typeof s.id !== 'string' || !/^[a-z0-9-]{1,40}$/.test(s.id) || ids.has(s.id) || typeof s.dir !== 'string' || !path.isAbsolute(s.dir)) continue;
-        ids.add(s.id);
-        this.defs.push({
-          id: s.id,
-          name: typeof s.name === 'string' && s.name ? s.name.slice(0, 100) : path.basename(s.dir),
-          repo: normalizeRepo(s.repo),
-          dir: s.dir,
-          palette: Number.isInteger(s.palette) && (s.palette as number) >= 0 ? (s.palette as number) : 0,
-          addedBy: typeof s.addedBy === 'string' ? s.addedBy : '?',
-          addedAt: typeof s.addedAt === 'number' ? s.addedAt : Date.now(),
-        });
-      }
-    } catch (err) {
-      console.error(`agent-office: ${this.file} couldn't be read, so the building starts empty: ${(err as Error).message}`);
-    }
-  }
-
   private loadPicked() {
     try {
       const saved = JSON.parse(readFileSync(this.pickedFile, 'utf8')) as Partial<PickedDir>;
@@ -433,9 +473,7 @@ export class Building {
       if (typeof saved.dir === 'string' && path.isAbsolute(saved.dir)) {
         this.localOff = { dir: saved.dir, by: typeof saved.by === 'string' ? saved.by : '?', at: typeof saved.at === 'number' ? saved.at : Date.now() };
       }
-    } catch {
-      // never taken off
-    }
+    } catch { /* never taken off */ }
   }
 
   private setLocalOff(off: LocalOff | undefined) {
@@ -449,21 +487,13 @@ export class Building {
   }
 
   private save() {
-    try {
-      writeFileSync(this.file, JSON.stringify(this.defs, null, 2), { mode: 0o600 });
-    } catch (err) {
-      console.error(`agent-office: couldn't save the floors: ${(err as Error).message}`);
-    }
+    saveFloors(this.file, this.defs);
   }
 
   private loadClones(): SavedClone[] {
     try {
       const saved = JSON.parse(readFileSync(this.clonesFile, 'utf8')) as Partial<SavedClone>[];
-      return (Array.isArray(saved) ? saved : []).filter(
-        // Its log is one of ours (it gets deleted), in .agent-office/clones.
-        (s): s is SavedClone =>
-          Number.isInteger(s.pid) && (s.pid as number) > 0 && typeof s.log === 'string' && path.dirname(s.log) === this.logsDir && typeof s.dir === 'string' && path.isAbsolute(s.dir) && typeof s.name === 'string',
-      );
+      return (Array.isArray(saved) ? saved : []).filter((s): s is SavedClone => Number.isInteger(s.pid) && (s.pid as number) > 0 && typeof s.log === 'string' && path.dirname(s.log) === this.logsDir && typeof s.dir === 'string' && path.isAbsolute(s.dir) && typeof s.name === 'string');
     } catch {
       return [];
     }
@@ -487,15 +517,8 @@ export function tildify(p: string): string {
   return p === home || p.startsWith(home + path.sep) ? `~${p.slice(home.length)}` : p;
 }
 
-function untildify(p: string): string {
-  return p === '~' || p.startsWith('~/') ? path.join(os.homedir(), p.slice(1)) : p;
-}
-
-/** `dir` is `parent` or somewhere under it. */
-function within(dir: string, parent: string): boolean {
-  const rel = path.relative(parent, dir);
-  return !rel || (rel !== '..' && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel));
-}
+function untildify(p: string): string { return p === '~' || p.startsWith('~/') ? path.join(os.homedir(), p.slice(1)) : p; }
+function within(dir: string, parent: string): boolean { const rel = path.relative(parent, dir); return !rel || (rel !== '..' && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel)); }
 
 /** Why the office couldn't make checkouts under `dir`, if it couldn't. It's made on the first clone, so it needn't exist yet. */
 function unwritable(dir: string): string | undefined {
@@ -515,15 +538,9 @@ export function originRepo(dir: string): string | undefined {
   try {
     const url = execFileSync('git', ['remote', 'get-url', 'origin'], { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 10_000 }).trim();
     return /github\.com[/:]/i.test(url) ? normalizeRepo(url) : undefined;
-  } catch {
-    return undefined;
-  }
+  } catch { return undefined; }
 }
 
-/**
- * What's at `dest`: nothing yet ('none'), a checkout of `repo` ('ok'), or why it's in the way. A
- * clone that was cut off has its origin but no commit checked out; an `empty` repository has none to.
- */
 function checkoutAt(dest: string, repo: string, empty: boolean): 'none' | 'ok' | string {
   if (!existsSync(dest)) return 'none';
   if (!statSync(dest).isDirectory()) return `${dest} is already there and isn't a folder`;
@@ -537,9 +554,7 @@ function hasCommit(dir: string): boolean {
   try {
     execFileSync('git', ['rev-parse', '--verify', '--quiet', 'HEAD^{commit}'], { cwd: dir, stdio: 'ignore', timeout: 10_000 });
     return true;
-  } catch {
-    return false;
-  }
+  } catch { return false; }
 }
 
 /** Clones `repo` to `dest` in this terminal: git shows its progress, and ssh or git can ask here. Resolves to an error, if any. */
@@ -552,17 +567,7 @@ function cloneHere(repo: string, dest: string): Promise<string | undefined> {
 }
 
 async function listRepos(cwd: string): Promise<RepoChoice[]> {
-  const out = await gh(
-    [
-      'api',
-      '--paginate',
-      'user/repos?per_page=100&sort=pushed&affiliation=owner,collaborator,organization_member',
-      '--jq',
-      '.[] | {name: .full_name, description: (.description // ""), private: .private, pushedAt: .pushed_at}',
-    ],
-    cwd,
-    90_000,
-  );
+  const out = await gh(['api', '--paginate', 'user/repos?per_page=100&sort=pushed&affiliation=owner,collaborator,organization_member', '--jq', '.[] | {name: .full_name, description: (.description // ""), private: .private, pushedAt: .pushed_at}'], cwd, 90_000);
   const repos: RepoChoice[] = [];
   const seen = new Set<string>();
   for (const line of out.split('\n')) {
@@ -572,15 +577,8 @@ async function listRepos(cwd: string): Promise<RepoChoice[]> {
       const name = normalizeRepo(r.name);
       if (!name || seen.has(name.toLowerCase())) continue;
       seen.add(name.toLowerCase());
-      repos.push({
-        name,
-        description: typeof r.description === 'string' && r.description ? r.description.slice(0, 200) : undefined,
-        private: r.private === true,
-        pushedAt: typeof r.pushedAt === 'string' ? r.pushedAt : undefined,
-      });
-    } catch {
-      // not a line of ours
-    }
+      repos.push({ name, description: typeof r.description === 'string' && r.description ? r.description.slice(0, 200) : undefined, private: r.private === true, pushedAt: typeof r.pushedAt === 'string' ? r.pushedAt : undefined });
+    } catch {}
     if (repos.length >= MAX_REPOS) break;
   }
   return repos.sort((a, b) => (b.pushedAt ?? '').localeCompare(a.pushedAt ?? ''));

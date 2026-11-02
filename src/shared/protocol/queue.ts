@@ -8,6 +8,8 @@ export type TaskStatus = 'queued' | 'running' | 'done';
 export interface QueueTask {
   id: string;
   provider?: AgentProvider;
+  /** Optional external task / session identifier. */
+  externalId?: string;
   /** Model requested for this task, instead of the office's configured default: an id its provider takes (see WorkerInfo.model). */
   model?: string;
   /** Reasoning effort requested for this task, when one was chosen (Claude only). */

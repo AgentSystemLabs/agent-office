@@ -83,3 +83,19 @@ test('the floor the office was started in comes off too, stays off after a resta
   assert.equal(third.ensureLocal(defs[0].dir, 'the office')?.id, 'api');
   assert.deepEqual(third.list().map((d) => d.id), ['web', 'docs', 'api']);
 });
+
+test('Building.unremove allows re-adding a floor when setList is called by a provider', (t) => {
+  const { root, dataDir, defs } = office(t);
+  const building = new Building(dataDir, root);
+  building.remove('web');
+  assert.deepEqual(building.list().map((d) => d.id), ['api', 'docs']);
+
+  // Without unremove, setList filters out 'web'
+  building.setList(defs);
+  assert.deepEqual(building.list().map((d) => d.id), ['api', 'docs']);
+
+  // With unremove, setList permits 'web' to be added back
+  building.unremove(defs[1]);
+  building.setList(defs);
+  assert.deepEqual(building.list().map((d) => d.id), ['api', 'web', 'docs']);
+});

@@ -98,6 +98,10 @@ export const settingsHandlers = {
     }
     mapNews(ctx, was, who);
   },
+  'map.openFolder'(ctx, c) {
+    if (!ctx.meOf(c.accountId).admin) return ctx.warn(c, 'Only admins can open folders on the server host');
+    ctx.maps.openFolder();
+  },
   'leaveOnMerge.set'(ctx, c, msg) {
     const who = c.peer.name;
     const on = msg.on === true;
@@ -132,5 +136,89 @@ export const settingsHandlers = {
     const err = ctx.prompts.setAgent(choice, who);
     if (err) return ctx.warn(c, err);
     ctx.toastAll(choice ? `🤖 ${who} set the office’s default worker` : `🤖 ${who} put the office’s default worker back to ${path.basename(ctx.cfg.agentCmd)}`);
+  },
+  'plugins.list'(ctx, c) {
+    if (ctx.plugins) {
+      ctx.sendTo(c, { t: 'plugins', state: ctx.plugins.getState() });
+    }
+  },
+  'plugin.install'(ctx, c, msg) {
+    const who = c.peer.name;
+    if (!ctx.meOf(c.accountId).admin) return ctx.warn(c, 'Only admins can install plugins');
+    const id = str(msg.id, 64);
+    if (!ctx.plugins) return;
+    void ctx.plugins.install(id).then((ok) => {
+      if (ok) {
+        ctx.toastAll(`🔌 ${who} installed plugin ${id}`);
+        for (const client of ctx.clients.values()) {
+          ctx.sendTo(client, { t: 'plugins', state: ctx.plugins!.getState() });
+        }
+      } else {
+        ctx.warn(c, `Could not install plugin ${id}`);
+      }
+    });
+  },
+  'plugin.uninstall'(ctx, c, msg) {
+    const who = c.peer.name;
+    if (!ctx.meOf(c.accountId).admin) return ctx.warn(c, 'Only admins can uninstall plugins');
+    const id = str(msg.id, 64);
+    if (!ctx.plugins) return;
+    void ctx.plugins.uninstall(id).then((ok) => {
+      if (ok) {
+        ctx.toastAll(`🔌 ${who} uninstalled plugin ${id}`);
+        for (const client of ctx.clients.values()) {
+          ctx.sendTo(client, { t: 'plugins', state: ctx.plugins!.getState() });
+        }
+      } else {
+        ctx.warn(c, `Could not uninstall plugin ${id}`);
+      }
+    });
+  },
+  'plugin.openFolder'(ctx, c, msg) {
+    if (!ctx.meOf(c.accountId).admin) return ctx.warn(c, 'Only admins can open folders on server host');
+    if (ctx.plugins) {
+      const id = msg.id ? str(msg.id, 64) : undefined;
+      ctx.plugins.openFolder(id);
+    }
+  },
+  'plugin.installFromGit'(ctx, c, msg) {
+    const who = c.peer.name;
+    if (!ctx.meOf(c.accountId).admin) return ctx.warn(c, 'Only admins can install plugins');
+    const url = str(msg.url, 2048).trim();
+    if (!ctx.plugins) return;
+    void ctx.plugins.installFromGit(url).then((result) => {
+      if (result.ok) {
+        ctx.toastAll(`🔌 ${who} installed plugin from ${url}`);
+        for (const client of ctx.clients.values()) {
+          ctx.sendTo(client, { t: 'plugins', state: ctx.plugins!.getState() });
+        }
+      } else {
+        ctx.warn(c, result.error ?? 'Failed to install plugin');
+      }
+    });
+  },
+  'plugin.update'(ctx, c, msg) {
+    const who = c.peer.name;
+    if (!ctx.meOf(c.accountId).admin) return ctx.warn(c, 'Only admins can update plugins');
+    const id = str(msg.id, 64);
+    if (!ctx.plugins) return;
+    void ctx.plugins.updatePlugin(id).then((result) => {
+      if (result.ok) {
+        ctx.toastAll(`🔌 ${who} updated plugin ${id}`);
+        for (const client of ctx.clients.values()) {
+          ctx.sendTo(client, { t: 'plugins', state: ctx.plugins!.getState() });
+        }
+      } else {
+        ctx.warn(c, result.error ?? `Failed to update plugin ${id}`);
+      }
+    });
+  },
+  'plugin.checkUpdates'(ctx, _c) {
+    if (!ctx.plugins) return;
+    void ctx.plugins.checkUpdates().then(() => {
+      for (const client of ctx.clients.values()) {
+        ctx.sendTo(client, { t: 'plugins', state: ctx.plugins!.getState() });
+      }
+    });
   },
 } satisfies HandlerMap<SettingsClientMsg>;

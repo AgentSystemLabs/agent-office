@@ -2,7 +2,7 @@
 // worktrees and pull requests.
 import { MAX_REPOS, type RepoSource } from '../../workers.js';
 import { OPEN_CODE_MODEL_MAX } from '../../../shared/providers.js';
-import { isAgentEffort, isAgentProvider, type WorkerClientMsg } from '../../../shared/protocol.js';
+import { isAgentEffort, isKnownProvider, type WorkerClientMsg } from '../../../shared/protocol.js';
 import { issueNumber, num, str } from '../../office/input.js';
 import { here, workerOf } from './common.js';
 import type { FeatureHooks, HandlerMap, ViewPieces } from './types.js';
@@ -21,7 +21,7 @@ export const workerHandlers = {
     const floor = here(ctx, c);
     if (!floor) return;
     const kind = msg.kind === 'shell' ? 'shell' : 'agent';
-    if (kind === 'agent' && msg.provider !== undefined && (!isAgentProvider(msg.provider) || !floor.project.agentProviders.includes(msg.provider))) {
+    if (kind === 'agent' && msg.provider !== undefined && (!isKnownProvider(msg.provider) || !floor.project.agentProviders.includes(msg.provider))) {
       ctx.warn(c, 'Unknown agent provider');
       return;
     }

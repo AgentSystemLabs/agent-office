@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { isAgentEffort, isAgentProvider, type AgentChoice, type AgentProvider, type PromptsState } from '../shared/protocol.js';
+import { isAgentEffort, isKnownProvider, type AgentChoice, type AgentProvider, type PromptsState } from '../shared/protocol.js';
 import { PROMPTS, PROMPT_MAX, fillPrompt, isPromptId, promptText, type PromptId, type PromptVars } from '../shared/prompts.js';
 import { validateWorkerEffort, validateWorkerModel } from './agents.js';
 
@@ -76,7 +76,7 @@ export class OfficePrompts implements PromptSource {
   }
 
   private problem(c: AgentChoice): string | undefined {
-    if (!isAgentProvider(c.provider) || !this.providers.list.includes(c.provider)) return 'Unknown agent provider';
+    if (!isKnownProvider(c.provider) || !this.providers.list.includes(c.provider)) return 'Unknown agent provider';
     if (c.provider === 'custom' && this.providers.configured !== 'custom') return 'Custom is not the configured agent provider';
     return validateWorkerModel('agent', c.provider, c.model) ?? validateWorkerEffort('agent', c.provider, c.effort);
   }
@@ -98,7 +98,7 @@ export class OfficePrompts implements PromptSource {
       this.saved.custom[id] = { text: v.text.slice(0, PROMPT_MAX), by: typeof v.by === 'string' ? v.by : 'someone', at: typeof v.at === 'number' ? v.at : 0 };
     }
     const a = raw?.agent;
-    if (a && isAgentProvider(a.provider)) {
+    if (a && isKnownProvider(a.provider)) {
       const choice: AgentChoice = { provider: a.provider, model: typeof a.model === 'string' ? a.model : undefined, effort: isAgentEffort(a.effort) ? a.effort : undefined };
       // One the office can't start any more (it was started with another --agent) is forgotten.
       if (!this.problem(choice)) this.saved.agent = { ...choice, by: typeof a.by === 'string' ? a.by : 'someone', at: typeof a.at === 'number' ? a.at : 0 };

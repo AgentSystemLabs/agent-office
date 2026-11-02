@@ -3,6 +3,7 @@
 import type { ClientMsg } from '../../../shared/protocol.js';
 import { accountsHandlers } from './accounts.js';
 import { ballHandlers, ballHooks, ballView } from './ball.js';
+import { boardsHandlers, boardsView } from './boards.js';
 import { cabinetHandlers, cabinetHooks, cabinetView } from './cabinet.js';
 import { carHandlers, carHooks, carsView } from './car.js';
 import { changesHandlers, changesHooks } from './changes.js';
@@ -28,6 +29,7 @@ import type { FeatureHooks, HandlerMap, ViewPieces } from './types.js';
 export const handlers: HandlerMap<ClientMsg> = {
   ...accountsHandlers,
   ...ballHandlers,
+  ...boardsHandlers,
   ...cabinetHandlers,
   ...carHandlers,
   ...changesHandlers,
@@ -73,4 +75,5 @@ export const views: ViewPieces = {
   whiteboard: whiteboardView,
   meeting: meetingView,
   cabinet: cabinetView,
+  boards: boardsView,
 };

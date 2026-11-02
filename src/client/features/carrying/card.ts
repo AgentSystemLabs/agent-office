@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { CarriedIssue } from '../../../shared/protocol';
-import { NOTE_COLORS, PINS, wrap } from '../boards/world';
+import { NOTE_COLORS, PINS, postItTint, wrap } from '../boards/world';
 import { toon, toonUnique } from '../../world/toon';
 
 const W = 320;
@@ -16,7 +16,7 @@ function issueCard(card: CarriedIssue, width: number): THREE.Mesh {
   canvas.width = W;
   canvas.height = H;
   const g = canvas.getContext('2d')!;
-  const color = NOTE_COLORS[card.issue % NOTE_COLORS.length];
+  const color = (card as any).color ? postItTint((card as any).color) : NOTE_COLORS[card.issue % NOTE_COLORS.length];
   g.fillStyle = color;
   g.fillRect(0, 0, W, H);
   g.fillStyle = '#2b2d42';

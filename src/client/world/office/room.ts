@@ -17,9 +17,16 @@ declare module '../types' {
     /** Lights, windows and glass for the sky to change with the time of day and the weather. */
     night: NightParts;
     boardMeshes: Record<keyof typeof BOARDS, THREE.Mesh>;
+    boardLabels: THREE.Object3D[];
+    hiddenBoards: {
+      updateHidden(hidden: readonly string[]): void;
+    };
     tvScreen: THREE.Mesh;
-    /** The monitor on the west wall showing how busy the office's machine is (features/boards/machine.ts). */
+    /** The screen on the machine monitor on the west wall. */
     machineScreen: THREE.Mesh;
+    machineMonitor: {
+      move(pos: { x?: number; y?: number; z?: number }): void;
+    };
     /** The potted plants round the room, in PLANTS' order. At Christmas world/holiday.ts hides their leaves (plantLeaves()) and stands a little tree in each pot. */
     plants: THREE.Group[];
   }
@@ -56,8 +63,16 @@ export const nightLights: Fixture<'night'> = () => ({
 });
 
 /** Cork boards on the walls. */
-export const boards: Fixture<'boardMeshes'> = (site) => {
+export const boards: Fixture<'boardMeshes' | 'boardLabels' | 'hiddenBoards'> = (site) => {
   const boardMeshes = {} as Record<keyof typeof BOARDS, THREE.Mesh>;
+  const boardLabels: THREE.Object3D[] = [];
+  const entries: {
+    key: keyof typeof BOARDS;
+    bg: THREE.Group;
+    label: THREE.Object3D;
+    it: Interactable;
+  }[] = [];
+
   for (const key of Object.keys(BOARDS) as (keyof typeof BOARDS)[]) {
     const b = BOARDS[key];
     // Out from the wall, the way the board faces.
@@ -74,6 +89,8 @@ export const boards: Fixture<'boardMeshes'> = (site) => {
     label.position.set(b.x + nx * 0.04, b.y + b.height / 2 + 0.5, b.z + nz * 0.04);
     label.rotation.y = b.rotY;
     site.group.add(label);
+    boardLabels.push(label);
+
     const it: Interactable = { kind: key, x: b.x + nx * 1.6, z: b.z + nz * 1.6, radius: 2.4 };
     site.interactables.push(it);
     bg.userData.interact = it;
@@ -81,8 +98,27 @@ export const boards: Fixture<'boardMeshes'> = (site) => {
     const wall = wallFacing(b.rotY);
     const bottom = b.y - (b.height + 0.3) / 2;
     site.wall(wall, wall === 'north' || wall === 'south' ? b.x : b.z, (bottom + WALL_HEIGHT) / 2, b.width + 0.3, WALL_HEIGHT - bottom);
+
+    entries.push({ key, bg, label, it });
   }
-  return { handle: { boardMeshes } };
+
+  function updateHidden(hidden: readonly string[]) {
+    for (const e of entries) {
+      const isHidden = hidden.includes(e.key);
+      e.bg.visible = !isHidden;
+      e.label.visible = !isHidden;
+      const idx = site.interactables.indexOf(e.it);
+      if (isHidden && idx >= 0) {
+        site.interactables.splice(idx, 1);
+      } else if (!isHidden && idx === -1) {
+        site.interactables.push(e.it);
+      }
+    }
+  }
+
+  updateHidden(site.plan?.config?.hiddenBoards ?? []);
+
+  return { handle: { boardMeshes, boardLabels, hiddenBoards: { updateHidden } } };
 };
 
 /** Lounge: the TV on the east wall. */
@@ -104,7 +140,7 @@ export const tv: Fixture<'tvScreen'> = (site) => {
 };
 
 /** The machine monitor between the west windows, facing the desks. */
-export const machineMonitor: Fixture<'machineScreen'> = (site) => {
+export const machineMonitor: Fixture<'machineScreen' | 'machineMonitor'> = (site) => {
   const monitor = new THREE.Group();
   const bezel = mesh(roundedBox(MACHINE_MONITOR.width + 0.16, 0.1, MACHINE_MONITOR.height + 0.16, 0.06), toon(PALETTE.ink), 0, 0, 0);
   bezel.rotation.x = Math.PI / 2;
@@ -112,11 +148,27 @@ export const machineMonitor: Fixture<'machineScreen'> = (site) => {
   const machineScreen = new THREE.Mesh(new THREE.PlaneGeometry(MACHINE_MONITOR.width, MACHINE_MONITOR.height), new THREE.MeshBasicMaterial({ color: '#ffffff' }));
   machineScreen.position.z = 0.06;
   monitor.add(machineScreen);
-  monitor.position.set(MACHINE_MONITOR.x + 0.07, MACHINE_MONITOR.y, MACHINE_MONITOR.z);
+
+  function applyPos(p: { x?: number; y?: number; z?: number }) {
+    const x = p.x ?? MACHINE_MONITOR.x;
+    const y = p.y ?? MACHINE_MONITOR.y;
+    const z = p.z ?? MACHINE_MONITOR.z;
+    monitor.position.set(x + 0.07, y, z);
+  }
+
+  const monPos = site.plan?.config?.machineMonitor ?? MACHINE_MONITOR;
+  applyPos(monPos);
   monitor.rotation.y = Math.PI / 2;
   site.group.add(monitor);
-  site.wall('west', MACHINE_MONITOR.z, MACHINE_MONITOR.y, MACHINE_MONITOR.width + 0.2, MACHINE_MONITOR.height + 0.2);
-  return { handle: { machineScreen } };
+  site.wall('west', monPos.z, monPos.y, MACHINE_MONITOR.width + 0.2, MACHINE_MONITOR.height + 0.2);
+  return {
+    handle: {
+      machineScreen,
+      machineMonitor: {
+        move: (p: { x?: number; y?: number; z?: number }) => applyPos(p),
+      },
+    },
+  };
 };
 
 /** The rest of the lounge: the couch, the coffee table, its rug, and a pouf either side. */

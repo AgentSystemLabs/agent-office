@@ -1,7 +1,7 @@
 /* ---- The elevator: floors, one per project ---------------------------------------------------- */
 .modal.elevator { width: min(640px, 100%); }
 .elevator .intro { margin: 0 0 12px; font-weight: 700; }
-.elevator .floors { display: grid; gap: 8px; }
+.elevator .floors { display: grid; gap: 8px; max-height: min(420px, calc(100vh - 280px)); overflow-y: auto; padding-right: 4px; }
 .elevator .floor-btn { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; align-items: center; width: 100%; text-align: left; padding: 9px 12px; font: inherit; color: var(--ink); background: #fff; border: 3px solid var(--ink); border-radius: 14px; box-shadow: 0 3px 0 var(--ink); cursor: pointer; transition: transform .05s; }
 .elevator .floor-btn:hover:not(:disabled) { background: var(--paper-2); }
 .elevator .floor-btn:active:not(:disabled) { transform: translateY(2px); box-shadow: 0 1px 0 var(--ink); }

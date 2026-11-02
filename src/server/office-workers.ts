@@ -5,7 +5,7 @@
 import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { AgentEffort, AgentProvider, GhPull, QueueTask, WorkerInfo, WorkerStatus, WorktreeCleanup } from '../shared/protocol.js';
-import { isAgentEffort, isAgentProvider } from '../shared/protocol.js';
+import { isAgentEffort, isKnownProvider } from '../shared/protocol.js';
 import { DESK_BY_ID, STATION_AGENT } from '../shared/layout.js';
 import { workerPr } from '../shared/status.js';
 import { landedWork, notLeaving } from './leave-on-merge.js';
@@ -147,7 +147,7 @@ export function readHireRequest(body: unknown, providers: AgentProvider[]): Hire
   const prompt = typeof b.prompt === 'string' ? b.prompt.replace(/\r\n?/g, '\n').trim() : '';
   if (!prompt) return 'Give the new worker its task: prompt';
   if (prompt.length > 20000) return 'The prompt is over 20000 characters';
-  if (b.provider !== undefined && (!isAgentProvider(b.provider) || !providers.includes(b.provider))) return `provider is one of ${providers.join(', ')}`;
+  if (b.provider !== undefined && (!isKnownProvider(b.provider) || !providers.includes(b.provider))) return `provider is one of ${providers.join(', ')}`;
   if (b.model !== undefined && (typeof b.model !== 'string' || !b.model.trim() || b.model.length > 200)) return 'model is a model name';
   if (b.effort !== undefined && !isAgentEffort(b.effort)) return 'effort is one of low, medium, high, xhigh, max';
   if (b.worktree !== undefined && typeof b.worktree !== 'boolean') return 'worktree is true or false';

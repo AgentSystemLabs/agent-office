@@ -7,7 +7,7 @@ import type { PropConfig } from './types.js';
  * style's builder's (world/castle/). A station's are in ./station-props.ts.
  */
 
-export const PROP_KINDS = {
+export const CASTLE_PROP_KINDS = {
   /** A stone pillar, floor to ceiling. `scale` widens it. */
   pillar: 'A stone pillar, floor to ceiling',
   /** A torch in an iron sconce on a wall or a pillar, `y` up, burning toward `rotY`. */
@@ -41,7 +41,33 @@ export const PROP_KINDS = {
   /** A tall iron candle stand. */
   candles: 'A candle stand',
 } as const;
-export type PropKind = keyof typeof PROP_KINDS;
+export type PropKind = keyof typeof CASTLE_PROP_KINDS;
+
+export const PROP_KINDS = {
+  ...CASTLE_PROP_KINDS,
+  /** An interior wall or partition. */
+  wall: 'An interior wall or partition',
+  /** An automatic sliding door. */
+  door: 'An automatic sliding door',
+  /** A meeting conference table with chairs. */
+  meeting_table: 'A meeting conference table',
+  /** A room status screen. */
+  meeting_sign: 'A room status screen',
+  /** A wall-mounted text sign. */
+  sign: 'A wall-mounted text sign',
+  /** The room to grow sign. */
+  expand_sign: 'The room to grow sign',
+  /** A meeting whiteboard. */
+  meeting_board: 'A meeting whiteboard',
+  /** A floor slab or extension. */
+  floor: 'A floor slab or extension',
+  /** A ceiling slab. */
+  ceiling: 'A ceiling slab',
+  /** A ceiling light fixture. */
+  lamp: 'A ceiling light fixture',
+  /** A custom board on wall (e.g. plugin board). */
+  custom_board: 'A custom board on wall',
+} as const;
 
 /** The floor a `w` by `d` box takes, centered on (x, z) and turned `rotY` (its `d` along rotY). */
 export function boxFootprint(x: number, z: number, w: number, d: number, rotY = 0): Rect {
@@ -87,6 +113,10 @@ export function propFootprint(p: PropConfig): { rect?: Rect; circle?: Circle } |
       return { rect: boxFootprint(p.x, p.z, PROP_SIZE.cask.width * s, PROP_SIZE.cask.depth * s, r) };
     case 'table':
       return { rect: boxFootprint(p.x, p.z, p.width ?? 1.4, p.length ?? 3, r) };
+    case 'wall':
+      return { rect: boxFootprint(p.x, p.z, p.width ?? 0.16, p.length ?? 3, r) };
+    case 'meeting_table':
+      return { rect: boxFootprint(p.x, p.z, p.width ?? 2.4, p.length ?? 1.3, r) };
     default:
       return null;
   }
@@ -98,6 +128,18 @@ export function propTop(p: PropConfig): number {
   switch (p.kind) {
     case 'window':
       return y + (p.height ?? 5);
+    case 'ceiling':
+      return y + 0.1;
+    case 'wall':
+      return y + (p.height ?? 3.2);
+    case 'meeting_table':
+      return y + 0.78;
+    case 'meeting_sign':
+    case 'sign':
+    case 'expand_sign':
+      return y + 0.9;
+    case 'meeting_board':
+      return y + (p.height ?? 1.2) / 2;
     case 'rose':
       return y + (p.width ?? 4.5) / 2;
     case 'banner':

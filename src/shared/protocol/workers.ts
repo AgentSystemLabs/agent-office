@@ -73,6 +73,12 @@ export interface WorkerInfo {
   prOpening?: boolean;
   title?: string;
   sessionId?: string;
+  /**
+   * Where its session can be followed in a browser, when the provider running it has one: its own
+   * web UI, say. A worker's terminal then offers it as a pinned tab, and the office knows nothing
+   * about what is at the address.
+   */
+  sessionUrl?: string;
   exitCode?: number;
   cols: number;
   rows: number;

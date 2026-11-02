@@ -57,7 +57,21 @@ They're in `core/registry.ts`, and each is a field of `ctx`. Every registration 
 - **`providers/`** holds one adapter per agent CLI (see [Adding an agent provider](#adding-an-agent-provider)).
 - **`tunnel/`** is `agent-office tunnel`, the one part that runs on someone's own computer instead of the office's: it asks the office for the workers' web servers (`/api/services`, in `http/routes/services.ts`) and listens on each one's port there. It imports nothing from the office but what the two say to each other (`tunnel/wire.ts`) and the cookie's name.
 
-The rest of `src/server/` is a module per service or per thing a floor keeps (`dog.ts`, `jukebox.ts`, `queue.ts`, `meetings.ts`), made by the office or by each `Floor` (`floor.ts`).
+- **`plugins/`** is the plugin system: `registry.ts` keeps the manifests, `manager.ts` loads and asks them (`entry.ts` finds where a plugin lives, `plugin-files.ts` finds the files it ships, such as its settings page), and `types.ts` is what a plugin may contribute. A floor provider, an issues provider, a services provider and an agent provider each plug in there, and the office knows nothing about any particular plugin.
+
+The rest of `src/server/` is a module per service or per thing a floor keeps (`dog.ts`, `jukebox.ts`, `queue.ts`, `meetings.ts`), made by the office or by each `Floor` (`floor.ts`). `building-store.ts` reads and writes `floors.json`, and `plugin-floors.ts` merges the floors a plugin provides into the building's own.
+
+## Plugin seams
+
+A plugin contributes through `plugins/types.ts`, and the office holds the seam; it never holds the plugin's logic.
+
+- **An agent provider** (`agentProvider`): `registerAgentProvider` puts it in the provider table, so `agentProviders()` hires it and it is no longer rejected as an unknown one. Its adapter and `hooksAs` say how it runs and reports.
+- **A session page**: a provider hook may report `web_url` (or `embed_url`) for the session it started; the office keeps it as `WorkerInfo.sessionUrl` and the worker's terminal opens it as a tab. What is at the address is the provider's business.
+- **Floors** (`floorProvider.listFloors`): merged into the building with `plugin-floors.ts`, never swapped in. A floor stays the same one when it is the same checkout, or the id its plugin keeps for it.
+- **Services** (`servicesProvider`): `createLateServices` publishes them beside the ones the office's own port scan finds, on their own timer, so a plugin's rows come and go as it starts and stops things.
+- **An issues board** (`issuesAdapter`): `github.ts` uses a plugin's rows when it has any, and asks `gh` when it has none, so a project the plugin does not cover still shows its issues and the board's Refresh still means something.
+- **A settings page**: a plugin ships a file of its own and names it in its manifest (`settingsPage`). The office serves it under `/plugins/<id>/` — only ever from inside the plugin's own directory — and shows a button for it on the plugin's card in ⚙️ Settings.
+- **A settings page's own reads and writes**: `/api/plugins/<id>/projects` hands the floor's projects to the plugin's `projectsProvider` (GET) and takes a list back for it to keep (POST). A page that needs to keep anything else is a file of the plugin's own, served beside it under the same prefix.
 
 ## Shared
 

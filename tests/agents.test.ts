@@ -91,7 +91,7 @@ test('model validation follows the provider', () => {
   assert.equal(validateWorkerModel('agent', 'codex', 'gpt-oss:20b'), undefined);
   assert.match(validateWorkerModel('agent', 'codex', '--yolo') ?? '', /Invalid Codex model/);
   assert.match(validateWorkerModel('agent', 'codex', 'gpt 5.5') ?? '', /Invalid Codex model/);
-  // Custom still takes none.
+  // Custom takes none in the office UI (managed in its own configuration).
   assert.match(validateWorkerModel('agent', 'custom', 'anything') ?? '', /Claude Code, OpenCode, Codex, Grok, Muse, DeepSeek Harness, Pi or Cursor/);
 });
 
@@ -111,7 +111,7 @@ test('every provider the office knows the CLI of takes a model and (but for Curs
   for (const provider of AGENT_PROVIDERS) {
     const meta = PROVIDER_META[provider];
     if (provider === 'custom') {
-      // A custom --agent is run as it is: the hire dialog says where its model comes from instead.
+      // A custom --agent runs as it is: its settings are configured outside the office.
       assert.equal(meta.validModel, undefined);
       assert.equal(meta.takesEffort, undefined);
       assert.ok(meta.unpicked);
@@ -155,4 +155,23 @@ test('Claude models go by the name of the model, not only its family', () => {
   assert.equal(claudeModelName('us.anthropic.claude-opus-5-5-v1:0'), 'Opus 5.5');
   assert.equal(claudeModelName('gpt-5.5'), undefined);
   assert.equal(claudeModelName('<synthetic>'), undefined);
+});
+
+test('a plugin-registered agent provider becomes hirable', async () => {
+  const { registerAgentProvider, unregisterAgentProvider, getPluginProviders, getAllProviders, providerMeta } = await import('../src/shared/providers.js');
+  // Register a provider the way a plugin does.
+  registerAgentProvider('openfox', { label: 'OpenFox', name: 'OpenFox', bin: 'openfox', usage: { reports: true, note: 'OpenFox usage is tracked by the OpenFox server.' } });
+  try {
+    assert.ok(getPluginProviders().includes('openfox'));
+    assert.ok(getAllProviders().includes('openfox'));
+    assert.equal(providerMeta('openfox')?.label, 'OpenFox');
+    // The office's hirable provider list now includes it, whatever the configured agent is.
+    assert.ok(agentProviders('claude').includes('openfox'));
+    assert.ok(agentProviders('custom').includes('openfox'));
+    // And the built-ins are all still there.
+    for (const p of AGENT_PROVIDERS.filter((x) => x !== 'custom')) assert.ok(agentProviders('claude').includes(p));
+  } finally {
+    unregisterAgentProvider('openfox');
+  }
+  assert.ok(!getPluginProviders().includes('openfox'), 'unregistered again');
 });

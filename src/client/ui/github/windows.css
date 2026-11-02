@@ -40,6 +40,9 @@ article.gh-card > header { display: flex; align-items: center; gap: 8px; padding
 .gh-badge.ok { background: var(--good); color: #fff; }
 .gh-badge.bad { background: var(--bad); color: #fff; }
 .gh-badge.muted { background: #dee2e6; }
+.gh-thread-snippet { border-bottom: 2px solid rgba(43, 45, 66, .15); overflow-x: auto; font-size: 12px; }
+.gh-thread-snippet .pd-l { min-height: 1.4em; }
+.gh-thread-snippet .pd-n { width: 40px; padding-right: 6px; font-size: 11px; }
 .gh-thread .pd-thread { margin: 0; border: 0; border-radius: 0; box-shadow: none; }
 .gh-loading { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 18px; font-weight: 800; color: var(--muted); }
 .gh-error { margin: 16px auto; max-width: 560px; display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; background: #ffd6e0; border: 3px solid var(--ink); border-radius: 14px; padding: 14px 18px; font-weight: 800; }

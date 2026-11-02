@@ -1,5 +1,5 @@
 // The meeting room: calling a meeting, stopping it, and clearing the table.
-import { isAgentEffort, isAgentProvider, type MeetingClientMsg, type MeetingRequest } from '../../../shared/protocol.js';
+import { isAgentEffort, isKnownProvider, type MeetingClientMsg, type MeetingRequest } from '../../../shared/protocol.js';
 import { OPEN_CODE_MODEL_MAX } from '../../../shared/providers.js';
 import { str } from '../../office/input.js';
 import { here } from './common.js';
@@ -12,7 +12,7 @@ export const meetingHandlers = {
     const who = c.peer.name;
     const floor = here(ctx, c);
     if (!floor) return;
-    if (msg.provider !== undefined && (!isAgentProvider(msg.provider) || !floor.project.agentProviders.includes(msg.provider))) {
+    if (msg.provider !== undefined && (!isKnownProvider(msg.provider) || !floor.project.agentProviders.includes(msg.provider))) {
       ctx.warn(c, 'Unknown agent provider');
       return;
     }

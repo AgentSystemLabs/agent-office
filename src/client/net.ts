@@ -26,8 +26,11 @@ export class Net {
     private lite = false,
   ) {}
 
-  onMessage(h: Handler) {
+  onMessage(h: Handler): () => void {
     this.handlers.push(h);
+    return () => {
+      this.handlers = this.handlers.filter((fn) => fn !== h);
+    };
   }
 
   onStatus(h: (up: boolean) => void) {

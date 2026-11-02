@@ -136,6 +136,17 @@ export function createLateServices(ctx: Ctx): LateServices {
 
   // Web servers the workers start, for the Services board and service tunnels (see relay.ts).
   // One scan covers every floor; each floor's board lists its own workers' servers.
+  // A plugin with the services capability also lists what it can run for a floor (a dev server, a
+  // command), and those rows show on that floor's board beside the ones the scan found.
+  const pluginServices = async (floor: Floor | undefined): Promise<ServiceInfo[]> => {
+    if (!floor || !ctx.plugins) return [];
+    try {
+      return (await ctx.plugins.listServices(floor)) ?? [];
+    } catch {
+      // A plugin's rows are extra, never a reason for the board to fail.
+      return [];
+    }
+  };
   const servicesState = (floor: Floor | undefined, items: ServiceInfo[] = services.list()): ServicesState => ({
     items: floor ? items.filter((s) => floor.workers.get(s.workerId)) : [],
     port: cfg.port,
@@ -143,14 +154,45 @@ export function createLateServices(ctx: Ctx): LateServices {
     ssh: team.ssh,
     tailnet: cfg.tailnet,
   });
+  /**
+   * A floor's board, with a plugin's rows on it, and sends it to everyone on that floor. Used both
+   * when the scan changes and on its own timer, so a plugin's rows come and go on their own.
+   */
+  const publishBoard = async (floor: Floor | undefined, items: ServiceInfo[]) => {
+    const state = servicesState(floor, items);
+    if (!floor || !ctx.plugins) return state;
+    const offered = await pluginServices(floor);
+    if (!offered.length) return state;
+    return { ...state, items: [...state.items, ...offered] };
+  };
   const services = new Services(
     () => [...floors.values()].flatMap((f) => f.workers.owners()),
     (items) => {
-      for (const c of clients.values()) ctx.sendTo(c, { t: 'services', state: servicesState(ctx.floorOf(c), items) });
       tailnet.sync(items.map((s) => s.port));
+      for (const c of clients.values()) {
+        void publishBoard(ctx.floorOf(c), items).then((state) => ctx.sendTo(c, { t: 'services', state }));
+      }
     },
   );
-
+  /**
+   * A plugin's services change without the office's own port scan seeing it (a dev server it started
+   * or stopped, a command of its own), so the boards are asked again on their own as well as on every
+   * scan, and only while clients are connected. A floor whose plugins have nothing to say is skipped.
+   */
+  const repaintBoards = async () => {
+    if (!ctx.plugins) return;
+    const items = services.list();
+    for (const c of [...clients.values()]) {
+      const floor = ctx.floorOf(c);
+      if (!floor) continue;
+      const offered = await pluginServices(floor);
+      if (!offered.length) continue;
+      void publishBoard(floor, items).then((state) => ctx.sendTo(c, { t: 'services', state }));
+    }
+  };
+  const BOARD_REPAINT_MS = process.env['AGENT_OFFICE_SERVICES_TEST_MS'] ? Number(process.env['AGENT_OFFICE_SERVICES_TEST_MS']) : 3000;
+  const boardTimer = setInterval(() => void repaintBoards(), BOARD_REPAINT_MS);
+  boardTimer.unref();
   const images = new ImageProxy();
 
   const upgrader = new Upgrader(

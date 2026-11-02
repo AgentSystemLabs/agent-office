@@ -157,6 +157,8 @@ Options:
                           whole day and night go by every hour
       --weather <kind>    Pin the weather: clear, cloudy, rain, storm, snow or
                           fog (env AGENT_OFFICE_WEATHER)
+      --plugin <path>     Load an external plugin bundle (.js/.mjs)
+                          (env AGENT_OFFICE_PLUGIN)
       --real-time-sky     Start the sky on the office's real clock, so it's night when
                           it's night there, instead of a day and night every hour
                           (⚙️ Settings can switch it)
@@ -222,7 +224,7 @@ export function loadConfig(argv: string[]): Config {
   let projects = process.env.AGENT_OFFICE_PROJECTS ? path.resolve(process.env.AGENT_OFFICE_PROJECTS) : '';
   let port = Number(process.env.PORT) || 4600;
   // Loopback unless asked: an office lets whoever signs in run commands on this machine.
-  let host = '127.0.0.1';
+  let host = process.env.AGENT_OFFICE_HOST || process.env.HOST || '127.0.0.1';
   let open = !process.env.AGENT_OFFICE_NO_OPEN || process.env.AGENT_OFFICE_NO_OPEN === '0';
   let password = process.env.AGENT_OFFICE_PASSWORD || '';
   let agentCmd = process.env.AGENT_OFFICE_AGENT || 'claude';
@@ -325,6 +327,9 @@ export function loadConfig(argv: string[]): Config {
         break;
       case '--real-time-sky':
         realTimeSky = true;
+        break;
+      case '--plugin':
+        process.env.AGENT_OFFICE_PLUGIN = path.resolve(takeValue(argv, i++, a));
         break;
       default:
         if (a.startsWith('-')) {

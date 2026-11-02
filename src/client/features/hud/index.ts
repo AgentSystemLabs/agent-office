@@ -18,6 +18,7 @@ import { toggleFloorMenu } from '../../ui/floormenu';
 import { openHelp } from '../../ui/hud';
 import { mountHud } from '../../ui/menu';
 import { openServices } from '../../ui/services';
+import { openCustomBoard } from '../../ui/custom-board';
 import { openSettings, type SettingsPane } from '../../ui/settings';
 import { needsSigningIn, openSignIns } from '../../ui/signins';
 import { openTeam } from '../../ui/team';
@@ -125,6 +126,21 @@ export function installHud(ctx: Ctx, core: CoreState, parts: HudParts) {
     ],
     settings,
     () => saveSettings(settings),
+    () => {
+      const list = [];
+      for (const [boardId, b] of store.customBoards) {
+        list.push({
+          id: `board-${boardId}`,
+          icon: b.def.icon || '🎯',
+          label: b.def.label || boardId,
+          section: 'Open' as const,
+          count: () => b.cards?.filter((c) => c.state !== 'CLOSED').length ?? 0,
+          title: () => b.def.description ?? `${b.def.label} board`,
+          run: () => openCustomBoard(boardId, net, actions.boardActions()),
+        });
+      }
+      return list;
+    },
   );
   ctx.keys.bind({
     code: 'Tab',

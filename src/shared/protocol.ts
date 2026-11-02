@@ -5,6 +5,7 @@
 // unions every frame is one of.
 
 import type { AccountsClientMsg, AccountsServerMsg, SignInsClientMsg, TeamClientMsg } from './protocol/accounts.js';
+import type { BoardsClientMsg, BoardsServerMsg } from './protocol/boards.js';
 import type { ChangesClientMsg, ChangesServerMsg } from './protocol/changes.js';
 import type { FloorClientMsg, FloorServerMsg, PlanClientMsg } from './protocol/floors.js';
 import type { GitHubClientMsg, GitHubServerMsg } from './protocol/github.js';
@@ -19,10 +20,12 @@ import type { WorkerClientMsg, WorkerServerMsg } from './protocol/workers.js';
 
 export * from './protocol/accounts.js';
 export * from './protocol/agents.js';
+export * from './protocol/boards.js';
 export * from './protocol/changes.js';
 export * from './protocol/floors.js';
 export * from './protocol/github.js';
 export * from './protocol/meetings.js';
+export * from './protocol/plugins.js';
 export * from './protocol/presence.js';
 export * from './protocol/queue.js';
 export * from './protocol/rooftop.js';
@@ -36,6 +39,7 @@ export type ClientMsg =
   | RooftopClientMsg
   | WorkerClientMsg
   | GitHubClientMsg
+  | BoardsClientMsg
   | QueueClientMsg
   | MeetingClientMsg
   | FloorClientMsg
@@ -59,6 +63,7 @@ export type ServerMsg =
   | RooftopServerMsg
   | WorkerServerMsg
   | GitHubServerMsg
+  | BoardsServerMsg
   | QueueServerMsg
   | MeetingServerMsg
   | FloorServerMsg

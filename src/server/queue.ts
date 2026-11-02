@@ -1,11 +1,13 @@
 import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { isAgentProvider, type AgentChoice, type AgentEffort, type AgentProvider, type GhPull, type QueueState, type QueueTask, type WorkerInfo, type WorkerStatus } from '../shared/protocol.js';
+import { isKnownProvider, type AgentChoice, type AgentEffort, type AgentProvider, type GhPull, type QueueState, type QueueTask, type WorkerInfo, type WorkerStatus } from '../shared/protocol.js';
 import { DESK_BY_ID, SEATS, nextFreeSeat } from '../shared/layout.js';
 import { validateWorkerEffort, validateWorkerModel } from './agents.js';
 import { savedEffort, savedModel, takesEffort, takesModel } from '../shared/providers.js';
 import { PROMPTS } from '../shared/prompts.js';
+import type { Floor } from './floor.js';
+import type { QueueAdapter } from './plugins/types.js';
 
 /** What the queue needs from the worker manager. Narrow on purpose, so a smoke test can fake it. */
 export interface QueueWorkers {
@@ -70,6 +72,7 @@ export class TaskQueue {
     /** Seat workers in their own git worktree (only when the project is a git repo). */
     private useWorktree: boolean,
     private events: QueueEvents,
+    private external?: { adapter: QueueAdapter; floor: Floor },
   ) {
     this.statePath = path.join(dataDir, 'queue.json');
     this.restore();
@@ -80,6 +83,62 @@ export class TaskQueue {
     return { tasks: this.tasks.map((t) => ({ ...t })), maxWorkers: this.maxWorkers };
   }
 
+  /**
+   * Replaces the queue with external adapter's tasks for this project.
+   */
+  async syncFromAdapter(): Promise<void> {
+    const external = this.external;
+    if (!external || !external.adapter.listTasks) return;
+    try {
+      const seen = await external.adapter.listTasks(external.floor);
+      if (!seen) return;
+      const prevJson = JSON.stringify(this.state());
+
+      const externalMap = new Map(seen.map((t) => [t.id, t]));
+      const updatedTasks: QueueTask[] = [];
+
+      for (const local of this.tasks) {
+        const ext = externalMap.get(local.id) || (local.externalId ? externalMap.get(local.externalId) : undefined);
+        if (ext) {
+          externalMap.delete(ext.id);
+          if (local.status === 'running' || local.workerId) {
+            updatedTasks.push(local);
+          } else {
+            updatedTasks.push({
+              ...local,
+              status: ext.status,
+              title: ext.title || local.title,
+              prompt: ext.prompt || local.prompt,
+              externalId: ext.id,
+            });
+          }
+        } else {
+          // If task was added locally or is currently queued/running, keep it
+          if (!local.externalId || local.status === 'running' || local.status === 'queued') {
+            updatedTasks.push(local);
+          }
+        }
+      }
+
+      // Add remaining external tasks not yet in local queue
+      for (const ext of externalMap.values()) {
+        updatedTasks.push({
+          ...ext,
+          provider: ext.provider ?? this.workers.officeDefault?.provider ?? this.workers.defaultProvider,
+          externalId: ext.id,
+        });
+      }
+
+      this.tasks = updatedTasks;
+      const nextJson = JSON.stringify(this.state());
+      if (prevJson !== nextJson) {
+        this.changed();
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
   get limit(): number {
     return this.maxWorkers;
   }
@@ -88,7 +147,7 @@ export class TaskQueue {
   /** Queues a task; `owner` is the account adding it, whose sign-ins its worker will run on. */
   add(prompt: string, by: string, title?: string, issue?: number, provider?: AgentProvider, model?: string, effort?: AgentEffort, owner?: string): string | undefined {
     if (provider === undefined) ({ provider, model, effort } = this.workers.officeDefault ?? { provider: this.workers.defaultProvider });
-    if (!isAgentProvider(provider) || (provider === 'custom' && this.workers.defaultProvider !== 'custom')) return 'Unknown agent provider';
+    if (!isKnownProvider(provider) || (provider === 'custom' && this.workers.defaultProvider !== 'custom')) return 'Unknown agent provider';
     const modelError = validateWorkerModel('agent', provider, model);
     if (modelError) return modelError;
     const effortError = validateWorkerEffort('agent', provider, effort);
@@ -111,6 +170,9 @@ export class TaskQueue {
       status: 'queued',
     };
     this.tasks.push(task);
+    if (this.external?.adapter.onTaskCreated) {
+      void this.external.adapter.onTaskCreated(this.external.floor, prompt);
+    }
     this.changed();
     this.pump();
     return undefined;
@@ -121,6 +183,9 @@ export class TaskQueue {
     if (!t) return 'No such task';
     if (t.status === 'running') return `${t.workerName ?? 'Its worker'} is on it — send the worker home to stop it`;
     this.tasks.splice(this.tasks.indexOf(t), 1);
+    if (this.external?.adapter.onTaskDeleted) {
+      void this.external.adapter.onTaskDeleted(this.external.floor, taskId);
+    }
     this.changed();
     this.pump();
     return undefined;
@@ -164,8 +229,14 @@ export class TaskQueue {
 
   /** Forgets the finished tasks. */
   clear() {
+    const toDelete = this.tasks.filter((t) => t.status === 'done');
     const before = this.tasks.length;
     this.tasks = this.tasks.filter((t) => t.status !== 'done');
+    if (this.external?.adapter.onTaskDeleted) {
+      for (const t of toDelete) {
+        void this.external.adapter.onTaskDeleted(this.external.floor, t.id);
+      }
+    }
     if (this.tasks.length !== before) this.changed();
   }
 
@@ -382,7 +453,7 @@ export class TaskQueue {
       if (typeof saved.maxWorkers === 'number' && Number.isFinite(saved.maxWorkers)) this.maxWorkers = Math.max(0, Math.min(SEATS.length, Math.floor(saved.maxWorkers)));
       for (const s of saved.tasks ?? []) {
         if (typeof s.id !== 'string' || typeof s.prompt !== 'string' || typeof s.title !== 'string') continue;
-        const provider = isAgentProvider(s.provider) ? s.provider : this.workers.defaultProvider;
+        const provider = isKnownProvider(s.provider) ? s.provider : this.workers.defaultProvider;
         const t: QueueTask = {
           id: s.id,
           provider,

@@ -1,6 +1,10 @@
 // The building's floors: riding the elevator between them and up to the roof, and adding and taking
 // off floors.
-import type { FloorClientMsg } from '../../../shared/protocol.js';
+import { existsSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import type { FloorClientMsg, RepoChoice } from '../../../shared/protocol.js';
+import type { Ctx } from '../../office/context.js';
 import { ROOF } from '../../../shared/rooftop.js';
 import { arrivalSpot, str } from '../../office/input.js';
 import type { HandlerMap, ViewPieces } from './types.js';
@@ -19,6 +23,26 @@ export const floorHandlers = {
     else ctx.goToFloor(c, floor, arrivalSpot(msg.at));
   },
   'floor.repos'(ctx, c, msg) {
+    const floorProvider = ctx.plugins?.getFloorProvider();
+    if (floorProvider) {
+      void (async () => {
+        try {
+          const defs = await floorProvider.listFloors();
+          const onBuilding = new Set(ctx.building.list().map((d) => d.id));
+          const choices: RepoChoice[] = (defs || [])
+            .filter((d) => !onBuilding.has(d.id))
+            .map((d) => ({
+              name: d.dir || d.name,
+              description: d.name,
+              private: false,
+            }));
+          ctx.sendTo(c, { t: 'floor.repos', repos: choices });
+        } catch (err) {
+          ctx.sendTo(c, { t: 'floor.repos', repos: [], error: (err as Error).message });
+        }
+      })();
+      return;
+    }
     void ctx.building.repos(msg.refresh === true).then(
       (repos) => ctx.sendTo(c, { t: 'floor.repos', repos }),
       (err: Error) => ctx.sendTo(c, { t: 'floor.repos', repos: [], error: `Couldn't list your repositories with gh: ${err.message}` }),
@@ -26,7 +50,44 @@ export const floorHandlers = {
   },
   'floor.add'(ctx, c, msg) {
     const who = c.peer.name;
-    const repo = str(msg.repo, 200);
+    const repo = str(msg.repo, 400);
+    const floorProvider = ctx.plugins?.getFloorProvider();
+    if (floorProvider) {
+      void (async () => {
+        try {
+          const res = await ctx.plugins?.createFloor({ repo, dir: repo });
+          if (!res) return ctx.sendTo(c, { t: 'floor.added', repo, error: 'Could not create project via plugin' });
+          ctx.building.unremove(res.dir || res.name);
+          ctx.building.unremove(repo);
+          const defs = await floorProvider.listFloors();
+          ctx.building.mergeList(defs);
+          for (const d of defs) ctx.openFloor(d);
+          ctx.floorsChanged();
+          const floor = ctx.floors.get(res.name) || [...ctx.floors.values()].find((f) => f.def.name === res.name);
+          console.log(`  ${who} added ${res.name} as a floor`);
+          ctx.toastAll(`🛗 New floor: ${res.name}, added by ${who}`);
+          ctx.sendTo(c, { t: 'floor.added', repo, floor: floor?.id });
+        } catch (err) {
+          ctx.sendTo(c, { t: 'floor.added', repo, error: (err as Error).message });
+        }
+      })();
+      return;
+    }
+    const isDir = repo.startsWith('/') || repo.startsWith('~') || existsSync(path.resolve(repo));
+    if (isDir) {
+      const dirPath = path.resolve(repo.startsWith('~') ? path.join(os.homedir(), repo.slice(1)) : repo);
+      if (existsSync(dirPath)) {
+        const name = path.basename(dirPath);
+        const res = ctx.building.addExisting(dirPath, name, who);
+        ctx.floorsChanged();
+        if (typeof res === 'string') return ctx.sendTo(c, { t: 'floor.added', repo, error: res });
+        const floor = ctx.openFloor(res);
+        if (!floor) return ctx.sendTo(c, { t: 'floor.added', repo, error: `Added ${name}, but couldn't open its floor` });
+        console.log(`  ${who} added a floor for ${name} (${dirPath})`);
+        ctx.toastAll(`🛗 New floor: ${name}, added by ${who}`);
+        return ctx.sendTo(c, { t: 'floor.added', repo, floor: floor.id });
+      }
+    }
     void ctx.building
       .add(
         repo,
@@ -77,5 +138,14 @@ export const floorHandlers = {
     const state = ctx.building.projectsDirState();
     ctx.broadcast({ t: 'projectsDir', state });
     ctx.toastAll(state.custom ? `📁 ${who} moved the workspace folder to ${state.dir}` : `📁 ${who} put the workspace folder back to ${state.dir}`);
+  },
+  'floor.maxFloors'(ctx, c, msg) {
+    const who = c.peer.name;
+    if (!ctx.meOf(c.accountId).admin) return ctx.warn(c, 'Only admins can change the max floors limit');
+    const n = Math.max(1, Math.min(2000, Math.floor(Number(msg.max) || 500)));
+    ctx.building.setMaxFloors(n, who);
+    const state = ctx.building.projectsDirState();
+    ctx.broadcast({ t: 'projectsDir', state });
+    ctx.toastAll(`🏢 ${who} set the max floors limit to ${n}`);
   },
 } satisfies HandlerMap<FloorClientMsg>;

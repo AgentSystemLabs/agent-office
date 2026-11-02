@@ -3,6 +3,7 @@
 // anyone else, and they're kept per worker until the page reloads.
 import './termtabs.css';
 import { clip, h, toast } from './dom';
+import { store } from '../state';
 
 /** A web page pinned open beside a worker's terminal. */
 interface WebTab {
@@ -26,10 +27,25 @@ export interface TermTabsOptions {
   keypad: HTMLElement | null;
   /** Back on the terminal's tab. */
   focusTerm(): void;
+  /**
+   * Where this worker's session can be followed in a browser, when its provider has one. It arrives
+   * with the worker itself (see WorkerInfo.sessionUrl), whenever its session starts, and the office
+   * knows nothing about what is at the address.
+   */
+  sessionUrl?: string;
+}
+
+export interface TermTabs {
+  /** The bar above the terminal: the terminal itself, plus any page pinned open beside it. */
+  bar: HTMLElement;
+  /** Where the pinned pages show. */
+  pages: HTMLElement;
+  /** Stops following the worker; the terminal is closing. */
+  dispose(): void;
 }
 
 /** The tab bar (above the terminal) and where the pages show (beside it). */
-export function termTabs(workerId: string, opts: TermTabsOptions): { bar: HTMLElement; pages: HTMLElement } {
+export function termTabs(workerId: string, opts: TermTabsOptions): TermTabs {
   const tabsBar = h('div.term-tabs', { role: 'tablist', 'aria-label': 'Tabs' });
   const tabName = h('input', { type: 'text', placeholder: 'Tab name (e.g. ChatGPT)', 'aria-label': 'Tab name', maxlength: '40', autocomplete: 'off' }) as HTMLInputElement;
   const tabUrl = h('input', { type: 'url', placeholder: 'https://…', 'aria-label': 'Web page address', autocomplete: 'off' }) as HTMLInputElement;
@@ -99,6 +115,28 @@ export function termTabs(workerId: string, opts: TermTabsOptions): { bar: HTMLEl
     pages.append(frame);
   };
   for (const t of tabs) frameFor(t);
+
+  /**
+   * Opens a pinned tab for a page the worker's provider points at, once. The address arrives with
+   * the worker itself (see WorkerInfo.sessionUrl): a provider whose agent has a web UI of its own
+   * says where, and the office just opens it beside the terminal.
+   */
+  // Seeded empty, not with the URL already in hand: the first call is what opens the tab, and this
+  // only remembers which one is open so the same address is never opened twice.
+  let offered: string | undefined;
+  const offerSession = () => {
+    const url = opts.sessionUrl ?? store.workers.get(workerId)?.sessionUrl;
+    if (!url || offered === url) return;
+    offered = url;
+    if (tabs.some((t) => t.url === url)) return;
+    const tab: WebTab = { id: `session-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, title: 'Session', url };
+    tabs.push(tab);
+    frameFor(tab);
+    show(tab.id);
+  };
+  offerSession();
+  const offWorkers = store.on('workers', offerSession);
+
   render();
 
   addBtn.addEventListener('click', () => {
@@ -129,5 +167,5 @@ export function termTabs(workerId: string, opts: TermTabsOptions): { bar: HTMLEl
     closeForm();
     show(tab.id);
   });
-  return { bar, pages };
+  return { bar, pages, dispose: () => offWorkers() };
 }

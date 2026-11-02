@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Claims, GitHub, MergeWatch, friendlyGhError } from '../src/server/github.js';
+import { Claims, GitHub, MergeWatch, adapterBoard, friendlyGhError } from '../src/server/github.js';
 import type { GhIssue, GhPull, GhState } from '../src/shared/protocol.js';
 
 const pull = (number: number, state: string): GhPull => ({
@@ -71,6 +71,15 @@ test('handed over twice, the first answer failing leaves the second one standing
   assert.deepEqual(taken(c.mark([issue(7)])), [7]);
   second(true, 3000);
   assert.deepEqual(taken(c.mark([issue(7, ['octocat'])], 3500)), []);
+});
+
+test("a plugin's board rows are used only when it has any", () => {
+  // A plugin that lists something knows the issues the office's `gh` login cannot see: its list is the board.
+  assert.deepEqual(adapterBoard([issue(1), issue(2)]), [issue(1), issue(2)]);
+  // One that has nothing leaves GitHub to answer, so a project it doesn't cover still shows its issues.
+  assert.equal(adapterBoard([]), null);
+  assert.equal(adapterBoard(null), null);
+  assert.equal(adapterBoard(undefined), null);
 });
 
 test('gh JSON field errors keep the field that failed', () => {

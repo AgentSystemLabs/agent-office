@@ -83,6 +83,7 @@ export function onConnection(ctx: Ctx, ws: WebSocket, url: URL, session: Session
     map: maps.state(),
     prompts: prompts.state(),
     leaveOnMerge: leaveOnMerge.state(),
+    plugins: ctx.plugins?.getState(),
     ...(onRoof ? roofView(ctx) : floorView(ctx, floor)),
   });
   screensOf(ctx, client, floor);

@@ -9,6 +9,7 @@ import type { BallState } from '../hoop.js';
 import type { JukeboxState } from '../jukebox.js';
 import type { WhiteboardView } from '../whiteboard.js';
 import type { AgentProvider } from './agents.js';
+import type { CustomBoardState } from './boards.js';
 import type { GhIssue, GhPull, GhState } from './github.js';
 import type { MeetingState } from './meetings.js';
 import type { PeerInfo } from './presence.js';
@@ -18,11 +19,15 @@ import type { JailState, WorkerInfo } from './workers.js';
 
 export interface ProjectInfo {
   name: string;
+  /** Optional external identifier (e.g. from an external harness plugin). */
+  externalId?: string;
+  url?: string;
   dir: string;
   branch?: string;
   remote?: string;
   agentCmd: string;
   defaultProvider: AgentProvider;
+  /** Providers this project can hire: the office's built-ins, plus any a plugin has registered. */
   agentProviders: AgentProvider[];
 }
 
@@ -50,6 +55,8 @@ export interface FloorInfo {
   local?: boolean;
   addedBy: string;
   addedAt: number;
+  externalId?: string;
+  url?: string;
   /**
    * For the elevator panel: who's there and what they're up to. `workers` counts the ones hired onto
    * desks, bean bags and the meeting room's table, not the board agents at their kiosks.
@@ -81,6 +88,8 @@ export interface ProjectsDirState {
   custom: boolean;
   by?: string;
   at?: number;
+  /** Configured max floors limit (default: 500). */
+  maxFloors?: number;
 }
 
 /** A repository the office's `gh` login can clone, for the elevator's "add a project". */
@@ -124,6 +133,8 @@ export interface FloorView {
   cars: CarState[];
   /** Workers sent home and locked up in the dungeon, on a map that has one. */
   jail: JailState;
+  /** Custom boards provided by plugins (e.g. Jira, task boards). */
+  boards?: Record<string, CustomBoardState>;
 }
 
 export type FloorClientMsg =
@@ -142,7 +153,9 @@ export type FloorClientMsg =
   /** Take a floor off the building (admins only). Its checkout stays on disk; everyone on it rides to another floor. */
   | { t: 'floor.remove'; floor: string }
   /** Where new floors are cloned from now on (admins only); '' goes back to the default. */
-  | { t: 'floor.projectsDir'; dir: string };
+  | { t: 'floor.projectsDir'; dir: string }
+  /** Configure max floors / projects limit (admins only). */
+  | { t: 'floor.maxFloors'; max: number };
 
 export type PlanClientMsg =
   /** Hang a sign over a desk on your floor (a SIGN_COLORS color), or take it down with no text. */

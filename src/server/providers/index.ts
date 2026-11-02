@@ -26,17 +26,34 @@ export const PROVIDERS: Record<AgentProvider, SomeAdapter> = {
   custom,
 };
 
+const pluginAdapters: Record<string, SomeAdapter> = {};
+
+export function registerAgentProviderAdapter(id: string, adapter: SomeAdapter): void {
+  if (id in PROVIDERS || id in pluginAdapters) return;
+  pluginAdapters[id] = adapter;
+}
+
+export function unregisterAgentProviderAdapter(id: string): void {
+  delete pluginAdapters[id];
+}
+
+export function getAdapter(provider: unknown): SomeAdapter | undefined {
+  if (typeof provider !== 'string') return undefined;
+  if (provider in PROVIDERS) return PROVIDERS[provider as AgentProvider];
+  return pluginAdapters[provider];
+}
+
 /** The hook route /hooks/`route` serves, when it's one (see ProviderAdapter.hook). */
 export function providerHook(route: string): SomeAdapter['hook'] {
-  return providerAdapter(route)?.hook;
+  return getAdapter(route)?.hook;
 }
 
 /** A terminal title that's only an agent's own name ("Claude Code"): not worth showing, whichever agent the worker runs. */
 export function titleNoise(title: string): boolean {
-  return Object.values(PROVIDERS).some((p) => p.titleNoise?.test(title));
+  return [...Object.values(PROVIDERS), ...Object.values(pluginAdapters)].some((p) => p.titleNoise?.test(title));
 }
 
 /** The adapter of `provider`, when it's one (workers.json and the wire can hold anything). */
 export function providerAdapter(provider: unknown): SomeAdapter | undefined {
-  return typeof provider === 'string' && Object.hasOwn(PROVIDERS, provider) ? PROVIDERS[provider as AgentProvider] : undefined;
+  return getAdapter(provider);
 }

@@ -14,7 +14,8 @@ import type { BoardActions } from '../../ui/github/prompts';
 import { clip } from '../../ui/dom';
 import { openIssue } from '../../ui/pull';
 import { openServices } from '../../ui/services';
-import { BoardTexture, QueueBoardTexture, ServicesBoardTexture } from './world';
+import { openCustomBoard } from '../../ui/custom-board';
+import { BoardTexture, CustomBoardTexture, QueueBoardTexture, ServicesBoardTexture } from './world';
 import { MachineTexture } from './machine';
 import { MeetingBoardTexture, MeetingSignTexture } from './meeting';
 import type { World } from '../../world/world';
@@ -26,6 +27,7 @@ declare module '../../world/types' {
     pulls: true;
     services: true;
     queue: true;
+    customboard: true;
   }
 }
 
@@ -53,6 +55,7 @@ export function installBoards(ctx: Ctx, deps: BoardsDeps) {
     const mat = mesh.material as THREE.MeshBasicMaterial;
     if (mat.map === texture) return;
     mat.map = texture;
+    mat.color.set('#ffffff');
     mat.needsUpdate = true;
   }
   /** Issues whose cards someone on this floor is carrying around, so they're missing from the board. */
@@ -132,14 +135,85 @@ export function installBoards(ctx: Ctx, deps: BoardsDeps) {
     },
     use: onE(() => deps.showQueue()),
   });
+  ctx.interactions.define('customboard', {
+    reach: 9,
+    hint: (it) => {
+      const bId = (it as any)?.boardId || 'jira';
+      const b = store.customBoards.get(bId);
+      const icon = b?.def?.icon ?? '🎯';
+      const label = b?.def?.label ?? 'Board';
+      return boardHint(`${icon} ${label} board`);
+    },
+    use: onE((it) => {
+      const bId = (it as any)?.boardId || 'jira';
+      openCustomBoard(bId, ctx.net, deps.boardActions());
+    }),
+  });
+  const customBoardTextures = new Map<string, CustomBoardTexture>();
+  function getCustomTexture(boardId: string): CustomBoardTexture {
+    let t = customBoardTextures.get(boardId);
+    if (!t) {
+      t = new CustomBoardTexture();
+      customBoardTextures.set(boardId, t);
+    }
+    return t;
+  }
+  const renderCustomBoards = () => {
+    for (const [boardId, st] of store.customBoards) {
+      const tex = getCustomTexture(boardId);
+      tex.render(st);
+      const mp = ctx.world().mapProps ?? office.mapProps;
+      if (mp) {
+        const meshes = mp.customBoards?.get(boardId) ?? [];
+        for (const m of meshes) showOn(m, tex.texture);
+      }
+    }
+  };
+  store.on('boards', renderCustomBoards);
+
   // The machine monitor on the west wall.
   const machineTex = new MachineTexture();
   mountBoard(office.machineScreen, machineTex.texture, () => machineTex.render(store.machine), ['machine']);
+
   // The meeting room: its output as it's written on the back wall, and how it's going on the door.
   const meetingBoardTex = new MeetingBoardTexture();
-  mountBoard(office.meetingBoard, meetingBoardTex.texture, () => meetingBoardTex.render(store.meeting), ['meeting']);
+  const renderMeetingBoard = () => {
+    meetingBoardTex.render(store.meeting);
+    const mp = ctx.world().mapProps ?? office.mapProps;
+    if (mp) {
+      for (const board of mp.boards) showOn(board, meetingBoardTex.texture);
+    }
+  };
+  mountBoard(office.meetingBoard, meetingBoardTex.texture, renderMeetingBoard, ['meeting']);
+
   const meetingSignTex = new MeetingSignTexture();
-  mountBoard(office.meetingSign, meetingSignTex.texture, () => meetingSignTex.render(store.meeting), ['meeting']);
+  const renderMeetingSign = () => {
+    meetingSignTex.render(store.meeting);
+    const mp = ctx.world().mapProps ?? office.mapProps;
+    if (mp) {
+      for (const sign of mp.signs) showOn(sign, meetingSignTex.texture);
+    }
+  };
+  mountBoard(office.meetingSign, meetingSignTex.texture, renderMeetingSign, ['meeting']);
+
+  const dressMapProps = () => {
+    const mp = ctx.world().mapProps ?? office.mapProps;
+    if (!mp) return;
+    for (const sign of mp.signs) showOn(sign, meetingSignTex.texture);
+    for (const board of mp.boards) showOn(board, meetingBoardTex.texture);
+    for (const [boardId, st] of store.customBoards) {
+      const tex = getCustomTexture(boardId);
+      tex.render(st);
+      const meshes = mp.customBoards?.get(boardId) ?? [];
+      for (const m of meshes) showOn(m, tex.texture);
+    }
+  };
+
+  if (office.mapProps) {
+    office.mapProps.onUpdate = dressMapProps;
+    dressMapProps();
+  }
+
   /** Puts every board's texture up on `w`'s boards. */
   function dressBoards(w: World) {
     showOn(w.boardMeshes.issues, issuesTex.texture);
@@ -148,6 +222,15 @@ export function installBoards(ctx: Ctx, deps: BoardsDeps) {
     showOn(w.boardMeshes.queue, queueTex.texture);
     if (w.meetingBoard) showOn(w.meetingBoard, meetingBoardTex.texture);
     if (w.meetingSign) showOn(w.meetingSign, meetingSignTex.texture);
+    if (w.mapProps) {
+      for (const sign of w.mapProps.signs) showOn(sign, meetingSignTex.texture);
+      for (const board of w.mapProps.boards) showOn(board, meetingBoardTex.texture);
+      for (const [boardId, meshes] of w.mapProps.customBoards) {
+        const tex = getCustomTexture(boardId);
+        tex.render(store.customBoards.get(boardId));
+        for (const m of meshes) showOn(m, tex.texture);
+      }
+    }
   }
 
   return { issuesTex, renderPullsBoard, renderServicesBoard, renderQueueBoard, dressBoards, cardMoved };

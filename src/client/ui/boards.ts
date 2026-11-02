@@ -8,10 +8,9 @@ import { labelChip, openLabels } from './github/labels';
 import { inProgress } from './github/progress';
 import type { BoardActions } from './github/prompts';
 import { openPull } from './github/pull-window';
+import { openProjectsSettings } from './github/projects';
 import { providerLabel } from './provider';
-
-const TILTS = ['-1.2deg', '0.8deg', '-0.4deg', '1.4deg', '0deg', '-0.9deg'];
-const NOTE_COLORS = ['#fff7b0', '#ffd6e0', '#caffbf', '#bde0fe', '#ffe5b4'];
+import { NOTE_COLORS, TILTS, itemNoteColor } from './boards-colors.js';
 
 interface Column<T> {
   /** Names the column in your saved label filters. */
@@ -116,11 +115,11 @@ function queueChip(issue: number): Node | '' {
   return t.pr ? h('span.qchip.done', {}, `🔀 PR #${t.pr.number} · ${provider}`) : '';
 }
 
-function card(n: number, title: string, meta: (Node | string)[], i: number, onclick: () => void, onLabels: () => void) {
+function card(n: number, title: string, meta: (Node | string)[], i: number, onclick: () => void, onLabels: () => void, bg?: string) {
   return h(
     'li.card',
     {
-      style: `--tilt:${TILTS[n % TILTS.length]};background:${NOTE_COLORS[n % NOTE_COLORS.length]};--pin:${['#ef476f', '#118ab2', '#06d6a0', '#ffd166'][i % 4]}`,
+      style: `--tilt:${TILTS[n % TILTS.length]};background:${bg || NOTE_COLORS[n % NOTE_COLORS.length]};--pin:${['#ef476f', '#118ab2', '#06d6a0', '#ffd166'][i % 4]}`,
       tabindex: 0,
       onclick,
       onkeydown: ((e: KeyboardEvent) => e.key === 'Enter' && e.target === e.currentTarget && onclick()) as EventListener,
@@ -134,10 +133,11 @@ function card(n: number, title: string, meta: (Node | string)[], i: number, oncl
 
 export function openBoard(kind: 'issues' | 'pulls', net: Net, actions: BoardActions) {
   const body = h('div.body');
-  const status = h('span.board-status');
+  const status = h('span.board-status', { style: 'margin-left:auto;' });
   const refresh = h('button.btn', { title: 'Refresh from GitHub', onclick: () => net.send({ t: 'gh.refresh' }) }, '🔄 Refresh');
+  const settings = h('button.btn', { title: 'Configure GitHub & GitLab projects', onclick: () => openProjectsSettings(net) }, '⚙️ Settings');
   const close = h('button.btn.close', { 'aria-label': 'Close' }, '✕');
-  const el = h('div.modal.board', { role: 'dialog', 'aria-label': kind === 'issues' ? 'Issues board' : 'Pull requests board' }, h('header', {}, h('h2', {}, kind === 'issues' ? '📌 Issues' : '🔀 Pull Requests'), status, refresh, close), body);
+  const el = h('div.modal.board', { role: 'dialog', 'aria-label': kind === 'issues' ? 'Issues board' : 'Pull requests board' }, h('header', {}, h('h2', {}, kind === 'issues' ? '📌 Issues' : '🔀 Pull Requests'), status, refresh, settings, close), body);
 
   const filters = loadFilters(kind);
   /** What each column's filter box holds (column key → text), for as long as the board is open. */
@@ -264,7 +264,7 @@ export function openBoard(kind: 'issues' | 'pulls', net: Net, actions: BoardActi
       for (const col of issueColumns(store.issues.items)) {
         body.append(
           column(col, all, (it, i) =>
-            card(it.number, it.title, [...labelChips(it.labels), queueChip(it.number), it.assignees.length ? `👤 ${it.assignees.join(', ')}` : it.taken ? '🤖 handed to a worker' : `by ${it.author}`, it.comments ? `💬 ${it.comments}` : '', timeAgo(it.updatedAt)], i, () => openIssue(it, net, actions), () => openLabels('issue', it, net)),
+            card(it.number, it.title, [...labelChips(it.labels), queueChip(it.number), it.assignees.length ? `👤 ${it.assignees.join(', ')}` : it.taken ? '🤖 handed to a worker' : `by ${it.author}`, it.comments ? `💬 ${it.comments}` : '', timeAgo(it.updatedAt)], i, () => openIssue(it, net, actions), () => openLabels('issue', it, net), itemNoteColor(it)),
           ),
         );
       }
@@ -289,6 +289,7 @@ export function openBoard(kind: 'issues' | 'pulls', net: Net, actions: BoardActi
               i,
               () => openPull(it, net, actions),
               () => openLabels('pull', it, net),
+              itemNoteColor(it),
             );
           }),
         );

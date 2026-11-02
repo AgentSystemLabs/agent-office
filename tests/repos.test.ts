@@ -171,7 +171,7 @@ test('a worker across repositories gets a workspace with a worktree of each on o
   const [start] = await waitFor(() => f.starts(), (s) => s.length === 1);
   assert.equal(realpathSync(start.cwd), ws);
   assert.equal(start.top, null);
-  assert.equal(start.ceiling, path.dirname(ws));
+  assert.ok(start.ceiling?.split(path.delimiter).includes(path.dirname(ws)));
 
   // It comes back with them after a restart.
   workers.shutdown();
@@ -343,7 +343,7 @@ const pull = (number: number, state: string, headRefName: string, headRefOid?: s
 
 test('a worker across repositories goes home once its pull requests have merged and none is open, on any floor', () => {
   const w: WorkerInfo = {
-    id: 'pip', kind: 'agent', deskId: 'desk-1', name: 'Pip', color: '#fff', status: 'done', acked: true, createdBy: 't', createdAt: 0, cols: 80, rows: 24, viewers: [],
+    id: 'pip', kind: 'agent', deskId: 'desk-1', name: 'Pip', color: '#fff', status: 'done', acked: true, createdBy: 't', createdAt: 0, cols: 80, rows: 24, viewers: [], viewerIds: [],
     worktree: { path: '.agent-office/worktrees/pip-1/web', branch: 'office/pip-1', base: 'a' },
     repos: [{ floor: 'api', name: 'api', dir: '/api', path: '.agent-office/worktrees/pip-1/api', branch: 'office/pip-1', base: 'b', pr: { number: 9, url: '' } }],
   };
