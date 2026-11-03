@@ -12,6 +12,7 @@ test('Executive World registration exposes the standard map-world contract input
   assert.ok(plan.bounds.maxX > plan.bounds.minX);
   assert.ok(plan.desks.length > 0);
   assert.ok(plan.obstacles);
+  assert.deepEqual({ x: plan.spawn.x, z: plan.spawn.z }, { x: 0, z: 0 });
 });
 
 test('Executive World exposes explicit floor mappings and planned fallbacks', () => {
