@@ -2,8 +2,9 @@
 import type { Ctx } from '../../core/context';
 import { aside, hintTitle, key, onE } from '../../core/hint';
 import { store } from '../../state';
-import { toast } from '../../ui/dom';
-import { EXECUTIVE_FLOOR_MAP, executiveFloorFor } from '../../../shared/executive-floor-map';
+import { $, h, toast } from '../../ui/dom';
+import { EXECUTIVE_FLOOR_MAP, EXECUTIVE_SHARED_RUNTIME_LABEL, executiveFloorFor } from '../../../shared/executive-floor-map';
+import { EXECUTIVE_MAP } from '../../../shared/maps';
 import type { Interactable } from '../../world/types';
 
 declare module '../../world/types' {
@@ -21,6 +22,24 @@ function entryFor(it: Interactable) {
 }
 
 export function installExecutiveCampus(ctx: Ctx) {
+  const returnButton = h('button.btn', {
+    id: 'executive-return-campus',
+    type: 'button',
+    title: 'Return to the Executive World campus map',
+    onclick: () => {
+      ctx.net.send({ t: 'map.set', map: EXECUTIVE_MAP });
+      toast('Executive World campus restored', 'info');
+    },
+  }, '↩ Return to Executive World');
+  returnButton.hidden = true;
+  $('hud').append(returnButton);
+  const syncReturnButton = () => {
+    returnButton.hidden = store.floor !== 'agent-office-executive-world';
+  };
+  store.on('floor', syncReturnButton);
+  store.on('map', syncReturnButton);
+  syncReturnButton();
+
   const useLocation = (it: Interactable) => {
     const buildingId = it.decorId ?? '';
     if (buildingId.startsWith('district:')) {
@@ -35,6 +54,7 @@ export function installExecutiveCampus(ctx: Ctx) {
       toast(`${entry.displayName} · Planned / Not Connected`, 'warn');
       return;
     }
+    toast(entry.destinationLabel ?? EXECUTIVE_SHARED_RUNTIME_LABEL, 'info');
     ctx.player.setView('first');
     ctx.net.send({ t: 'floor.go', floor: entry.agentOfficeFloorId });
   };

@@ -10,10 +10,13 @@ export interface ExecutiveFloorMapEntry {
   agentOfficeFloorId: string | null;
   connected: boolean;
   fallback: 'planned-not-connected' | 'open-floor-picker';
+  destinationLabel?: string;
 }
 
+export const EXECUTIVE_SHARED_RUNTIME_LABEL = 'Agent Office Executive World · Shared Runtime Floor';
+
 export const EXECUTIVE_FLOOR_MAP: readonly ExecutiveFloorMapEntry[] = [
-  { districtId: 'administration', buildingId: 'town-hall', displayName: 'Town Hall', agentOfficeFloorId: null, connected: false, fallback: 'planned-not-connected' },
+  { districtId: 'administration', buildingId: 'town-hall', displayName: 'Town Hall', agentOfficeFloorId: 'agent-office-executive-world', connected: true, fallback: 'planned-not-connected', destinationLabel: EXECUTIVE_SHARED_RUNTIME_LABEL },
   { districtId: 'administration', buildingId: 'intake-routing', displayName: 'Intake & Routing', agentOfficeFloorId: null, connected: false, fallback: 'planned-not-connected' },
   { districtId: 'finance', buildingId: 'financial-markets', displayName: 'Financial Markets', agentOfficeFloorId: null, connected: false, fallback: 'planned-not-connected' },
   { districtId: 'finance', buildingId: 'investment-portfolio', displayName: 'Investment Portfolio', agentOfficeFloorId: null, connected: false, fallback: 'planned-not-connected' },
