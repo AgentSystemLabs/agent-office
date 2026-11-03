@@ -1,0 +1,58 @@
+/** Executive World campus selection and floor-routing boundary. */
+import type { Ctx } from '../../core/context';
+import { aside, hintTitle, key, onE } from '../../core/hint';
+import { store } from '../../state';
+import { toast } from '../../ui/dom';
+import { EXECUTIVE_FLOOR_MAP, executiveFloorFor } from '../../../shared/executive-floor-map';
+import type { Interactable } from '../../world/types';
+
+declare module '../../world/types' {
+  interface InteractKinds {
+    executivebuilding: true;
+  }
+}
+
+function districtName(id: string): string {
+  return id.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function entryFor(it: Interactable) {
+  return it.decorId ? executiveFloorFor(it.decorId) : undefined;
+}
+
+export function installExecutiveCampus(ctx: Ctx) {
+  const useLocation = (it: Interactable) => {
+    const buildingId = it.decorId ?? '';
+    if (buildingId.startsWith('district:')) {
+      const id = buildingId.slice('district:'.length);
+      const rooms = EXECUTIVE_FLOOR_MAP.filter((entry) => entry.districtId === id);
+      toast(`${districtName(id)} · ${rooms.length} planned location${rooms.length === 1 ? '' : 's'} · select a building to inspect`, 'info');
+      return;
+    }
+    const entry = entryFor(it);
+    if (!entry) return;
+    if (!entry.connected || !entry.agentOfficeFloorId) {
+      toast(`${entry.displayName} · Planned / Not Connected`, 'warn');
+      return;
+    }
+    ctx.player.setView('first');
+    ctx.net.send({ t: 'floor.go', floor: entry.agentOfficeFloorId });
+  };
+
+  ctx.interactions.define('executivebuilding', {
+    reach: 12,
+    hint: (it) => {
+      const buildingId = it.decorId ?? '';
+      if (buildingId.startsWith('district:')) {
+        return { k: buildingId, parts: [hintTitle(districtName(buildingId.slice('district:'.length))), aside('Executive World district'), key('E', 'Inspect')] };
+      }
+      const entry = entryFor(it);
+      const name = entry?.displayName ?? it.label ?? 'Executive World location';
+      const status = entry?.connected ? 'Connected' : 'Planned / Not Connected';
+      return { k: `${name}|${status}`, parts: [hintTitle(name), aside(status), key('E', entry?.connected ? 'Enter floor' : 'Inspect')] };
+    },
+    use: onE(useLocation),
+  });
+
+  return { entryFor };
+}

@@ -13,7 +13,7 @@ import type { Bounds, Obstacles, Pt, Rect } from '../nav.js';
  */
 
 /** The styles there's a builder for (the client's world/styles.ts): a map's `style` is one of them. */
-export const MAP_STYLES = ['castle', 'station'] as const;
+export const MAP_STYLES = ['castle', 'station', 'executive'] as const;
 export type MapStyle = (typeof MAP_STYLES)[number];
 
 /** The boards on the walls. */

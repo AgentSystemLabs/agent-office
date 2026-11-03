@@ -2,6 +2,7 @@ import { BEANBAGS, BOARDS, DESKS, ELEVATOR, ELEVATOR_CAR, EXIT_DOOR, FLOOR, MEET
 import type { Circle, Rect } from '../nav.js';
 import { planAirlock, wallOpenings } from './airlock.js';
 import { CASTLE } from './castle.js';
+import { EXECUTIVE } from './executive.js';
 import { MapError, isObj, num, str } from './check.js';
 import { overlaps, planDungeon, planSendHome } from './dungeon.js';
 import { PROP_KINDS, boxFootprint, propFootprint, propTop } from './props.js';
@@ -15,13 +16,16 @@ export { DUNGEON_SLAB, SEND_HOME_STEPS, dungeonClear, levelRoute, prisonSeat, wa
 
 /** The office: built in code (world/office/), and what the building is until someone picks another map. */
 export const OFFICE_MAP = 'office';
+/** The staged Executive World default used by the main application when no map has been saved. */
+export const EXECUTIVE_MAP = 'executive';
 /** The maps that come with the office, besides the office itself. */
-export const BUILTIN_MAPS: readonly MapConfig[] = [CASTLE, STATION];
+export const BUILTIN_MAPS: readonly MapConfig[] = [CASTLE, STATION, EXECUTIVE];
 
 /** The props each style of map can put up (see ./props.ts and ./station-props.ts): their kinds, the floor each takes and how high it reaches. */
 const STYLE_PROPS: Record<MapStyle, { kinds: Readonly<Record<string, string>>; footprint: typeof propFootprint; top(p: PropConfig): number }> = {
   castle: { kinds: PROP_KINDS, footprint: propFootprint, top: propTop },
   station: { kinds: STATION_PROP_KINDS, footprint: stationFootprint, top: stationTop },
+  executive: { kinds: PROP_KINDS, footprint: propFootprint, top: propTop },
 };
 
 const STATION_KINDS: readonly StationKind[] = ['issues', 'pulls', 'queue'];
