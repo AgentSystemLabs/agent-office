@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { MapState } from '../shared/protocol.js';
-import { OFFICE_MAP, checkCustomMaps, isMapChoice, planOf, type CustomMap, type MapPlan } from '../shared/maps/index.js';
+import { EXECUTIVE_MAP, OFFICE_MAP, checkCustomMaps, isMapChoice, planOf, type CustomMap, type MapPlan } from '../shared/maps/index.js';
 
 /** The most custom maps read, and the biggest file that's read as one. */
 const MAX_FILES = 24;
@@ -47,7 +47,7 @@ export class Maps {
   /** The map everyone's on: the one picked, while it's there to be had. */
   pick(): string {
     const p = this.saved?.pick;
-    return p && isMapChoice(p, this.custom) ? p : OFFICE_MAP;
+    return p && isMapChoice(p, this.custom) ? p : EXECUTIVE_MAP;
   }
 
   /** Where everything is on the building's map. */

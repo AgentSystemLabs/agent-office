@@ -1,5 +1,5 @@
 import type { MapState } from '../../../shared/protocol';
-import { OFFICE_MAP, planOf, type MapPlan } from '../../../shared/maps';
+import { EXECUTIVE_MAP, planOf, type MapPlan } from '../../../shared/maps';
 import type { Slice } from '../store';
 
 declare module '../store' {
@@ -16,7 +16,7 @@ declare module '../store' {
 
 export const map: Slice = {
   init(s) {
-    s.map = { pick: OFFICE_MAP, custom: [] };
+    s.map = { pick: EXECUTIVE_MAP, custom: [] };
   },
   methods: {
     plan() {
@@ -27,7 +27,7 @@ export const map: Slice = {
   beforeFloor: true,
   on: {
     welcome(s, m) {
-      s.map = m.map ?? { pick: OFFICE_MAP, custom: [] };
+      s.map = m.map ?? { pick: EXECUTIVE_MAP, custom: [] };
       return ['map'];
     },
     map(s, m) {
