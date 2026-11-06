@@ -1,4 +1,5 @@
 import './style.css';
+import './shared/locale-vi';
 import { Net } from './net';
 import { DesktopNotifier } from './notify';
 import { store, loadProfile, loadSettings } from './state';

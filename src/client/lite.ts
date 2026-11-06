@@ -4,6 +4,7 @@
 // and the task queue. You're in the office as someone on the 2D view (PeerInfo.lite), not standing
 // anywhere in it.
 
+import './shared/locale-vi';
 import { Net } from './net';
 import { AVATAR_COLORS, loadProfile, loadSettings, saveProfile, store } from './state';
 import { randomLook } from '../shared/avatar';

@@ -1,5 +1,10 @@
 # Controls
 
+The local Tú Hub uses Vietnamese UI labels by default: **Nhóm AI** (Workers),
+**Cài đặt → Cá nhân → Góc nhìn camera** (Settings → You → Camera view),
+and **Tạo AI và bắt đầu** (Hire & start). The native first/third-person camera is unchanged.
+`?lang=en` keeps the upstream labels. Text inside terminals, documents and entered prompts is not translated.
+
 Back to the [README](../README.md).
 
 | Key | Action |
