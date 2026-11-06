@@ -74,7 +74,7 @@ DeepSeek Harness metrics come from ACP `usage_update`: tokens in context and the
 
 ## Codex hook troubleshooting
 
-The office quotes its Node executable, helper path and event for Codex's native command shell: `cmd /C` on Windows and a POSIX shell on macOS/Linux. Spaces, Unicode and apostrophes in the project path are supported.
+On Windows, the office prepends its Node install to the worker's PATH and passes the generated helper's absolute path in `AGENT_OFFICE_CODEX_HOOK`. Its fixed `node.exe -e` command loads that helper without interpolating paths into a shell. This works with both Codex's `cmd /C` runner and its PowerShell environment executor, including paths with spaces, Unicode and shell metacharacters. macOS/Linux keep POSIX quoting. The generated helper is `.agent-office/agent-office-codex-hook.cjs` in the project's data directory.
 
 Older Windows installations generated POSIX single-quoted commands. Those can fail with `Hook failed` / exit code 1 even while the agent answers normally. Without a successful `SessionStart` and `Stop`, the office can keep showing **needs input** after a turn ends. Update and restart the office, then resume the worker to load the corrected command overrides; a CLI already running keeps its old overrides. Review changed hooks in `/hooks` if Codex asks. Native trust review is still required and is never bypassed. Restarting alone cannot recover a session id that the failed startup hook never reported; in that case, open a terminal and use Codex's resume picker to select the existing chat.
 

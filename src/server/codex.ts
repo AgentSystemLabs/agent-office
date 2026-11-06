@@ -82,9 +82,8 @@ export function validateCodexHook(event: string, payload: unknown): boolean {
   return !!normalizeCodexHook(event, payload);
 }
 
-function shellQuote(value: string, platform: NodeJS.Platform): string {
-  // Codex runs hooks through cmd /C on Windows; POSIX single quotes are literal there.
-  return platform === 'win32' ? `"${value}"` : `'${value.replaceAll("'", "'\"'\"'")}'`;
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\"'\"'")}'`;
 }
 
 /**
@@ -94,7 +93,11 @@ function shellQuote(value: string, platform: NodeJS.Platform): string {
 export function codexHookArgs(hookPath: string, platform: NodeJS.Platform = process.platform): string[] {
   const args: string[] = [];
   for (const event of CODEX_HOOK_EVENTS) {
-    const command = [process.execPath, hookPath, event].map((value) => shellQuote(value, platform)).join(' ');
+    // Windows runners include cmd and PowerShell. Keep paths out of both shells' expansion rules;
+    // the provider supplies the helper path in env and prepends this Node install to PATH.
+    const command = platform === 'win32'
+      ? `node.exe -e "require(process.env.AGENT_OFFICE_CODEX_HOOK)" agent-office-codex-hook.cjs ${event}`
+      : [process.execPath, hookPath, event].map(shellQuote).join(' ');
     const config = `hooks.${event}=[{hooks=[{type="command",command=${JSON.stringify(command)},timeout=3}]}]`;
     args.push('-c', config);
   }

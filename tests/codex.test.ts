@@ -49,16 +49,17 @@ test('generates one stable CLI hook override per supported event', () => {
   }
 });
 
-test('quotes hook commands for cmd on Windows and retains POSIX apostrophe escaping', () => {
+test('keeps paths out of Windows shell expansion and retains POSIX apostrophe escaping', () => {
   const file = "/office data/O'Neil/hook.cjs";
   const commandOf = (platform: NodeJS.Platform) =>
     JSON.parse(codexHookArgs(file, platform)[1].match(/command=("(?:[^"\\]|\\.)*")/)![1]) as string;
-  assert.ok(commandOf('win32').includes(`"${file}"`));
+  assert.ok(commandOf('win32').startsWith('node.exe -e "require(process.env.AGENT_OFFICE_CODEX_HOOK)"'));
+  assert.equal(commandOf('win32').includes(file), false);
   assert.ok(commandOf('linux').includes(`'/office data/O'"'"'Neil/hook.cjs'`));
 });
 
 test('generated hooks execute through the native shell with spaced Unicode and apostrophe paths', async () => {
-  const dir = mkdtempSync(path.join(tmpdir(), "office Việt & O'Neil "));
+  const dir = mkdtempSync(path.join(tmpdir(), "office Việt %TEMP% $env:TEMP ` & O'Neil ".replaceAll(':', '-')));
   const events: string[] = [];
   const server = createServer((req, res) => {
     req.resume();
@@ -73,16 +74,25 @@ test('generated hooks execute through the native shell with spaced Unicode and a
     const address = server.address();
     assert.ok(address && typeof address === 'object');
     const args = codexHookArgs(file);
-    for (const event of ['SessionStart', 'UserPromptSubmit', 'Stop']) {
+    const windows = process.platform === 'win32';
+    const launched = codex.launch({ h: { info: {}, state: codex.createState!() } as never, args: [], setup: { hook: file } });
+    if (windows) {
+      assert.equal(launched.env?.AGENT_OFFICE_CODEX_HOOK, file);
+      const pathValue = Object.entries(launched.env!).find(([key]) => key.toUpperCase() === 'PATH')![1];
+      assert.equal(pathValue?.split(path.delimiter)[0], path.dirname(process.execPath));
+    }
+    const shells = windows ? ['cmd', 'powershell'] : ['sh'];
+    for (const shell of shells) for (const event of ['SessionStart', 'UserPromptSubmit', 'Stop']) {
       const config = args[CODEX_HOOK_EVENTS.indexOf(event as typeof CODEX_HOOK_EVENTS[number]) * 2 + 1];
       const command = JSON.parse(config.match(/command=("(?:[^"\\]|\\.)*")/)![1]) as string;
-      // Match Codex's cmd /C raw command wrapping, rather than spawning Node directly.
-      const windows = process.platform === 'win32';
-      const child = spawn(windows ? process.env.ComSpec || 'cmd.exe' : '/bin/sh',
-        windows ? ['/d', '/s', '/c', `"${command}"`] : ['-c', command], {
-          windowsVerbatimArguments: windows,
+      // Exercise both Codex Windows runners, rather than spawning the helper directly.
+      const program = shell === 'cmd' ? process.env.ComSpec || 'cmd.exe' : shell === 'powershell' ? 'powershell.exe' : '/bin/sh';
+      const shellArgs = shell === 'cmd' ? ['/C', `"${command}"`] : shell === 'powershell' ? ['-NoProfile', '-NonInteractive', '-Command', command] : ['-c', command];
+      const child = spawn(program, shellArgs, {
+          windowsVerbatimArguments: shell === 'cmd',
           env: {
             ...process.env,
+            ...launched.env,
             AGENT_OFFICE_HOOK_URL: `http://127.0.0.1:${address.port}`,
             AGENT_OFFICE_HOOK_TOKEN: 'test-token',
             AGENT_OFFICE_WORKER_ID: 'test-worker',
@@ -100,7 +110,7 @@ test('generated hooks execute through the native shell with spaced Unicode and a
       assert.equal(result.code, 0, result.stderr);
       assert.equal(result.stdout, '{}');
     }
-    assert.deepEqual(events, ['SessionStart', 'UserPromptSubmit', 'Stop']);
+    assert.deepEqual(events, shells.flatMap(() => ['SessionStart', 'UserPromptSubmit', 'Stop']));
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
     rmSync(dir, { recursive: true, force: true });

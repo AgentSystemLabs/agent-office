@@ -98,7 +98,12 @@ export const codex: ProviderAdapter<CodexState, CodexSetup> = {
     if (resumeSessionId) args.push('resume', resumeSessionId);
     if (prompt) args.push('--', prompt);
     tracker(h.state).clear();
-    return { args, rotateToken: true };
+    // Codex can execute Windows hooks through cmd or its PowerShell environment executor.
+    const pathKey = Object.keys(process.env).find((key) => key.toUpperCase() === 'PATH') ?? 'PATH';
+    const env = process.platform === 'win32'
+      ? { [pathKey]: [path.dirname(process.execPath), process.env[pathKey]].filter(Boolean).join(path.delimiter), AGENT_OFFICE_CODEX_HOOK: setup.hook }
+      : undefined;
+    return { args, rotateToken: true, env };
   },
   bootHint: 'Open the terminal: complete login and review Office hooks in /hooks',
   hook: { strictJson: true, handle: codexHook },
