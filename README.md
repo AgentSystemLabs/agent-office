@@ -79,6 +79,8 @@ Press Enter to skip a step: the elevator in the office asks for your first proje
 
 Walk to an empty desk, press **E** and hire a worker.
 
+For Codex workers, review the office's lifecycle commands in `/hooks` on first use. They use native shell quoting on Windows as well as macOS/Linux, including project paths with spaces. If an older Windows worker shows `Hook failed` and stays at **needs input** after finishing, update and restart the office, then resume the worker so it receives the corrected commands. See [Codex setup](docs/agents.md#codex-hook-troubleshooting).
+
 Common options:
 
 ```bash

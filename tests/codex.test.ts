@@ -49,6 +49,74 @@ test('generates one stable CLI hook override per supported event', () => {
   }
 });
 
+test('keeps paths out of Windows shell expansion and retains POSIX apostrophe escaping', () => {
+  const file = "/office data/O'Neil/hook.cjs";
+  const commandOf = (platform: NodeJS.Platform) =>
+    JSON.parse(codexHookArgs(file, platform)[1].match(/command=("(?:[^"\\]|\\.)*")/)![1]) as string;
+  assert.ok(commandOf('win32').startsWith('node.exe -e "require(process.env.AGENT_OFFICE_CODEX_HOOK)"'));
+  assert.equal(commandOf('win32').includes(file), false);
+  assert.ok(commandOf('linux').includes(`'/office data/O'"'"'Neil/hook.cjs'`));
+});
+
+test('generated hooks execute through the native shell with spaced Unicode and apostrophe paths', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "office Việt %TEMP% $env:TEMP ` & O'Neil ".replaceAll(':', '-')));
+  const events: string[] = [];
+  const server = createServer((req, res) => {
+    req.resume();
+    req.on('end', () => {
+      events.push(new URL(req.url!, 'http://localhost').searchParams.get('event')!);
+      res.writeHead(200).end();
+    });
+  });
+  try {
+    const file = writeCodexHook(dir);
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    assert.ok(address && typeof address === 'object');
+    const args = codexHookArgs(file);
+    const windows = process.platform === 'win32';
+    const launched = codex.launch({ h: { info: {}, state: codex.createState!() } as never, args: [], setup: { hook: file } });
+    if (windows) {
+      assert.equal(launched.env?.AGENT_OFFICE_CODEX_HOOK, file);
+      const pathValue = Object.entries(launched.env!).find(([key]) => key.toUpperCase() === 'PATH')![1];
+      assert.equal(pathValue?.split(path.delimiter)[0], path.dirname(process.execPath));
+    }
+    const shells = windows ? ['cmd', 'powershell'] : ['sh'];
+    for (const shell of shells) for (const event of ['SessionStart', 'UserPromptSubmit', 'Stop']) {
+      const config = args[CODEX_HOOK_EVENTS.indexOf(event as typeof CODEX_HOOK_EVENTS[number]) * 2 + 1];
+      const command = JSON.parse(config.match(/command=("(?:[^"\\]|\\.)*")/)![1]) as string;
+      // Exercise both Codex Windows runners, rather than spawning the helper directly.
+      const program = shell === 'cmd' ? process.env.ComSpec || 'cmd.exe' : shell === 'powershell' ? 'powershell.exe' : '/bin/sh';
+      const shellArgs = shell === 'cmd' ? ['/C', `"${command}"`] : shell === 'powershell' ? ['-NoProfile', '-NonInteractive', '-Command', command] : ['-c', command];
+      const child = spawn(program, shellArgs, {
+          windowsVerbatimArguments: shell === 'cmd',
+          env: {
+            ...process.env,
+            ...launched.env,
+            AGENT_OFFICE_HOOK_URL: `http://127.0.0.1:${address.port}`,
+            AGENT_OFFICE_HOOK_TOKEN: 'test-token',
+            AGENT_OFFICE_WORKER_ID: 'test-worker',
+          },
+          stdio: ['pipe', 'pipe', 'pipe'],
+        });
+      const result = await new Promise<{ code: number | null; stdout: string; stderr: string }>((resolve, reject) => {
+        let stdout = '', stderr = '';
+        child.stdout.on('data', (chunk) => { stdout += chunk; });
+        child.stderr.on('data', (chunk) => { stderr += chunk; });
+        child.on('error', reject);
+        child.on('close', (code) => resolve({ code, stdout, stderr }));
+        child.stdin.end(JSON.stringify({ session_id: 'test-session', source: 'startup', prompt: 'test' }));
+      });
+      assert.equal(result.code, 0, result.stderr);
+      assert.equal(result.stdout, '{}');
+    }
+    assert.deepEqual(events, shells.flatMap(() => ['SessionStart', 'UserPromptSubmit', 'Stop']));
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('a worker\'s own model and effort go on Codex\'s command line, in place of an office-wide model', () => {
   assert.deepEqual(codexModelArgs([]), []);
   assert.deepEqual(codexModelArgs(['--yolo'], 'gpt-5.5', 'high'), ['--yolo', '--model', 'gpt-5.5', '-c', 'model_reasoning_effort="high"']);
