@@ -49,6 +49,64 @@ test('generates one stable CLI hook override per supported event', () => {
   }
 });
 
+test('quotes hook commands for cmd on Windows and retains POSIX apostrophe escaping', () => {
+  const file = "/office data/O'Neil/hook.cjs";
+  const commandOf = (platform: NodeJS.Platform) =>
+    JSON.parse(codexHookArgs(file, platform)[1].match(/command=("(?:[^"\\]|\\.)*")/)![1]) as string;
+  assert.ok(commandOf('win32').includes(`"${file}"`));
+  assert.ok(commandOf('linux').includes(`'/office data/O'"'"'Neil/hook.cjs'`));
+});
+
+test('generated hooks execute through the native shell with spaced Unicode and apostrophe paths', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "office Việt & O'Neil "));
+  const events: string[] = [];
+  const server = createServer((req, res) => {
+    req.resume();
+    req.on('end', () => {
+      events.push(new URL(req.url!, 'http://localhost').searchParams.get('event')!);
+      res.writeHead(200).end();
+    });
+  });
+  try {
+    const file = writeCodexHook(dir);
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    assert.ok(address && typeof address === 'object');
+    const args = codexHookArgs(file);
+    for (const event of ['SessionStart', 'UserPromptSubmit', 'Stop']) {
+      const config = args[CODEX_HOOK_EVENTS.indexOf(event as typeof CODEX_HOOK_EVENTS[number]) * 2 + 1];
+      const command = JSON.parse(config.match(/command=("(?:[^"\\]|\\.)*")/)![1]) as string;
+      // Match Codex's cmd /C raw command wrapping, rather than spawning Node directly.
+      const windows = process.platform === 'win32';
+      const child = spawn(windows ? process.env.ComSpec || 'cmd.exe' : '/bin/sh',
+        windows ? ['/d', '/s', '/c', `"${command}"`] : ['-c', command], {
+          windowsVerbatimArguments: windows,
+          env: {
+            ...process.env,
+            AGENT_OFFICE_HOOK_URL: `http://127.0.0.1:${address.port}`,
+            AGENT_OFFICE_HOOK_TOKEN: 'test-token',
+            AGENT_OFFICE_WORKER_ID: 'test-worker',
+          },
+          stdio: ['pipe', 'pipe', 'pipe'],
+        });
+      const result = await new Promise<{ code: number | null; stdout: string; stderr: string }>((resolve, reject) => {
+        let stdout = '', stderr = '';
+        child.stdout.on('data', (chunk) => { stdout += chunk; });
+        child.stderr.on('data', (chunk) => { stderr += chunk; });
+        child.on('error', reject);
+        child.on('close', (code) => resolve({ code, stdout, stderr }));
+        child.stdin.end(JSON.stringify({ session_id: 'test-session', source: 'startup', prompt: 'test' }));
+      });
+      assert.equal(result.code, 0, result.stderr);
+      assert.equal(result.stdout, '{}');
+    }
+    assert.deepEqual(events, ['SessionStart', 'UserPromptSubmit', 'Stop']);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('a worker\'s own model and effort go on Codex\'s command line, in place of an office-wide model', () => {
   assert.deepEqual(codexModelArgs([]), []);
   assert.deepEqual(codexModelArgs(['--yolo'], 'gpt-5.5', 'high'), ['--yolo', '--model', 'gpt-5.5', '-c', 'model_reasoning_effort="high"']);

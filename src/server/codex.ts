@@ -82,18 +82,19 @@ export function validateCodexHook(event: string, payload: unknown): boolean {
   return !!normalizeCodexHook(event, payload);
 }
 
-function shellQuote(value: string): string {
-  return `'${value.replaceAll("'", "'\"'\"'")}'`;
+function shellQuote(value: string, platform: NodeJS.Platform): string {
+  // Codex runs hooks through cmd /C on Windows; POSIX single quotes are literal there.
+  return platform === 'win32' ? `"${value}"` : `'${value.replaceAll("'", "'\"'\"'")}'`;
 }
 
 /**
  * Build the CLI config overrides for all lifecycle hooks. The command is encoded as a TOML basic
  * string so paths containing spaces remain valid; the command itself is shell-quoted.
  */
-export function codexHookArgs(hookPath: string): string[] {
+export function codexHookArgs(hookPath: string, platform: NodeJS.Platform = process.platform): string[] {
   const args: string[] = [];
   for (const event of CODEX_HOOK_EVENTS) {
-    const command = [process.execPath, hookPath, event].map(shellQuote).join(' ');
+    const command = [process.execPath, hookPath, event].map((value) => shellQuote(value, platform)).join(' ');
     const config = `hooks.${event}=[{hooks=[{type="command",command=${JSON.stringify(command)},timeout=3}]}]`;
     args.push('-c', config);
   }
