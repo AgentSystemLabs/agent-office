@@ -9,6 +9,10 @@
 
 # 🏢 Agent Office
 
+Local Tú Hub: the main controls, onboarding, sign-in, worker tasks and camera settings
+are displayed in Vietnamese. Terminal output, entered prompts, provider/model IDs and
+project documents are preserved. Add `?lang=en` to a page for the original interface.
+
 **A 3D office your team shares with its coding agents.**
 
 Sit **Claude Code**, **Codex**, **OpenCode**, **Grok**, **Muse**, **DeepSeek Harness** and **Cursor** workers at desks, watch each one's terminal on the laptop in front of it,

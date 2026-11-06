@@ -1,4 +1,5 @@
 export {}; // a module, so its names don't clash with the other pages' scripts
+import './shared/locale-vi';
 
 const form = document.getElementById('form') as HTMLFormElement;
 const nameRow = document.getElementById('name-row') as HTMLLabelElement;
