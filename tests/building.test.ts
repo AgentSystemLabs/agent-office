@@ -46,6 +46,32 @@ test("floors that aren't there can't be taken off", (t) => {
   assert.deepEqual(saved(dataDir), ['api', 'web', 'docs']);
 });
 
+test('an existing local project becomes a floor in place and survives a restart', (t) => {
+  const { root, dataDir } = office(t);
+  const dir = path.join(root, 'separate-workspace', 'private-project');
+  mkdirSync(dir, { recursive: true });
+  const building = new Building(dataDir, root);
+  const added = building.addLocal(dir, 'Sam');
+  assert.equal(typeof added, 'object');
+  assert.equal((added as FloorDef).dir, dir);
+  assert.equal((added as FloorDef).name, 'private-project');
+  assert.equal((added as FloorDef).repo, undefined);
+  assert.ok(existsSync(dir), 'the project stays where it was');
+  assert.deepEqual(saved(dataDir), ['api', 'web', 'docs', 'private-project']);
+  assert.equal(new Building(dataDir, root).list().at(-1)?.dir, dir);
+});
+
+test('adding a local project requires an existing absolute directory and rejects duplicates', (t) => {
+  const { root, dataDir } = office(t);
+  const dir = path.join(root, 'local-project');
+  mkdirSync(dir);
+  const building = new Building(dataDir, root);
+  assert.match(String(building.addLocal('relative/project', 'Sam')), /absolute path/);
+  assert.match(String(building.addLocal(path.join(root, 'missing'), 'Sam')), /does not exist/);
+  assert.equal(typeof building.addLocal(dir, 'Sam'), 'object');
+  assert.match(String(building.addLocal(dir, 'Sam')), /already a floor/);
+});
+
 test('the floor the office was started in comes off too, stays off after a restart, and moves back in when its repository is added again', async (t) => {
   const { root, dataDir, defs } = office(t);
   // The office's own checkout, with its GitHub origin (how it's recognised once it's no longer a floor).

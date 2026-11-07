@@ -35,9 +35,16 @@ const START_MS = 60_000;
 
 /** Panels waiting on a clone; each says whether the answer was for it. */
 const addedWaiters = new Set<(msg: Extract<ServerMsg, { t: 'floor.added' }>) => boolean>();
+const localAddedWaiters = new Set<(msg: Extract<ServerMsg, { t: 'floor.localAdded' }>) => boolean>();
 
 /** Main feeds server messages through here, so a panel waiting on its clone hears back. */
 export function routeElevatorMessage(msg: ServerMsg) {
+  if (msg.t === 'floor.localAdded') {
+    let heard = false;
+    for (const fn of localAddedWaiters) heard = fn(msg) || heard;
+    if (!heard && msg.error) toast(`🛗 ${msg.error}`, 'warn');
+    return;
+  }
   if (msg.t !== 'floor.added') return;
   let heard = false;
   for (const fn of addedWaiters) heard = fn(msg) || heard;
@@ -66,9 +73,13 @@ export function openElevator(opts: ElevatorOptions): void {
   let filter = '';
   let selected: string | null = null;
   let adding: string | null = null;
+  let addingLocal: string | null = null;
+  let localError = '';
+  let localOpen = false;
   /** The office has started cloning `adding` (it's on the floor list). */
   let seen = false;
   let startTimer: number | undefined;
+  let localTimer: number | undefined;
   let error = '';
   let showAdd = setup || !store.floors.length;
   /** The search box and list are in place (rebuilding them would lose the focus mid-typing). */
@@ -80,6 +91,9 @@ export function openElevator(opts: ElevatorOptions): void {
   const listEl = h('div.repo-list', { role: 'listbox', 'aria-label': 'Repositories' });
   const statusEl = h('div');
   const addBtn = h('button.btn.primary', { type: 'button' }, '🛗 Add floor');
+  const localAddBtn = h('button.btn.primary.hidden', { type: 'button' }, '📁 Add local project');
+  const localInput = h('input', { type: 'text', placeholder: '/home/you/projects/my-project', 'aria-label': 'Local project path', autocomplete: 'off', spellcheck: 'false' }) as HTMLInputElement;
+  const localStatus = h('div');
   const refreshBtn = h('button.btn', { type: 'button', title: 'Ask GitHub for the list again' }, '↻');
   const close = h('button.btn.close', { type: 'button', 'aria-label': 'Close', title: 'Close (Esc)' }, '✕');
 
@@ -267,7 +281,28 @@ export function openElevator(opts: ElevatorOptions): void {
       addBtn.classList.add('hidden');
       return;
     }
+    if (localOpen) {
+      addBtn.classList.add('hidden');
+      localAddBtn.classList.remove('hidden');
+      localInput.disabled = !!addingLocal;
+      localAddBtn.disabled = !!addingLocal || !localInput.value.trim();
+      localAddBtn.textContent = addingLocal ? '⏳ Adding…' : '📁 Add local project';
+      localStatus.replaceChildren(
+        h('p.note', {}, 'Enter an absolute path on the office machine. It stays where it is; the office only registers it as a floor. For a container, mount the folder into it first.'),
+        ...(addingLocal ? [h('p.note.busy', {}, `⏳ Adding ${addingLocal}…`)] : []),
+        ...(localError ? [h('p.err', {}, localError)] : []),
+      );
+      const back = h('button.btn.local-back', { type: 'button' }, '← Back to GitHub projects');
+      back.addEventListener('click', () => {
+        localOpen = false;
+        built = false;
+        renderAdd();
+      });
+      addEl.replaceChildren(h('h3', {}, '📁 Add a local project'), h('div.local-path', {}, localInput), localStatus, back);
+      return;
+    }
     addBtn.classList.remove('hidden');
+    localAddBtn.classList.add('hidden');
     const r = store.repos;
     const q = filter.trim().toLowerCase();
     const typed = normalizeRepo(filter);
@@ -305,7 +340,14 @@ export function openElevator(opts: ElevatorOptions): void {
         listEl,
         statusEl,
         dirEl,
+        store.me.admin ? h('button.btn.local-open', { type: 'button' }, '📁 Add an existing local project…') : '',
       );
+      addEl.querySelector('.local-open')?.addEventListener('click', () => {
+        localOpen = true;
+        localError = '';
+        renderAdd();
+        setTimeout(() => localInput.focus(), 0);
+      });
     }
   };
 
@@ -347,6 +389,22 @@ export function openElevator(opts: ElevatorOptions): void {
     settle(msg.error ? undefined : msg.floor, msg.error);
     return true;
   };
+  const settleLocal = (floor: string | undefined, why?: string) => {
+    addingLocal = null;
+    clearTimeout(localTimer);
+    if (floor) {
+      modal.close();
+      opts.ride(floor);
+      return;
+    }
+    localError = why ?? 'The local project could not be added';
+    renderAdd();
+  };
+  const onLocalAdded = (msg: Extract<ServerMsg, { t: 'floor.localAdded' }>) => {
+    if (!addingLocal || msg.dir !== addingLocal) return false;
+    settleLocal(msg.error ? undefined : msg.floor, msg.error);
+    return true;
+  };
 
   /**
    * The floor list changed. The office answers the one who asked with floor.added, but if it
@@ -359,6 +417,7 @@ export function openElevator(opts: ElevatorOptions): void {
     else if (seen) settle(f?.id, `Cloning ${adding} stopped before it finished — add it again`);
   };
   addedWaiters.add(onAdded);
+  localAddedWaiters.add(onLocalAdded);
 
   input.addEventListener('input', () => {
     filter = input.value;
@@ -374,6 +433,29 @@ export function openElevator(opts: ElevatorOptions): void {
     const pick = choice() ?? (q && matches.length === 1 ? matches[0].name : undefined);
     if (pick) add(pick);
   });
+  localInput.addEventListener('input', () => (localAddBtn.disabled = !!addingLocal || !localInput.value.trim()));
+  localInput.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' || e.isComposing) return;
+    e.preventDefault();
+    addLocal();
+  });
+  function addLocal() {
+    if (addingLocal || !store.me.admin) return;
+    const dir = localInput.value.trim();
+    if (!dir) return localInput.focus();
+    addingLocal = dir;
+    localError = '';
+    renderAdd();
+    net.send({ t: 'floor.localAdd', dir });
+    clearTimeout(localTimer);
+    localTimer = window.setTimeout(() => {
+      if (addingLocal !== dir) return;
+      addingLocal = null;
+      localError = 'The office did not answer. Check that the path is available to it, then try again.';
+      renderAdd();
+    }, START_MS);
+  }
+  localAddBtn.addEventListener('click', addLocal);
   addBtn.addEventListener('click', () => {
     const pick = choice();
     if (pick) add(pick);
@@ -398,7 +480,7 @@ export function openElevator(opts: ElevatorOptions): void {
     { role: 'dialog', 'aria-label': 'Elevator' },
     h('header', {}, h('h2', {}, setup ? '🏢 Welcome to Agent Office' : '🛗 Elevator'), close),
     h('div.body', {}, intro, floorsEl, addEl),
-    h('footer', {}, h('span.grow', {}, setup ? 'Your office, one floor per project · Esc to look around first' : 'Pick a floor · Esc to stay here'), addBtn),
+    h('footer', {}, h('span.grow', {}, setup ? 'Your office, one floor per project · Esc to look around first' : 'Pick a floor · Esc to stay here'), addBtn, localAddBtn),
   );
   const unsubs = [store.on('floors', () => (checkAdding(), renderFloors(), renderAdd())), store.on('repos', renderAdd), store.on('projectsDir', () => (editDir(false), renderAdd())), store.on('floor', renderFloors), store.on('peers', renderFloors), store.on('me', () => (renderFloors(), renderAdd()))];
   const modal = openModal(el, {
@@ -408,7 +490,9 @@ export function openElevator(opts: ElevatorOptions): void {
     onClose: () => {
       current = null;
       clearTimeout(startTimer);
+      clearTimeout(localTimer);
       addedWaiters.delete(onAdded);
+      localAddedWaiters.delete(onLocalAdded);
       for (const off of unsubs) off();
     },
   });

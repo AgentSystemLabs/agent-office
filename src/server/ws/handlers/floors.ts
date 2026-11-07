@@ -47,6 +47,19 @@ export const floorHandlers = {
         ctx.sendTo(c, { t: 'floor.added', repo, floor: floor.id });
       });
   },
+  'floor.localAdd'(ctx, c, msg) {
+    const dir = str(msg.dir, 4096);
+    if (!ctx.meOf(c.accountId).admin) return ctx.sendTo(c, { t: 'floor.localAdded', dir, error: 'Only admins can add a local project' });
+    const who = c.peer.name;
+    const r = ctx.building.addLocal(dir, who);
+    ctx.floorsChanged();
+    if (typeof r === 'string') return ctx.sendTo(c, { t: 'floor.localAdded', dir, error: r });
+    const floor = ctx.openFloor(r);
+    if (!floor) return ctx.sendTo(c, { t: 'floor.localAdded', dir, error: `Added ${r.name}, but couldn't open its floor — see the office's log` });
+    console.log(`  ${who} added the local project ${r.name} (${r.dir})`);
+    ctx.toastAll(`🛗 New local project: ${r.name}, added by ${who}`);
+    ctx.sendTo(c, { t: 'floor.localAdded', dir, floor: floor.id });
+  },
   'floor.cancel'(ctx, c, msg) {
     const who = c.peer.name;
     const admin = ctx.meOf(c.accountId).admin;

@@ -459,6 +459,13 @@ test('settings, accounts, sign-ins and the boards answer as before', async () =>
   assert.match(await told('🧱'), /^🧱 Eve walled the back office back up, and Desk \d+ and Desk \d+ went with it$/);
   a.send({ t: 'floor.projectsDir', dir: 'relative/dir' });
   await warned('Use a full path, like ~/Workspace');
+  const localDir = path.join(tmp, 'local-project');
+  mkdirSync(localDir);
+  a.send({ t: 'floor.localAdd', dir: localDir });
+  const localAdded = await a.take('floor.localAdded', (m) => m.dir === localDir);
+  assert.ok(localAdded.floor);
+  assert.equal(office.floors().find((f) => f.id === localAdded.floor)?.def.dir, localDir);
+  assert.match(await told('🛗'), /New local project: local-project, added by Eve/);
   a.send({ t: 'floor.remove', floor: 'nope' });
   assert.match((await a.take('toast', (m) => m.level === 'warn')).text, /./);
   a.send({ t: 'floor.go', floor: office.floors()[0].id });

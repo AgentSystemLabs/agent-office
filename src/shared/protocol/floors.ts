@@ -137,6 +137,8 @@ export type FloorClientMsg =
   | { t: 'floor.repos'; refresh?: boolean }
   /** Clone a repository and make it a new floor; answered with `floor.added` once it's there. */
   | { t: 'floor.add'; repo: string }
+  /** Add an existing directory on the office machine as a floor, without cloning it. */
+  | { t: 'floor.localAdd'; dir: string }
   /** Stop a floor's clone before it's there (admins, or whoever added it); the one who added it hears `floor.added` with why. */
   | { t: 'floor.cancel'; floor: string }
   /** Take a floor off the building (admins only). Its checkout stays on disk; everyone on it rides to another floor. */
@@ -159,6 +161,8 @@ export type FloorServerMsg =
   | { t: 'floor.repos'; repos: RepoChoice[]; error?: string }
   /** Sent to whoever asked for the floor, once it's cloned (or couldn't be). */
   | { t: 'floor.added'; repo: string; floor?: string; error?: string }
+  /** Sent to whoever asked to add an existing local project. */
+  | { t: 'floor.localAdded'; dir: string; floor?: string; error?: string }
   /** The projects folder moved (see floor.projectsDir). */
   | { t: 'projectsDir'; state: ProjectsDirState }
   /** Your floor's signs changed, or its back office was built out or walled up. */

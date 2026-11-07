@@ -6,6 +6,7 @@ import { FLOOR_PALETTES, MAX_FLOORS, normalizeRepo, sameRepo } from '../shared/f
 import type { CloneProgress, ProjectsDirState, RepoChoice } from '../shared/protocol.js';
 import { CloneRun, dropLog, whyCloneFailed, type CloneEnd, type CloneRunOptions } from './clone.js';
 import { gh } from './github.js';
+import { localProjectDir } from './local-project.js';
 
 /** A floor as floors.json keeps it. */
 export interface FloorDef {
@@ -324,6 +325,18 @@ export class Building {
       this.cloning.delete(key);
       this.saveClones();
     }
+    this.defs.push(def);
+    this.save();
+    return def;
+  }
+  /** Adds a checkout already on this machine as a floor, without cloning or moving it. */
+  addLocal(input: string, by: string): FloorDef | string {
+    const local = localProjectDir(input);
+    if (typeof local === 'string') return local;
+    const { dir } = local;
+    if (this.defs.some((d) => path.resolve(d.dir) === dir)) return `${dir} is already a floor`;
+    if (this.defs.length + this.cloning.size >= MAX_FLOORS) return `The building is full (${MAX_FLOORS} floors)`;
+    const def = this.newDef(path.basename(dir), originRepo(dir), dir, by);
     this.defs.push(def);
     this.save();
     return def;

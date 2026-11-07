@@ -36,4 +36,6 @@
 .elevator .note.busy { color: var(--ink); }
 /* The folder's Change button: styles/base.css, after the button rules it restyles. */
 .elevator .dir-pick { margin-top: 8px; }
+.elevator .local-open, .elevator .local-back { margin-top: 10px; }
+.elevator .local-path input { width: 100%; }
 .elevator .err { margin: 8px 0 0; font-size: 13px; font-weight: 800; color: var(--bad); overflow-wrap: anywhere; }

@@ -32,7 +32,7 @@ curl -fsSL https://raw.githubusercontent.com/AgentSystemLabs/agent-office/main/i
 
 ## What it is
 
-- **A floor per project.** Ride the elevator, pick one of your GitHub repos, and the office clones it (showing how far along it is) and opens a floor for it. Every worker, board and queue on that floor works in that checkout.
+- **A floor per project.** Ride the elevator to add a GitHub repo (the office clones it and shows progress) or register an existing local project by its path without moving it. Every worker, board and queue on that floor works in that checkout.
 - **Workers at desks.** Walk up to an empty desk, press **E**, and pick Claude Code, Codex, OpenCode, Grok, Muse, DeepSeek Harness, Pi or Cursor, each with its model and reasoning effort. The agent's live terminal shows on its laptop, and anyone can open it and type.
 - **Talk instead of typing.** Hold **Ctrl+Space** (or the **🎤**) in a worker's terminal or a prompt box and say what you want: it's typed in for you to send. Your browser does the listening, so there's nothing to install.
 - **You can't miss who needs you.** A worker that stops to ask you something lights a red beacon over its desk, puts a banner on your screen saying who and what for, and sounds an alarm. One that has finished jumps up and down and dings. Press **N** to go straight to whoever is waiting.
@@ -77,7 +77,7 @@ The first time it starts, it walks you through setting up, right in the terminal
 
 Press Enter to skip a step: the elevator in the office asks for your first project too. Then the office opens in your browser, **already signed in**, with a link that works once. The terminal also prints the office password, for signing in from another browser (it's saved in `~/agent-office/.agent-office/config.json`).
 
-Walk to an empty desk, press **E** and hire a worker.
+Walk to an empty desk, press **E** and hire a worker. From the elevator, admins can add existing local projects with **📁 Add an existing local project**; enter the absolute path as seen by the office process. The folder stays in place and is not cloned. In a container, mount the project folder into the container first.
 
 Common options:
 
