@@ -10,18 +10,18 @@ declare module '../../world/types' {
 
 export interface SystemRoadmapDeps {
   showRoadmap(): void;
+  askRoadmap(): void;
 }
 
 export function installSystemRoadmap(ctx: Ctx, deps: SystemRoadmapDeps) {
-  const open = () => deps.showRoadmap();
   ctx.interactions.define('systemroadmap', {
     reach: 8,
     hint: () => ({ k: '', parts: [hintTitle('🗺️ System Roadmap'), aside('Read this project’s roadmap'), key('E', 'Open roadmap')] }),
-    use: onE(open),
+    use: onE(() => deps.showRoadmap()),
   });
   ctx.interactions.define('systemagent', {
     reach: 5,
-    hint: () => ({ k: '', parts: [hintTitle('🧭 System Agent'), aside('I’ll explain this project’s roadmap'), key('E', 'Explore roadmap')] }),
-    use: onE(open),
+    hint: () => ({ k: '', parts: [hintTitle('🧭 System Agent'), aside('Ask me to explain this project’s roadmap'), key('E', 'Ask a question')] }),
+    use: onE(() => deps.askRoadmap()),
   });
 }
