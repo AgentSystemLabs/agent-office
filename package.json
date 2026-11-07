@@ -32,6 +32,7 @@
     "@xterm/addon-serialize": "^0.14.0",
     "@xterm/headless": "^6.0.0",
     "selfsigned": "^5.5.0",
+    "svg-pan-zoom": "^3.6.2",
     "ws": "^8.21.3"
   },
   "devDependencies": {

@@ -2,6 +2,7 @@ import './markdown.css';
 import { Marked } from 'marked';
 import DOMPurify from 'dompurify';
 import { h } from './dom';
+import svgPanZoom from 'svg-pan-zoom';
 
 // GitHub-flavored markdown for issue and PR text: rendered by marked, then sanitized by DOMPurify
 // before it touches the page, since anyone who can open an issue writes it.
@@ -154,6 +155,19 @@ export async function renderMermaidDiagrams(root: HTMLElement): Promise<void> {
           FORBID_ATTR: ['onload', 'onclick'],
         }));
         pre.replaceWith(figure);
+
+        // Enable pan and zoom
+        const svgElement = figure.querySelector('svg');
+        if (svgElement) {
+          svgElement.style.width = '100%';
+          svgElement.style.height = '100%';
+          svgPanZoom(svgElement, {
+            zoomEnabled: true,
+            controlIconsEnabled: true,
+            fit: true,
+            center: true,
+          });
+        }
       } catch {
         pre.classList.add('mermaid-error');
         pre.before(h('p.mermaid-error-note', {}, 'This diagram could not be rendered. Its source is shown below.'));
