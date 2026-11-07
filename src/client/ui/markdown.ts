@@ -9,6 +9,9 @@ import { h } from './dom';
 // In issue and PR comments GitHub turns a single newline into a line break, unlike in .md files.
 const md = new Marked({ gfm: true, breaks: true });
 const mdFile = new Marked({ gfm: true });
+let mermaid: Promise<typeof import('mermaid').default> | undefined;
+let mermaidInitialized = false;
+let mermaidId = 0;
 
 const purify = DOMPurify(window);
 purify.addHook('afterSanitizeAttributes', (node) => {
@@ -115,6 +118,50 @@ export function markdownFile(src: string): HTMLElement {
   el.append(sanitized(mdFile.parse(src, { async: false }) as string));
   alerts(el);
   return el;
+}
+
+/** Render fenced Mermaid blocks in project docs; ordinary Markdown stays synchronous and lightweight. */
+export async function renderMermaidDiagrams(root: HTMLElement): Promise<void> {
+  const blocks = [...root.querySelectorAll('pre > code.language-mermaid')];
+  if (!blocks.length) return;
+
+  try {
+    const load = (mermaid ??= import('mermaid').then((module) => module.default));
+    const renderer = await load;
+    if (!mermaidInitialized) {
+      renderer.initialize({
+        startOnLoad: false,
+        securityLevel: 'strict',
+        theme: 'default',
+        htmlLabels: false,
+        maxTextSize: 100_000,
+        maxEdges: 500,
+        suppressErrorRendering: true,
+      });
+      mermaidInitialized = true;
+    }
+
+    for (const code of blocks) {
+      const pre = code.parentElement;
+      if (!pre) continue;
+      try {
+        const { svg } = await renderer.render(`agent-office-mermaid-${++mermaidId}`, code.textContent ?? '');
+        const figure = h('figure.mermaid-diagram', { role: 'img', 'aria-label': 'Mermaid diagram' });
+        figure.append(purify.sanitize(svg, {
+          RETURN_DOM_FRAGMENT: true,
+          USE_PROFILES: { svg: true, svgFilters: true },
+          FORBID_TAGS: ['script', 'foreignObject'],
+          FORBID_ATTR: ['onload', 'onclick'],
+        }));
+        pre.replaceWith(figure);
+      } catch {
+        pre.classList.add('mermaid-error');
+        pre.before(h('p.mermaid-error-note', {}, 'This diagram could not be rendered. Its source is shown below.'));
+      }
+    }
+  } catch {
+    // If Mermaid cannot load, the sanitized fenced source remains readable in the document.
+  }
 }
 
 /** https://github.com/owner/repo from an issue or PR URL. */

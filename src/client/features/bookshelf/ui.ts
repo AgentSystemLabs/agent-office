@@ -1,7 +1,7 @@
 import './ui.css';
 import { isDocPath, resolveDocLink, type DocFile, type DocList, type DocText } from '../../../shared/docs';
 import { clip, h, openModal, setDoing, timeAgo, toast } from '../../ui/dom';
-import { markdownFile } from '../../ui/markdown';
+import { markdownFile, renderMermaidDiagrams } from '../../ui/markdown';
 
 // The bookshelf: every Markdown file in the floor's project, to read without leaving the office.
 // The filter box over the list picks docs out as you type (the letters in order, not necessarily
@@ -322,6 +322,7 @@ export function openBookshelf(deps: ShelfDeps) {
     const body = doc.text.trim() ? markdownFile(doc.text) : h('div.md', {}, h('p.none', {}, 'This file is empty.'));
     wire(body, path);
     page.replaceChildren(body);
+    void renderMermaidDiagrams(body);
     const dir = path.slice(0, path.length - nameOf(path).length);
     crumbs.replaceChildren(dir ? h('span.dir', {}, dir) : '', nameOf(path));
     crumbs.title = path;
