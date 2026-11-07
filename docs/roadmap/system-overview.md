@@ -1,6 +1,6 @@
 # System overview
 
-Back to the [README](../README.md). This is the quick map of how a person, a project floor and its workers fit together. For implementation detail, see [How it works](how-it-works.md) and [Code layout](code-layout.md).
+Back to the [README](../../README.md). This is the quick map of how a person, a project floor and its workers fit together. For implementation detail, see [How it works](../how-it-works.md) and [Code layout](../code-layout.md).
 
 ```mermaid
 flowchart LR

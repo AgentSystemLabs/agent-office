@@ -17,6 +17,8 @@ export interface ShelfDeps {
   project?: string;
   /** The project on GitHub, for links to files that aren't docs. */
   repoUrl?: string;
+  /** Restrict this view to one project folder, e.g. docs/roadmap. */
+  folder?: string;
   /** You turned a page (opened a doc, or scrolled a screenful): the book in your hands turns one too. */
   onTurn(): void;
   /** Whether a page turning makes a sound (⚙️'s setting), and the 🔈 up top that turns it on or off. */
@@ -138,18 +140,22 @@ function size(bytes: number): string {
   return bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(bytes < 10240 ? 1 : 0)} KB`;
 }
 
-function lastRead(floor: string): string | undefined {
+function scopeKey(floor: string, folder?: string): string {
+  return folder ? `${floor}:${folder}` : floor;
+}
+
+function lastRead(floor: string, folder?: string): string | undefined {
   try {
-    return JSON.parse(localStorage.getItem(LAST_KEY) ?? '{}')[floor];
+    return JSON.parse(localStorage.getItem(LAST_KEY) ?? '{}')[scopeKey(floor, folder)];
   } catch {
     return undefined;
   }
 }
 
-function rememberRead(floor: string, path: string) {
+function rememberRead(floor: string, path: string, folder?: string) {
   try {
     const all = JSON.parse(localStorage.getItem(LAST_KEY) ?? '{}');
-    all[floor] = path;
+    all[scopeKey(floor, folder)] = path;
     localStorage.setItem(LAST_KEY, JSON.stringify(all));
   } catch {
     // Private mode, or storage is full: it just won't reopen where you were.
@@ -164,6 +170,7 @@ async function getJson<T>(url: string): Promise<T> {
 
 export function openBookshelf(deps: ShelfDeps) {
   const { floor, repoUrl } = deps;
+  const folder = deps.folder?.replace(/^\/+|\/+$/g, '');
   const q = (params: Record<string, string>) => new URLSearchParams({ floor, ...params }).toString();
 
   const filter = h('input', { type: 'text', placeholder: 'Filter the docs…', 'aria-label': 'Filter the docs', spellcheck: 'false', autocomplete: 'off' }) as HTMLInputElement;
@@ -189,7 +196,7 @@ export function openBookshelf(deps: ShelfDeps) {
   const el = h(
     'div.modal.bookshelf',
     { role: 'dialog', 'aria-label': 'Bookshelf' },
-    h('header', {}, h('h2', {}, '📚 Bookshelf', deps.project ? h('span.bs-project', {}, ` · ${deps.project}`) : ''), soundBtn),
+    h('header', {}, h('h2', {}, folder ? '🗺️ System Roadmap' : '📚 Bookshelf', deps.project ? h('span.bs-project', {}, ` · ${deps.project}`) : ''), soundBtn),
     h(
       'div.body',
       {},
@@ -336,7 +343,7 @@ export function openBookshelf(deps: ShelfDeps) {
     }
     if (mine !== opening || !el.isConnected) return;
     current = path;
-    rememberRead(floor, path);
+    rememberRead(floor, path, folder);
     const info = files.find((f) => f.path === path);
     const body = doc.text.trim() ? markdownFile(doc.text) : h('div.md', {}, h('p.none', {}, 'This file is empty.'));
     wire(body, path);
@@ -379,12 +386,12 @@ export function openBookshelf(deps: ShelfDeps) {
   getJson<DocList>(`/api/docs?${q({})}`)
     .then((r) => {
       if (!el.isConnected) return;
-      files = r.files;
+      files = folder ? r.files.filter((file) => file.path.startsWith(`${folder}/`)) : r.files;
       refilter();
       if (r.more) count.textContent += ` (the first ${files.length})`;
-      const start = [lastRead(floor), ...shelfOrder(files).map((f) => f.path)].find((p) => p && files.some((f) => f.path === p));
+      const start = [lastRead(floor, folder), ...shelfOrder(files).map((f) => f.path)].find((p) => p && files.some((f) => f.path === p));
       if (start) void openDoc(start);
-      else page.replaceChildren(h('div.bs-empty', {}, '📭 Nothing to read here: this project has no Markdown files yet.'));
+      else page.replaceChildren(h('div.bs-empty', {}, folder ? `📭 No Markdown files in ${folder} yet.` : '📭 Nothing to read here: this project has no Markdown files yet.'));
     })
     .catch((err: Error) => {
       if (!el.isConnected) return;

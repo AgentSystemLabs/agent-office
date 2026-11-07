@@ -21,12 +21,13 @@ function githubUrl(remote?: string): string | undefined {
 export function installBookshelf(ctx: Ctx) {
   const { settings } = ctx;
 
-  function showBookshelf() {
+  function showBookshelf(folder?: string) {
     if (!store.floor) return toast('Take the elevator to a floor first');
     openBookshelf({
       floor: store.floor,
       project: store.project?.name,
       repoUrl: githubUrl(store.project?.remote),
+      folder,
       onTurn: turnPage,
       pageSound: settings.pageTurns,
       onPageSound: (on) => {
@@ -56,5 +57,5 @@ export function installBookshelf(ctx: Ctx) {
     turnedAt = now;
   }
 
-  return { showBookshelf };
+  return { showBookshelf, showRoadmap: () => showBookshelf('docs/roadmap') };
 }
