@@ -23,6 +23,14 @@ test('every built-in map places every seat the office has, by the same ids', () 
   }
 });
 
+test('a saved map from before the System Agent station still gets one in the center aisle', () => {
+  const { system: _system, ...oldStations } = CASTLE.stations;
+  const plan = planMap({ ...CASTLE, stations: oldStations });
+  const system = plan.stations.find((s) => s.id === 'station-system');
+  assert.ok(system);
+  assert.deepEqual([system.x, system.z], [0, 0]);
+});
+
 test('in the castle every worker can walk from its seat to the door and to the front of the line', () => {
   const plan = planOf('castle');
   const nav = new NavGrid(plan.bounds, plan.obstacles!);

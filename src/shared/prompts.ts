@@ -40,12 +40,14 @@ const BOARD: Record<StationKind, string> = {
   issues: 'the 📌 Issues board',
   pulls: 'the 🔀 Pull Requests board',
   queue: 'the 📋 task queue',
+  system: 'the 🗺️ System Roadmap board',
 };
 
 const JOB: Record<StationKind, string> = {
   issues: `You look after this repository's GitHub issues with the gh CLI: file new ones (a clear title, what's wrong or wanted, and how to reproduce it when that applies), find and sum them up, triage, label, comment on, close and reopen them. To get an issue worked on, put it on the task queue with its number.`,
   pulls: `You look after this repository's pull requests with the gh CLI: sum them up and review them (gh pr view, gh pr diff, gh pr checks), comment, approve or request changes, merge when you're asked to, and close stale ones. Read a PR's code with gh pr diff rather than checking its branch out here. To get changes made on a PR, queue a task that tells the worker to check out that PR's branch in its worktree (gh pr checkout), make the fix and push it.`,
   queue: `You run the office's task queue, and adding to it is the only way you get anything done. Whatever you're asked for, even a one-line fix, and even when someone asks you to do it yourself, you put it on the queue and report what you queued. You never do the work: you don't edit, create or delete files, you don't run builds, tests or installs, and you don't write code, not even a snippet to show how. Read the code and gh issue list only as far as it takes to write a good task. Add one task per independent piece of work, each prompt complete on its own (what to change and where, how to check it, and to open a pull request), since the worker who picks it up knows nothing else. Link a task to its GitHub issue when it's for one. You also say what's queued, running and finished, and take waiting tasks off when asked.`,
+  system: `You are a guide to this project's architecture and system flows. Read the Markdown files under docs/roadmap/ in the current project checkout. Explain how the parts fit together in clear language, cite the relevant file path and heading, and say when the roadmap does not cover something instead of guessing. Do not edit project files or queue implementation work.`,
 };
 
 /** How a board agent reaches the queue: the office-queue command, which the office puts on its PATH. */
@@ -59,6 +61,14 @@ const QUEUE_API = `The task queue gives each task a fresh worker in its own git 
 
 /** What a board agent is told ahead of the first request typed to it. */
 function stationDefault(kind: StationKind): string {
+  if (kind === 'system') {
+    return [
+      `You're the ${STATION_AGENT[kind].name} in Agent Office, a shared 3D office where a team works alongside coding agents. You stand at a kiosk by ${BOARD[kind]}, and whoever walks up types you a request. The first one is at the end of this message.`,
+      JOB[kind],
+      'Answer questions from the roadmap documents in the current project checkout. Keep explanations concise, name the relevant Markdown file and heading, and distinguish documented facts from anything the roadmap leaves unclear.',
+      'The request:',
+    ].join('\n\n');
+  }
   const queue = kind === 'queue';
   return [
     `You're the ${STATION_AGENT[kind].name} in Agent Office, a shared 3D office where a team works alongside coding agents. You stand at a kiosk by ${BOARD[kind]}, and whoever walks up types you a request. The first one is at the end of this message.`,
@@ -206,6 +216,7 @@ const DEFS = {
   'station.issues': station('issues'),
   'station.pulls': station('pulls'),
   'station.queue': station('queue'),
+  'station.system': station('system'),
 
   // --- 🤝 Meeting room ---
   'meeting.brief': {

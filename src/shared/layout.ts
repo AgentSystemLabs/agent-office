@@ -135,13 +135,16 @@ export const BEANBAGS: DeskDef[] = (
 /** Everywhere a worker can sit: the desks, the back office's once it's built out (see deskBuilt), then the bean bags. */
 export const SEATS: DeskDef[] = [...DESKS, ...WING_DESKS, ...BEANBAGS];
 
-/** The boards with an agent standing by: the Issues board, the PR board and the task queue. */
-export type StationKind = 'issues' | 'pulls' | 'queue';
+/** The boards with an agent standing by: Issues, PRs, the task queue and the system roadmap. */
+export type StationKind = 'issues' | 'pulls' | 'queue' | 'system';
+/** The agents that have lecterns on the alternate maps. The System Agent's kiosk is office-specific. */
+export type MapStationKind = Exclude<StationKind, 'system'>;
 
 /**
- * The board agents: a worker standing behind a little kiosk just west of each of those boards (see
- * BOARDS), there for anyone to prompt about it. (x, z) is the kiosk. They face into the room, so at
- * rotY PI the worker stands on the wall side of it. Nobody hires them from the desks or the queue.
+ * The board agents: a worker standing behind a little kiosk by each board (see BOARDS), there for
+ * anyone to prompt about it. (x, z) is the kiosk. The System Agent kiosk faces the elevator, beside
+ * its rolling roadmap display; the three wall kiosks face into the room. Nobody hires them from the
+ * desks or the queue.
  */
 export const STATIONS: DeskDef[] = [
   // Between the plant in the north-west corner and the Issues board.
@@ -150,6 +153,8 @@ export const STATIONS: DeskDef[] = [
   { id: 'station-pulls', station: 'pulls', x: 0, z: FLOOR.minZ + 1.3, rotY: Math.PI, label: 'PR board' },
   // Between the Issues board and the task queue.
   { id: 'station-queue', station: 'queue', x: -7.8, z: FLOOR.minZ + 1.3, rotY: Math.PI, label: 'Task queue' },
+  // By the rolling System Roadmap display, clear of the elevator doors and merge gong.
+  { id: 'station-system', station: 'system', x: 7.5, z: FLOOR.minZ + 6.2, rotY: 0, label: 'System Roadmap' },
 ];
 /** A board agent's kiosk: its top, and how far behind its middle (toward the wall) the agent stands. */
 export const KIOSK = { width: 0.8, depth: 0.5, height: 0.55, stand: 0.55 } as const;
@@ -158,6 +163,7 @@ export const STATION_AGENT: Record<StationKind, { name: string; color: string }>
   issues: { name: 'Issues agent', color: '#ef476f' },
   pulls: { name: 'PR agent', color: '#118ab2' },
   queue: { name: 'Queue agent', color: '#06d6a0' },
+  system: { name: 'System Agent', color: '#7654a8' },
 };
 
 /** The upstairs office: a glass-walled loft on posts in the south-east corner, looking down on the desks. */

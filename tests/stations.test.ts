@@ -45,6 +45,15 @@ test('the issues and PR agents keep their jobs, and may still be asked for somet
   }
 });
 
+test('the System Agent answers from roadmap docs without queueing or editing the project', () => {
+  const brief = stationBrief('system');
+  assert.match(brief, /System Agent/);
+  assert.match(brief, /docs\/roadmap\//);
+  assert.match(brief, /cite the relevant file path and heading/);
+  assert.match(brief, /Do not edit project files or queue implementation work/);
+  assert.doesNotMatch(brief, /office-queue|Send to/);
+});
+
 test('the queue agent is launched without the file-editing tools', () => {
   assert.deepEqual(QUEUE_AGENT_DISALLOWED_TOOLS, ['Edit', 'Write', 'NotebookEdit']);
 });

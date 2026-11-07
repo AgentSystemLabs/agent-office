@@ -151,10 +151,6 @@ parts.meeting = installMeeting(ctx, parts);
 parts.bookshelf = installBookshelf(ctx);
 installSystemRoadmap(ctx, {
   showRoadmap: () => parts.bookshelf.showRoadmap(),
-  askRoadmap: () => parts.actions.boardActions().ask(
-    'You are the System Agent, a guide to this project. Read the Markdown files in docs/roadmap/ from the current project checkout. Explain the project architecture, system flows and how the parts relate in clear language. Answer from those documents, cite the relevant file path and heading, and say when the roadmap does not cover something instead of guessing.',
-    '🧭 Ask the System Agent',
-  ),
 });
 installHerald(ctx, parts);
 

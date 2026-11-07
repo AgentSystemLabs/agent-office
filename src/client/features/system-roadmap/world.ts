@@ -1,12 +1,11 @@
 import * as THREE from 'three';
 import { ROADMAP_BOARD } from '../../../shared/layout';
-import { Person } from '../../world/character';
 import { mesh, toon } from '../../world/toon';
 import type { Interactable } from '../../world/types';
 import { wallBoard } from '../../world/office/props';
 import type { Fixture } from '../../world/office/fixture';
 
-// A dedicated roadmap station: a readable project sign beside a small guide character.
+// A dedicated roadmap display; the System Agent stands at its registered kiosk (see STATIONS).
 export const ROADMAP_FOLDER = 'docs/roadmap';
 
 export const systemRoadmap: Fixture = () => {
@@ -88,17 +87,9 @@ export const systemRoadmap: Fixture = () => {
   const boardUse: Interactable = { kind: 'systemroadmap', x: x + Math.sin(rotY) * 1.65, z: z + Math.cos(rotY) * 1.65, radius: 2.5 };
   board.userData.interact = boardUse;
 
-  const agent = new Person('System Agent', '#7654a8', { skin: 2, hair: 9, style: 2 });
-  agent.setDoing('Ask me about the roadmap');
-  agent.root.position.set(x + 1.8, 0, z - 1.2);
-  agent.root.rotation.y = 0;
-  const agentUse: Interactable = { kind: 'systemagent', x: agent.root.position.x, z: agent.root.position.z + 0.1, radius: 1.8 };
-  agent.root.userData.interact = agentUse;
-
-  group.add(agent.root);
   return {
     group,
     colliders: [{ minX: x - width / 2 - 0.18, maxX: x + width / 2 + 0.18, minZ: z - 0.5, maxZ: z + 0.5, top: postHeight }],
-    interactables: [boardUse, agentUse],
+    interactables: [boardUse],
   };
 };

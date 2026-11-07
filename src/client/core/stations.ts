@@ -10,6 +10,7 @@ export const STATION_INFO: Record<StationKind, { icon: string; offer: string; do
   issues: { icon: '📌', offer: 'Ask me about issues', does: 'I file, find, triage, label and close them', example: 'File an issue: the dog walks straight through the jukebox' },
   pulls: { icon: '🔀', offer: 'Ask me about PRs', does: 'I sum up, review, comment on and merge them', example: 'Review the newest PR and tell me if it’s ready to merge' },
   queue: { icon: '📋', offer: 'Ask me to queue work', does: 'I turn it into tasks for fresh workers', example: 'Queue every open bug issue, most important first' },
+  system: { icon: '🧭', offer: 'Ask me about the roadmap', does: 'I explain this project’s architecture and system flows', example: 'How does the order move from checkout to fulfillment?' },
 };
 
 /** A board agent waiting by its board before anyone has asked it anything (see buildKiosk), and where. */

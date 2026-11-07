@@ -86,6 +86,7 @@ export const STATION: MapConfig = {
     issues: { x: -13.2, z: BOARDS_Z[0], rotY: -Math.PI / 2 },
     queue: { x: -13.2, z: BOARDS_Z[1], rotY: -Math.PI / 2 },
     pulls: { x: 13.2, z: BOARDS_Z[0], rotY: Math.PI / 2 },
+    system: { x: 13.2, z: BOARDS_Z[1], rotY: Math.PI / 2 },
   },
   // The briefing table, aft on the starboard side.
   council: { x: 10, z: 24.8, rotY: Math.PI },
