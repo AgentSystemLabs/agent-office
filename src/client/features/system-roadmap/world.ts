@@ -1,7 +1,7 @@
 import * as THREE from 'three';
-import { FLOOR, ROADMAP_BOARD } from '../../../shared/layout';
+import { ROADMAP_BOARD } from '../../../shared/layout';
 import { Person } from '../../world/character';
-import { textPlane } from '../../world/toon';
+import { mesh, toon } from '../../world/toon';
 import type { Interactable } from '../../world/types';
 import { wallBoard } from '../../world/office/props';
 import type { Fixture } from '../../world/office/fixture';
@@ -12,8 +12,21 @@ export const ROADMAP_FOLDER = 'docs/roadmap';
 export const systemRoadmap: Fixture = () => {
   const { x, y, z, width, height, rotY } = ROADMAP_BOARD;
   const { group: board, face } = wallBoard(width, height, '#aab4be');
-  board.position.set(x, y, z + 0.08);
+  board.position.set(x, y, z);
   board.rotation.y = rotY;
+  const group = new THREE.Group();
+  group.add(board);
+
+  // Put the display on its own rolling stand beside the elevator, facing into the office.
+  const standColor = toon('#aab4be');
+  const postHeight = y + height / 2 + 0.12;
+  for (const side of [-1, 1]) {
+    const px = x + side * (width / 2 + 0.1);
+    group.add(mesh(new THREE.CylinderGeometry(0.035, 0.035, postHeight, 10), standColor, px, postHeight / 2, z));
+    group.add(mesh(new THREE.BoxGeometry(0.12, 0.07, 0.95), standColor, px, 0.12, z));
+    for (const dz of [-0.38, 0.38]) group.add(mesh(new THREE.SphereGeometry(0.055, 10, 8), standColor, px, 0.055, z + dz, false));
+  }
+  group.add(mesh(new THREE.BoxGeometry(width + 0.2, 0.06, 0.1), standColor, x, 0.22, z));
 
   const canvas = document.createElement('canvas');
   canvas.width = 1040;
@@ -72,23 +85,20 @@ export const systemRoadmap: Fixture = () => {
   texture.anisotropy = 4;
   face.material = new THREE.MeshBasicMaterial({ map: texture, toneMapped: false });
 
-  const boardUse: Interactable = { kind: 'systemroadmap', x, z: z + 1.65, radius: 2.5 };
+  const boardUse: Interactable = { kind: 'systemroadmap', x: x + Math.sin(rotY) * 1.65, z: z + Math.cos(rotY) * 1.65, radius: 2.5 };
   board.userData.interact = boardUse;
 
   const agent = new Person('System Agent', '#7654a8', { skin: 2, hair: 9, style: 2 });
   agent.setDoing('Ask me about the roadmap');
-  agent.root.position.set(FLOOR.maxX - 2.2, 0, FLOOR.minZ + 3.4);
+  agent.root.position.set(x - 1.2, 0, z + 1.2);
   agent.root.rotation.y = 0;
   const agentUse: Interactable = { kind: 'systemagent', x: agent.root.position.x, z: agent.root.position.z + 0.1, radius: 1.8 };
   agent.root.userData.interact = agentUse;
 
-  const plaque = textPlane('🗺️ System Roadmap', { bg: '#fffaf3', size: 56 });
-  plaque.scale.multiplyScalar(0.9);
-  plaque.position.set(x, y + height / 2 + 0.45, z + 0.03);
-  plaque.rotation.y = rotY;
-
+  group.add(agent.root);
   return {
-    group: new THREE.Group().add(board, agent.root, plaque),
+    group,
+    colliders: [{ minX: x - width / 2 - 0.18, maxX: x + width / 2 + 0.18, minZ: z - 0.5, maxZ: z + 0.5, top: postHeight }],
     interactables: [boardUse, agentUse],
   };
 };
