@@ -94,6 +94,19 @@ function shelfOrder(files: DocFile[]): DocFile[] {
   return [...files].sort((a, b) => rank(a.path) - rank(b.path) || a.path.localeCompare(b.path));
 }
 
+/** Keep files together by their containing folder, preserving the shelf or search order. */
+function folderGroups(hits: Hit[]): { folder: string; hits: { hit: Hit; index: number }[] }[] {
+  const groups = new Map<string, { hit: Hit; index: number }[]>();
+  for (const [index, hit] of hits.entries()) {
+    const slash = hit.doc.path.lastIndexOf('/');
+    const folder = slash < 0 ? '' : hit.doc.path.slice(0, slash);
+    const group = groups.get(folder) ?? [];
+    group.push({ hit, index });
+    groups.set(folder, group);
+  }
+  return [...groups].map(([folder, grouped]) => ({ folder, hits: grouped }));
+}
+
 /** `text` with the letters at `at` marked. */
 function marked(text: string, at: Set<number>): (string | HTMLElement)[] {
   if (!at.size) return [text];
@@ -202,22 +215,28 @@ export function openBookshelf(deps: ShelfDeps) {
   const renderList = () => {
     count.textContent = !files.length ? '' : filter.value.trim() ? `${shown.length} of ${files.length} docs` : `${files.length} doc${files.length === 1 ? '' : 's'}`;
     list.replaceChildren(
-      ...shown.map((hit, i) => {
-        const { doc } = hit;
-        const title = doc.title ?? nameOf(doc.path);
-        const li = h(
-          'li.bs-item',
-          { role: 'option', 'aria-selected': String(i === sel), class: `${i === sel ? 'sel' : ''} ${doc.path === current ? 'open' : ''}`, title: doc.path },
-          h('div.bs-title', {}, ...(doc.title ? marked(title, hit.title) : marked(title, new Set([...hit.path].map((p) => p - (doc.path.length - title.length)))))),
-          h('div.bs-path', {}, ...marked(doc.path, hit.path)),
-        );
-        li.addEventListener('mousedown', (e) => e.preventDefault());
-        li.addEventListener('click', () => {
-          sel = i;
-          void openDoc(doc.path);
-        });
-        return li;
-      }),
+      ...folderGroups(shown).map(({ folder, hits }) => h(
+        'li.bs-group',
+        {},
+        h('div.bs-group-title', {}, folder || 'Project root'),
+        h('ul.bs-group-items', { role: 'group', 'aria-label': folder || 'Project root' }, ...hits.map(({ hit, index: i }) => {
+          const { doc } = hit;
+          const title = doc.title ?? nameOf(doc.path);
+          const titleMarks = doc.title ? marked(title, hit.title) : marked(title, new Set([...hit.path].map((p) => p - (doc.path.length - title.length))));
+          const li = h(
+            'li.bs-item',
+            { role: 'option', 'aria-selected': String(i === sel), class: `${i === sel ? 'sel' : ''} ${doc.path === current ? 'open' : ''}`, title: doc.path },
+            h('div.bs-title', {}, ...titleMarks),
+            h('div.bs-path', {}, ...marked(doc.path, hit.path)),
+          );
+          li.addEventListener('mousedown', (e) => e.preventDefault());
+          li.addEventListener('click', () => {
+            sel = i;
+            void openDoc(doc.path);
+          });
+          return li;
+        })),
+      )),
     );
     if (!files.length) list.append(h('li.bs-none', {}, 'No Markdown files in this project yet.'));
     else if (!shown.length) list.append(h('li.bs-none', {}, 'No doc matches that.'));
@@ -234,7 +253,7 @@ export function openBookshelf(deps: ShelfDeps) {
     if (!shown.length) return;
     sel = (sel + by + shown.length) % shown.length;
     renderList();
-    list.children[sel]?.scrollIntoView({ block: 'nearest' });
+    list.querySelectorAll('.bs-item')[sel]?.scrollIntoView({ block: 'nearest' });
   };
 
   filter.addEventListener('input', refilter);
