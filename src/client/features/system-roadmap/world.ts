@@ -17,7 +17,7 @@ export const systemRoadmap: Fixture = () => {
   const group = new THREE.Group();
   group.add(board);
 
-  // Put the display on its own rolling stand beside the elevator, facing into the office.
+  // Put the display on its own rolling stand beside the elevator, facing the elevator entry.
   const standColor = toon('#aab4be');
   const postHeight = y + height / 2 + 0.12;
   for (const side of [-1, 1]) {
@@ -90,7 +90,7 @@ export const systemRoadmap: Fixture = () => {
 
   const agent = new Person('System Agent', '#7654a8', { skin: 2, hair: 9, style: 2 });
   agent.setDoing('Ask me about the roadmap');
-  agent.root.position.set(x - 1.2, 0, z + 1.2);
+  agent.root.position.set(x + 1.8, 0, z - 1.2);
   agent.root.rotation.y = 0;
   const agentUse: Interactable = { kind: 'systemagent', x: agent.root.position.x, z: agent.root.position.z + 0.1, radius: 1.8 };
   agent.root.userData.interact = agentUse;

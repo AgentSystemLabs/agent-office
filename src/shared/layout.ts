@@ -253,8 +253,8 @@ export const BOARDS = {
   services: { x: FLOOR.maxX - 0.08, y: 2.1, z: -8.2, rotY: -Math.PI / 2, width: 6, height: 3, label: '🌐 Services' },
 } as const;
 
-/** System roadmap display on a stand in the office, just west of the elevator and merge gong. */
-export const ROADMAP_BOARD = { x: 5, y: 2.1, z: FLOOR.minZ + 5.5, rotY: 0, width: 3.6, height: 2.1, label: '🗺️ System Roadmap' } as const;
+/** System roadmap display on a stand in the office, visible from the elevator and west of the merge gong. */
+export const ROADMAP_BOARD = { x: 5, y: 2.1, z: FLOOR.minZ + 5.5, rotY: Math.PI, width: 3.6, height: 2.1, label: '🗺️ System Roadmap' } as const;
 
 /** The big TV on the east wall that shows whoever is screen sharing. */
 export const TV = { x: FLOOR.maxX - 0.1, y: 2.2, z: 0, width: 6.4, height: 3.6 } as const;
