@@ -159,13 +159,16 @@ export async function renderMermaidDiagrams(root: HTMLElement): Promise<void> {
         // Enable pan and zoom
         const svgElement = figure.querySelector('svg');
         if (svgElement) {
+          // The frame is the viewport: fill it, and drop Mermaid's cap at the diagram's natural width.
           svgElement.style.width = '100%';
           svgElement.style.height = '100%';
+          svgElement.style.maxWidth = 'none';
           svgPanZoom(svgElement, {
             zoomEnabled: true,
             controlIconsEnabled: true,
             fit: true,
             center: true,
+            contain: true,
           });
         }
       } catch {
