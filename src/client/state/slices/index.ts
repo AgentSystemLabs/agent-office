@@ -31,6 +31,7 @@ import { team } from './team';
 import { theme } from './theme';
 import { upgrade } from './upgrade';
 import { usage } from './usage';
+import { visitors } from './visitors';
 import { whiteboard } from './whiteboard';
 
 export const SLICES: readonly Slice[] = [
@@ -61,4 +62,5 @@ export const SLICES: readonly Slice[] = [
   team,
   accounts,
   signins,
+  visitors,
 ];

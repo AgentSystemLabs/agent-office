@@ -14,6 +14,7 @@ import type { MeetingState } from './meetings.js';
 import type { PeerInfo } from './presence.js';
 import type { QueueState } from './queue.js';
 import type { ServicesState } from './settings.js';
+import type { VisitorsState } from './visitors.js';
 import type { JailState, WorkerInfo } from './workers.js';
 
 export interface ProjectInfo {
@@ -124,6 +125,8 @@ export interface FloorView {
   cars: CarState[];
   /** Workers sent home and locked up in the dungeon, on a map that has one. */
   jail: JailState;
+  /** Claude Code sessions the office didn't start, visiting this floor (see protocol/visitors.ts). */
+  visitors: VisitorsState;
 }
 
 export type FloorClientMsg =

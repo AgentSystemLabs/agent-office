@@ -25,6 +25,7 @@ import type { OfficePrompts } from '../prompts.js';
 import type { LeaveOnMerge } from '../leave-on-merge.js';
 import type { ChatLog } from '../history.js';
 import type { Arcade, HighScores } from '../cabinet.js';
+import type { Visitors } from '../visitors/index.js';
 import type { AgentProvider, FloorInfo, Me, ServerMsg, ServiceInfo, ServicesState, SignInKind } from '../../shared/protocol.js';
 import type { Client } from './client.js';
 import type { Spot } from './input.js';
@@ -88,6 +89,8 @@ export interface LateServices {
   services: Services;
   images: ImageProxy;
   upgrader: Upgrader;
+  /** Claude Code sessions the office didn't start, shown on the floors as visitors (see visitors/). */
+  visitors: Visitors;
   /** A floor's Services board: its own workers' servers. */
   servicesState(floor: Floor | undefined, items?: ServiceInfo[]): ServicesState;
 }

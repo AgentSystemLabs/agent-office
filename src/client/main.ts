@@ -55,9 +55,11 @@ import { installPeers } from './features/peers';
 import { installRooftop } from './features/rooftop';
 import { installSeating } from './features/seating';
 import { installSmoke } from './features/smoke';
+import { installSubagents } from './features/subagents';
 import { installLamplight } from './features/lamplight';
 import { installTelescope } from './features/telescope';
 import { installTv } from './features/tv';
+import { installVisitors } from './features/visitors';
 import { installVoice } from './features/voice';
 import { installWaiting } from './features/waiting';
 import { installWalking } from './features/walking';
@@ -169,6 +171,8 @@ parts.cards = installCarrying(ctx, {
 });
 parts.seating = installSeating(ctx, { shares: () => parts.talk.currentShares(), watchShare: () => parts.talk.watchShare(), arcade: parts.arcade, showBar: parts.bar.showBar, usable: () => parts.pointer.usable() });
 installGong(ctx, { burstOver: parts.views.burstOver, workerViews: parts.views.workerViews, court: () => parts.worlds.court(), idleAgents: () => parts.worlds.idleAgents() });
+installSubagents(ctx);
+installVisitors(ctx);
 
 parts.hintbar = installHintBar(ctx, core, parts);
 parts.emotes = installEmotes(ctx, { personOf });

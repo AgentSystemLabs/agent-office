@@ -61,6 +61,8 @@ export interface Config {
   weather?: Weather;
   /** The sky keeps real time (a day a day), instead of a whole day and night every hour. */
   realTimeSky: boolean;
+  /** Claude Code sessions the office didn't start show up as visitors (see server/visitors/). */
+  visitors: boolean;
 }
 
 export interface RTCIceServerLike {
@@ -161,6 +163,10 @@ Options:
                           it's night there, instead of a day and night every hour
                           (⚙️ Settings can switch it)
                           (env AGENT_OFFICE_SKY_CLOCK=real)
+      --no-visitors       Don't show the Claude Code sessions the office didn't
+                          start (the desktop app, a terminal) as visitors; it
+                          only ever reads their transcripts under ~/.claude
+                          (env AGENT_OFFICE_VISITORS=0)
   -h, --help              Show this help
 
 Started in a terminal, the office opens in your browser already signed in, with
@@ -241,6 +247,7 @@ export function loadConfig(argv: string[]): Config {
   let city = process.env.AGENT_OFFICE_CITY || '';
   let weather = process.env.AGENT_OFFICE_WEATHER || '';
   let realTimeSky = process.env.AGENT_OFFICE_SKY_CLOCK === 'real';
+  let visitors = process.env.AGENT_OFFICE_VISITORS !== '0';
   const iceServers: RTCIceServerLike[] = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }];
   // A container can't take --turn (deploy/container/compose.yaml), so the TURN servers come from the environment too.
   for (const url of (process.env.AGENT_OFFICE_TURN ?? '').split(/\s+/).filter(Boolean)) iceServers.push(parseTurn(url));
@@ -325,6 +332,9 @@ export function loadConfig(argv: string[]): Config {
         break;
       case '--real-time-sky':
         realTimeSky = true;
+        break;
+      case '--no-visitors':
+        visitors = false;
         break;
       default:
         if (a.startsWith('-')) {
@@ -463,6 +473,7 @@ export function loadConfig(argv: string[]): Config {
     city: city.trim() || undefined,
     weather: (weather as Weather) || undefined,
     realTimeSky,
+    visitors,
   };
 }
 

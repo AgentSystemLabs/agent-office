@@ -5,6 +5,7 @@ import path from 'node:path';
 import { FAILS_TO_DESPAIR, outputFailed, toolAction } from '../../shared/actions.js';
 import { MCP_READ_ONLY, writeClaudeMcpConfig } from '../office-workers.js';
 import { QUEUE_AGENT_DISALLOWED_TOOLS } from '../stations.js';
+import { noteSubagent } from '../subagents.js';
 import { answered, notified, wantsPermission } from '../workers/lifecycle.js';
 import { shq } from '../workers/process.js';
 import type { WorkerHandle } from '../workers/types.js';
@@ -40,6 +41,9 @@ function writeHookSettings(dataDir: string): string {
     ['PreToolUse', undefined],
     ['PostToolUse', undefined],
     ['PostToolUseFailure', undefined],
+    // Its subagents, each shown beside its desk while it runs (see subagents.ts).
+    ['SubagentStart', undefined],
+    ['SubagentStop', undefined],
   ];
   // Minimal VPS images sometimes lack curl; the office's own node binary is always there.
   const nodeHook = path.join(dataDir, 'hook.cjs');
@@ -129,6 +133,13 @@ function claudeHook(h: WorkerHandle, event: string, payload: any): boolean {
     h.persist();
   }
   h.scheduleScan();
+  // Its subagents: a new session has none, and the rest only start and stop them, or say what one is doing.
+  const subagents = noteSubagent(info, event, payload, { transcript: h.tracker.transcript, activity: event === 'PreToolUse' ? describeTool(payload) : undefined, now });
+  if (event === 'SubagentStart' || event === 'SubagentStop') {
+    if (subagents) h.emit();
+    return true;
+  }
+  if (subagents && event === 'SessionStart') h.emit();
   switch (event) {
     case 'SessionStart':
       if (payload?.source === 'clear') {
