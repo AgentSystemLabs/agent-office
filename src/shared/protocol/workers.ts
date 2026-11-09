@@ -1,6 +1,7 @@
 // Workers at their desks: what they are, their worktrees and their terminals.
 
 import type { AgentEffort, AgentProvider } from './agents.js';
+import type { Subagent } from './subagents.js';
 import type { Usage } from './usage.js';
 
 export type WorkerStatus =
@@ -88,6 +89,8 @@ export interface WorkerInfo {
   task?: WorkerTask;
   /** Reported session tokens and cost, when the provider supplies them (agents only). */
   usage?: Usage;
+  /** The subagents its session has running (Claude Code's SubagentStart and SubagentStop hooks, see server/subagents.ts). */
+  subagents?: Subagent[];
   /** Who last typed into its terminal (or sent it a prompt), and when. */
   lastInput?: { by: string; at: number };
   /** The meeting it was called to, for a worker at the meeting room's table (see Meeting). */

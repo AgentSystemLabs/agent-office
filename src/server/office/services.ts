@@ -17,6 +17,7 @@ import { Themes } from '../theme.js';
 import { Maps } from '../maps.js';
 import { OfficePrompts } from '../prompts.js';
 import { LeaveOnMerge } from '../leave-on-merge.js';
+import { claudeProjectsDir, Visitors } from '../visitors/index.js';
 import type { ServiceInfo, ServicesState } from '../../shared/protocol.js';
 import type { BuildingServices, Ctx, LateServices } from './context.js';
 import type { Client } from './client.js';
@@ -161,5 +162,20 @@ export function createLateServices(ctx: Ctx): LateServices {
       process.kill(process.pid, 'SIGTERM');
     },
   );
-  return { team, tailnet, services, images, upgrader, servicesState };
+  // Claude Code sessions the office didn't start (the desktop app, a terminal), on the floor of the
+  // repository they work in: read off their transcripts, never touched (see visitors/).
+  const visitors = new Visitors(
+    { root: claudeProjectsDir(), off: !cfg.visitors },
+    {
+      floors: () => [...floors.values()].map((f) => ({ id: f.id, dir: f.dir, repo: f.def.repo })),
+      workerSessions: () => new Set([...floors.values()].flatMap((f) => f.workers.list().map((w) => w.sessionId).filter((id): id is string => !!id))),
+      watched: () => clients.size > 0,
+      send: (id, state) => {
+        const floor = floors.get(id);
+        if (floor) ctx.toFloor(floor, { t: 'visitors', state });
+      },
+    },
+  );
+  visitors.start();
+  return { team, tailnet, services, images, upgrader, visitors, servicesState };
 }

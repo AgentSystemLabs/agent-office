@@ -36,6 +36,7 @@ agent-office [dir] [options]
       --city <name>       Put the office in a real city: its sun and live weather (open-meteo.com)
       --weather <kind>    Pin the weather: clear, cloudy, rain, storm, snow or fog
       --real-time-sky     Start the sky on the real clock, not a day an hour (env AGENT_OFFICE_SKY_CLOCK=real; ⚙️ Settings can switch it)
+      --no-visitors       Don't show the Claude Code sessions the office didn't start as visitors (env AGENT_OFFICE_VISITORS=0)
 
 agent-office setup [--projects <dir>] [--project <owner/repo>]... [--home <dir>]
 
