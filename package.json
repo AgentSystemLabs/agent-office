@@ -29,8 +29,10 @@
   "license": "MIT",
   "dependencies": {
     "@lydell/node-pty": "^1.2.0-beta.15",
+    "@recast-navigation/three": "^0.44.0",
     "@xterm/addon-serialize": "^0.14.0",
     "@xterm/headless": "^6.0.0",
+    "recast-navigation": "^0.44.0",
     "selfsigned": "^5.5.0",
     "ws": "^8.21.3"
   },

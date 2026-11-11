@@ -92,6 +92,8 @@ agent-office setup                          # the first-start walkthrough again 
 
 Every option is in [docs/configuration.md](docs/configuration.md). Choosing models and providers per worker is in [docs/agents.md](docs/agents.md).
 
+For a standalone GLB walkthrough and walkability audit, see [the local Town Hall tester](docs/how-it-works.md#town-hall-walkability-tester).
+
 To run it from a clone instead:
 
 ```bash

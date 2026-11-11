@@ -58,3 +58,14 @@ Anyone who can sign in can drive Claude Code, OpenCode, Codex, Grok, Muse, DeepS
 - Workers don't inherit the office password or any parent agent-session variables.
 - Workers hired by an account run on that account's own sign-ins (`CLAUDE_CONFIG_DIR`, `GH_CONFIG_DIR` and `GIT_CONFIG_GLOBAL` under `.agent-office/homes/<account>/`), and never see the machine's own Claude or GitHub credentials (`ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`, `GH_TOKEN` and the like are taken out of their environment). But every worker runs as the same OS user, so one person's worker *can* read another person's folder. Per-person sign-ins keep work attributed and plans separate. They don't keep teammates' secrets from each other.
 - The picture fetcher (`/api/image`) needs an office session. It fetches any http(s) link it's given, from the office's machine. That gives nobody new reach: anyone signed in can already run `curl` from a shell worker. Pictures are served with a sandboxing `Content-Security-Policy`, so an SVG can't run script on the office's origin.
+## Town Hall walkability tester
+
+The standalone walkthrough is available at `/townhall.html` when running the Vite development server. Place
+the Blender export at `src/client/public/town-hall-shell.glb`; this project-specific GLB is a local asset and
+is not included in the repository. The page builds its Recast navigation mesh from that geometry.
+
+For temporary walkability testing, `WALKABILITY_OPEN_DOORS` in `src/client/townhall.ts` opens named door
+panels at runtime before Recast builds navigation. Explicit `SLIDE` names and elevator doors slide; unmarked
+`door_leaf` and left/right door-panel names are treated as hinged. Frames, handles, anchors, and other
+non-panel objects are left alone, and ambiguous door meshes are logged and left unchanged. This does not
+modify the Blender export.

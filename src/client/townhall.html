@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Town Hall Walkthrough</title>
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #17202a; }
+      body { font-family: system-ui, sans-serif; color: #eef4ff; }
+      canvas { display: block; width: 100%; height: 100%; }
+      #panel { position: fixed; top: 16px; left: 16px; z-index: 2; width: 340px; max-height: calc(100vh - 32px); overflow: auto; padding: 14px; border-radius: 10px; background: rgba(16,22,32,.94); box-shadow: 0 6px 24px rgba(0,0,0,.35); font-size: 13px; line-height: 1.45; }
+      #panel strong { display: block; margin-bottom: 8px; }
+      #run { padding: 8px 10px; border: 0; border-radius: 6px; background: #27c281; color: #07140e; font-weight: 700; cursor: pointer; }
+      #run:disabled { opacity: .6; cursor: wait; }
+      #export-report, [data-level] { margin-left: 6px; padding: 8px 10px; border: 0; border-radius: 6px; background: #d7b85d; color: #17130a; font-weight: 700; cursor: pointer; }
+      #levels { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px; }
+      #levels [data-level] { margin-left: 0; padding: 5px 8px; background: #526176; color: #eef4ff; font-size: 12px; }
+      #levels [data-active="true"] { background: #78a9ff; color: #07101f; }
+      #status { margin-top: 10px; }
+      #report { white-space: pre-wrap; margin: 10px 0 0; color: #c9d7e8; }
+      #help { margin-top: 10px; color: #aebed1; }
+      .pass { color: #39e58c; }
+      .fail { color: #ff6b78; }
+    </style>
+  </head>
+  <body>
+    <div id="panel">
+      <strong>Blender Town Hall walkthrough</strong>
+      <button id="run" type="button">Run exhaustive audit</button>
+      <button id="overview" type="button" style="margin-left:6px;padding:8px 10px;border:0;border-radius:6px;background:#78a9ff;color:#07101f;font-weight:700;cursor:pointer">View whole building</button>
+      <button id="export-report" type="button">Export Test Report</button>
+      <div id="levels" aria-label="Floor isolation">
+        <button data-level="All" data-active="true" type="button">All</button>
+        <button data-level="F1" type="button">F1</button>
+        <button data-level="F2" type="button">F2</button>
+        <button data-level="F3" type="button">F3</button>
+        <button data-level="Roof" type="button">Roof</button>
+      </div>
+      <div id="status">Loading your Blender building…</div>
+      <pre id="report"></pre>
+      <div id="help">Press R to start the exhaustive all-floor audit; press R again to stop it. Use WASD to walk and Space to jump. In first person, drag the mouse or use a two-finger trackpad gesture to look around. Overview: one-finger drag to orbit, pinch or scroll to zoom, and two-finger/right-button drag to pan.</div>
+    </div>
+    <canvas id="townhall"></canvas>
+    <script type="module" src="./townhall.ts"></script>
+  </body>
+</html>
