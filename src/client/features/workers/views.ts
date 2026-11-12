@@ -32,6 +32,7 @@ import { Jail } from './jail';
 import { Laptop } from './laptop';
 import { Arrivals, Departures } from './leaving';
 import { Sendoffs } from './sendhome';
+import { Wander } from './wander';
 
 // The kinds of thing you can use that this defines (see InteractKinds in world/types.ts).
 declare module '../../world/types' {
@@ -102,6 +103,8 @@ export function installWorkerViews(ctx: Ctx, core: CoreState, parts: WorkerViews
     (x, y, z) => sound.stepAt(x, z, y),
     () => ctx.world().ways,
   );
+  // In the office, a worker with nothing to do gets up and wanders about (the couch, the TV, the arcade…).
+  const wander = new Wander(office.group, () => ctx.world().nav, groundHere, (x, y, z) => sound.stepAt(x, z, y), (id) => store.workers.get(id), () => player.pos);
   /** Set while a floor's workers arrive with it (a welcome, an elevator ride): they're in their seats already. */
   let seatedAlready = false;
   /** A floor arriving (a welcome, a floor.enter): nobody's still leaving or coming in, and its workers are seated already. */
@@ -135,6 +138,8 @@ export function installWorkerViews(ctx: Ctx, core: CoreState, parts: WorkerViews
         if (desk.def.room && !seatedAlready) arrivals.add(model, desk);
         // In the castle, a worker at the tables gets up and walks about (see Court): a new one runs in to its seat.
         else if (court && inCourt(w)) court.add(w.id, model, desk, seatedAlready ? undefined : cameFrom(w));
+        // In the office, a worker at an ordinary desk or bean bag does its own wandering (see Wander).
+        else if (inOffice() && !desk.def.station && !desk.def.room) wander.add(w.id, model, desk);
         const laptop = new Laptop(world.device);
         desk.laptopAnchor.add(laptop.root);
         noOutline(desk.group);
@@ -175,8 +180,8 @@ export function installWorkerViews(ctx: Ctx, core: CoreState, parts: WorkerViews
       if (store.workers.has(id)) continue;
       arrivals.forget(v.model);
       const desk = world.desks.get(v.deskId);
-      // Up and about in the castle: it sets off from where it's standing.
-      const up = court?.release(id);
+      // Up and about (the castle's court, or wandering the office): it sets off from where it's standing.
+      const up = court?.release(id) ?? wander.release(id);
       // Sent home: it packs up and walks out, and the seat shows as free once it's up (see departures), or
       // on a map with its own way of seeing workers off, that (the castle's dungeon, for one it locks up).
       const send = plan().sendHome;
@@ -314,6 +319,7 @@ export function installWorkerViews(ctx: Ctx, core: CoreState, parts: WorkerViews
       adrift.update(dt, t, camera.position);
     }
     arrivals.update(dt);
+    wander.update(dt);
     parts.worlds.court()?.update(dt);
   });
 
@@ -398,7 +404,7 @@ export function installWorkerViews(ctx: Ctx, core: CoreState, parts: WorkerViews
   function burstOver(deskId: string, n: number) {
     // Up and about in the castle: over wherever it is.
     const w = store.workerAtDesk(deskId);
-    const v = w && parts.worlds.court()?.away(w.id) ? workerViews.get(w.id) : undefined;
+    const v = w && (parts.worlds.court()?.away(w.id) || wander.away(w.id)) ? workerViews.get(w.id) : undefined;
     if (v) {
       const at = v.model.root.position;
       return confetti.burst(at.x, at.y + 2.1, at.z, n);
@@ -433,6 +439,7 @@ export function installWorkerViews(ctx: Ctx, core: CoreState, parts: WorkerViews
     },
     syncWorkers,
     syncWorkersSeated,
+    wander,
     syncJail,
     syncPlan,
     dressUp,

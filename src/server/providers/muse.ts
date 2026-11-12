@@ -4,18 +4,21 @@ import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { normalizeMuseHook, withoutMuseLaunchArgs, writeMuseHome, type MuseHome } from '../muse.js';
+import { withPersonaPrompt } from '../../shared/personas.js';
 import { reduceLifecycle } from '../workers/lifecycle.js';
 import type { ProviderAdapter } from './types.js';
 
-export const muse: ProviderAdapter<undefined, MuseHome> = {
+export const muse: ProviderAdapter<undefined, MuseHome & { dir: string }> = {
   id: 'muse',
   scrubEnv: ['MUSE_BIN', 'MUSE_AGENTS_THREAD', 'MUSE_AGENTS_ROLE', 'MUSE_PROJECTS_HOME'],
-  prepare({ dataDir }) {
+  prepare({ dataDir, dir }) {
     const userMuse = path.join(process.env.XDG_CONFIG_HOME || path.join(homedir(), '.config'), 'muse');
-    return writeMuseHome(dataDir, existsSync(userMuse) ? userMuse : undefined);
+    return { ...writeMuseHome(dataDir, existsSync(userMuse) ? userMuse : undefined), dir };
   },
-  launch({ h, args, prompt, resumeSessionId, setup }) {
+  launch({ h, args, prompt, resumeSessionId, station, setup }) {
     const { info } = h;
+    // Its desk's persona, dealt from the floor's seed (see shared/personas.ts), ahead of its first prompt.
+    prompt = withPersonaPrompt(setup.dir, info.deskId, station, prompt);
     args = withoutMuseLaunchArgs(args);
     args.push('--trust-workspace');
     if (resumeSessionId) {

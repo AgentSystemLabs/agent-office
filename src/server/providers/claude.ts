@@ -3,6 +3,7 @@
 import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { FAILS_TO_DESPAIR, outputFailed, toolAction } from '../../shared/actions.js';
+import { personaBrief, personaFor } from '../../shared/personas.js';
 import { MCP_READ_ONLY, writeClaudeMcpConfig } from '../office-workers.js';
 import { QUEUE_AGENT_DISALLOWED_TOOLS } from '../stations.js';
 import { answered, notified, wantsPermission } from '../workers/lifecycle.js';
@@ -26,6 +27,8 @@ interface ClaudeSetup {
   settings: string;
   /** Its --mcp-config: the office's MCP server. */
   mcp?: string;
+  /** The project's checkout: the seed its desks' personas are dealt from. */
+  dir: string;
 }
 
 /** Claude Code's --settings for every worker: each hook event posted to the office, with curl or else the office's own node. */
@@ -194,9 +197,10 @@ export const claude: ProviderAdapter<undefined, ClaudeSetup> = {
   id: 'claude',
   scrubEnv: ['CLAUDECODE', 'CLAUDE_CODE_ENTRYPOINT', 'CLAUDE_CODE_SSE_PORT', 'CLAUDE_CODE_EXECPATH', 'CLAUDE_PID', 'CLAUDE_EFFORT'],
   scrubPrefixes: ['CLAUDE_CODE_SESSION', 'CLAUDE_CODE_CHILD', 'CLAUDE_CODE_MESSAGING'],
-  prepare: ({ dataDir, mcpScript }) => ({
+  prepare: ({ dataDir, dir, mcpScript }) => ({
     settings: writeHookSettings(dataDir),
     mcp: mcpScript ? writeClaudeMcpConfig(dataDir, mcpScript) : undefined,
+    dir,
   }),
   launch({ h: { info }, args, prompt, resumeSessionId, station, setup }) {
     args.unshift('--settings', setup.settings);
@@ -208,6 +212,9 @@ export const claude: ProviderAdapter<undefined, ClaudeSetup> = {
     if (info.effort) args.push('--effort', info.effort);
     // The queue agent only ever adds to the queue: without these it can't touch the checkout's files.
     if (station === 'queue') args.push('--disallowedTools', ...QUEUE_AGENT_DISALLOWED_TOOLS);
+    // Its desk's persona, dealt from the floor's seed (see shared/personas.ts). Board kiosks keep their briefs.
+    const persona = station ? undefined : personaFor(setup.dir, info.deskId);
+    if (persona) args.push('--append-system-prompt', personaBrief(persona));
     if (resumeSessionId) args.push('--resume', resumeSessionId);
     // `--` so a prompt like "- fix login" is never parsed as a CLI option.
     if (prompt) args.push('--', prompt);

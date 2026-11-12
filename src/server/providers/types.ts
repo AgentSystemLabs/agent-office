@@ -9,6 +9,8 @@ import type { WorkerHandle } from '../workers/types.js';
 export interface ProviderFloor {
   /** The floor's data dir, where hook helpers, homes and plugins go. */
   dataDir: string;
+  /** The project's checkout: the seed a desk's persona is dealt from (see shared/personas.ts). */
+  dir: string;
   /** bin/office-workers.js, the office's MCP server, for the agents that take one (see office-workers.ts). */
   mcpScript?: string;
   /** The DSH profile a DeepSeek Harness worker boots (`--dsh-profile`). */
