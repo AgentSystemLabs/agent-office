@@ -90,6 +90,7 @@ export class Wander {
       now: () => this.clock,
       stayFor: (c, kind) => this.stayFor(c, kind),
       walkTo: (c, target) => this.walkTo(c, target),
+      affinityOf: (a, b) => this.affinity.get(this.key(a, b)) ?? 0,
     });
   }
 

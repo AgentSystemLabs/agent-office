@@ -7,7 +7,7 @@ import type { WorkerInfo } from '../../../shared/protocol';
 import {
   applyVisit, pick, pickKind, spotLine, styled, type SpotKind,
 } from '../../../shared/traits';
-import { SPOTS, TONE_BG } from './spots';
+import { SPOTS, TONE_BG, type Spot } from './spots';
 import { spotTaken } from './crowd';
 import type { Roamer } from './roamer';
 import { store } from '../../state';
@@ -35,6 +35,8 @@ interface Deps {
   now: () => number;
   stayFor: (c: Roamer, kind: SpotKind | undefined) => number;
   walkTo: (c: Roamer, target: Pt | null) => void;
+  /** How `a` feels about `b`, -1 (rivals) to 1 (friends) — the office's social map (wander.ts). */
+  affinityOf: (a: string, b: string) => number;
 }
 
 export class Ambient {
@@ -104,10 +106,42 @@ export class Ambient {
       c.timer = 10 + c.rng() * 50;
       return;
     }
-    const kinds = [...new Set(options.map((s) => s.kind!))];
+    // Social initiative: now and then it goes looking for whoever it gets on with, and where it
+    // lands leans toward friends and crowds, away from rivals.
+    let friendKind: SpotKind | undefined;
+    let best = 0;
+    for (const o of this.d.roamers.values()) {
+      if (o === c || o.state === 'seated' || !o.spot?.kind) continue;
+      const a = this.d.affinityOf(c.id, o.id);
+      if (a > best) {
+        best = a;
+        friendKind = o.spot.kind;
+      }
+    }
+    let kinds = [...new Set(options.map((s) => s.kind!))];
+    if (best > 0.35 && friendKind && kinds.includes(friendKind) && c.rng() < 0.4 * c.traits.sociability * (0.5 + c.needs.social)) kinds = [friendKind];
     const kind = pickKind(c.traits, c.needs, c.rng, c.lastKind, kinds);
     const ofKind = options.filter((s) => s.kind === kind);
-    const spot = ofKind[Math.floor(c.rng() * ofKind.length)] ?? options[0];
+    const pool = ofKind.length ? ofKind : options;
+    // Each spot scores by who's near it: friends pull, rivals push away, a crowd calls to the lonely.
+    const score = (s: Spot): number => {
+      let w = 1;
+      for (const o of this.d.roamers.values()) {
+        if (o === c || o.state === 'seated') continue;
+        const p = o.model.root.position;
+        const d = Math.hypot(p.x - s.x, p.z - s.z);
+        if (d > 9) continue;
+        const a = this.d.affinityOf(c.id, o.id);
+        if (a > 0.35) w += a * 1.6 * (1 - d / 9);
+        else if (a < -0.25 && d < 3) w *= 0.15;
+        else if (c.needs.social > 0.55 && d < 4) w += 0.4;
+      }
+      return w;
+    };
+    let total = 0;
+    const weights = pool.map((s) => (total += score(s)));
+    let r = c.rng() * total;
+    const spot = pool[weights.findIndex((w) => (r -= w) <= 0)] ?? pool[0];
     // Each worker stands or sits its own little way: a jittered spot nobody else claimed (a tighter
     // jitter on furniture, where the places are closer together), so two at the couch don't overlap.
     const spread = spot.seat !== undefined ? 0.4 : 0.9;
