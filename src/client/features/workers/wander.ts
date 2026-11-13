@@ -260,8 +260,9 @@ export class Wander {
       this.walkTo(c, [sx, sz]);
     }
     // The walk over takes a few seconds: ask the office mind for their script now, so it's
-    // usually ready by the time they face each other.
-    const turns = 4 + Math.round(((a.traits.sociability + b.traits.sociability) / 2) * 4);
+    // usually ready by the time they face each other. Friends talk longer than strangers.
+    const aff = this.affinity.get(this.key(a.id, b.id)) ?? 0;
+    const turns = 6 + Math.round(((a.traits.sociability + b.traits.sociability) / 2) * 5) + (aff > 0.35 ? 3 : aff < -0.25 ? 1 : 0);
     this.mind.ask(a, b, turns);
   }
 
@@ -467,9 +468,10 @@ export class Wander {
       c.heading = Math.atan2(pp.x - pos.x, pp.z - pos.z);
       root.rotation.y += wrap(c.heading - root.rotation.y) * smooth(FACE_RATE, dt);
       if (p!.state !== 'chat') {
-        // Still walking over: wait a spell for it, then give up and head home.
+        // Still walking over: wait a spell for it, then give up and head home. Across a big
+        // floor the walk can take a while, so the patience matches it.
         chat.wait += dt;
-        if (chat.wait > 8) this.goHome(c);
+        if (chat.wait > 16) this.goHome(c);
       } else {
         chat.wait = 0;
         // Both sides count the same turns from the later of their two start times, so they never talk over each other.
