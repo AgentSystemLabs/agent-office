@@ -21,6 +21,9 @@ interface Script {
 export class MindChats {
   /** Scripts on their way or in hand, per pair. */
   private readonly minds = new Map<string, { script?: Script | null }>();
+  /** Affinity updates waiting for their one batched save. */
+  private readonly pendingAffinity = new Map<string, number>();
+  private affinityTimer?: ReturnType<typeof setTimeout>;
 
   constructor(
     private worker: (id: string) => WorkerInfo | undefined,
@@ -90,6 +93,47 @@ export class MindChats {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ floor: this.floor(), op: 'reflect', a: this.actor(c), b: this.actor(p), saidA: said, saidB: [] }),
     }).catch(() => {});
+  }
+
+  /** The floor's remembered affinities, once — relationships survive restarts and visitors. */
+  loadAffinity(): Promise<Record<string, number> | null> {
+    return fetch('/api/mind', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ floor: this.floor(), op: 'affinity' }),
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => (j && typeof j.affinity === 'object' && j.affinity ? (j.affinity as Record<string, number>) : null))
+      .catch(() => null);
+  }
+
+  /** Fetch the floor's remembered affinities into `into`: relationships survive restarts and visitors. */
+  primeAffinity(into: Map<string, number>) {
+    void this.loadAffinity().then((saved) => {
+      if (!saved) return;
+      for (const [k, v] of Object.entries(saved)) {
+        if (typeof v === 'number' && Number.isFinite(v)) into.set(k, Math.max(-1, Math.min(1, v)));
+      }
+    });
+  }
+
+  /** Queue affinity updates; they go up in one request a few seconds later, and go back in the queue if it's lost. */
+  saveAffinity(pairs: Record<string, number>) {
+    for (const [k, v] of Object.entries(pairs)) this.pendingAffinity.set(k, v);
+    if (this.affinityTimer) return;
+    this.affinityTimer = setTimeout(() => {
+      this.affinityTimer = undefined;
+      if (!this.pendingAffinity.size) return;
+      const pairs = Object.fromEntries(this.pendingAffinity);
+      this.pendingAffinity.clear();
+      fetch('/api/mind', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ floor: this.floor(), op: 'affinity', pairs }),
+      }).catch(() => {
+        for (const [k, v] of Object.entries(pairs)) this.pendingAffinity.set(k, v);
+      });
+    }, 4000);
   }
 
   /** A pair's script is done being useful; the next chat asks for a new one. */

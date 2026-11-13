@@ -30,7 +30,7 @@ export const mindRoutes = {
     path: '/api/mind',
     auth: 'session',
     async handle(ctx, { res, req }) {
-      let body: { floor?: unknown; op?: unknown; a?: unknown; b?: unknown; turns?: unknown; saidA?: unknown; saidB?: unknown; task?: unknown };
+      let body: { floor?: unknown; op?: unknown; a?: unknown; b?: unknown; turns?: unknown; saidA?: unknown; saidB?: unknown; task?: unknown; pairs?: unknown };
       try {
         body = JSON.parse(await readBody(req, 64 * 1024));
       } catch {
@@ -40,6 +40,17 @@ export const mindRoutes = {
       const a = actor(body.a);
       const b = actor(body.b);
       const m = getMind(ctx);
+      if (body.op === 'affinity') {
+        // The floor's remembered relationships: read them, or merge an update and get them back.
+        if (body.pairs && typeof body.pairs === 'object' && !Array.isArray(body.pairs)) {
+          const clean: Record<string, number> = {};
+          for (const [k, v] of Object.entries(body.pairs as Record<string, unknown>).slice(0, 300)) {
+            if (typeof k === 'string' && k.length <= 200 && typeof v === 'number' && Number.isFinite(v)) clean[k] = v;
+          }
+          m.setAffinity(floor, clean);
+        }
+        return send(res, 200, { affinity: m.affinity(floor) });
+      }
       if (body.op === 'learn') {
         // A worker finished a task: it writes down what it took away (fire-and-forget).
         if (a && typeof body.task === 'string') m.learn(floor, a, body.task.slice(0, 300));

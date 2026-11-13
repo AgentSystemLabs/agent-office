@@ -49,6 +49,8 @@ type FloorNotes = Record<string, Note[]>;
 export class Mind {
   private memories = new Map<string, Memory>();
   private floors: FloorNotes = {};
+  /** How each pair of workers feels about the other, per floor — kept so relationships survive restarts. */
+  private social: Record<string, Record<string, number>> = {};
   private file: string;
   private up = false;
   private checked = 0;
@@ -57,7 +59,11 @@ export class Mind {
   constructor(dataDir: string) {
     this.file = path.join(dataDir, 'minds.json');
     try {
-      const saved = JSON.parse(readFileSync(this.file, 'utf8')) as { workers?: Record<string, Memory>; floors?: FloorNotes } | Record<string, Memory>;
+      const saved = JSON.parse(readFileSync(this.file, 'utf8')) as {
+        workers?: Record<string, Memory>;
+        floors?: FloorNotes;
+        social?: Record<string, Record<string, number>>;
+      } | Record<string, Memory>;
       // The file used to be just the workers map; it grew a floors section for shared knowledge.
       const workers = 'workers' in saved ? saved.workers ?? {} : (saved as Record<string, Memory>);
       const toNote = (n: unknown): Note | null => {
@@ -77,6 +83,14 @@ export class Mind {
             (Array.isArray(list) ? list : []).map(toNote).filter((n: Note | null): n is Note => !!n).slice(-15),
           ]),
         );
+      }
+      if ('social' in saved && saved.social && typeof saved.social === 'object') {
+        for (const [f, pairs] of Object.entries(saved.social)) {
+          if (!pairs || typeof pairs !== 'object') continue;
+          const clean: Record<string, number> = {};
+          for (const [k, v] of Object.entries(pairs)) if (typeof v === 'number' && Number.isFinite(v)) clean[k] = Math.max(-1, Math.min(1, v));
+          if (Object.keys(clean).length) this.social[f] = clean;
+        }
       }
     } catch {
       // No memories yet (or a corrupt file): start clean.
@@ -389,7 +403,7 @@ export class Mind {
     this.dirty = false;
     try {
       mkdirSync(path.dirname(this.file), { recursive: true });
-      writeFileSync(this.file, JSON.stringify({ workers: Object.fromEntries(this.memories), floors: this.floors }, null, 2), { mode: 0o600 });
+      writeFileSync(this.file, JSON.stringify({ workers: Object.fromEntries(this.memories), floors: this.floors, social: this.social }, null, 2), { mode: 0o600 });
     } catch {
       // A memory that can't be written is just forgotten on restart.
     }
@@ -398,5 +412,23 @@ export class Mind {
   /** The memory an actor carries into a prompt (for tests and debugging). */
   remembered(floor: string, id: string): string[] {
     return this.notes(floor, id);
+  }
+
+  /** The floor's pair affinities (-1 rivals … 1 friends), for a client to seed its own map with. */
+  affinity(floor: string): Record<string, number> {
+    return { ...(this.social[floor] ?? {}) };
+  }
+
+  /** Merge affinity updates from a client; values are clamped and near-zero pairs are forgotten. */
+  setAffinity(floor: string, pairs: Record<string, number>) {
+    const map = (this.social[floor] ??= {});
+    for (const [k, v] of Object.entries(pairs)) {
+      const d = Math.max(-1, Math.min(1, v));
+      if (Math.abs(d) < 0.03) delete map[k];
+      else map[k] = d;
+    }
+    if (!Object.keys(map).length) delete this.social[floor];
+    this.dirty = true;
+    this.flush();
   }
 }

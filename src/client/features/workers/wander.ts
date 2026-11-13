@@ -114,6 +114,7 @@ export class Wander {
     private playerAt?: () => { x: number; y: number; z: number },
   ) {
     this.mind = new MindChats(worker, () => store.project?.dir ?? '');
+    this.mind.primeAffinity(this.affinity);
   }
 
   /** A worker sitting at `desk` now: it's dealt a character and starts its own count down to wandering off. */
@@ -215,8 +216,10 @@ export class Wander {
     // social map evolves instead of only ever warming up.
     for (const [k, v] of this.affinity) {
       const d = v * Math.exp(-dt / 900);
-      if (Math.abs(d) < 0.03) this.affinity.delete(k);
-      else this.affinity.set(k, d);
+      if (Math.abs(d) < 0.03) {
+        this.affinity.delete(k);
+        this.mind.saveAffinity({ [k]: 0 }); // cooled off: forgotten here and on the server
+      } else this.affinity.set(k, d);
     }
     // Now and then, two workers out about stop for a chat.
     this.chatIn -= dt;
@@ -588,8 +591,9 @@ export class Wander {
     if (c.chat?.said.length) this.mind.reflect(c, p, c.chat.said);
     if (!first) return;
     const k = this.key(c.id, p.id);
-    const prev = this.affinity.get(k) ?? 0;
-    this.affinity.set(k, Math.max(-1, Math.min(1, prev + chatOutcome(c.traits, p.traits, c.rng))));
+    const next = Math.max(-1, Math.min(1, (this.affinity.get(k) ?? 0) + chatOutcome(c.traits, p.traits, c.rng)));
+    this.affinity.set(k, next);
+    this.mind.saveAffinity({ [k]: next });
     // Both are done with this pair's script; the next chat asks for a fresh one.
     this.mind.forget(c.id, p.id);
   }
