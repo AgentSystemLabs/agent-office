@@ -1,6 +1,10 @@
 // OpenCode: a plugin the office writes (see ../opencode.ts), loaded through OPENCODE_CONFIG_CONTENT,
 // reports statuses and usage snapshots on /hooks/opencode.
+import { mkdirSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { toolAction } from '../../shared/actions.js';
+import { personaBrief, personaFor } from '../../shared/personas.js';
 import { openCodeMcp } from '../office-workers.js';
 import { mergeOpenCodeConfigContent, openCodePluginSpecifier, writeOpenCodePlugin, type OpenCodeStatusEvent } from '../opencode.js';
 import { reportedUsage } from '../reported-usage.js';
@@ -25,6 +29,10 @@ export interface StatusOptions {
 interface OpenCodeSetup {
   plugin: string;
   mcpScript?: string;
+  /** The project's checkout: the seed its desks' personas are dealt from. */
+  dir: string;
+  /** The floor's data dir, where a worker's persona file goes. */
+  dataDir: string;
 }
 
 function withoutOpenCodeModel(args: string[]): string[] {
@@ -111,9 +119,20 @@ export function reduceStatus(h: WorkerHandle<StatusState>, payload: OpenCodeStat
 export const opencode: ProviderAdapter<StatusState, OpenCodeSetup> = {
   id: 'opencode',
   createState: () => ({}),
-  prepare: ({ dataDir, mcpScript }) => ({ plugin: writeOpenCodePlugin(dataDir), mcpScript }),
-  launch({ h, args, prompt, resumeSessionId, setup }) {
+  prepare: ({ dataDir, dir, mcpScript }) => ({ plugin: writeOpenCodePlugin(dataDir), mcpScript, dir, dataDir }),
+  launch({ h, args, prompt, resumeSessionId, station, setup }) {
     const { info } = h;
+    // Its desk's persona, dealt from the floor's seed (see shared/personas.ts): OpenCode has no
+    // system-prompt flag, so it goes in as an `instructions` file its config content names. Board
+    // kiosks keep their briefs.
+    let personaFile: string | undefined;
+    const persona = station ? undefined : personaFor(setup.dir, info.deskId);
+    if (persona) {
+      const dir = path.join(setup.dataDir, 'personas');
+      mkdirSync(dir, { recursive: true, mode: 0o700 });
+      personaFile = path.join(dir, `${info.id}.md`);
+      writeFileSync(personaFile, personaBrief(persona), { mode: 0o600 });
+    }
     if (resumeSessionId || info.model) args = withoutOpenCodeModel(args);
     if (!resumeSessionId && info.model) args.push('--model', info.model);
     if (resumeSessionId) args.push('--session', resumeSessionId);
@@ -128,7 +147,7 @@ export const opencode: ProviderAdapter<StatusState, OpenCodeSetup> = {
         // (see ../opencode.ts). Like its model, it's for a fresh session: a resumed one carries on with its own.
         env.AGENT_OFFICE_EFFORT = (!resumeSessionId && info.effort) || '';
         env.AGENT_OFFICE_MODEL = (!resumeSessionId && info.model) || '';
-        env.OPENCODE_CONFIG_CONTENT = mergeOpenCodeConfigContent(env.OPENCODE_CONFIG_CONTENT, openCodePluginSpecifier(setup.plugin), setup.mcpScript ? openCodeMcp(setup.mcpScript) : undefined);
+        env.OPENCODE_CONFIG_CONTENT = mergeOpenCodeConfigContent(env.OPENCODE_CONFIG_CONTENT, openCodePluginSpecifier(setup.plugin), setup.mcpScript ? openCodeMcp(setup.mcpScript) : undefined, personaFile ? [pathToFileURL(personaFile).href] : undefined);
       },
     };
   },

@@ -93,7 +93,7 @@ export class WorkerManager {
     this.trees = new Worktrees(dir);
     this.statePath = path.join(dataDir, 'workers.json');
     // bin/office-workers.js is also the office's MCP server, for the agents that take one.
-    const floor: ProviderFloor = { dataDir, mcpScript: binScript('office-workers.js'), dshProfile };
+    const floor: ProviderFloor = { dataDir, dir, mcpScript: binScript('office-workers.js'), dshProfile };
     for (const p of AGENT_PROVIDERS) this.setups[p] = PROVIDERS[p].prepare?.(floor);
     this.officeBin = writeOfficeCommands(dataDir);
     this.agentPath = resolveCommand(agentCmd);
