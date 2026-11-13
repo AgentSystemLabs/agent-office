@@ -24,8 +24,9 @@ export function spotTaken(roamers: Iterable<RoamerLike>, self: RoamerLike, x: nu
 /**
  * Nobody stands inside anybody else: whatever the nav grid collapsed together — a shared couch
  * place, a chat rendezvous on one cell, paths crossing — gets nudged apart until a body's width.
+ * Pairs that pass within `greet` of each other get a hello first (see ambient.ts passBy).
  */
-export function separate(roamers: Iterable<RoamerLike>) {
+export function separate<T extends RoamerLike>(roamers: Iterable<T>, onPass?: (a: T, b: T) => void, greet = 1.5) {
   const out = [...roamers].filter((c) => c.state !== 'seated');
   for (let i = 0; i < out.length; i++) {
     for (let j = i + 1; j < out.length; j++) {
@@ -36,6 +37,7 @@ export function separate(roamers: Iterable<RoamerLike>) {
       const dx = pb.x - pa.x;
       const dz = pb.z - pa.z;
       const d = Math.hypot(dx, dz);
+      if (d < greet) onPass?.(a, b);
       if (d >= 0.55) continue;
       const push = (0.55 - d) / 2;
       // Dead-centre overlaps pick a stable direction from their ids, so they don't vibrate.

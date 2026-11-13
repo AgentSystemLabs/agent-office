@@ -1,17 +1,16 @@
 import * as THREE from 'three';
 import type { NavGrid, Pt } from '../../../shared/nav';
-import { PERSONA_LINES, personaFor } from '../../../shared/personas';
 import type { WorkerInfo } from '../../../shared/protocol';
 import { isBusy } from '../../../shared/status';
 import {
-  applyVisit, chatLine, chatOutcome, freshNeeds, makeRng, mutter, pick, pickKind, relation, spotLine, styled, tickNeeds,
-  type Needs, type Rng, type SpotKind, type Tone, type Traits, traitsFor,
+  chatLine, chatOutcome, freshNeeds, makeRng, mutter, pick, relation, spotLine, styled, tickNeeds,
+  type Needs, type Rng, type SpotKind, type Traits, traitsFor,
 } from '../../../shared/traits';
-import { SPOTS, TONE_BG, type Spot } from './spots';
+import type { Roamer } from './roamer';
+import { Ambient } from './ambient';
 import { MindChats } from './mind-client';
-import { separate, spotTaken } from './crowd';
+import { separate } from './crowd';
 import { store } from '../../state';
-import { disposeSprite, textSprite } from '../../world/toon';
 import type { Worker } from '../../world/character';
 import type { DeskView } from '../../world/types';
 
@@ -54,43 +53,6 @@ const GROUND_RATE = 14;
 /** What it says when it clocks you wandering past. */
 const HELLO = ['¡hola!', 'tú otra vez', 'hola, vecino', '*saluda*', '¿necesitas algo?', 'qué bonito día'];
 
-type State = 'seated' | 'down' | 'walk' | 'linger' | 'chat' | 'up';
-
-interface Roamer {
-  id: string;
-  model: Worker;
-  desk: DeskView;
-  /** Who it is: dealt from a seed when it's hired, and its own generator from then on. */
-  traits: Traits;
-  rng: Rng;
-  needs: Needs;
-  state: State;
-  /** Where it's off to: a spot in SPOTS, a chat rendezvous, or its seat. */
-  spot: Spot | null;
-  /** Walking to a chat rendezvous: who it's meeting (cleared on arrival). */
-  chatWith?: string;
-  /** Mid-chat: who it's with, when it started (synced with the partner's), the last turn shown, how many turns, how long it's waited for the partner, and what it said. */
-  chat?: { partner: string; start: number; seen: number; turns: number; wait: number; said: string[] };
-  /** A line over its head right now, and when it comes down. */
-  bubble?: { sprite: THREE.Sprite; until: number };
-  /** Seconds until its next aside (a mutter, a hum) while it's standing about. */
-  asideIn: number;
-  /** The kind of haunt it was at last, so it doesn't just go back. */
-  lastKind: SpotKind | null;
-  /** How seated it is, 0 standing to 1 sunk into the furniture (see the end of step). */
-  sit: number;
-  way: Pt[];
-  next: number;
-  hop: number;
-  from: THREE.Vector3;
-  heading: number;
-  stepIn: number;
-  /** Seconds it has left before it goes (seated) or comes home (lingering). */
-  timer: number;
-  /** Its status last tick, so a finished task can be told to the mind. */
-  lastStatus?: string;
-}
-
 export class Wander {
   private roamers = new Map<string, Roamer>();
   private readonly tmp = new THREE.Vector3();
@@ -100,6 +62,8 @@ export class Wander {
   private readonly affinity = new Map<string, number>();
   /** The office mind's scripts per pair (see mind-client.ts); procedural lines cover any miss. */
   private readonly mind: MindChats;
+  /** Lines, haunts and the little social moments (see ambient.ts). */
+  private readonly ambient: Ambient;
   private clock = 0;
   private chatIn = CHAT_EVERY;
 
@@ -115,6 +79,14 @@ export class Wander {
   ) {
     this.mind = new MindChats(worker, () => store.project?.dir ?? '');
     this.mind.primeAffinity(this.affinity);
+    this.ambient = new Ambient({
+      roamers: this.roamers,
+      nav: this.nav,
+      worker: this.worker,
+      now: () => this.clock,
+      stayFor: (c, kind) => this.stayFor(c, kind),
+      walkTo: (c, target) => this.walkTo(c, target),
+    });
   }
 
   /** A worker sitting at `desk` now: it's dealt a character and starts its own count down to wandering off. */
@@ -124,7 +96,7 @@ export class Wander {
     const rng = makeRng(traits.seed ^ 0x9e3779b9);
     const c: Roamer = {
       id, model, desk, traits, rng, needs: freshNeeds(rng), state: 'seated', spot: null, asideIn: 0, lastKind: null, sit: 0,
-      way: [], next: 0, hop: 0, from: new THREE.Vector3(), heading: 0, stepIn: 0, timer: 0,
+      way: [], next: 0, hop: 0, from: new THREE.Vector3(), heading: 0, stepIn: 0, timer: 0, lastGreet: 0,
     };
     c.timer = this.leaveWait(c);
     this.roamers.set(id, c);
@@ -142,7 +114,7 @@ export class Wander {
     this.roamers.delete(id);
     c.model.walking = false;
     c.model.gait = 1;
-    this.dropBubble(c);
+    this.ambient.dropBubble(c);
     if (c.state === 'seated') return undefined;
     const p = c.model.root.position;
     return [p.x, p.z];
@@ -193,25 +165,29 @@ export class Wander {
     for (const c of this.roamers.values()) {
       tickNeeds(c.needs, c.traits, dt);
       this.step(c, dt);
-      // A task that just finished is something it can learn from (the mind writes it down).
+      // A task that just finished is something it can learn from (the mind writes it down), and
+      // good news for whoever's close enough to hear it.
       const w = this.worker(c.id);
-      if (c.lastStatus === 'working' && w?.status === 'done') this.mind.learn(c, w.prompt ?? w.title ?? '');
+      if (c.lastStatus === 'working' && w?.status === 'done') {
+        this.mind.learn(c, w.prompt ?? w.title ?? '');
+        this.ambient.cheerFor(c);
+      }
       c.lastStatus = w?.status;
-      if (c.bubble && this.clock >= c.bubble.until) this.dropBubble(c);
+      if (c.bubble && this.clock >= c.bubble.until) this.ambient.dropBubble(c);
     }
     // Who's still got nothing to do decides afresh every tick (a status can change mid-walk).
     for (const c of this.roamers.values()) {
       if (this.free(c)) {
         if (c.state === 'seated') {
           c.timer -= dt;
-          if (c.timer <= 0) this.goOut(c);
+          if (c.timer <= 0) this.ambient.goOut(c);
         } else if (c.state === 'linger') {
           c.timer -= dt;
           if (c.timer <= 0) this.goHome(c);
         }
       } else if (c.state !== 'seated') this.goHome(c);
     }
-    separate(this.roamers.values());
+    separate(this.roamers.values(), (a, b) => this.ambient.passBy(a, b));
     // Relationships cool without contact: affinity drifts back toward neutral, so the office's
     // social map evolves instead of only ever warming up.
     for (const [k, v] of this.affinity) {
@@ -241,7 +217,9 @@ export class Wander {
     const a = out.reduce((best, c) => (c.traits.sociability * (0.5 + c.needs.social) > best.traits.sociability * (0.5 + best.needs.social) ? c : best));
     if (a.rng() > 0.3 + 0.7 * a.traits.sociability) return;
     const pa = a.model.root.position;
-    const near = out.filter((c) => c !== a && c.model.root.position.distanceTo(pa) < CHAT_REACH);
+    // How far it'll call out depends on who it feels about them: friends from across the room,
+    // rivals only when they're already close.
+    const near = out.filter((c) => c !== a && c.model.root.position.distanceTo(pa) < CHAT_REACH * (1 + 0.8 * (this.affinity.get(this.key(a.id, c.id)) ?? 0)));
     if (!near.length) return;
     // Friends are likelier to be picked, rivals least (though not never: it's an office).
     const weights = near.map((c) => 0.4 + c.traits.sociability + (this.affinity.get(this.key(a.id, c.id)) ?? 0));
@@ -269,65 +247,6 @@ export class Wander {
     // usually ready by the time they face each other.
     const turns = 4 + Math.round(((a.traits.sociability + b.traits.sociability) / 2) * 4);
     this.mind.ask(a, b, turns);
-  }
-
-  /** The lines its persona says (empty for shells and persona-less desks). */
-  private personaLines(c: Roamer): readonly string[] {
-    const w = this.worker(c.id);
-    const persona = w?.kind === 'agent' ? personaFor(store.project?.dir, c.desk.def.id) : undefined;
-    return (persona && PERSONA_LINES[persona.id]) || [];
-  }
-
-  /** A line over its head for a turn or so, in its own colours. */
-  private say(c: Roamer, text: string, secs = LINE_SECS) {
-    this.dropBubble(c);
-    const sprite = textSprite(text, { bg: TONE_BG[c.traits.tone], color: '#fffaf3', size: 30 });
-    sprite.position.set(0, 2.1, 0);
-    c.model.root.add(sprite);
-    c.bubble = { sprite, until: this.clock + secs };
-  }
-
-  private dropBubble(c: Roamer) {
-    if (!c.bubble) return;
-    c.model.root.remove(c.bubble.sprite);
-    disposeSprite(c.bubble.sprite);
-    delete c.bubble;
-  }
-
-  /** Idle long enough: hops down and walks to a haunt it fancies right now. */
-  private goOut(c: Roamer) {
-    const nav = this.nav();
-    // Somewhere it isn't already, nobody else has claimed, and that the floor plan can reach.
-    const here = c.state === 'seated' ? null : c.spot;
-    const options = SPOTS.filter(
-      (s) => nav.walkable(s.x, s.z)
-        && !(here && Math.hypot(s.x - here.x, s.z - here.z) < 1.2)
-        && !spotTaken(this.roamers.values(), c, s.x, s.z),
-    );
-    if (!options.length) {
-      c.timer = LEAVE_MIN + c.rng() * LEAVE_SPAN;
-      return;
-    }
-    const kinds = [...new Set(options.map((s) => s.kind!))];
-    const kind = pickKind(c.traits, c.needs, c.rng, c.lastKind, kinds);
-    const ofKind = options.filter((s) => s.kind === kind);
-    const spot = ofKind[Math.floor(c.rng() * ofKind.length)] ?? options[0];
-    // Each worker stands or sits its own little way: a jittered spot nobody else claimed (a tighter
-    // jitter on furniture, where the places are closer together), so two at the couch don't overlap.
-    const spread = spot.seat !== undefined ? 0.4 : 0.9;
-    let x = spot.x;
-    let z = spot.z;
-    for (let tries = 0; tries < 4; tries++) {
-      // Keep the last walkable cell even if it's taken: the nav grid can collapse different jitters
-      // onto the same point, and separate() sorts out whoever ends up too close.
-      const [jx, jz] = nav.nearestWalkable([spot.x + (c.rng() - 0.5) * spread, spot.z + (c.rng() - 0.5) * spread]);
-      x = jx;
-      z = jz;
-      if (!spotTaken(this.roamers.values(), c, jx, jz)) break;
-    }
-    c.spot = { ...spot, x, z };
-    c.timer = this.stayFor(c, spot.kind);
-    this.walkTo(c, [x, z]);
   }
 
   /** Back to its desk: from the spot it's at, or from mid-chat, mid-hop, anywhere. */
@@ -393,24 +312,11 @@ export class Wander {
     c.state = 'seated';
     c.model.walking = false;
     c.model.gait = 1;
-    this.dropBubble(c);
+    this.ambient.dropBubble(c);
     c.desk.seatAnchor.add(root);
     root.position.set(0, 0, 0);
     root.rotation.set(0, 0, 0);
     root.scale.setScalar(1);
-  }
-
-  /** It's reached a haunt: eases a need, says something about the place, and reacts the way it would. */
-  private arrive(c: Roamer) {
-    const kind = c.spot?.kind;
-    if (kind) {
-      applyVisit(c.needs, kind);
-      if (c.rng() < 0.55) this.say(c, spotLine(c.traits, kind, c.rng));
-      // The arcade and the DJ booth get real excitement; everything else a happy hop now and then.
-      if (kind === 'arcade' || kind === 'dj' || kind === 'jukebox') c.model.celebrate();
-      else if (c.rng() < 0.3 + 0.3 * c.traits.energy) c.model.celebrate();
-    }
-    c.asideIn = 3 + c.rng() * 5;
   }
 
   private step(c: Roamer, dt: number) {
@@ -499,7 +405,7 @@ export class Wander {
           c.state = 'linger';
           c.timer = this.stayFor(c, c.spot.kind);
           c.stepIn = 2 + c.rng() * 4;
-          this.arrive(c);
+          this.ambient.arrive(c);
         }
       } else {
         // Back beside its seat: up onto it.
@@ -525,7 +431,7 @@ export class Wander {
         const text = near && c.rng() < 0.3 + 0.4 * c.traits.sociability
           ? styled(c.traits, pick(c.rng, HELLO), c.rng)
           : c.rng() < 0.5 ? mutter(c.traits, c.rng) : c.spot?.kind ? spotLine(c.traits, c.spot.kind, c.rng) : null;
-        if (text) this.say(c, text);
+        if (text) this.ambient.say(c, text);
       }
     } else if (c.state === 'chat') {
       // Stopped for a chat: facing who it's with, trading lines on shared turns.
@@ -562,8 +468,8 @@ export class Wander {
             const script = this.mind.script(c.id, chat.partner);
             const mine = script ? (script.aId === c.id ? script.a : script.b) : null;
             const scripted = mine?.[Math.floor(t / 2)];
-            const line = scripted ?? chatLine(c.traits, rel, t, t >= chat.turns - 2, c.rng, this.personaLines(c));
-            this.say(c, line);
+            const line = scripted ?? chatLine(c.traits, rel, t, t >= chat.turns - 2, c.rng, this.ambient.personaLines(c));
+            this.ambient.say(c, line);
             chat.said.push(line);
             // A lively talker gestures.
             if (c.rng() < 0.15 + 0.25 * c.traits.energy) c.model.cheer(0.8);
