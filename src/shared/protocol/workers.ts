@@ -24,6 +24,8 @@ export type WorkerAction = 'read' | 'edit' | 'test' | 'web' | 'failing';
 export interface WorkerTask {
   name: string;
   summary: string;
+  /** Kiosk and fixture cards that are the point of the prop, not a status: shown even while idle. */
+  always?: boolean;
 }
 
 export interface WorkerInfo {
