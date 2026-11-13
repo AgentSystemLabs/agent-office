@@ -55,7 +55,7 @@ const GROUND_RATE = 14;
 const HELLO = ['¡hola!', 'tú otra vez', 'hola, vecino', '*saluda*', '¿necesitas algo?', 'qué bonito día', 'ey, ¿cómo va?', 'ni te vi llegar', 'hola, ¿todo bien?', '¿en qué andas?'];
 
 /** What its hands do while it lingers somewhere: argues at the board, reads at the shelf, kicks back at the TV. */
-const IDLE_AT: Partial<Record<SpotKind, Act>> = { board: 'point', shelf: 'read', tv: 'test' };
+const IDLE_AT: Partial<Record<SpotKind, Act>> = { board: 'point', shelf: 'read', tv: 'test', dj: 'dance', coffee: 'coffee', arcade: 'play', jukebox: 'sway' };
 
 export class Wander {
   private roamers = new Map<string, Roamer>();

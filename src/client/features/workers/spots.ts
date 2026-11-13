@@ -31,11 +31,17 @@ export const SPOTS: Spot[] = [
   { x: FLOOR.maxX - 1.5, z: TV.z, rotY: Math.PI / 2, kind: 'tv' },
   { x: FLOOR.maxX - 1.7, z: JUKEBOX.z, rotY: Math.PI / 2, kind: 'jukebox' },
   { x: FLOOR.maxX - 1.7, z: CABINET.z, rotY: Math.PI / 2, kind: 'arcade' },
-  // At the whiteboard, the bookshelf, the elevator and the DJ booth.
+  // At the whiteboard, the bookshelf, the elevator and the DJ booth — whose front is a dance floor.
   { x: WHITEBOARD.x, z: WHITEBOARD.z + 1.2, rotY: Math.PI, kind: 'board' },
   { x: BOOKSHELF.x, z: BOOKSHELF.z - 1.3, rotY: 0, kind: 'shelf' },
   { x: ELEVATOR.x, z: ELEVATOR_FRONT + 1.0, rotY: Math.PI, kind: 'elevator' },
   { x: DJ_BOOTH.x, z: DJ_BOOTH.z + 1.4, rotY: Math.PI, kind: 'dj' },
+  { x: DJ_BOOTH.x - 1.5, z: DJ_BOOTH.z + 2.1, rotY: Math.PI, kind: 'dj' },
+  { x: DJ_BOOTH.x + 1.5, z: DJ_BOOTH.z + 2.1, rotY: Math.PI, kind: 'dj' },
+  { x: DJ_BOOTH.x - 0.8, z: DJ_BOOTH.z + 2.9, rotY: Math.PI, kind: 'dj' },
+  { x: DJ_BOOTH.x + 0.8, z: DJ_BOOTH.z + 2.9, rotY: Math.PI, kind: 'dj' },
+  // At the coffee machine in the kitchen corner (south wall), facing it.
+  { x: -15.2, z: 10.1, rotY: 0, kind: 'coffee' },
 ];
 
 /** Bubble colour per tone of voice, so you can tell who's talking at a glance. */

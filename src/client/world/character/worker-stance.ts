@@ -4,7 +4,7 @@ import type { WorkerAction } from '../../../shared/protocol';
  * What a worker's body is doing: resting, arms up for joy, arms crossed waiting on you, typing, or
  * acting out its latest tool call.
  */
-export type Act = 'rest' | 'up' | 'waiting' | 'type' | 'point' | WorkerAction;
+export type Act = 'rest' | 'up' | 'waiting' | 'type' | 'point' | 'dance' | 'coffee' | 'play' | 'sway' | WorkerAction;
 
 /** One way of holding itself, blended into the next over a moment (see Worker.update). */
 export interface Stance {
@@ -106,6 +106,61 @@ export function stanceOf(act: Act, t: number, s: Stance): Stance {
       s.lid = 0.85;
       s.look = 0.02;
       s.lift = 0;
+      break;
+    }
+    case 'dance': {
+      // Two beats a second on the floor: arms up by turns, a hop on every beat, hips swaying.
+      const b = t * Math.PI * 2;
+      const w = Math.sin(b);
+      s.armLx = -1.1 - Math.max(0, w) * 1.6;
+      s.armRx = -1.1 - Math.max(0, -w) * 1.6;
+      s.armLz = -0.8;
+      s.armRz = 0.8;
+      s.lift = Math.abs(w) * 0.08;
+      s.roll = w * 0.13;
+      s.turn = Math.sin(t * Math.PI) * 0.4;
+      s.tap = Math.max(0, Math.sin(t * 4)) * 0.5;
+      s.lid = 0.9;
+      s.look = 0.02;
+      break;
+    }
+    case 'coffee': {
+      // A cup in one hand, lifted for a sip on a slow cycle, the other arm loose at its side.
+      const sip = Math.max(0, Math.sin(t * 0.8));
+      s.armRx = -0.8 - sip * 1.5;
+      s.armRz = -0.3 - sip * 0.2;
+      s.armLx = -0.4;
+      s.armLz = 0.1;
+      s.lean = -0.04 - sip * 0.05;
+      s.lid = 0.8;
+      s.look = 0.025;
+      break;
+    }
+    case 'play': {
+      // Hunched over an arcade panel, thumbs a blur, eyes on the screen.
+      const m = Math.sin(t * 13);
+      s.armLx = -1.1 + Math.max(0, m) * 0.35;
+      s.armRx = -1.1 + Math.max(0, -m) * 0.35;
+      s.armLz = 0.5;
+      s.armRz = -0.5;
+      s.lean = 0.24;
+      s.lift = Math.abs(Math.sin(t * 6.5)) * 0.025;
+      s.look = 0.035;
+      s.lid = 0.85;
+      break;
+    }
+    case 'sway': {
+      // Drink in hand, weight shifting side to side to whatever's playing.
+      const w = Math.sin(t * 2.1);
+      s.armLx = -0.7;
+      s.armRx = -0.7;
+      s.armLz = 0.5;
+      s.armRz = -0.5;
+      s.roll = w * 0.1;
+      s.turn = w * 0.14;
+      s.lift = Math.abs(w) * 0.02;
+      s.lid = 0.75;
+      s.look = 0.02;
       break;
     }
     case 'waiting': {

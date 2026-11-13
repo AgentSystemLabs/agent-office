@@ -6,8 +6,8 @@
  * character's own seeded generator.
  */
 
-export type SpotKind = 'couch' | 'tv' | 'jukebox' | 'arcade' | 'board' | 'shelf' | 'elevator' | 'dj';
-export const SPOT_KINDS: SpotKind[] = ['couch', 'tv', 'jukebox', 'arcade', 'board', 'shelf', 'elevator', 'dj'];
+export type SpotKind = 'couch' | 'tv' | 'jukebox' | 'arcade' | 'board' | 'shelf' | 'elevator' | 'dj' | 'coffee';
+export const SPOT_KINDS: SpotKind[] = ['couch', 'tv', 'jukebox', 'arcade', 'board', 'shelf', 'elevator', 'dj', 'coffee'];
 
 export type Tone = 'dry' | 'warm' | 'hyper' | 'gloomy' | 'formal' | 'chaotic';
 const TONES: Tone[] = ['dry', 'warm', 'hyper', 'gloomy', 'formal', 'chaotic'];
@@ -97,6 +97,7 @@ const EFFECT: Record<SpotKind, Partial<Needs>> = {
   shelf: { calm: -0.5 },
   elevator: { social: -0.3 },
   dj: { fun: -0.6, social: -0.2 },
+  coffee: { fun: -0.3, social: -0.1 },
 };
 /** Which need a spot answers (what makes a worker want it). */
 const WANTS: Record<SpotKind, Partial<Needs>> = {
@@ -108,6 +109,7 @@ const WANTS: Record<SpotKind, Partial<Needs>> = {
   shelf: { calm: 1 },
   elevator: { social: 1 },
   dj: { fun: 0.8, social: 0.6 },
+  coffee: { fun: 0.7, social: 0.3 },
 };
 
 export function applyVisit(n: Needs, kind: SpotKind) {
@@ -154,6 +156,7 @@ const SPOT_LINES: Record<SpotKind, string[]> = {
   shelf: ['tantos lomos sin leer', 'este huele a código viejo', 'un capítulo no hace daño', '¿quién sigue archivando esto mal?', 'conocimiento, alfabetizado'],
   elevator: ['algún día subiré', '¿en qué piso quedé?', 'el lobby está infravalorado', 'escuchando el ding', 'otros pisos, otras oficinas'],
   dj: ['suelta el beat', 'un poco de reverb no hace daño', 'ahora soy el DJ', 'transiciones suaves, gente', 'este set no va a ningún lado, en buen sentido'],
+  coffee: ['este espresso salva vidas', 'la máquina tiene días buenos y malos', '¿quién se tomó mi café?', 'un cortado y seguimos', 'el refrán dice que el café es solo agua caliente', 'decaf no es café, es traición'],
 };
 
 const GREET = {
