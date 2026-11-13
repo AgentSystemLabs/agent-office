@@ -157,9 +157,9 @@ const SPOT_LINES: Record<SpotKind, string[]> = {
 };
 
 const GREET = {
-  stranger: ['hola, no nos conocemos mucho', '¿nuevo por aquí? creo', '¿en qué escritorio estás?', 'hola, vecino'],
-  friend: ['¡otra vez! ¿lo de siempre?', 'ahí estás', 'me debes una historia', 'justo a tiempo'],
-  rival: ['oh. tú.', 'sigues con eso, eh', 'procura no romper nada', 'qué atrevido aparecérsete'],
+  stranger: ['hola, no nos conocemos mucho', '¿nuevo por aquí? creo', '¿en qué escritorio estás?', 'hola, vecino', '¿de qué equipo eres?', 'nos vemos por aquí'],
+  friend: ['¡otra vez! ¿lo de siempre?', 'ahí estás', 'me debes una historia', 'justo a tiempo', 'menos mal que estás', 'tenía ganas de verte'],
+  rival: ['oh. tú.', 'sigues con eso, eh', 'procura no romper nada', 'qué atrevido aparecérsete', 'otra vez tú', 'ni lo esperaba verte'],
 };
 
 const SMALL_TALK = [
@@ -167,10 +167,14 @@ const SMALL_TALK = [
   'el café sabe mejor aquí', '¿leíste el changelog?', 'mi última tarea fue un laberinto', 'alguien debería renombrar ese archivo',
   'los tests fallaron de nuevo', 'escribí un comentario del que me arrepiento', 'los logs son una forma de poesía', 'ese bug era una feature',
   'el deadline es una sugerencia', 'me encanta un diff limpio', '¿quién borró mi rama?', 'la demo salió bien, casi',
+  '¿ya está el PR?', 'revisé tres archivos y dos eran peores', 'el standup de hoy fue eterno', 'alguien dejó el puerto 3000 tomado',
+  'mi rama compila, la tuya quién sabe', 'guardé el archivo tres veces por si acaso', 'el bug solo pasa en producción, como siempre',
+  'hice un refactor que nadie pidió', '¿quién movió mi mug?', 'el CI está rojo otra vez', 'por fin un commit con mensaje decente',
+  'la reunión pudo ser un correo', 'esto se arregla con un restart, ya lo sé', 'documenté la función que nadie entendía',
 ];
 
-const REPLIES = ['ja, vale', 'yo igual', 'no way', 'cuéntame más', 'no estoy de acuerdo, con respeto', 'anotado', 'tiene sentido', 'qué locura'];
-const FAREWELL = ['de vuelta al trabajo', 'nos vemos', 'mi escritorio me extraña', 'el deber llama, en voz baja'];
+const REPLIES = ['ja, vale', 'yo igual', 'no way', 'cuéntame más', 'no estoy de acuerdo, con respeto', 'anotado', 'tiene sentido', 'qué locura', 'eso ya lo sabía', 'te creo', 'ajá, y luego', 'claro, como si fuera fácil'];
+const FAREWELL = ['de vuelta al trabajo', 'nos vemos', 'mi escritorio me extraña', 'el deber llama, en voz baja', 'ahí sigo, en mi rincón', 'que no nos sorprenda el lunes'];
 
 const MUTTER = {
   hummer: ['mmm mmm mmm~', 'la la la~', '♪ ♪ ♪', 'du bi du~'],

@@ -3,6 +3,8 @@
 // each would eat the others' time budget), embeddings, and the vector math memory runs on.
 const OLLAMA = (process.env.OFFICE_MIND_URL ?? 'http://127.0.0.1:11434').replace(/\/$/, '');
 const MODEL = process.env.OFFICE_MIND_MODEL ?? 'llama3.2:3b';
+/** Chats are on a clock (the pair stops talking after a few turns), so they go to a smaller, faster model when there is one. */
+const FAST = process.env.OFFICE_MIND_FAST_MODEL ?? 'llama3.2:1b';
 const EMBED = process.env.OFFICE_MIND_EMBED ?? 'nomic-embed-text';
 const GENERATE_MS = 90_000;
 const TAGS_MS = 800;
@@ -29,19 +31,22 @@ interface Job {
 export class LocalModel {
   private up = false;
   private checked = 0;
+  private fastOk = false;
   private probing: Promise<boolean> | null = null;
   private embedDownUntil = 0;
   private queue: Job[] = [];
   private busy = false;
 
   constructor() {
-    // Load the model into memory soon after the office starts, so the first chat isn't a cold start.
+    // Load the models into memory soon after the office starts, so the first chat isn't a cold start.
     setTimeout(() => {
-      void fetch(`${OLLAMA}/api/generate`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ model: MODEL, prompt: '', stream: false, keep_alive: '30m', options: { num_predict: 1 } }),
-      }).catch(() => {});
+      for (const model of new Set([MODEL, FAST])) {
+        void fetch(`${OLLAMA}/api/generate`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ model, prompt: '', stream: false, keep_alive: '30m', options: { num_predict: 1 } }),
+        }).catch(() => {});
+      }
     }, 3000).unref();
   }
 
@@ -63,7 +68,9 @@ export class LocalModel {
       this.up = res.ok;
       if (this.up) {
         const tags = (await res.json()) as { models?: { name: string }[] };
-        this.up = (tags.models ?? []).some((m) => m.name === MODEL || m.name.startsWith(`${MODEL}:`));
+        const names = (tags.models ?? []).map((m) => m.name);
+        this.up = names.some((m) => m === MODEL || m.startsWith(`${MODEL}:`));
+        this.fastOk = names.some((m) => m === FAST || m.startsWith(`${FAST}:`));
       }
     } catch {
       this.up = false;
@@ -79,7 +86,7 @@ export class LocalModel {
     return new Promise((resolve) => {
       if (prio > 0 && this.queue.filter((j) => j.prio > 0).length >= MAX_BACKGROUND) return resolve(null);
       const wait = prio === 0 ? CHAT_WAIT_MS : BACKGROUND_WAIT_MS;
-      this.queue.push({ prio, expires: Date.now() + wait, run: async () => resolve(await this.generate(prompt)), drop: () => resolve(null) });
+      this.queue.push({ prio, expires: Date.now() + wait, run: async () => resolve(await this.generate(prompt, prio)), drop: () => resolve(null) });
       this.queue.sort((a, b) => a.prio - b.prio);
       void this.pump();
     });
@@ -98,17 +105,28 @@ export class LocalModel {
     }
   }
 
-  private async generate(prompt: string): Promise<string | null> {
+  private async generate(prompt: string, prio: Prio): Promise<string | null> {
     if (!(await this.available())) return null;
+    // A chat script goes to the fast model when the office has one; a missing or failing fast
+    // model falls back to the main one rather than counting as Ollama being down.
+    const model = prio === 0 && this.fastOk && FAST !== MODEL ? FAST : MODEL;
+    const out = await this.complete(model, prompt);
+    if (out === undefined && model !== MODEL) return (await this.complete(MODEL, prompt)) ?? null;
+    return out ?? null;
+  }
+
+  /** One /api/generate call. Undefined when the request itself failed (the caller may retry on the other model). */
+  private async complete(model: string, prompt: string): Promise<string | null | undefined> {
     try {
       const res = await fetch(`${OLLAMA}/api/generate`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         // keep_alive: chats are sporadic — leave the model warm so the next one isn't a cold start.
-        body: JSON.stringify({ model: MODEL, prompt, stream: false, keep_alive: '30m', options: { temperature: 0.9, num_predict: 380, num_ctx: 2048 } }),
+        body: JSON.stringify({ model, prompt, stream: false, keep_alive: '30m', options: { temperature: 0.9, num_predict: 380, num_ctx: 2048 } }),
         signal: AbortSignal.timeout(GENERATE_MS),
       });
       if (!res.ok) {
+        if (res.status === 404) return undefined;
         this.up = false;
         this.checked = Date.now();
         return null;
@@ -116,7 +134,7 @@ export class LocalModel {
       const out = (await res.json()) as { response?: string };
       return out.response?.trim() || null;
     } catch {
-      return null;
+      return undefined;
     }
   }
 

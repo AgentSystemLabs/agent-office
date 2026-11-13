@@ -52,7 +52,7 @@ const FACE_RATE = 8;
 const GROUND_RATE = 14;
 
 /** What it says when it clocks you wandering past. */
-const HELLO = ['¡hola!', 'tú otra vez', 'hola, vecino', '*saluda*', '¿necesitas algo?', 'qué bonito día'];
+const HELLO = ['¡hola!', 'tú otra vez', 'hola, vecino', '*saluda*', '¿necesitas algo?', 'qué bonito día', 'ey, ¿cómo va?', 'ni te vi llegar', 'hola, ¿todo bien?', '¿en qué andas?'];
 
 /** What its hands do while it lingers somewhere: argues at the board, reads at the shelf, kicks back at the TV. */
 const IDLE_AT: Partial<Record<SpotKind, Act>> = { board: 'point', shelf: 'read', tv: 'test' };
@@ -517,8 +517,8 @@ export class Wander {
   /** A chat's over: both feel less lonely, the mind notes what to remember, and how it went shifts how they feel about each other. */
   private finishChat(c: Roamer, p: Roamer, first: boolean) {
     c.needs.social = Math.max(0, c.needs.social - 0.6);
-    // Tell the mind what this one said, so it remembers the other worker next time (fire-and-forget).
-    if (c.chat?.said.length) this.mind.reflect(c, p, c.chat.said);
+    // Tell the mind what both said, so each remembers the other next time (fire-and-forget).
+    if (c.chat?.said.length || p.chat?.said.length) this.mind.reflect(c, p, c.chat?.said ?? [], p.chat?.said ?? []);
     if (!first) return;
     const k = this.key(c.id, p.id);
     const next = Math.max(-1, Math.min(1, (this.affinity.get(k) ?? 0) + chatOutcome(c.traits, p.traits, c.rng)));

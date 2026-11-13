@@ -85,13 +85,13 @@ export class MindChats {
     }).catch(() => {});
   }
 
-  /** Tells the mind what `c` said to `p`, so it remembers them next time (fire-and-forget). */
-  reflect(c: MindRoamer, p: MindRoamer, said: string[]) {
-    if (!said.length) return;
+  /** Tells the mind what was said, so it remembers them next time (fire-and-forget). */
+  reflect(c: MindRoamer, p: MindRoamer, saidA: string[], saidB: string[]) {
+    if (!saidA.length && !saidB.length) return;
     fetch('/api/mind', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ floor: this.floor(), op: 'reflect', a: this.actor(c), b: this.actor(p), saidA: said, saidB: [] }),
+      body: JSON.stringify({ floor: this.floor(), op: 'reflect', a: this.actor(c), b: this.actor(p), saidA, saidB }),
     }).catch(() => {});
   }
 
