@@ -4,7 +4,7 @@ import type { WorkerAction } from '../../../shared/protocol';
  * What a worker's body is doing: resting, arms up for joy, arms crossed waiting on you, typing, or
  * acting out its latest tool call.
  */
-export type Act = 'rest' | 'up' | 'waiting' | 'type' | WorkerAction;
+export type Act = 'rest' | 'up' | 'waiting' | 'type' | 'point' | WorkerAction;
 
 /** One way of holding itself, blended into the next over a moment (see Worker.update). */
 export interface Stance {
@@ -93,6 +93,21 @@ export function stanceOf(act: Act, t: number, s: Stance): Stance {
       s.look = -0.035;
       s.lift = 0;
       break;
+    case 'point': {
+      // Arguing at the whiteboard: leaning in, one arm out jabbing a point now and then.
+      const jab = Math.max(0, Math.sin(t * 2.6));
+      s.armRx = -1.15 - jab * 0.4;
+      s.armRz = -0.55;
+      s.armLx = -0.85;
+      s.armLz = 0.35;
+      s.reach = 0.4;
+      s.lean = 0.14 + jab * 0.05;
+      s.turn = Math.sin(t * 1.3) * 0.12;
+      s.lid = 0.85;
+      s.look = 0.02;
+      s.lift = 0;
+      break;
+    }
     case 'waiting': {
       // Arms crossed, hip cocked, tapping a foot.
       const tap = Math.max(0, Math.sin(t * 16));

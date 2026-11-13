@@ -12,6 +12,7 @@ import { MindChats } from './mind-client';
 import { separate } from './crowd';
 import { store } from '../../state';
 import type { Worker } from '../../world/character';
+import type { Act } from '../../world/character/worker-stance';
 import type { DeskView } from '../../world/types';
 
 /*
@@ -52,6 +53,9 @@ const GROUND_RATE = 14;
 
 /** What it says when it clocks you wandering past. */
 const HELLO = ['¡hola!', 'tú otra vez', 'hola, vecino', '*saluda*', '¿necesitas algo?', 'qué bonito día'];
+
+/** What its hands do while it lingers somewhere: argues at the board, reads at the shelf, kicks back at the TV. */
+const IDLE_AT: Partial<Record<SpotKind, Act>> = { board: 'point', shelf: 'read', tv: 'test' };
 
 export class Wander {
   private roamers = new Map<string, Roamer>();
@@ -488,6 +492,9 @@ export class Wander {
       pos.y += c.sit * (c.spot!.seat! - 0.15);
       root.rotation.x = -c.sit * 0.32;
     }
+    // And its hands do what the place is for, while it stands about there.
+    const kind = c.state === 'linger' ? c.spot?.kind : undefined;
+    c.model.idleAct = (kind && IDLE_AT[kind]) || null;
   }
 
   /** A chat's over: both feel less lonely, the mind notes what to remember, and how it went shifts how they feel about each other. */
