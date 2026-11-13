@@ -34,8 +34,8 @@ const FEET = 0.07;
 /** Base waits (s); each worker's energy and patience stretch or shrink them. */
 const LEAVE_MIN = 10;
 const LEAVE_SPAN = 50;
-const STAY_MIN = 8;
-const STAY_SPAN = 28;
+const STAY_MIN = 14;
+const STAY_SPAN = 42;
 /** How often it looks around for someone to stop and chat with, and how far apart they can be. */
 const CHAT_EVERY = 7;
 const CHAT_REACH = 20;
@@ -91,6 +91,12 @@ export class Wander {
       stayFor: (c, kind) => this.stayFor(c, kind),
       walkTo: (c, target) => this.walkTo(c, target),
       affinityOf: (a, b) => this.affinity.get(this.key(a, b)) ?? 0,
+      warm: (a, b) => {
+        const k = this.key(a, b);
+        const v = Math.min(1, (this.affinity.get(k) ?? 0) + 0.04);
+        this.affinity.set(k, v);
+        this.mind.saveAffinity({ [k]: v });
+      },
     });
   }
 
@@ -188,7 +194,12 @@ export class Wander {
           if (c.timer <= 0) this.ambient.goOut(c);
         } else if (c.state === 'linger') {
           c.timer -= dt;
-          if (c.timer <= 0) this.goHome(c);
+          if (c.timer <= 0) {
+            // Free will: it usually picks another haunt instead of heading home — only a
+            // tuckered-out one calls it a day at its desk.
+            if (c.rng() < 0.65 - 0.25 * (1 - c.traits.energy)) this.ambient.goOut(c);
+            else this.goHome(c);
+          }
         }
       } else if (c.state !== 'seated') this.goHome(c);
     }
@@ -430,13 +441,18 @@ export class Wander {
       c.asideIn -= dt;
       if (c.asideIn <= 0 && !c.bubble) {
         c.asideIn = 6 + c.rng() * 10;
-        // You walking past is worth a hello now and then, in its own voice.
-        const you = this.playerAt?.();
-        const near = you && Math.hypot(pos.x - you.x, pos.z - you.z) < 3.2;
-        const text = near && c.rng() < 0.3 + 0.4 * c.traits.sociability
-          ? styled(c.traits, pick(c.rng, HELLO), c.rng)
-          : c.rng() < 0.5 ? mutter(c.traits, c.rng) : c.spot?.kind ? spotLine(c.traits, c.spot.kind, c.rng) : null;
-        if (text) this.ambient.say(c, text);
+        // Someone asked it something a moment ago: it answers when it feels like it.
+        if (!this.ambient.answerHeard(c)) {
+          // You walking past is worth a hello now and then, in its own voice.
+          const you = this.playerAt?.();
+          const near = you && Math.hypot(pos.x - you.x, pos.z - you.z) < 3.2;
+          const text = near && c.rng() < 0.3 + 0.4 * c.traits.sociability
+            ? styled(c.traits, pick(c.rng, HELLO), c.rng)
+            : c.rng() < 0.5 ? mutter(c.traits, c.rng) : c.spot?.kind ? spotLine(c.traits, c.spot.kind, c.rng) : null;
+          if (text) this.ambient.say(c, text);
+        }
+        // And now and then it asks whoever's closest something.
+        if (!c.bubble && c.rng() < 0.2) this.ambient.askAround(c);
       }
     } else if (c.state === 'chat') {
       // Stopped for a chat: facing who it's with, trading lines on shared turns.

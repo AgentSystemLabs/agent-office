@@ -26,6 +26,10 @@ const LINE_SECS = 2.6;
 const GREET = ['¡eh!', 'buenas', 'cómo vas', '¿todo bien?', 'qué tal', 'ahí va la competencia', '*choca el hombro*'];
 /** What it says when someone nearby just finished something. */
 const CHEER = ['¡bien hecho!', '¡por fin!', 'ese era tuyo', '¡qué buena!', 'merecido', '¡así se hace!', 'cuéntame cómo lo lograste'];
+/** What it asks the coworker nearest to it, now and then, while it's standing about. */
+const ASK = ['¿viste eso?', '¿tú también odias los lunes?', '¿qué opinas del último PR?', '¿ya probaste el café nuevo?', '¿cómo va esa tarea?', '¿me recomiendas ese spot?'];
+/** How it answers, when it feels like it. */
+const ANSWER = ['jaja, total', 'ni me digas', 'buen punto', 'la verdad, ni idea', 'cuéntame más', 'tienes razón', 'eso pensé yo también'];
 
 interface Deps {
   roamers: Map<string, Roamer>;
@@ -37,6 +41,8 @@ interface Deps {
   walkTo: (c: Roamer, target: Pt | null) => void;
   /** How `a` feels about `b`, -1 (rivals) to 1 (friends) — the office's social map (wander.ts). */
   affinityOf: (a: string, b: string) => number;
+  /** A small warm feeling between two workers (a question answered kindly warms the pair a touch). */
+  warm?: (a: string, b: string) => void;
 }
 
 export class Ambient {
@@ -90,6 +96,37 @@ export class Ambient {
     const speaker = a.traits.sociability >= b.traits.sociability ? a : b;
     this.say(speaker, styled(speaker.traits, pick(speaker.rng, GREET), speaker.rng), GREET_SECS);
     speaker.lastGreet = now;
+  }
+
+  /**
+   * It asks the coworker nearest to it something, now and then — the question hangs over its own
+   * head, and whoever heard it can answer on their next aside (see answerHeard).
+   */
+  askAround(c: Roamer) {
+    let best: Roamer | undefined;
+    let bd = 3.5;
+    for (const o of this.d.roamers.values()) {
+      if (o === c || o.state === 'seated' || o.bubble) continue;
+      const d = c.model.root.position.distanceTo(o.model.root.position);
+      if (d < bd) {
+        bd = d;
+        best = o;
+      }
+    }
+    if (!best) return;
+    best.heard = { from: c.id, until: this.d.now() + 7 };
+    this.say(c, styled(c.traits, pick(c.rng, ASK), c.rng));
+  }
+
+  /** It answers a question someone just asked it, when it feels like it — and the pair warms a touch. */
+  answerHeard(c: Roamer): boolean {
+    const h = c.heard;
+    c.heard = undefined;
+    if (!h || this.d.now() >= h.until || c.bubble) return false;
+    if (c.rng() > 0.3 + 0.6 * c.traits.sociability) return false;
+    this.say(c, styled(c.traits, pick(c.rng, ANSWER), c.rng));
+    this.d.warm?.(h.from, c.id);
+    return true;
   }
 
   /** Idle long enough: hops down and walks to a haunt it fancies right now. */

@@ -45,4 +45,6 @@ export interface Roamer {
   lastStatus?: string;
   /** When it last said hi to someone it passed (so passers-by don't greet every frame). */
   lastGreet: number;
+  /** Someone asked it something a moment ago: who, and until when an answer still counts. */
+  heard?: { from: string; until: number };
 }
