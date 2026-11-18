@@ -27,7 +27,7 @@ export type OpenCodeHookEvent = OpenCodeStatusEvent | OpenCodeUsageEvent;
  * Merge the per-process plugin, and the office's MCP server when there is one (`mcp`, see
  * openCodeMcp), into inline OpenCode config without touching user config files.
  */
-export function mergeOpenCodeConfigContent(existing: string | undefined, plugin: string, mcp?: Record<string, unknown>): string {
+export function mergeOpenCodeConfigContent(existing: string | undefined, plugin: string, mcp?: Record<string, unknown>, instructions?: string[]): string {
   let config: Record<string, unknown> = {};
   if (existing) {
     try {
@@ -35,6 +35,7 @@ export function mergeOpenCodeConfigContent(existing: string | undefined, plugin:
       if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('not an object');
       config = { ...(parsed as Record<string, unknown>) };
       if (config.plugin !== undefined && !Array.isArray(config.plugin)) throw new Error('plugin is not an array');
+      if (config.instructions !== undefined && !Array.isArray(config.instructions)) throw new Error('instructions is not an array');
     } catch {
       throw new Error('OPENCODE_CONFIG_CONTENT must be valid JSON');
     }
@@ -45,6 +46,10 @@ export function mergeOpenCodeConfigContent(existing: string | undefined, plugin:
   if (mcp) {
     const theirs = config.mcp && typeof config.mcp === 'object' && !Array.isArray(config.mcp) ? (config.mcp as Record<string, unknown>) : {};
     config.mcp = { ...theirs, ...mcp };
+  }
+  if (instructions?.length) {
+    const theirs = Array.isArray(config.instructions) ? (config.instructions as unknown[]).filter((x): x is string => typeof x === 'string') : [];
+    config.instructions = [...theirs, ...instructions.filter((x) => !theirs.includes(x))];
   }
   return JSON.stringify(config);
 }

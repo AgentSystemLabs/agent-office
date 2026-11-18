@@ -45,16 +45,19 @@ export function bubbleFor(status: WorkerStatus, bounce: boolean, task: WorkerTas
   const asking = status === 'needs_input' && !lost;
   const bg = hot ? (status === 'done' ? '#caffbf' : NEEDS_YOU.card) : status === 'working' ? '#ffec99' : '#fffaf3';
   const border = pr ? PR_INK[pr.state] : asking ? NEEDS_YOU.bg : undefined;
+  // The task card is for while it's actually on the job (or waiting on you); an idle, done or
+  // asleep worker only keeps a fixture's own card (kiosk offers, the bartender's prompt).
+  const showTask = !!task && (task.always || status === 'working' || status === 'starting' || status === 'needs_input');
   // Not working on or waiting for something more: its pull request in place of ready / done / asleep.
   const prLabel = pr && status !== 'working' && status !== 'needs_input' && status !== 'starting' ? `${PR_ICON[pr.state]} PR #${pr.number} ${pr.state}` : undefined;
   const bubble = lost
     ? '🌿 worktree deleted'
     : prLabel ?? (status === 'needs_input' ? NEEDS_YOU.text : status === 'done' && bounce ? '✅ done!' : status === 'working' ? '⌨️ working' : isAsleep(status) ? '💤' : '');
-  const key = `${lost}|${border}|${prLabel}|${task ? `${status}|${bounce}|${task.name}|${task.summary}` : bubble}`;
+  const key = `${lost}|${border}|${prLabel}|${showTask ? `${status}|${bounce}|${task!.name}|${task!.summary}` : bubble}`;
   return {
     key,
     draw: () => {
-      if (task) {
+      if (showTask) {
         const [text, chipBg, color] = lost ? LOST_CHIP : prLabel ? [prLabel.toUpperCase(), border!, '#ffffff'] : (TASK_CHIP[status] ?? TASK_CHIP.idle);
         return cardSprite({ chip: { text, bg: chipBg, color }, title: task.name, body: task.summary, bg: isAsleep(status) ? '#e9ecef' : bg, border });
       }

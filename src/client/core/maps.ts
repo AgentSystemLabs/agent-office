@@ -52,6 +52,7 @@ export function installMaps(ctx: Ctx, core: CoreState, parts: MapsParts) {
     views.departures.clear();
     views.sendoffs.clear();
     views.arrivals.clear();
+    views.wander.clear();
     parts.telescope.exit();
     ctx.activities.stopAll('map');
     parts.walking.stopWalkingTo();

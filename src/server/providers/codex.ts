@@ -2,6 +2,7 @@
 // /hooks/codex; its usage is read from the root session's rollout (see codex-usage.ts).
 import { homedir } from 'node:os';
 import path from 'node:path';
+import { withPersonaPrompt } from '../../shared/personas.js';
 import { codexHookArgs, codexModelArgs, normalizeCodexHook, writeCodexHook } from '../codex.js';
 import { CodexUsageReader } from '../codex-usage.js';
 import { codexMcpArgs } from '../office-workers.js';
@@ -24,6 +25,8 @@ interface CodexState {
 interface CodexSetup {
   hook: string;
   mcpScript?: string;
+  /** The project's checkout: the seed its desks' personas are dealt from. */
+  dir: string;
 }
 
 /** Where a Codex worker's sessions are logged, for reading its usage. */
@@ -90,8 +93,10 @@ export const codex: ProviderAdapter<CodexState, CodexSetup> = {
   id: 'codex',
   scrubEnv: ['CODEX_THREAD_ID', 'CODEX_INTERNAL_ORIGINATOR_OVERRIDE'],
   createState: () => ({ usage: new CodexUsageReader(), tools: new Map(), pending: new Set() }),
-  prepare: ({ dataDir, mcpScript }) => ({ hook: writeCodexHook(dataDir), mcpScript }),
-  launch({ h, args, prompt, resumeSessionId, setup }) {
+  prepare: ({ dataDir, dir, mcpScript }) => ({ hook: writeCodexHook(dataDir), mcpScript, dir }),
+  launch({ h, args, prompt, resumeSessionId, station, setup }) {
+    // Its desk's persona, dealt from the floor's seed (see shared/personas.ts), ahead of its first prompt.
+    prompt = withPersonaPrompt(setup.dir, h.info.deskId, station, prompt);
     // Resumed too: Codex resumes on whatever its config says now, not on the model the session ran on.
     args = codexModelArgs(args, h.info.model, h.info.effort);
     args.push(...codexHookArgs(setup.hook), ...(setup.mcpScript ? codexMcpArgs(setup.mcpScript) : []), '--no-alt-screen');

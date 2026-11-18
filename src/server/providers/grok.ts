@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
+import { withPersonaPrompt } from '../../shared/personas.js';
 import { normalizeGrokHook, withoutGrokLaunchArgs, writeGrokHome } from '../grok.js';
 import { reduceLifecycle } from '../workers/lifecycle.js';
 import type { ProviderAdapter } from './types.js';
@@ -13,6 +14,8 @@ interface GrokSetup {
   socket: string;
   /** The person's own Grok sign-in, when there is one. */
   authPath?: string;
+  /** The project's checkout: the seed its desks' personas are dealt from. */
+  dir: string;
 }
 
 export const grok: ProviderAdapter<undefined, GrokSetup> = {
@@ -21,13 +24,15 @@ export const grok: ProviderAdapter<undefined, GrokSetup> = {
     'GROK_SESSION_ID', 'GROK_AGENT_ID', 'GROK_HOOK_EVENT', 'GROK_HOOK_NAME', 'GROK_WORKSPACE_ROOT',
     'GROK_PLUGIN_ROOT', 'GROK_PLUGIN_DATA', 'GROK_AUTH', 'GROK_AUTH_PATH',
   ],
-  prepare({ dataDir }) {
+  prepare({ dataDir, dir }) {
     const { home, socket } = writeGrokHome(dataDir);
     const userGrok = process.env.GROK_HOME || path.join(homedir(), '.grok');
     const auth = path.join(userGrok, 'auth.json');
-    return { home, socket, authPath: existsSync(auth) ? auth : undefined };
+    return { home, socket, authPath: existsSync(auth) ? auth : undefined, dir };
   },
-  launch({ h: { info }, args, prompt, resumeSessionId, setup }) {
+  launch({ h: { info }, args, prompt, resumeSessionId, station, setup }) {
+    // Its desk's persona, dealt from the floor's seed (see shared/personas.ts), ahead of its first prompt.
+    prompt = withPersonaPrompt(setup.dir, info.deskId, station, prompt);
     args = withoutGrokLaunchArgs(args);
     args.push('--no-alt-screen', '--trust', '--leader-socket', setup.socket);
     if (resumeSessionId) {

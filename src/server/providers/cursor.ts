@@ -3,6 +3,7 @@
 // and report on /hooks/cursor. It runs on the machine's own Cursor login. Its spend isn't metered by
 // the office, and nothing tells the office about a permission prompt: a worker waiting on one shows
 // as working until it's answered.
+import { withPersonaPrompt } from '../../shared/personas.js';
 import { addCursorHooks, cursorBlocked, normalizeCursorHook, removeCursorHooks, withoutCursorLaunchArgs, writeCursorHook } from '../cursor.js';
 import { reduceLifecycle } from '../workers/lifecycle.js';
 import type { ProviderAdapter } from './types.js';
@@ -10,14 +11,18 @@ import type { ProviderAdapter } from './types.js';
 interface CursorSetup {
   /** The helper its hooks run. */
   hook: string;
+  /** The project's checkout: the seed its desks' personas are dealt from. */
+  dir: string;
 }
 
 export const cursor: ProviderAdapter<undefined, CursorSetup> = {
   id: 'cursor',
   // What Cursor sets in its own shells. CURSOR_API_KEY stays: a worker signs in with it when it's set.
   scrubEnv: ['CURSOR_AGENT', 'CURSOR_CLI', 'CURSOR_INVOKED_AS', 'CURSOR_CONVERSATION_ID', 'CURSOR_REQUEST_ID'],
-  prepare: ({ dataDir }) => ({ hook: writeCursorHook(dataDir) }),
-  launch({ h: { info }, args, prompt, resumeSessionId, cwd, setup }) {
+  prepare: ({ dataDir, dir }) => ({ hook: writeCursorHook(dataDir), dir }),
+  launch({ h: { info }, args, prompt, resumeSessionId, station, cwd, setup }) {
+    // Its desk's persona, dealt from the floor's seed (see shared/personas.ts), ahead of its first prompt.
+    prompt = withPersonaPrompt(setup.dir, info.deskId, station, prompt);
     args = withoutCursorLaunchArgs(args);
     addCursorHooks(cwd, setup.hook, info.id);
     // The office made this folder for it. Cursor's own permission prompts stay as they are.

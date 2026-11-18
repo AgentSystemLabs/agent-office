@@ -5,6 +5,7 @@
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { normalizePiHook, piArgs, writePiExtension } from '../pi.js';
+import { withPersonaPrompt } from '../../shared/personas.js';
 import { reduceStatus, type StatusState } from './opencode.js';
 import type { ProviderAdapter } from './types.js';
 
@@ -13,14 +14,18 @@ interface PiSetup {
   extension: string;
   /** Where each desk's session folder goes (pi-sessions/<worker id>). */
   dataDir: string;
+  /** The project's checkout: the seed its desks' personas are dealt from. */
+  dir: string;
 }
 
 export const pi: ProviderAdapter<StatusState, PiSetup> = {
   id: 'pi',
   createState: () => ({}),
-  prepare: ({ dataDir }) => ({ extension: writePiExtension(dataDir), dataDir }),
-  launch({ h, args, prompt, resumeSessionId, setup }) {
+  prepare: ({ dataDir, dir }) => ({ extension: writePiExtension(dataDir), dataDir, dir }),
+  launch({ h, args, prompt, resumeSessionId, station, setup }) {
     const { info } = h;
+    // Its desk's persona, dealt from the floor's seed (see shared/personas.ts), ahead of its first prompt.
+    prompt = withPersonaPrompt(setup.dir, info.deskId, station, prompt);
     const sessionDir = path.join(setup.dataDir, 'pi-sessions', info.id);
     mkdirSync(sessionDir, { recursive: true, mode: 0o700 });
     h.state.error = false;

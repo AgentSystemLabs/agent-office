@@ -580,7 +580,7 @@ export function buildRooftop(night: NightParts, floors: number): Rooftop {
   // The bartender, behind the bar, facing the counter.
   const bartender = new Worker('Bartender', '#e76f51');
   bartender.setStatus('idle', false);
-  bartender.setTask({ name: '🍸 Bartender', summary: "What'll it be? E at the bar" });
+  bartender.setTask({ name: '🍸 Bartender', summary: "What'll it be? E at the bar", always: true });
   const tendX = bx + ROOF_BAR.depth / 2 + 0.7;
   bartender.root.position.set(tendX, 0, bz);
   bartender.root.rotation.y = -Math.PI / 2;

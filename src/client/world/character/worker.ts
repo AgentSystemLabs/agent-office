@@ -46,8 +46,7 @@ export class Worker {
   private cheerT = 0;
   /** Up on its desk dancing (a pull request merged): where, and how many seconds in. */
   private dancing: Dancing | null = null;
-  private pupils: THREE.Mesh[] = [];
-  private feet: THREE.Mesh[] = [];
+  private pupils: THREE.Mesh[] = []; private feet: THREE.Mesh[] = [];
   /** Sent home: the box of its things in its arms, and how far into its waddle it is. */
   private leaving: Leaving | null = null;
   /** On its way out (sent home) or in (called to a meeting): it waddles along instead of standing. */
@@ -56,6 +55,7 @@ export class Worker {
   private nextAction: WorkerAction | undefined;
   private action: WorkerAction | undefined;
   private actionT = 0;
+  idleAct: Act | null = null; // while idle, a stance someone else set (a roamer arguing at the board)
   /** How much of each act is in its stance right now, blending from one to the next. */
   private acts = new Map<Act, number>();
   private stance = {} as Stance;
@@ -144,8 +144,7 @@ export class Worker {
       this.body.add(pivot);
       return pivot;
     };
-    this.armL = arm(-0.3);
-    this.armR = arm(0.3);
+    this.armL = arm(-0.3); this.armR = arm(0.3);
     for (const sx of [-1, 1]) {
       const foot = mesh(new THREE.CapsuleGeometry(0.06, 0.1, 4, 8), skin, sx * 0.12, 0.2, 0.05);
       this.body.add(foot);
@@ -459,7 +458,7 @@ export class Worker {
       hopping || (this.bouncing && this.status === 'done') ? 'up'
       : this.status === 'needs_input' ? 'waiting'
       : this.status === 'working' ? (this.action ?? 'type')
-      : 'rest';
+      : (this.idleAct ?? 'rest');
     const s = this.pose(act, dt, t);
     // A zombie at rest stands with its arms out in front of it, groping, listing to one side and swaying.
     const shamble = this.costume === 'halloween' ? Math.min(1, this.acts.get('rest') ?? 0) : 0;
