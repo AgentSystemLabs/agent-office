@@ -32,6 +32,7 @@ import { Jail } from './jail';
 import { Laptop } from './laptop';
 import { Arrivals, Departures } from './leaving';
 import { Sendoffs } from './sendhome';
+import { OfficeLife } from './life';
 import { Wander } from './wander';
 
 // The kinds of thing you can use that this defines (see InteractKinds in world/types.ts).
@@ -105,6 +106,9 @@ export function installWorkerViews(ctx: Ctx, core: CoreState, parts: WorkerViews
   );
   // In the office, a worker with nothing to do gets up and wanders about (the couch, the TV, the arcade…).
   const wander = new Wander(office.group, () => ctx.world().nav, groundHere, (x, y, z) => sound.stepAt(x, z, y), (id) => store.workers.get(id), () => player.pos);
+  // The office's little life ledger: friendships, dance parties and coffee runs get noticed and celebrated (see life.ts).
+  const life = new OfficeLife(wander, ctx.confetti);
+  wander.onChatEnd = (a, b, next) => life.chatEnded(a, b, next);
   /** Set while a floor's workers arrive with it (a welcome, an elevator ride): they're in their seats already. */
   let seatedAlready = false;
   /** A floor arriving (a welcome, a floor.enter): nobody's still leaving or coming in, and its workers are seated already. */
@@ -320,6 +324,7 @@ export function installWorkerViews(ctx: Ctx, core: CoreState, parts: WorkerViews
     }
     arrivals.update(dt);
     wander.update(dt);
+    life.update(dt);
     parts.worlds.court()?.update(dt);
   });
 

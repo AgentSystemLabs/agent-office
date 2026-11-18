@@ -70,6 +70,8 @@ export class Wander {
   private readonly ambient: Ambient;
   private clock = 0;
   private chatIn = CHAT_EVERY;
+  /** Told when a chat ends and how the pair feels now (-1 rivals … 1 friends): the office's life ledger listens. */
+  onChatEnd?: (a: Roamer, b: Roamer, next: number) => void;
 
   constructor(
     private parent: THREE.Object3D,
@@ -116,6 +118,24 @@ export class Wander {
   /** The character a worker was dealt (for panels), if it's here. */
   traitsOf(id: string): Traits | undefined {
     return this.roamers.get(id)?.traits;
+  }
+
+  /** Who's lingering at what kind of place, and where — the office's mood reads this (dance floor, coffee runs). */
+  hangouts(): { id: string; kind?: SpotKind; x: number; z: number }[] {
+    const out: { id: string; kind?: SpotKind; x: number; z: number }[] = [];
+    for (const c of this.roamers.values()) {
+      if (c.state === 'linger' && c.spot) {
+        const p = c.model.root.position;
+        out.push({ id: c.id, kind: c.spot.kind, x: p.x, z: p.z });
+      }
+    }
+    return out;
+  }
+
+  /** A worker out about says something (the office's little celebrations). */
+  say(id: string, text: string) {
+    const c = this.roamers.get(id);
+    if (c) this.ambient.say(c, text);
   }
 
   /** Stops `id` wandering about (it's gone, or being sent home), leaving its model wherever it is. Where it stood, if it was out. */
@@ -528,5 +548,6 @@ export class Wander {
     this.mind.saveAffinity({ [k]: next });
     // Both are done with this pair's script; the next chat asks for a fresh one.
     this.mind.forget(c.id, p.id);
+    this.onChatEnd?.(c, p, next);
   }
 }
