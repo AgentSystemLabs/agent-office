@@ -90,23 +90,32 @@ export function writeDeepaiLauncher(dataDir: string, env: NodeJS.ProcessEnv = pr
 }
 
 /**
- * What a model spends per request, for its name: nothing for the free ones, the Theos of the
- * premier ones (the balance that refuses a worker with `theos_insufficient`).
+ * The free model a desk starts on when nobody picked one: DeepAI charges Theos per request on its
+ * premier models, and a worker left on the app's own default can spend them without anyone asking
+ * (fifteen Theos for one Opus reply, on this machine). A free one spends none, whatever runs.
  */
-function deepaiModelPrice(model: unknown): string {
+export function deepaiFreeModel(agentDir: string = deepaiAgentDir()): string | undefined {
+  return readDeepaiModels(agentDir).find((model) => model.free)?.id;
+}
+
+/**
+ * What a model spends per request: zero for the free ones, its Theos for a premier one (the balance
+ * that refuses a worker with `theos_insufficient`).
+ */
+function deepaiTheos(model: unknown): number {
   const raw = (model as { theosPerRequest?: unknown })?.theosPerRequest;
   const theos = typeof raw === 'number' ? raw : typeof raw === 'string' && raw.trim() ? Number(raw) : 0;
-  if (!Number.isFinite(theos) || theos <= 0) return ' · free';
-  return ` · ${theos} Theos`;
+  return Number.isFinite(theos) && theos > 0 ? theos : 0;
 }
 
 /**
  * The models DeepAI Code offers, from its own models.json: each provider's list, of which the office
- * keeps the id (and its name, tagged with what it spends, when it has one). A model of the app's own
- * provider is offered by its id alone; another provider's keeps its `provider/` prefix, as Pi
- * resolves it.
+ * keeps the id and its name, tagged with what it spends — `free`, or the Theos a premier one costs.
+ * A model of the app's own provider is offered by its id alone; another provider's keeps its
+ * `provider/` prefix, as Pi resolves it.
  */
-export function readDeepaiModels(agentDir: string = deepaiAgentDir()): ModelOption[] {  const file = path.join(agentDir, 'models.json');
+export function readDeepaiModels(agentDir: string = deepaiAgentDir()): ModelOption[] {
+  const file = path.join(agentDir, 'models.json');
   let parsed: unknown;
   try {
     parsed = JSON.parse(readFileSync(file, 'utf8'));
@@ -126,9 +135,8 @@ export function readDeepaiModels(agentDir: string = deepaiAgentDir()): ModelOpti
       if (!isValidDeepaiModel(id)) continue;
       const shown = (model as { name?: unknown })?.name;
       const label = typeof shown === 'string' && shown.trim() && shown !== raw ? shown.trim() : id;
-      // What it costs: the app's own split. Free models spend no Theos, the premier ones do, and a
-      // worker started on one of those is refused with `theos_insufficient` when the balance is out.
-      models.push({ id, name: `${label}${deepaiModelPrice(model) ?? ''}` });
+      const theos = deepaiTheos(model);
+      models.push({ id, name: `${label} · ${theos ? `${theos} Theos` : 'free'}`, free: theos === 0 });
     }
   }
   return models;

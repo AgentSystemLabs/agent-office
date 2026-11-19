@@ -4,7 +4,7 @@
 // desk keeps its sessions in a folder of its own, and its spend stays in the DeepAI account.
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
-import { deepaiApp, writeDeepaiLauncher } from '../deepai.js';
+import { deepaiApp, deepaiFreeModel, writeDeepaiLauncher } from '../deepai.js';
 import { normalizePiHook, piArgs, writePiExtension } from '../pi.js';
 import { reduceStatus, type StatusState } from './opencode.js';
 import type { ProviderAdapter } from './types.js';
@@ -28,7 +28,9 @@ export const deepai: ProviderAdapter<StatusState, DeepaiSetup> = {
     mkdirSync(sessionDir, { recursive: true, mode: 0o700 });
     h.state.error = false;
     return {
-      args: piArgs(args, { extension: setup.extension, sessionDir, sessionId: resumeSessionId, model: info.model, effort: info.effort, prompt }),
+      // Nobody's pick spends Theos by accident: the app's own default can be a premier model, and
+      // fifteen Theos a reply is not what an empty model field means.
+      args: piArgs(args, { extension: setup.extension, sessionDir, sessionId: resumeSessionId, model: info.model ?? deepaiFreeModel(), effort: info.effort, prompt }),
       rotateToken: true,
       // Its models are served by the running app, so a machine without it can't run one at all.
       finishEnv() {

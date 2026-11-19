@@ -138,6 +138,8 @@ export interface ModelOption {
   name?: string;
   /** The reasoning efforts it takes, when its catalogue says: every one, when it doesn't. */
   efforts?: AgentEffort[];
+  /** Costs nothing to run, when the provider says so (DeepAI Code's free models spend no Theos). */
+  free?: boolean;
 }
 
 /** How the hire dialog asks for a provider's model (see client ui/provider.ts). */
@@ -338,14 +340,14 @@ export const PROVIDER_META: Record<AgentProvider, ProviderMeta> = {
     models: {
       pick: 'typed',
       catalog: true,
-      unset: 'Default (DeepAI Code settings)',
+      unset: 'A free one (nothing spent of your Theos)',
       max: DEEPAI_MODEL_MAX,
       hint: 'Optional model id; suggestions come from DeepAI Code\u2019s own model list. Effort is a thinking level, as in DeepAI Code.',
       invalid: 'Use a DeepAI model id: letters, digits and . _ : / @ + - (up to 256 characters).',
     },
     takesEffort: true,
     effortLabel: 'Thinking',
-    usage: { note: 'DeepAI Code workers run the Pi agent bundled in DeepAI Code, on your DeepAI Code sign-in: the app must be running on this machine, and usage and cost stay in your DeepAI account. The office does not meter them.' },
+    usage: { note: 'DeepAI Code workers run the Pi agent bundled in DeepAI Code, on your DeepAI Code sign-in: the app must be running on this machine, and usage and cost stay in your DeepAI account. The office does not meter them. The free models spend no Theos; a premier one spends its own on every request, out of the daily Theos of your plan.' },
   },
   custom: {
     label: 'Custom',

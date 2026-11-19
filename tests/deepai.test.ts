@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync }
 import { tmpdir } from 'node:os';
 import { homedir } from 'node:os';
 import path from 'node:path';
-import { deepaiAgentDir, deepaiApp, deepaiLauncherText, readDeepaiModels, writeDeepaiLauncher } from '../src/server/deepai.js';
+import { deepaiAgentDir, deepaiApp, deepaiFreeModel, deepaiLauncherText, readDeepaiModels, writeDeepaiLauncher } from '../src/server/deepai.js';
 import { piExtensionSource, writePiExtension } from '../src/server/pi.js';
 import { providerAdapter } from '../src/server/providers/index.js';
 import { MODEL_LISTERS } from '../src/server/models.js';
@@ -82,13 +82,15 @@ test('its models come from the app own list, by id, with their names and what th
   }));
   assert.deepEqual(readDeepaiModels(root), [
     // Its own provider needs no prefix; another provider's keeps the one Pi resolves.
-    { id: 'glm-5.3-flash', name: 'GLM 5.3 Flash · free' },
-    { id: 'claude-opus-5-5', name: 'claude-opus-5-5 · 15 Theos' },
-    { id: 'mimo-2.6-pro', name: 'MiMo 2.6 Pro · free' },
+    { id: 'glm-5.3-flash', name: 'GLM 5.3 Flash · free', free: true },
+    { id: 'claude-opus-5-5', name: 'claude-opus-5-5 · 15 Theos', free: false },
+    { id: 'mimo-2.6-pro', name: 'MiMo 2.6 Pro · free', free: true },
     // No name of its own: the id stands in, with the same price tag.
-    { id: 'solar-mini-4', name: 'solar-mini-4 · free' },
-    { id: 'anthropic/claude-sonnet-5-5', name: 'anthropic/claude-sonnet-5-5 · free' },
+    { id: 'solar-mini-4', name: 'solar-mini-4 · free', free: true },
+    { id: 'anthropic/claude-sonnet-5-5', name: 'anthropic/claude-sonnet-5-5 · free', free: true },
   ]);
+  // Left alone, a desk starts on one that spends nothing, never on a premier one.
+  assert.equal(deepaiFreeModel(root), 'glm-5.3-flash');
   // A list that isn't there, or isn't the app's, is no suggestions rather than a broken picker.
   assert.deepEqual(readDeepaiModels(path.join(root, 'missing')), []);
   writeFileSync(path.join(root, 'models.json'), 'not json');
