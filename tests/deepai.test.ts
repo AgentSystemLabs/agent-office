@@ -83,7 +83,7 @@ test('its models come from the app own list, by id, with their names and what th
   assert.deepEqual(readDeepaiModels(root), [
     // Its own provider needs no prefix; another provider's keeps the one Pi resolves.
     { id: 'glm-5.3-flash', name: 'GLM 5.3 Flash · free', free: true },
-    { id: 'claude-opus-5-5', name: 'claude-opus-5-5 · 15 Theos', free: false },
+    { id: 'claude-opus-5-5', name: 'claude-opus-5-5 · 15 Theos/call', free: false },
     { id: 'mimo-2.6-pro', name: 'MiMo 2.6 Pro · free', free: true },
     // No name of its own: the id stands in, with the same price tag.
     { id: 'solar-mini-4', name: 'solar-mini-4 · free', free: true },

@@ -136,7 +136,8 @@ export function readDeepaiModels(agentDir: string = deepaiAgentDir()): ModelOpti
       const shown = (model as { name?: unknown })?.name;
       const label = typeof shown === 'string' && shown.trim() && shown !== raw ? shown.trim() : id;
       const theos = deepaiTheos(model);
-      models.push({ id, name: `${label} · ${theos ? `${theos} Theos` : 'free'}`, free: theos === 0 });
+      // Per call, not per task: an agent turn that runs ten tools is ten calls.
+      models.push({ id, name: `${label} · ${theos ? `${theos} Theos/call` : 'free'}`, free: theos === 0 });
     }
   }
   return models;
