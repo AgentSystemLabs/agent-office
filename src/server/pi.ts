@@ -54,12 +54,20 @@ export function normalizePiHook(value: unknown): OpenCodeStatusEvent | undefined
   };
 }
 
-/** A CLI-loaded extension preserves the user's Pi config, auth, packages, and extensions. */
-export function writePiExtension(dataDir: string): string {
+/**
+ * A CLI-loaded extension preserves the user's Pi config, auth, packages, and extensions. `route` is
+ * the provider it reports to (/hooks/<route>): Pi itself, or DeepAI Code's Pi under its own route.
+ */
+export function writePiExtension(dataDir: string, route: string = 'pi'): string {
   mkdirSync(dataDir, { recursive: true, mode: 0o700 });
-  const file = path.join(dataDir, 'agent-office-pi-extension.mjs');
-  writeFileSync(file, PI_EXTENSION_SOURCE, { mode: 0o600 });
+  const file = path.join(dataDir, `agent-office-${route}-extension.mjs`);
+  writeFileSync(file, piExtensionSource(route), { mode: 0o600 });
   return file;
+}
+
+/** The extension's source for a provider's route: the same events, reported to /hooks/<route>. */
+export function piExtensionSource(route: string = 'pi'): string {
+  return route === 'pi' ? PI_EXTENSION_SOURCE : PI_EXTENSION_SOURCE.replace("'/hooks/pi'", `'/hooks/${route}'`);
 }
 
 export const PI_EXTENSION_SOURCE = String.raw`export default function (pi) {

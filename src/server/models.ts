@@ -6,6 +6,7 @@ import { closeSync, mkdtempSync, openSync, readFileSync, rmSync, statSync } from
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { AGENT_EFFORTS, isValidCodexModel, isValidCursorModel, isValidGrokModel, isValidOpenCodeModel, type AgentProvider, type ModelOption } from '../shared/providers.js';
+import { readDeepaiModels } from './deepai.js';
 
 /** A CLI that lists its models in a second or two takes ten times that on a busy machine. */
 export const MODEL_COMMAND_TIMEOUT_MS = 30_000;
@@ -177,12 +178,22 @@ export async function fetchCursorModels(command: string, cwd: string, runner: Mo
 
 type ModelLister = (command: string, cwd: string, runner?: ModelCommandRunner) => Promise<ModelOption[]>;
 
+/**
+ * DeepAI Code's models are the app's own list (its agent's models.json), not a CLI's output: its
+ * launcher is a shell script with no listing of its own, and the app needn't be running to name
+ * them. A list that can't be read leaves the field as it was, with no suggestions.
+ */
+export async function fetchDeepaiModels(): Promise<ModelOption[]> {
+  return readDeepaiModels();
+}
+
 /** The providers whose CLI lists its models (ProviderMeta.models.catalog), and how each is asked. */
 export const MODEL_LISTERS: Partial<Record<AgentProvider, ModelLister>> = {
   opencode: fetchOpenCodeModels,
   codex: fetchCodexModels,
   grok: fetchGrokModels,
   cursor: fetchCursorModels,
+  deepai: fetchDeepaiModels,
 };
 
 export interface ModelCatalogue {
