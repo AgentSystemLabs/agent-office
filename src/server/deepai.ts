@@ -90,12 +90,23 @@ export function writeDeepaiLauncher(dataDir: string, env: NodeJS.ProcessEnv = pr
 }
 
 /**
- * The models DeepAI Code offers, from its own models.json: each provider's list, of which the office
- * keeps the id (and its name when it has one). A model of the app's own provider is offered by its
- * id alone; another provider's keeps its `provider/` prefix, as Pi resolves it.
+ * What a model spends per request, for its name: nothing for the free ones, the Theos of the
+ * premier ones (the balance that refuses a worker with `theos_insufficient`).
  */
-export function readDeepaiModels(agentDir: string = deepaiAgentDir()): ModelOption[] {
-  const file = path.join(agentDir, 'models.json');
+function deepaiModelPrice(model: unknown): string {
+  const raw = (model as { theosPerRequest?: unknown })?.theosPerRequest;
+  const theos = typeof raw === 'number' ? raw : typeof raw === 'string' && raw.trim() ? Number(raw) : 0;
+  if (!Number.isFinite(theos) || theos <= 0) return ' · free';
+  return ` · ${theos} Theos`;
+}
+
+/**
+ * The models DeepAI Code offers, from its own models.json: each provider's list, of which the office
+ * keeps the id (and its name, tagged with what it spends, when it has one). A model of the app's own
+ * provider is offered by its id alone; another provider's keeps its `provider/` prefix, as Pi
+ * resolves it.
+ */
+export function readDeepaiModels(agentDir: string = deepaiAgentDir()): ModelOption[] {  const file = path.join(agentDir, 'models.json');
   let parsed: unknown;
   try {
     parsed = JSON.parse(readFileSync(file, 'utf8'));
@@ -114,8 +125,10 @@ export function readDeepaiModels(agentDir: string = deepaiAgentDir()): ModelOpti
       const id = provider === 'deepai' ? raw : `${provider}/${raw}`;
       if (!isValidDeepaiModel(id)) continue;
       const shown = (model as { name?: unknown })?.name;
-      const name = typeof shown === 'string' && shown.trim() && shown !== raw ? shown.trim() : undefined;
-      models.push({ id, ...(name ? { name } : {}) });
+      const label = typeof shown === 'string' && shown.trim() && shown !== raw ? shown.trim() : id;
+      // What it costs: the app's own split. Free models spend no Theos, the premier ones do, and a
+      // worker started on one of those is refused with `theos_insufficient` when the balance is out.
+      models.push({ id, name: `${label}${deepaiModelPrice(model) ?? ''}` });
     }
   }
   return models;

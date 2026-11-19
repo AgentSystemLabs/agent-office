@@ -64,20 +64,30 @@ test('the agent folder follows DeepAI Code, unless the machine says otherwise', 
   assert.equal(deepaiAgentDir({ DEEPAI_AGENT_DIR: '/opt/other', PI_CODING_AGENT_DIR: '/opt/deepai' }), '/opt/deepai');
 });
 
-test('its models come from the app own list, by id, with their names', (t) => {
+test('its models come from the app own list, by id, with their names and what they spend', (t) => {
   const root = fixture(t);
   writeFileSync(path.join(root, 'models.json'), JSON.stringify({
     providers: {
-      deepai: { models: [{ id: 'glm-5.3-flash', name: 'GLM 5.3 Flash' }, { id: 'claude-opus-5-5', name: 'claude-opus-5-5' }] },
+      deepai: {
+        models: [
+          { id: 'glm-5.3-flash', name: 'GLM 5.3 Flash', premier: false, theosPerRequest: '0' },
+          { id: 'claude-opus-5-5', name: 'claude-opus-5-5', premier: true, theosPerRequest: '15' },
+          { id: 'mimo-2.6-pro', name: 'MiMo 2.6 Pro', premier: false, theosPerRequest: 0 },
+          { id: 'solar-mini-4' },
+        ],
+      },
       anthropic: { models: [{ id: 'claude-sonnet-5-5' }] },
       broken: { models: 'nope' },
     },
   }));
   assert.deepEqual(readDeepaiModels(root), [
     // Its own provider needs no prefix; another provider's keeps the one Pi resolves.
-    { id: 'glm-5.3-flash', name: 'GLM 5.3 Flash' },
-    { id: 'claude-opus-5-5' },
-    { id: 'anthropic/claude-sonnet-5-5' },
+    { id: 'glm-5.3-flash', name: 'GLM 5.3 Flash · free' },
+    { id: 'claude-opus-5-5', name: 'claude-opus-5-5 · 15 Theos' },
+    { id: 'mimo-2.6-pro', name: 'MiMo 2.6 Pro · free' },
+    // No name of its own: the id stands in, with the same price tag.
+    { id: 'solar-mini-4', name: 'solar-mini-4 · free' },
+    { id: 'anthropic/claude-sonnet-5-5', name: 'anthropic/claude-sonnet-5-5 · free' },
   ]);
   // A list that isn't there, or isn't the app's, is no suggestions rather than a broken picker.
   assert.deepEqual(readDeepaiModels(path.join(root, 'missing')), []);
