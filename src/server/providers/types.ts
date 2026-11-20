@@ -82,8 +82,8 @@ export interface ProviderAdapter<S = undefined, P = undefined> {
   launch(input: LaunchInput<S, P>): LaunchPlan;
   /** A run of one of its workers in `cwd` is over (it ended, or the worker was sent home): what launch put in that folder can go. */
   exited?(h: WorkerHandle<S>, cwd: string): void;
-  /** How it runs: in a terminal (the default), or over ACP with the office drawing its terminal (see dsh.ts). */
-  transport?: 'pty' | 'acp';
+  /** How it runs: in a terminal, over ACP, or as an app-hosted thread (see workers/). */
+  transport?: 'pty' | 'acp' | 'thread';
   /** The sign-in a worker hired by an account needs on that account (see RunAs). */
   signIn?: 'claude';
   /**

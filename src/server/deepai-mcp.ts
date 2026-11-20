@@ -1,7 +1,7 @@
 // DeepAI Code, reached the way the app itself offers: its MCP endpoint, over OAuth.
 //
 // The app's model transport is closed to anything it didn't start (a capability it mints per run,
-// see the note in ./deepai.ts), but its orchestration is not: the app publishes an OAuth 2.1
+// see the note in ./deepai-thread.ts), but its orchestration is not: the app publishes an OAuth 2.1
 // authorization server for MCP clients (/.well-known/oauth-authorization-server), an admin approves
 // a pairing code once, and the office gets a 30-day bearer scoped to orchestration:read/operate.
 // With it the office asks the app to run a turn in a workspace — including a worktree the office

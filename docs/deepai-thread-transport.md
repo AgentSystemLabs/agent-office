@@ -3,7 +3,7 @@
 DeepAI Code's **model transport** is closed to anything the app didn't start: `startDeepAIModelTransport`
 mints a `randomBytes(32)` capability per run and hands it only to its own Pi children
 (`"DeepAI credentials never enter Pi's config or renderer"`). A worker the office spawns can never reach
-its models — that is why the provider refuses the hire with a reason (see `src/server/deepai.ts`).
+its models — that is why the provider uses app-hosted orchestration threads (see `src/server/deepai-thread.ts`).
 
 Its **orchestration** is not closed. The app publishes an OAuth 2.1 authorization server for MCP clients,
 and an admin approves a pairing code once. With that bearer the office asks the app to run a turn in a
@@ -48,12 +48,12 @@ process, the office draws the worker's terminal itself — so DeepAI Code gets a
   checked on read), and the pairing pieces (`registerDeepaiClient`, `deepaiAuthorizeUrl`,
   `exchangeDeepaiCode`, `pkce`, `loopbackRedirect`). Tests in `tests/deepai-mcp.test.ts` run against a
   fake MCP endpoint, so they need neither the app nor a token.
-- `src/server/deepai-thread.ts` (next): `ThreadSession`, the same callback shape as `DshSession` —
+- `src/server/deepai-thread.ts` (implemented): `ThreadSession`, the same callback shape as `DshSession` —
   `output` (items rendered into the terminal), `status`, `usage`, `session` (the thread id), `exit`,
   `prompted`. It owns one thread: launch it, follow its runs, send follow-ups, interrupt.
-- `src/server/workers/manager.ts` (next): one more branch next to `transport === 'acp'`
+- `src/server/workers/manager.ts` (implemented): one more branch next to `transport === 'acp'`
   (around line 699) that calls `launchThread` instead of `host.spawn`.
-- `src/server/providers/deepai.ts` (next): `launch` no longer returns an argv; it hands the workspace,
+- `src/server/providers/deepai.ts` (implemented): `launch` no longer returns an argv; it hands the workspace,
   the model and the first prompt to the thread transport. `prepare` stops writing a launcher.
 
 ### How a desk maps onto a thread
@@ -68,17 +68,25 @@ process, the office draws the worker's terminal itself — so DeepAI Code gets a
 | R (resume) | the thread still exists: send to it again, no new session |
 | send home | nothing to kill: the worktree and branch are the office's, as with every provider |
 
-The project the thread belongs to is the floor's checkout (`workspaceRoot`), registered on first use with
-`deepai_project_create`; the desk's worktree is bound with `existing_worktree`, which the spike showed
-works for a worktree the app did not create. This is the one thing to keep testing: the app must not
-also make a worktree when one is given.
+The project the thread belongs to is the floor's checkout (`workspaceRoot`). The office searches
+registered projects first and creates one with `deepai_project_create` only if it is missing. The desk's
+worktree is bound with `existing_worktree`, which the spike showed works for a worktree the app did not
+create. The app must not create another worktree when one is given.
 
 ### Models
 
 `orchestrator_capabilities` lists the `deepai` instance with 27 model ids (`deepai/glm-5.3-flash`,
-`deepai/claude-sonnet-5-5`, …). The hire dialog should read them from there instead of `models.json`,
-and the free/premier note stays what `theosPerRequest` says — free models cost nothing, so a worker
-belongs on a free one.
+`deepai/claude-sonnet-5-5`, …). The hire dialog reads the live catalog instead of `models.json`. If a
+catalog entry includes `theosPerRequest`, the free or per-call Theos annotation is retained. The
+observed capability response in app 0.3.42 did not include pricing metadata, so no price is inferred.
+
+## Implementation status
+
+The thread transport, manager routing, provider adapter, live model catalog, MCP fake tests, and user
+documentation are implemented. The OAuth pairing and protected credential storage remain the same as
+the initial spike. Worker transcripts are polled with `deepai_thread_read`; active runs are followed
+with `deepai_thread_wait`, messages go through `deepai_thread_send`, and Esc uses
+`deepai_thread_interrupt`. Tests use an in-process fake MCP endpoint and make no network calls.
 
 ### Limits worth knowing
 
@@ -94,12 +102,12 @@ belongs on a free one.
 
 Nothing of the closed road was thrown away, because it is what runs on this machine today:
 
-- **`deepai-spawn-approach`** — tag on `6d35354`, the whole spawn-based provider: the `deepai-agent`
+- **`deepai-spawn-approach`** — tag on `6d35354`, the former spawn-based provider: the `deepai-agent`
   launcher, `models.json` as the model catalogue, and the check that refuses a hire when the app's key
   is a variable only the app can fill. This is what `v0.1.212-deepai` (the install running here,
   `~/.local/share/agent-office/versions/v0.1.212-deepai`) still is, with its own `PATCH-NOTES.md`.
-- **`deepai-checkpoint-2026-11-20`** — tag on `aa6ae11`, this checkpoint: MCP client, credential,
-  pairing, tests, and this document.
+- **`deepai-checkpoint-2026-11-20`** — tag on `aa6ae11`, the earlier checkpoint: MCP client, credential,
+  pairing, tests, and this document before the thread transport landed.
 - **The credential** the pairing issued: `~/.agent-office/deepai-mcp.json` (mode `0600`), 30 days,
   expires 20 Dec 2026. It is a secret: it is not in the repository, and it must not be.
 - The reasoning, measured on the way (why the model transport is closed, what was tried, the numbers):

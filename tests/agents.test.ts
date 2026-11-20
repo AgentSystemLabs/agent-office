@@ -107,7 +107,7 @@ test('reasoning effort joins Claude for DeepSeek Harness', () => {
   assert.match(validateWorkerEffort('agent', 'custom', 'high') ?? '', /Claude Code, OpenCode, Codex, Grok, Muse, DeepSeek Harness, Pi or DeepAI Code/);
 });
 
-test('DeepAI Code is a provider of its own, run through the launcher the office writes', () => {
+test('DeepAI Code keeps its provider command alias and uses the app-hosted transport', () => {
   assert.equal(isAgentProvider('deepai'), true);
   assert.ok(agentProviders('claude').includes('deepai'));
   assert.equal(PROVIDER_META.deepai.label, 'DeepAI Code');

@@ -5,6 +5,8 @@ import type { HeadlessTerminal } from './terminal.js';
 import type { Worker, WorkerContext } from './types.js';
 import { truncate } from './util.js';
 
+export { launchThread } from './thread.js';
+
 /**
  * Starts (or resumes) a DeepSeek Harness worker over ACP. The session renders its transcript into
  * the worker's terminal and reports status, acted-out actions, usage and its session id; the

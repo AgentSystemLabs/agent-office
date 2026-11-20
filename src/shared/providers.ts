@@ -109,8 +109,8 @@ export function isValidPiModel(value: unknown): value is string {
 }
 
 /**
- * DeepAI Code is the same Pi coding agent, with its own sign-in and model list: its model ids are
- * argv values too, so the same rule keeps a bad one off its command line.
+ * DeepAI Code model IDs come from the live app catalog; these opaque values are passed back to the
+ * app without being interpreted by the office.
  */
 export function isValidDeepaiModel(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0 && value.length <= DEEPAI_MODEL_MAX && /^[A-Za-z0-9._:/@+][A-Za-z0-9._:/@+-]*$/.test(value);
@@ -342,12 +342,12 @@ export const PROVIDER_META: Record<AgentProvider, ProviderMeta> = {
       catalog: true,
       unset: 'A free one (nothing spent of your Theos)',
       max: DEEPAI_MODEL_MAX,
-      hint: 'Optional model id; suggestions come from DeepAI Code\u2019s own model list. Effort is a thinking level, as in DeepAI Code.',
+      hint: 'Optional model id; suggestions come from DeepAI Code\u2019s live catalog. Effort is a thinking level, as in DeepAI Code.',
       invalid: 'Use a DeepAI model id: letters, digits and . _ : / @ + - (up to 256 characters).',
     },
     takesEffort: true,
     effortLabel: 'Thinking',
-    usage: { note: 'DeepAI Code workers run the Pi agent bundled in DeepAI Code, on your DeepAI Code sign-in: the app must be running on this machine, and usage and cost stay in your DeepAI account. The office does not meter them. The free models spend no Theos; a premier one spends its own on every request, out of the daily Theos of your plan.' },
+    usage: { note: 'DeepAI Code workers run as app-hosted threads on your DeepAI Code sign-in. Usage and cost stay in your DeepAI account. The office does not meter them. The free models spend no Theos; a premier one spends its own on every request, out of the daily Theos of your plan.' },
   },
   custom: {
     label: 'Custom',
