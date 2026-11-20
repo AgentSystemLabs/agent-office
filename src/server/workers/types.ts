@@ -56,11 +56,8 @@ export interface Worker {
   /** The account that hired it, whose sign-ins it runs on. None: the office's own. */
   owner?: string;
   pty?: Pty;
-  /**
-   * A DeepSeek Harness worker's ACP connection. It has no PTY: ACP updates are rendered into the
-   * same headless terminal the other providers mirror a process into (see dsh.ts).
-   */
-  dsh?: DshSession;
+  /** An in-process provider session (ACP or hosted thread) rendered into the headless terminal. */
+  dsh?: DshSession | import('../deepai-thread.js').ThreadSession;
   term?: HeadlessTerminal;
   ser?: InstanceType<typeof serialize.SerializeAddon>;
   /** The screen so far, for a browser opening the terminal (see screen.ts). */

@@ -5,6 +5,7 @@ import { claude } from './claude.js';
 import { codex } from './codex.js';
 import { cursor } from './cursor.js';
 import { custom } from './custom.js';
+import { deepai } from './deepai.js';
 import { dsh } from './dsh.js';
 import { grok } from './grok.js';
 import { muse } from './muse.js';
@@ -23,6 +24,7 @@ export const PROVIDERS: Record<AgentProvider, SomeAdapter> = {
   dsh,
   pi,
   cursor,
+  deepai,
   custom,
 };
 

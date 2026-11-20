@@ -6,6 +6,7 @@ import { closeSync, mkdtempSync, openSync, readFileSync, rmSync, statSync } from
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { AGENT_EFFORTS, isValidCodexModel, isValidCursorModel, isValidGrokModel, isValidOpenCodeModel, type AgentProvider, type ModelOption } from '../shared/providers.js';
+import { DeepaiMcp, readDeepaiCredential } from './deepai-mcp.js';
 
 /** A CLI that lists its models in a second or two takes ten times that on a busy machine. */
 export const MODEL_COMMAND_TIMEOUT_MS = 30_000;
@@ -177,12 +178,28 @@ export async function fetchCursorModels(command: string, cwd: string, runner: Mo
 
 type ModelLister = (command: string, cwd: string, runner?: ModelCommandRunner) => Promise<ModelOption[]>;
 
+/** DeepAI Code publishes its live model list through orchestrator_capabilities, using the office pairing. */
+export async function fetchDeepaiModels(_command = '', cwd = process.cwd()): Promise<ModelOption[]> {
+  const credential = readDeepaiCredential(path.join(cwd, '.agent-office'));
+  if (!credential) return [];
+  const catalog = await new DeepaiMcp({ url: credential.url, token: credential.token }).call<any>('orchestrator_capabilities', {});
+  const instance = Array.isArray(catalog?.providers) ? catalog.providers.find((p: any) => p?.providerInstanceId === 'deepai') : undefined;
+  if (!Array.isArray(instance?.models)) return [];
+  return unique(instance.models.flatMap((model: any) => {
+    if (typeof model?.id !== 'string' || !model.id.startsWith('deepai/')) return [];
+    const name = shownName(model.label, model.id);
+    const theos = typeof model.theosPerRequest === 'number' ? model.theosPerRequest : undefined;
+    return [{ id: model.id, ...(name ? { name: theos !== undefined ? `${name} · ${theos ? `${theos} Theos/call` : 'free'}` : name } : {}), ...(theos !== undefined ? { free: theos === 0 } : {}) }];
+  }));
+}
+
 /** The providers whose CLI lists its models (ProviderMeta.models.catalog), and how each is asked. */
 export const MODEL_LISTERS: Partial<Record<AgentProvider, ModelLister>> = {
   opencode: fetchOpenCodeModels,
   codex: fetchCodexModels,
   grok: fetchGrokModels,
   cursor: fetchCursorModels,
+  deepai: fetchDeepaiModels,
 };
 
 export interface ModelCatalogue {

@@ -2,7 +2,7 @@
 
 Back to the [README](../README.md).
 
-Every new worker starts on the office's **Default worker**: a provider, model and effort an admin picks in ⚙️ Settings → **🤖 Workers** (the `--agent` with its own default model until someone does). The hire, ask, queue, issue and meeting windows show it on one line; click **✏️ Edit** there to pick **Claude Code**, **OpenCode**, **Codex**, **Grok**, **Muse**, **DeepSeek Harness**, **Pi** or **Cursor**, a model and an effort for just that worker or task, and **↺ Use the default** to go back. Board agents and tasks the Queue agent adds, which nobody picks for, start on the default too. Existing workers keep their provider when prompted or resumed, and queued tasks keep their choice when retried or restored after a restart.
+Every new worker starts on the office's **Default worker**: a provider, model and effort an admin picks in ⚙️ Settings → **🤖 Workers** (the `--agent` with its own default model until someone does). The hire, ask, queue, issue and meeting windows show it on one line; click **✏️ Edit** there to pick **Claude Code**, **OpenCode**, **Codex**, **Grok**, **Muse**, **DeepSeek Harness**, **Pi**, **Cursor** or **DeepAI Code**, a model and an effort for just that worker or task, and **↺ Use the default** to go back. Board agents and tasks the Queue agent adds, which nobody picks for, start on the default too. Existing workers keep their provider when prompted or resumed, and queued tasks keep their choice when retried or restored after a restart.
 
 Every harness takes both a **Model** and an **Effort**, each optional: leave one on **Default** and the harness uses its own settings.
 
@@ -15,6 +15,7 @@ Every harness takes both a **Model** and an **Effort**, each optional: leave one
 | Muse | a model id, typed (`--model`) | `--reasoning-effort` |
 | DeepSeek Harness | a model id from its catalog, typed | its `reasoning_effort` option |
 | Pi | a model name or `provider/model`, typed (`--model`) | **Thinking** (`--thinking`) |
+| DeepAI Code | a model id from the live app catalog, typed or picked from its suggestions (`--model`) | **Thinking** (`--thinking`) |
 
 The efforts are low, medium, high, extra high and max. Where a harness's own catalog says which of them a model supports (Codex and OpenCode do), the ones it doesn't are greyed out once that model is picked. A harness whose models can't be listed (its CLI isn't installed, or isn't signed in) still takes a model id typed in. A **Custom** `--agent` is run as it is, so it has neither field: set its model and effort in `--agent-args`.
 
@@ -25,6 +26,12 @@ For OpenCode, the **Model** field selects the initial model for a new worker or 
 **Pi** is available in the worker picker, queued tasks, meetings, and the office default. Install and sign in to the Pi coding-agent CLI on the machine running the office (`npm install -g @earendil-works/pi-coding-agent`, then `pi` and `/login`). The integration targets Pi 0.87.1 or later, using its `agent_settled` and UI prompt extension events. Choose Pi when hiring, or start the office with `--agent pi`. Windows npm `.cmd` launchers are supported.
 
 Pi keeps its own login, settings, packages, and extensions. The office adds a CLI-loaded extension to report session, working, tool, waiting-for-input, and completion events; it does not edit your Pi configuration. Each worker's sessions live under `.agent-office/pi-sessions/<worker-id>`, and **R** resumes that worker's session. The optional **Model** field accepts a model name or `provider/model`; **Thinking** offers low, medium, high, xhigh, and max. Leave either on Default to use Pi settings or configured `--agent-args` (including `--thinking off` or `minimal`). Cost and token metrics remain in Pi's terminal and are not included in the office's Claude budget.
+
+**DeepAI Code** is available as an app-hosted thread, rendered into the worker's terminal by the office. Pair it once under Settings → Connections; the office stores the 30-day MCP credential in the floor's `.agent-office/deepai-mcp.json` with user-only permissions. If it expires, pair DeepAI Code again. Choose DeepAI Code when hiring, or start the office with `--agent deepai-agent`.
+
+The hire dialog loads model IDs and labels from DeepAI Code's live `orchestrator_capabilities` catalog; **Model** also accepts a typed ID. The office launches each worker with the desk's existing worktree and resumes the same app thread when you press **R**. Enter sends a follow-up and Esc interrupts the active run. The app owns execution and its thread transcript; the office mirrors that transcript in the terminal. Usage and cost stay in the DeepAI account, and the daily budget stays Claude-only.
+
+Without a valid pairing, the worker reports “pair DeepAI Code first” and exits cleanly. The office never reads or copies DeepAI Code's model credentials; the app runs each thread using its own sign-in.
 
 For Claude Code, the **Model** and **Effort** fields pick `--model` (`fable`, `opus`, `sonnet` or `haiku`, listed by the model each alias stands for: Fable 5.1, Opus 5.5, Sonnet 5.5, Haiku 4.5) and `--effort` (low, medium, high, extra high or max) for that worker or queue task, overriding whatever `--agent-args` set office-wide. Leave either on **Default** to use the office's configured value. The choice stays with a worker across resumes and with a queued task when retried, and shows up next to the worker in the Workers panel and on its task card so you can tell at a glance who's on what — and the per-worker cost there reflects the actual model used.
 

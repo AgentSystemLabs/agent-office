@@ -92,7 +92,7 @@ test('model validation follows the provider', () => {
   assert.match(validateWorkerModel('agent', 'codex', '--yolo') ?? '', /Invalid Codex model/);
   assert.match(validateWorkerModel('agent', 'codex', 'gpt 5.5') ?? '', /Invalid Codex model/);
   // Custom still takes none.
-  assert.match(validateWorkerModel('agent', 'custom', 'anything') ?? '', /Claude Code, OpenCode, Codex, Grok, Muse, DeepSeek Harness, Pi or Cursor/);
+  assert.match(validateWorkerModel('agent', 'custom', 'anything') ?? '', /Claude Code, OpenCode, Codex, Grok, Muse, DeepSeek Harness, Pi, Cursor or DeepAI Code/);
 });
 
 test('reasoning effort joins Claude for DeepSeek Harness', () => {
@@ -104,7 +104,27 @@ test('reasoning effort joins Claude for DeepSeek Harness', () => {
   assert.equal(validateWorkerEffort('agent', 'codex', 'high'), undefined);
   assert.equal(validateWorkerEffort('agent', 'opencode', 'high'), undefined);
   assert.match(validateWorkerEffort('agent', 'opencode', 'enormous') ?? '', /Invalid effort/);
-  assert.match(validateWorkerEffort('agent', 'custom', 'high') ?? '', /Claude Code, OpenCode, Codex, Grok, Muse, DeepSeek Harness or Pi/);
+  assert.match(validateWorkerEffort('agent', 'custom', 'high') ?? '', /Claude Code, OpenCode, Codex, Grok, Muse, DeepSeek Harness, Pi or DeepAI Code/);
+});
+
+test('DeepAI Code keeps its provider command alias and uses the app-hosted transport', () => {
+  assert.equal(isAgentProvider('deepai'), true);
+  assert.ok(agentProviders('claude').includes('deepai'));
+  assert.equal(PROVIDER_META.deepai.label, 'DeepAI Code');
+  assert.equal(PROVIDER_META.deepai.bin, 'deepai-agent');
+  // Its workers run the launcher, not the DeepAI Code CLI (which drives the app, not an agent).
+  assert.equal(configuredProvider('deepai-agent'), 'deepai');
+  assert.equal(providerCommand('deepai', 'claude'), 'deepai-agent');
+  assert.equal(providerCommand('claude', '/opt/bin/deepai-agent'), 'claude');
+  // Its model ids are argv values, on a Windows .cmd launcher too.
+  assert.equal(validateWorkerModel('agent', 'deepai', 'glm-5.3'), undefined);
+  assert.equal(validateWorkerModel('agent', 'deepai', 'deepai/claude-opus-5-5'), undefined);
+  assert.match(validateWorkerModel('agent', 'deepai', '--print') ?? '', /Invalid DeepAI model/);
+  assert.match(validateWorkerModel('agent', 'deepai', 'bad\u0000model') ?? '', /Invalid DeepAI model/);
+  // Effort is a thinking level, as in DeepAI Code and Pi.
+  assert.equal(validateWorkerEffort('agent', 'deepai', 'high'), undefined);
+  assert.match(validateWorkerEffort('agent', 'deepai', 'enormous') ?? '', /Invalid effort/);
+  assert.equal(PROVIDER_META.deepai.effortLabel, 'Thinking');
 });
 
 test('every provider the office knows the CLI of takes a model and (but for Cursor) an effort, with the fields to pick them', () => {

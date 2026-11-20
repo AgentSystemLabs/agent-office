@@ -4,7 +4,7 @@
 //
 // Browser-safe: no node imports, the hire dialog reads this too.
 
-export const AGENT_PROVIDERS = ['claude', 'opencode', 'codex', 'grok', 'muse', 'dsh', 'pi', 'cursor', 'custom'] as const;
+export const AGENT_PROVIDERS = ['claude', 'opencode', 'codex', 'grok', 'muse', 'dsh', 'pi', 'cursor', 'deepai', 'custom'] as const;
 
 export type AgentProvider = (typeof AGENT_PROVIDERS)[number];
 
@@ -58,6 +58,7 @@ export const GROK_MODEL_MAX = 64;
 export const MUSE_MODEL_MAX = 128;
 export const PI_MODEL_MAX = 256;
 export const CURSOR_MODEL_MAX = 128;
+export const DEEPAI_MODEL_MAX = 256;
 export const CODEX_MODEL_MAX = 128;
 
 /**
@@ -108,6 +109,14 @@ export function isValidPiModel(value: unknown): value is string {
 }
 
 /**
+ * DeepAI Code model IDs come from the live app catalog; these opaque values are passed back to the
+ * app without being interpreted by the office.
+ */
+export function isValidDeepaiModel(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= DEEPAI_MODEL_MAX && /^[A-Za-z0-9._:/@+][A-Za-z0-9._:/@+-]*$/.test(value);
+}
+
+/**
  * Cursor model ids are argv values (`gpt-5`, `sonnet-4-thinking`), and a parameterized one carries
  * its overrides in brackets (`claude-opus-4-8[context=1m,effort=high]`). Only those characters get
  * through, and never a leading '-'.
@@ -129,6 +138,8 @@ export interface ModelOption {
   name?: string;
   /** The reasoning efforts it takes, when its catalogue says: every one, when it doesn't. */
   efforts?: AgentEffort[];
+  /** Costs nothing to run, when the provider says so (DeepAI Code's free models spend no Theos). */
+  free?: boolean;
 }
 
 /** How the hire dialog asks for a provider's model (see client ui/provider.ts). */
@@ -319,6 +330,24 @@ export const PROVIDER_META: Record<AgentProvider, ProviderMeta> = {
       invalid: 'Use a Cursor model id: letters, digits and . _ -, with any overrides in brackets, like model[effort=high] (up to 128 characters).',
     },
     usage: { note: 'Cursor uses the Cursor CLI login on the office machine. Usage and cost stay in its terminal and your Cursor account; the office does not meter them.' },
+  },
+  deepai: {
+    label: 'DeepAI Code',
+    name: 'DeepAI Code',
+    bin: 'deepai-agent',
+    validModel: isValidDeepaiModel,
+    invalidModel: 'Invalid DeepAI model (expected a model id such as glm-5.3, without whitespace)',
+    models: {
+      pick: 'typed',
+      catalog: true,
+      unset: 'A free one (nothing spent of your Theos)',
+      max: DEEPAI_MODEL_MAX,
+      hint: 'Optional model id; suggestions come from DeepAI Code\u2019s live catalog. Effort is a thinking level, as in DeepAI Code.',
+      invalid: 'Use a DeepAI model id: letters, digits and . _ : / @ + - (up to 256 characters).',
+    },
+    takesEffort: true,
+    effortLabel: 'Thinking',
+    usage: { note: 'DeepAI Code workers run as app-hosted threads on your DeepAI Code sign-in. Usage and cost stay in your DeepAI account. The office does not meter them. The free models spend no Theos; a premier one spends its own on every request, out of the daily Theos of your plan.' },
   },
   custom: {
     label: 'Custom',

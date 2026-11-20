@@ -16,7 +16,7 @@ import { DSH_PROFILE_DEFAULT } from '../dsh.js';
 import { DropStore } from '../drops.js';
 import type { Capacity } from '../machine.js';
 import { PROVIDERS, providerAdapter, titleNoise, type LaunchPlan, type ProviderFloor } from '../providers/index.js';
-import { launchAcp } from './acp.js';
+import { launchAcp, launchThread } from './acp.js';
 import { clockWork } from './clock.js';
 import { childEnv } from './env.js';
 import { midTurn } from './lifecycle.js';
@@ -706,7 +706,7 @@ export class WorkerManager {
       this.persist();
       return;
     }
-
+    if (adapter?.transport === 'thread') return launchThread(this.ctx, w, term, { cwd, prompt, resumeSessionId, setup: this.setups[adapter.id] as { dataDir: string }, model: info.model, effort: info.effort, title: info.name });
     // The host keeps its own copy of the screen for the next office: it starts with the same history.
     const where = { cwd, env, cols: info.cols, rows: info.rows, prelude };
     let proc: Pty;
