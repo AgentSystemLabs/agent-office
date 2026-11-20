@@ -62,7 +62,7 @@ process, the office draws the worker's terminal itself — so DeepAI Code gets a
 |---|---|
 | hire (first prompt) | `deepai_thread_launch` with `workspaceStrategy: {type:'existing_worktree', worktreePath: <desk cwd>}` and `message` |
 | the desk's terminal | the run's items, rendered as text (commands, reasoning, the answer) |
-| working / idle | `status` of the thread's run: running → working, completed → idle |
+| working / done | the thread's `status`: running → working, completed → done, waiting on the app's side → needs_input |
 | Enter (send) | `deepai_thread_send` on the same thread |
 | Esc | `deepai_thread_interrupt` |
 | R (resume) | the thread still exists: send to it again, no new session |
@@ -71,7 +71,11 @@ process, the office draws the worker's terminal itself — so DeepAI Code gets a
 The project the thread belongs to is the floor's checkout (`workspaceRoot`). The office searches
 registered projects first and creates one with `deepai_project_create` only if it is missing. The desk's
 worktree is bound with `existing_worktree`, which the spike showed works for a worktree the app did not
-create. The app must not create another worktree when one is given.
+create. The app must not create another worktree when one is given. It does validate the path: the folder must
+be one of the project's git worktrees (what `deepai_worktree_list` returns), so a plain directory is refused
+with "worktreePath must be one of the project's git worktrees" — an office desk is always a git worktree, so it
+passes. Finding the floor's project pages through `deepai_project_list` (`limit: 100` plus `cursor` until a
+page matches the workspace root): a single small page misses projects once the app has many registered.
 
 ### Models
 
@@ -97,6 +101,14 @@ with `deepai_thread_wait`, messages go through `deepai_thread_send`, and Esc use
 - The endpoints are the app's; they can change with an update. They are a published OAuth contract with
   a discovery document, so a change is visible (`/.well-known/oauth-authorization-server`) instead of
   silent, which is what the model transport was.
+- Status lifecycle as observed live (app 0.3.42): a launch answers `preparing`, then the thread runs
+  `starting` → `running` and settles at `completed`. `waiting` has also been observed once, between the
+  polls of two clients; both settle states map to an attention state (`done` / `needs_input`) and a
+  follow-up sent in either one is accepted.
+- **Usage is not published**: in app 0.3.42 nothing in `deepai_thread_read` (items, `thread`,
+  `recentRuns`) carries token counts or cost, so thread workers never emit a usage event and their card
+  shows "usage untracked" — accurate, since the office does not meter DeepAI Code. The usage parsing in
+  `ThreadSession` stays in place so usage lights up if the app starts reporting it.
 
 ## Where the old work is (backup, 20 Nov 2026)
 
