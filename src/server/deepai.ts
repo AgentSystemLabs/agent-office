@@ -90,6 +90,34 @@ export function writeDeepaiLauncher(dataDir: string, env: NodeJS.ProcessEnv = pr
 }
 
 /**
+ * How the app lets a process reach its models: a plain key in models.json, or the name of a variable
+ * only the app itself fills (its managed Pi runs get a capability for the run, and nobody else).
+ */
+export interface DeepaiTransport {
+  /** The variable models.json asks for, when it asks for one ("T3_DEEPAI_TOKEN"). */
+  variable?: string;
+  /** Whether a worker started here would have a key at all. */
+  ready: boolean;
+}
+
+export function deepaiTransport(agentDir: string = deepaiAgentDir(), env: NodeJS.ProcessEnv = process.env): DeepaiTransport {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(path.join(agentDir, 'models.json'), 'utf8'));
+  } catch {
+    return { ready: false };
+  }
+  const providers = (parsed as { providers?: unknown })?.providers;
+  if (!providers || typeof providers !== 'object' || Array.isArray(providers)) return { ready: false };
+  const key = (providers as Record<string, { apiKey?: unknown }>).deepai?.apiKey;
+  if (typeof key !== 'string' || !key.trim()) return { ready: false };
+  const variable = /^\$([A-Za-z_][A-Za-z0-9_]*)$/.exec(key.trim())?.[1];
+  if (!variable) return { ready: true };
+  // A placeholder: the app hands that capability to the Pi it starts, and to nobody else.
+  return { variable, ready: !!env[variable]?.trim() };
+}
+
+/**
  * The free model a desk starts on when nobody picked one: DeepAI charges Theos per request on its
  * premier models, and a worker left on the app's own default can spend them without anyone asking
  * (fifteen Theos for one Opus reply, on this machine). A free one spends none, whatever runs.

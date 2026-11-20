@@ -4,7 +4,7 @@
 // desk keeps its sessions in a folder of its own, and its spend stays in the DeepAI account.
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
-import { deepaiApp, deepaiFreeModel, writeDeepaiLauncher } from '../deepai.js';
+import { deepaiApp, deepaiFreeModel, deepaiTransport, writeDeepaiLauncher } from '../deepai.js';
 import { normalizePiHook, piArgs, writePiExtension } from '../pi.js';
 import { reduceStatus, type StatusState } from './opencode.js';
 import type { ProviderAdapter } from './types.js';
@@ -36,6 +36,17 @@ export const deepai: ProviderAdapter<StatusState, DeepaiSetup> = {
       finishEnv() {
         if (!setup.launcher && !deepaiApp()) {
           throw new Error('DeepAI Code is not installed on this machine: install it, or point DEEPAI_APP at its app folder, then press R here');
+        }
+        // Its model list names the key as a variable its own agent runs are given (T3_DEEPAI_TOKEN):
+        // a capability for one run, minted by the app. Started here, a worker has no such key, and
+        // the terminal would only say "No API key found for deepai".
+        const transport = deepaiTransport();
+        if (!transport.ready) {
+          throw new Error(
+            transport.variable
+              ? `DeepAI Code serves its models only to the agent runs it starts itself: its model list asks for ${transport.variable}, which only the app can supply. Hire this desk on another provider until DeepAI offers a headless one.`
+              : 'DeepAI Code has no model key yet: open the app and sign in, then press R here',
+          );
         }
       },
     };

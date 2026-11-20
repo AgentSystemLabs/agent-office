@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync }
 import { tmpdir } from 'node:os';
 import { homedir } from 'node:os';
 import path from 'node:path';
-import { deepaiAgentDir, deepaiApp, deepaiFreeModel, deepaiLauncherText, readDeepaiModels, writeDeepaiLauncher } from '../src/server/deepai.js';
+import { deepaiAgentDir, deepaiApp, deepaiFreeModel, deepaiLauncherText, deepaiTransport, readDeepaiModels, writeDeepaiLauncher } from '../src/server/deepai.js';
 import { piExtensionSource, writePiExtension } from '../src/server/pi.js';
 import { providerAdapter } from '../src/server/providers/index.js';
 import { MODEL_LISTERS } from '../src/server/models.js';
@@ -110,4 +110,21 @@ test('every run gets its own session and the event route of its own provider', (
   assert.equal(piExtensionSource('deepai'), piExtensionSource('pi').replace("'/hooks/pi'", "'/hooks/deepai'"));
   assert.equal(providerAdapter('deepai')?.id, 'deepai');
   assert.equal(providerAdapter('deepai')?.hook?.strictJson, true);
+});
+
+test('a model key the app fills in for its own runs is not one a worker has', (t) => {
+  const root = fixture(t);
+  const write = (apiKey: string) =>
+    writeFileSync(path.join(root, 'models.json'), JSON.stringify({ providers: { deepai: { apiKey, models: [{ id: 'glm-5.3-flash' }] } } }));
+  // A key in the file is a key a worker can use.
+  write('plain-key');
+  assert.deepEqual(deepaiTransport(root, {}), { ready: true });
+  // A variable is a capability for one of the app's own runs: none here, and none when it's set.
+  write('$T3_DEEPAI_TOKEN');
+  assert.deepEqual(deepaiTransport(root, {}), { variable: 'T3_DEEPAI_TOKEN', ready: false });
+  assert.deepEqual(deepaiTransport(root, { T3_DEEPAI_TOKEN: 'x' }), { variable: 'T3_DEEPAI_TOKEN', ready: true });
+  // No key at all, or no file: nothing to start with.
+  write('');
+  assert.deepEqual(deepaiTransport(root, {}), { ready: false });
+  assert.deepEqual(deepaiTransport(path.join(root, 'missing'), {}), { ready: false });
 });
