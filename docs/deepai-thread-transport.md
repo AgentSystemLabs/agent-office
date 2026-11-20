@@ -89,3 +89,18 @@ belongs on a free one.
 - The endpoints are the app's; they can change with an update. They are a published OAuth contract with
   a discovery document, so a change is visible (`/.well-known/oauth-authorization-server`) instead of
   silent, which is what the model transport was.
+
+## Where the old work is (backup, 20 Nov 2026)
+
+Nothing of the closed road was thrown away, because it is what runs on this machine today:
+
+- **`deepai-spawn-approach`** — tag on `6d35354`, the whole spawn-based provider: the `deepai-agent`
+  launcher, `models.json` as the model catalogue, and the check that refuses a hire when the app's key
+  is a variable only the app can fill. This is what `v0.1.212-deepai` (the install running here,
+  `~/.local/share/agent-office/versions/v0.1.212-deepai`) still is, with its own `PATCH-NOTES.md`.
+- **`deepai-checkpoint-2026-11-20`** — tag on `aa6ae11`, this checkpoint: MCP client, credential,
+  pairing, tests, and this document.
+- **The credential** the pairing issued: `~/.agent-office/deepai-mcp.json` (mode `0600`), 30 days,
+  expires 20 Dec 2026. It is a secret: it is not in the repository, and it must not be.
+- The reasoning, measured on the way (why the model transport is closed, what was tried, the numbers):
+  `~/.Brain`-side skill `skills/agent-office-provider-nuovo.md` in the `ezio-brain` repository.
