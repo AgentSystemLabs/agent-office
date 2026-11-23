@@ -37,7 +37,8 @@ export class Neon {
   readonly group = new THREE.Group();
   /** The strips and sign backings, whose glow breathes in update(). */
   private readonly pulse: THREE.MeshBasicMaterial[] = [];
-  private active = false;
+  /** Dressed for the Neon HQ look or not (see set): the place wiring shows the group only while this is on. */
+  active = false;
   private fade = 0;
 
   /** `withSigns` false skips the canvas-drawn signs: model tests run without a DOM. */
@@ -55,6 +56,8 @@ export class Neon {
       this.strip(0.08, 0.08, d - 1, color, FLOOR.maxX - 0.3, y, midZ);
       this.strip(0.08, 0.08, d - 1, color, FLOOR.minX + 0.3, y, midZ);
     }
+    // Lasers across the ceiling too, like the reel's, so the hall reads from the elevator doors.
+    for (const z of [-6, 0, 6]) this.strip(w - 1, 0.08, 0.08, MAGENTA, midX, WALL_HEIGHT - 0.5, z);
 
     // A dark grid just over the floor, so it reads wet without a renderer overhaul.
     const grid = new THREE.GridHelper(w, w * 2, MAGENTA, '#3d1660');
@@ -68,12 +71,16 @@ export class Neon {
     this.group.add(grid);
 
     if (withSigns) {
-      for (const [text, x] of [['COMPLIANCE', -9], ['AGENTS', 0], ['IT', 9]] as const) {
-        const z = FLOOR.minZ + 0.1;
-        const backing = new THREE.Mesh(new THREE.PlaneGeometry(4, 1.6), this.glow(MAGENTA, 0.15));
-        backing.position.set(x, 4.2, z - 0.02);
-        const sign = textPlane(text, { color: CYAN, size: 160 });
-        sign.position.set(x, 4.2, z + 0.01);
+      // On the far wall above the windows, facing back down the hall so they're read coming in.
+      const panel = new THREE.MeshBasicMaterial({ color: '#1b0733', transparent: true, opacity: 0.45, depthWrite: false });
+      for (const [text, x] of [['COMPLIANCE', -11], ['AGENTS', -5.5], ['IT', 0]] as const) {
+        const z = FLOOR.maxZ - 0.15;
+        const sign = textPlane(text, { color: CYAN, size: 120 });
+        const { width, height } = sign.geometry.parameters;
+        const backing = new THREE.Mesh(new THREE.PlaneGeometry(width + 0.6, height + 0.4), panel);
+        backing.position.set(x, 5.4, z);
+        sign.position.set(x, 5.4, z - 0.02);
+        backing.rotation.y = sign.rotation.y = Math.PI;
         this.group.add(backing, sign);
       }
     }
@@ -86,7 +93,6 @@ export class Neon {
     this.group.add(pink, blue);
   }
 
-  /** Dressed for the Neon HQ look or not; the place wiring shows and hides the group. */
   set(theme: ActiveTheme | null): void {
     this.active = theme === 'neon';
   }
@@ -94,7 +100,7 @@ export class Neon {
   update(t: number, parts: NeonParts): void {
     this.fade += ((this.active ? 1 : 0) - this.fade) * 0.02;
     neonLight(this.fade, parts);
-    this.pulse.forEach((m, i) => (m.opacity = 0.55 + 0.35 * Math.sin(t * 2 + i)));
+    this.pulse.forEach((m, i) => (m.opacity = 0.65 + 0.3 * Math.sin(t * 2 + i)));
   }
 
   private strip(w: number, h: number, d: number, color: string, x: number, y: number, z: number): void {

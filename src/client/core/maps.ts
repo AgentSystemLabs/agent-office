@@ -17,7 +17,7 @@ export type MapsParts = Pick<Parts, 'stage' | 'worlds' | 'place' | 'travel' | 'a
 /** Registers the floor's paint (store 'floors'), the map (store 'map') and the floors' waiting count (the 'floors' message). */
 export function installMaps(ctx: Ctx, core: CoreState, parts: MapsParts) {
   const { player, sound, sky, me, hands } = ctx;
-  const { holiday, neon } = parts.stage;
+  const { holiday } = parts.stage;
   const { inOffice, plan } = parts.worlds;
 
   /** Which of the floor palettes the walls are painted in now. */
@@ -73,9 +73,9 @@ export function installMaps(ctx: Ctx, core: CoreState, parts: MapsParts) {
     sky.setIndoors(world.room.enclosed);
     // What you hear: the office's fridge, or the hall's own windows and gong.
     sound.setHall(world.acoustics ? { bounds: plan().bounds, ...world.acoustics } : null);
-    // The office's own: the holiday decorations and the neon look round it and the street, the dog, the jukebox.
+    // The office's own: the holiday decorations round it and the street, the dog, the jukebox (the neon look
+    // shows itself each frame instead: see updateSky in core/loop.ts).
     holiday.group.visible = inOffice() && !core.upTop;
-    neon.group.visible = inOffice() && !core.upTop;
     parts.dog.root.visible = inOffice() && !!store.dog;
     parts.jukebox.playJukebox();
     boards.dressBoards(world);

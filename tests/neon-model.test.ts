@@ -30,12 +30,17 @@ test('fade 1 makes a neon dusk: violet light, dimmed sun, magenta haze', () => {
   assert.notEqual((p.scene.fog as THREE.Fog).color.getHexString(), new THREE.Color('#bfe3ff').getHexString());
 });
 
-test('the group is built once, and set() never forces it visible', () => {
+test('set() says when the look is on, and never forces the group visible itself', () => {
   const neon = new Neon(false); // no canvas in node: no signs
   assert.equal(neon.group.visible, false);
+  assert.equal(neon.active, false);
   assert.ok(neon.group.children.length > 0);
   neon.set('neon');
+  assert.equal(neon.active, true, 'the loop shows the group only while the look is on');
   assert.equal(neon.group.visible, false, 'visibility belongs to the place wiring (roof/castle stay clean)');
   neon.set('halloween');
+  assert.equal(neon.active, false);
+  neon.set('neon');
   neon.set(null);
+  assert.equal(neon.active, false);
 });

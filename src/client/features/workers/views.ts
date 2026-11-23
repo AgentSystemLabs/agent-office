@@ -382,6 +382,7 @@ export function installWorkerViews(ctx: Ctx, core: CoreState, parts: WorkerViews
     holiday.set(decor);
     sky.setTheme(decor);
     neon.set(theme);
+    document.body.classList.toggle('neon', theme === 'neon');
     parts.dog.setCostume(decor);
     hands.setCostume(decor);
     me.setCostume(decor);
