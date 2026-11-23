@@ -37,10 +37,21 @@ test('set() says when the look is on, and never forces the group visible itself'
   assert.ok(neon.group.children.length > 0);
   neon.set('neon');
   assert.equal(neon.active, true, 'the loop shows the group only while the look is on');
-  assert.equal(neon.group.visible, false, 'visibility belongs to the place wiring (roof/castle stay clean)');
+  assert.equal(neon.group.visible, false, 'visibility belongs to updateSky (roof/castle stay clean)');
   neon.set('halloween');
   assert.equal(neon.active, false);
   neon.set('neon');
   neon.set(null);
   assert.equal(neon.active, false);
+});
+
+test('shown() is the gate for the look and its dusk: on, and in the office', () => {
+  const neon = new Neon(false);
+  assert.equal(neon.shown(false, true), false, 'off, even indoors');
+  neon.set('neon');
+  assert.equal(neon.shown(false, true), true);
+  assert.equal(neon.shown(true, true), false, 'not up on the roof');
+  assert.equal(neon.shown(false, false), false, 'not in another place');
+  neon.set(null);
+  assert.equal(neon.shown(false, true), false);
 });

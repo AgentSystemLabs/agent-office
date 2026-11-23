@@ -37,13 +37,13 @@ export class Neon {
   readonly group = new THREE.Group();
   /** The strips and sign backings, whose glow breathes in update(). */
   private readonly pulse: THREE.MeshBasicMaterial[] = [];
-  /** Dressed for the Neon HQ look or not (see set): the place wiring shows the group only while this is on. */
+  /** Picked the Neon HQ look (see set); shown() also needs you somewhere it dresses. */
   active = false;
   private fade = 0;
 
   /** `withSigns` false skips the canvas-drawn signs: model tests run without a DOM. */
   constructor(withSigns = true) {
-    // Visibility belongs to the place wiring (core/travel.ts, core/maps.ts), like the holiday's.
+    // Visibility belongs to the frame loop (core/loop.ts updateSky), like the holiday's.
     this.group.visible = false;
     const w = FLOOR.maxX - FLOOR.minX;
     const d = FLOOR.maxZ - FLOOR.minZ;
@@ -95,6 +95,11 @@ export class Neon {
 
   set(theme: ActiveTheme | null): void {
     this.active = theme === 'neon';
+  }
+
+  /** Whether the look (and its dusk over the view) belongs here: picked, and in the office, not on the roof. */
+  shown(upTop: boolean, inOffice: boolean): boolean {
+    return this.active && !upTop && inOffice;
   }
 
   update(t: number, parts: NeonParts): void {

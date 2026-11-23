@@ -47,6 +47,8 @@ export function installLoop(ctx: Ctx, core: CoreState, parts: Pick<Parts, 'stage
   const headPos = new THREE.Vector3();
   /** Frames coming too slowly for the 3D to be any fun: the 2D view is offered. */
   const slowFrames = new SlowFrames();
+  /** Whether the body carries the neon grade, so the class is only touched when it changes. */
+  let neonDressed = false;
 
   /** Frames coming too slowly for the 3D to be any fun: the 2D view is offered. */
   function watchFrameRate({ now, delta }: Frame) {
@@ -179,10 +181,13 @@ export function installLoop(ctx: Ctx, core: CoreState, parts: Pick<Parts, 'stage
     if (!core.upTop) ctx.world().mood?.({ sun, hemi, ambient, scene }, sky.daylight, t, camera.position);
     if (!core.upTop && ctx.inOffice()) holiday.update(t, sky.lampsOn, camera);
     // Last, so its dusk is painted over whatever the sky and the map's mood just set. It owns its group's
-    // visibility too: the place wiring only runs on changes, so a theme already on at load never reached it.
-    const neonOn = !core.upTop && ctx.inOffice();
-    neon.group.visible = neonOn && neon.active;
-    if (neonOn) neon.update(t, { sun, hemi, ambient, scene });
+    // visibility and the DOM grade too: the place wiring only runs on changes, so a theme already on at
+    // load never reached it, and the grade must not follow you to the roof or another map.
+    const inOfficeNow = ctx.inOffice();
+    const lit = neon.shown(core.upTop, inOfficeNow);
+    neon.group.visible = lit;
+    if (lit !== neonDressed) document.body.classList.toggle('neon', (neonDressed = lit));
+    if (!core.upTop && inOfficeNow) neon.update(t, { sun, hemi, ambient, scene });
     sound.setWeather(sky.rain, 1 - sky.daylight);
   }
 
