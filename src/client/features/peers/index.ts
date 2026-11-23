@@ -8,6 +8,7 @@ import { sameLook } from '../../../shared/avatar';
 import { seatOn } from '../../../shared/maps';
 import type { PeerInfo } from '../../../shared/protocol';
 import { DRINK_BY_ID } from '../../../shared/rooftop';
+import { decorTheme } from '../../../shared/theme';
 import { SEAT_HIPS } from '../../../shared/garage';
 import { gripOf, type Grip } from '../climbing/controller';
 import type { Ctx } from '../../core/context';
@@ -56,7 +57,7 @@ export function installPeers(ctx: Ctx, core: CoreState, parts: Pick<Parts, 'puff
       let r = remotes.get(id);
       if (!r) {
         const person = new Person(peer.name, peer.color, peer.look);
-        person.setCostume(store.theme.active);
+        person.setCostume(decorTheme(store.theme.active));
         person.onSmoke = parts.puff;
         person.root.position.set(peer.x, peer.y, peer.z);
         scene.add(person.root);

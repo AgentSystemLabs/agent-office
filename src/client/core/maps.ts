@@ -73,7 +73,8 @@ export function installMaps(ctx: Ctx, core: CoreState, parts: MapsParts) {
     sky.setIndoors(world.room.enclosed);
     // What you hear: the office's fridge, or the hall's own windows and gong.
     sound.setHall(world.acoustics ? { bounds: plan().bounds, ...world.acoustics } : null);
-    // The office's own: the holiday decorations round it and the street, the dog, the jukebox.
+    // The office's own: the holiday decorations round it and the street, the dog, the jukebox (the neon look
+    // shows itself each frame instead: see updateSky in core/loop.ts).
     holiday.group.visible = inOffice() && !core.upTop;
     parts.dog.root.visible = inOffice() && !!store.dog;
     parts.jukebox.playJukebox();

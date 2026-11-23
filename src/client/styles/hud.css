@@ -4,7 +4,7 @@
 
 #app { position: fixed; inset: 0; }
 #scene { position: absolute; inset: 0; width: 100%; height: 100%; display: block; outline: none; }
-#hud { position: absolute; inset: 0; pointer-events: none; }
+#hud { position: absolute; inset: 0; pointer-events: none; z-index: 3; }
 #hud > * { pointer-events: auto; }
 
 .topbar { position: absolute; top: 12px; left: 12px; right: 12px; display: flex; gap: 12px; justify-content: space-between; align-items: flex-start; pointer-events: none; }
@@ -239,6 +239,17 @@ body.telescope-active #hud { visibility: hidden; }
 /* The lights going down on the way to another floor, and where each person is in the people panel. */
 #fade { position: fixed; inset: 0; background: #1b1d2e; opacity: 0; pointer-events: none; transition: opacity .3s ease; z-index: 40; }
 #fade.on { opacity: 1; }
+
+/* Neon HQ's (⚙️ → Theme) purple dusk, over the office and under the HUD: the office's own lit surfaces
+   don't take a light tint (world/neon.ts says why), so the cast comes from a grade over the whole view. */
+#neon-grade {
+  position: absolute; inset: 0; pointer-events: none; z-index: 2; opacity: 0; transition: opacity 2.5s ease;
+  background:
+    radial-gradient(130% 70% at 50% -8%, rgba(255, 42, 109, .45), transparent 62%),
+    linear-gradient(180deg, rgba(66, 26, 102, .55) 0%, rgba(38, 12, 66, .6) 45%, rgba(12, 4, 30, .78) 100%);
+  mix-blend-mode: multiply;
+}
+body.neon #neon-grade { opacity: 1; }
 .people .where { font-size: 11px; font-weight: 800; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* The games over the 3D office: features/arcade/ui.ts and features/cabinet/ui.ts. They're here rather

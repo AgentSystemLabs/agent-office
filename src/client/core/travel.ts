@@ -273,7 +273,8 @@ export function installTravel(ctx: Ctx, core: CoreState, parts: TravelParts) {
     const r = up ? rooftop.theRoof() : rooftop.roof();
     const world = ctx.world();
     world.group.visible = !up;
-    // The holiday decorations are dressed round the office and the street below it, not up here.
+    // The holiday decorations are dressed round the office and the street below it, not up here (the neon
+    // look shows itself each frame instead: see updateSky in core/loop.ts).
     holiday.group.visible = !up && inOffice();
     if (r) r.group.visible = up;
     player.colliders = up ? r!.colliders : world.colliders;

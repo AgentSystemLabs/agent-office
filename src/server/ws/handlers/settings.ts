@@ -75,9 +75,11 @@ export const settingsHandlers = {
         ? `🎃 ${who} dressed the office up for Halloween`
         : msg.pick === 'christmas'
           ? `🎄 ${who} dressed the office up for Christmas`
-          : msg.pick === 'off'
-            ? `${who} took the holiday decorations down`
-            : `📅 ${who} set the decorations to follow the calendar${now ? ` (it's ${now === 'halloween' ? 'Halloween 🎃' : 'Christmas 🎄'} season)` : ''}`,
+          : msg.pick === 'neon'
+            ? `⚡ ${who} switched the office to Neon HQ`
+            : msg.pick === 'off'
+              ? `${who} took the holiday decorations down`
+              : `📅 ${who} set the decorations to follow the calendar${now ? ` (it's ${now === 'halloween' ? 'Halloween 🎃' : 'Christmas 🎄'} season)` : ''}`,
     );
   },
   'sky.clock'(ctx, c, msg) {
