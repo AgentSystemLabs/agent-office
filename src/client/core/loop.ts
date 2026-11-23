@@ -165,7 +165,7 @@ export function installLoop(ctx: Ctx, core: CoreState, parts: Pick<Parts, 'stage
   /** The sky, the weather and the light. */
   function updateSky({ dt, t }: Frame) {
     const { player, camera, sky, office, sound } = ctx;
-    const { sun, hemi, ambient, scene, holiday } = parts.stage;
+    const { sun, hemi, ambient, scene, holiday, neon } = parts.stage;
     // Out along the scenic loop, the haze thins (there's more out there to see), and the sun's shadows
     // come with you: otherwise they're only cast round the office.
     const away = !core.upTop && ctx.inOffice() ? Math.hypot(player.pos.x, player.pos.z) : 0;
@@ -178,6 +178,8 @@ export function installLoop(ctx: Ctx, core: CoreState, parts: Pick<Parts, 'stage
     // A map of its own lights itself its own way (the castle's torchlit hall), after the sky's had its say.
     if (!core.upTop) ctx.world().mood?.({ sun, hemi, ambient, scene }, sky.daylight, t, camera.position);
     if (!core.upTop && ctx.inOffice()) holiday.update(t, sky.lampsOn, camera);
+    // Last, so its dusk is painted over whatever the sky and the map's mood just set.
+    if (!core.upTop && ctx.inOffice()) neon.update(t, { sun, hemi, ambient, scene });
     sound.setWeather(sky.rain, 1 - sky.daylight);
   }
 

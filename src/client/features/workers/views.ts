@@ -63,7 +63,7 @@ export type WorkerViewsParts = Pick<Parts, 'stage' | 'worlds' | 'travel' | 'roof
  */
 export function installWorkerViews(ctx: Ctx, core: CoreState, parts: WorkerViewsParts) {
   const { scene, sound, player, camera, office, sky, confetti, hands, me, net } = ctx;
-  const { holiday } = parts.stage;
+  const { holiday, neon } = parts.stage;
   const { plan, groundHere, officeWing, inOffice } = parts.worlds;
 
   const workerViews = new Map<string, WorkerView>();
@@ -381,6 +381,7 @@ export function installWorkerViews(ctx: Ctx, core: CoreState, parts: WorkerViews
     const decor = decorTheme(theme);
     holiday.set(decor);
     sky.setTheme(decor);
+    neon.set(theme);
     parts.dog.setCostume(decor);
     hands.setCostume(decor);
     me.setCostume(decor);

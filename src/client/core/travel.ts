@@ -29,7 +29,7 @@ export type TravelParts = Pick<Parts, 'stage' | 'worlds' | 'place' | 'walking' |
 /** Registers what follows the building's floors (store 'floors'). */
 export function installTravel(ctx: Ctx, core: CoreState, parts: TravelParts) {
   const { player, office, net, sound, sky, camera } = ctx;
-  const { holiday } = parts.stage;
+  const { holiday, neon } = parts.stage;
   const { inOffice, plan } = parts.worlds;
   const { placeInCar, downstairs, indoors, standingAt, unstick, sitOnThrone, onThrone } = parts.place;
 
@@ -273,8 +273,9 @@ export function installTravel(ctx: Ctx, core: CoreState, parts: TravelParts) {
     const r = up ? rooftop.theRoof() : rooftop.roof();
     const world = ctx.world();
     world.group.visible = !up;
-    // The holiday decorations are dressed round the office and the street below it, not up here.
+    // The holiday decorations and the neon look are dressed round the office and the street below it, not up here.
     holiday.group.visible = !up && inOffice();
+    neon.group.visible = !up && inOffice();
     if (r) r.group.visible = up;
     player.colliders = up ? r!.colliders : world.colliders;
     sky.setRoof(up, roofDrop(rooftop.roofFloors()));
