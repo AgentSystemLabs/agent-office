@@ -10,6 +10,7 @@ import { OFFICE_PLAN } from '../../../shared/maps';
 import { MEETING_PATTERNS } from '../../../shared/meetings';
 import type { WorkerInfo, WorkerTask } from '../../../shared/protocol';
 import { workerPr } from '../../../shared/status';
+import { decorTheme } from '../../../shared/theme';
 import type { Ctx } from '../../core/context';
 import type { CoreState } from '../../core/ctx';
 import { pastTheWing, seatBuilt } from '../../core/floors';
@@ -123,7 +124,7 @@ export function installWorkerViews(ctx: Ctx, core: CoreState, parts: WorkerViews
         departures.vacate(w.deskId);
         sendoffs.vacate(w.deskId);
         const model = new Worker(w.name, w.color);
-        model.setCostume(store.theme.active);
+        model.setCostume(decorTheme(store.theme.active));
         model.setOutfit(plan().agents.outfit === 'peasant' ? 'peasant' : null);
         model.setAge(ageOf(w));
         desk.seatAnchor.add(model.root);
@@ -377,15 +378,16 @@ export function installWorkerViews(ctx: Ctx, core: CoreState, parts: WorkerViews
    */
   function dressUp() {
     const theme = store.theme.active;
-    holiday.set(theme);
-    sky.setTheme(theme);
-    parts.dog.setCostume(theme);
-    hands.setCostume(theme);
-    me.setCostume(theme);
-    for (const r of parts.peers.remotes.values()) r.person.setCostume(theme);
-    for (const v of workerViews.values()) v.model.setCostume(theme);
-    for (const a of parts.worlds.idleAgents()) a.model.setCostume(theme);
-    ctx.world().herald?.person.setCostume(theme);
+    const decor = decorTheme(theme);
+    holiday.set(decor);
+    sky.setTheme(decor);
+    parts.dog.setCostume(decor);
+    hands.setCostume(decor);
+    me.setCostume(decor);
+    for (const r of parts.peers.remotes.values()) r.person.setCostume(decor);
+    for (const v of workerViews.values()) v.model.setCostume(decor);
+    for (const a of parts.worlds.idleAgents()) a.model.setCostume(decor);
+    ctx.world().herald?.person.setCostume(decor);
   }
   store.on('theme', dressUp);
   store.on('usage', renderUsage);
