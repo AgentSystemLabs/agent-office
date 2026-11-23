@@ -150,7 +150,8 @@ function cookieName(req: IncomingMessage): string {
   return port ? `${COOKIE_NAME}_${port}` : COOKIE_NAME;
 }
 
-const OFFICE_COOKIE = new RegExp(`^${COOKIE_NAME}(?:_\\d+)?$`);
+/** The language choice is the office's too, so a worker's server never sees it (see server/i18n.ts). */
+const OFFICE_COOKIE = new RegExp(`^(?:${COOKIE_NAME}(?:_\\d+)?|agent-office-language)$`);
 
 /** The Cookie header without the office's session cookies, for passing on to someone else's server. */
 export function withoutOfficeCookies(header: string | undefined): string | undefined {

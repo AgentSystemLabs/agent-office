@@ -1,3 +1,5 @@
+import '../shared/i18n/install';
+
 type Attrs = Record<string, string | number | boolean | EventListener | undefined | null>;
 type Child = Node | string | number | null | undefined | false;
 

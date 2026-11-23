@@ -12,6 +12,7 @@ import { agentFields, choiceLabel, officeChoice } from './provider';
 import { openPromptEditor, rewrittenPrompts } from './prompts';
 import { outsideSetting } from './settings-sky';
 import { choiceRow } from './settings-rows';
+import { LANGUAGES, LANGUAGE_LABELS, setLanguage, type Language } from '../shared/i18n/language';
 
 const VIEWS: [ViewMode, string, string][] = [
   ['first', '👀 First person', 'See through your own eyes. Click the office to look around with the mouse and click things to use them. Esc frees the mouse.'],
@@ -115,6 +116,16 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
     settings = { ...settings, ...some };
     onChange(settings);
   };
+  // Interface language: a browser setting, unlike everything else on the ⚙️ Workers pane.
+  const languageRow = choiceRow<Language>(
+    'Language',
+    LANGUAGES.map((id) => [id, LANGUAGE_LABELS[id]] as const),
+    () => settings.language,
+    (language) => {
+      change({ language });
+      setLanguage(language);
+    },
+  );
   // Voice chat: an open mic, or muted until you hold V.
   const talkRow = choiceRow('Voice chat', [[false, '🎙️ Open mic'], [true, '✋ Push to talk']], () => settings.pushToTalk, (pushToTalk) => change({ pushToTalk }));
   const musicRow = volumeRow('Jukebox volume', 'music', 'musicMuted');
@@ -444,6 +455,7 @@ export function openSettings(net: Net, settings: Settings, onChange: (s: Setting
   const character = h('button.btn', { type: 'button' }, account ? '🧍 Change your look' : '🧍 Change your look & name');
   const panes: Record<SettingsPane, Node[]> = {
     you: [
+      setting('Language', 'you', languageRow, h('p.setting-note', {}, 'The language of the office’s menus, windows and messages. Kept in this browser.')),
       setting('Your character', null, character),
       setting('Camera view', 'you', seg, note),
       setting('Signed in', null, h('div.volume', {}, signOut), h('p.setting-note', {}, account ? `As ${account.name}, with your own account (${account.role}).` : 'With the shared office password.')),
