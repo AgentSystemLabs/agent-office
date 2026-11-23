@@ -184,7 +184,7 @@ test("a request the client sends never gets the office's own pages", async () =>
     for (const p of ['/', '/api/services', '/api/health']) {
       const r = await get(stale, p);
       assert.equal(r.status, 503, p);
-      assert.match(r.body, /Not running/);
+      assert.match(r.body, /No en ejecución/);
     }
     // Nor does a worker's page that says the office relayed its request already.
     assert.equal((await get(stale, '/api/services', { 'x-agent-office-relay': '1' })).status, 503);
@@ -200,8 +200,12 @@ test("a request the client sends never gets the office's own pages", async () =>
     const before = t.seen.length;
     const r = await get(t.port, '/hello');
     assert.equal(r.status, 401);
-    assert.match(r.body, /Sign in to the office/);
+    assert.match(r.body, /Inicia sesión en la oficina/);
     assert.equal(t.seen.length, before);
+    // The browser's language choice follows the browser even to these server-written pages.
+    const english = await get(t.port, '/hello', { cookie: 'agent-office-language=en' });
+    assert.equal(english.status, 401);
+    assert.match(english.body, /Sign in to the office/);
   } finally {
     t.close();
   }

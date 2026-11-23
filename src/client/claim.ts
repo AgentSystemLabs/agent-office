@@ -1,3 +1,5 @@
+import './shared/i18n/install';
+
 // One-time password reveal: /claim?t=<token>. The server forgets the plaintext as soon as it answers.
 const $ = (id: string) => document.getElementById(id)!;
 const token = new URLSearchParams(location.search).get('t') ?? '';

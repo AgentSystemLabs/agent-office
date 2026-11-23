@@ -2,6 +2,9 @@
 // you were last on and the spot you were standing in. Every read and write shrugs off blocked storage.
 
 import { randomLook, sanitizeLook, type Look } from '../../shared/avatar';
+import { isLanguage, readLanguage, type Language } from '../shared/i18n/language';
+
+export type { Language };
 
 export interface Profile {
   name: string;
@@ -46,6 +49,8 @@ export const NEEDS_YOU_SOUNDS = ['off', 'once', 'remind'] as const;
 export type NeedsYouSound = (typeof NEEDS_YOU_SOUNDS)[number];
 
 export interface Settings {
+  /** The interface language, saved in this browser. */
+  language: Language;
   view: ViewMode;
   /** Office sounds, 0–1. */
   volume: number;
@@ -127,9 +132,10 @@ export function rememberSpot(s: Spot) {
 }
 
 export function loadSettings(): Settings {
-  const s: Settings = { view: 'first', volume: 0.7, muted: false, music: 0.5, musicMuted: false, pageTurns: true, pushToTalk: false, notify: true, needsYouSound: 'once', hud: { ...HUD_DEFAULTS }, pins: [] };
+  const s: Settings = { language: readLanguage(), view: 'first', volume: 0.7, muted: false, music: 0.5, musicMuted: false, pageTurns: true, pushToTalk: false, notify: true, needsYouSound: 'once', hud: { ...HUD_DEFAULTS }, pins: [] };
   try {
     const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? 'null');
+    if (isLanguage(saved?.language)) s.language = saved.language;
     if (saved?.view === 'first' || saved?.view === 'third') s.view = saved.view;
     if (typeof saved?.volume === 'number' && Number.isFinite(saved.volume)) s.volume = Math.max(0, Math.min(1, saved.volume));
     if (typeof saved?.muted === 'boolean') s.muted = saved.muted;

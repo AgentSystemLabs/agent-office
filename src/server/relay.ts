@@ -3,6 +3,7 @@ import net from 'node:net';
 import type { Duplex } from 'node:stream';
 import type { ServiceInfo } from '../shared/protocol.js';
 import { withoutOfficeCookies } from './auth.js';
+import { languageFromRequest, s } from './i18n.js';
 import { SERVICE_HEADER } from './tunnel/wire.js';
 
 // Service tunnels: `ssh -L 5173:localhost:4600 office@box` lands on the office's own port, and the
@@ -72,8 +73,11 @@ export function relayRequest(req: http.IncomingMessage, res: http.ServerResponse
     ur.pipe(res);
   });
   up.on('error', () => {
-    if (!res.headersSent) page(res, 502, 'Not answering', `The server on port ${svc.port} (<code>${esc(svc.command)}</code>) didn't answer. It may be restarting — try again in a moment.`);
-    else res.destroy();
+    if (!res.headersSent) {
+      const lang = languageFromRequest(req);
+      const body = s(lang, "The server on port {port} (<code>{command}</code>) didn't answer. It may be restarting — try again in a moment.", { port: svc.port, command: esc(svc.command) });
+      page(res, 502, s(lang, 'Not answering'), body);
+    } else res.destroy();
   });
   res.on('close', () => up.destroy());
   req.pipe(up);
@@ -114,13 +118,14 @@ button{font:inherit;font-weight:800;padding:8px 16px;border:2px solid #2b2d42;bo
 .err{color:#c1121f;font-weight:700;min-height:1.5em;margin:10px 0 0}`;
 
 function page(res: http.ServerResponse, status: number, title: string, body: string, script = '') {
+  const lang = languageFromRequest(res.req);
   res.writeHead(status, {
     'content-type': 'text/html; charset=utf-8',
     'cache-control': 'no-store',
     'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'",
     'x-frame-options': 'DENY',
   });
-  res.end(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)} · Agent Office</title><style>${STYLE}</style></head><body><main><h1>${esc(title)}</h1>${body}</main>${script ? `<script>${script}</script>` : ''}</body></html>`);
+  res.end(`<!doctype html><html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)} · Agent Office</title><style>${STYLE}</style></head><body><main><h1>${esc(title)}</h1>${body}</main>${script ? `<script>${script}</script>` : ''}</body></html>`);
 }
 
 /** Where the sign-in form below posts; the office answers it on service tunnels only. */
@@ -128,20 +133,22 @@ export const RELAY_LOGIN = '/__agent-office/login';
 
 /** `opts` says which fields to ask for: a name when there are accounts, a password always. */
 export function signInPage(res: http.ServerResponse, port: number, opts: { accounts: boolean; shared: boolean }) {
+  const lang = languageFromRequest(res.req);
   const askName = opts.accounts || !opts.shared;
-  const how = !askName ? 'the office password' : opts.shared ? 'your name and password (or just the office password)' : 'your name and password';
+  const howSource = !askName ? 'the office password' : opts.shared ? 'your name and password (or just the office password)' : 'your name and password';
   page(
     res,
     401,
-    '🔒 Sign in to the office',
-    `<p>This is a worker's server on port ${port}, reached through the office. Sign in with ${how} to see it.</p>
-<form id="f">${askName ? `<input id="name" placeholder="${opts.shared ? 'Your name (optional)' : 'Your name'}" autocomplete="username"${opts.shared ? '' : ' required'} autofocus>` : ''}<input id="pw" type="password" placeholder="${askName ? 'Password' : 'Office password'}" autocomplete="current-password"${askName ? '' : ' autofocus'}><button>Sign in</button></form><p class="err" id="err"></p>`,
+    s(lang, '🔒 Sign in to the office'),
+    `<p>${s(lang, "This is a worker's server on port {port}, reached through the office. Sign in with {how} to see it.", { port, how: s(lang, howSource) })}</p>
+<form id="f">${askName ? `<input id="name" placeholder="${esc(s(lang, opts.shared ? 'Your name (optional)' : 'Your name'))}" autocomplete="username"${opts.shared ? '' : ' required'} autofocus>` : ''}<input id="pw" type="password" placeholder="${esc(s(lang, askName ? 'Password' : 'Office password'))}" autocomplete="current-password"${askName ? '' : ' autofocus'}><button>${esc(s(lang, 'Sign in'))}</button></form><p class="err" id="err"></p>`,
     `document.getElementById('f').addEventListener('submit',async(e)=>{e.preventDefault();const err=document.getElementById('err');err.textContent='';const n=document.getElementById('name');
 try{const r=await fetch(${JSON.stringify(RELAY_LOGIN)},{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({name:n?n.value:'',password:document.getElementById('pw').value})});
-if(r.ok)location.reload();else err.textContent=(await r.json().catch(()=>({}))).error||'Sign-in failed'}catch{err.textContent='Could not reach the office'}})`,
+if(r.ok)location.reload();else err.textContent=(await r.json().catch(()=>({}))).error||${JSON.stringify(s(lang, 'Sign-in failed'))}}catch{err.textContent=${JSON.stringify(s(lang, 'Could not reach the office'))}})`,
   );
 }
 
 export function stoppedPage(res: http.ServerResponse, port: number) {
-  page(res, 503, '💤 Not running', `<p>Nothing is serving port ${port} right now. The worker may have stopped its server — check the 🌐 Services board in the office, or ask the worker to start it again.</p>`);
+  const lang = languageFromRequest(res.req);
+  page(res, 503, s(lang, '💤 Not running'), `<p>${s(lang, 'Nothing is serving port {port} right now. The worker may have stopped its server — check the 🌐 Services board in the office, or ask the worker to start it again.', { port })}</p>`);
 }
