@@ -161,5 +161,6 @@ test('a worktree deleted with its branch comes back from origin when it was push
   f.git('worktree', 'prune');
   f.git('checkout', '-q', made.branch);
   const refused = await trees.restore(made);
-  assert.ok('error' in refused && /already (checked out|used by worktree)/.test(refused.error), JSON.stringify(refused));
+  // Git says why in its own locale: take the English and Simplified Chinese wording.
+  assert.ok('error' in refused && /already (checked out|used by worktree)|已经.*使用/.test(refused.error), JSON.stringify(refused));
 });
