@@ -24,6 +24,9 @@ test('detects the configured provider from Unix and Windows command paths', () =
   assert.equal(configuredProvider('cursor-agent'), 'cursor');
   assert.equal(configuredProvider('/home/me/.local/bin/cursor-agent'), 'cursor');
   assert.equal(configuredProvider('cursor-agent.cmd'), 'cursor');
+  assert.equal(configuredProvider('hermes'), 'hermes');
+  assert.equal(configuredProvider('/home/me/.local/bin/hermes'), 'hermes');
+  assert.equal(configuredProvider('HERMES.EXE'), 'hermes');
   // `cursor` is the editor's launcher, not the agent.
   assert.equal(configuredProvider('cursor'), 'custom');
   assert.equal(configuredProvider('my-agent'), 'custom');
@@ -46,6 +49,21 @@ test('Pi can be selected with model patterns and thinking levels', () => {
   assert.match(validateWorkerModel('agent', 'pi', 'bad\u0000model') ?? '', /Invalid Pi model/);
   assert.equal(validateWorkerEffort('agent', 'pi', 'high'), undefined);
   assert.match(validateWorkerEffort('agent', 'pi', 'invalid') ?? '', /Invalid effort/);
+});
+
+test('Hermes can be selected with a model and a reasoning effort', () => {
+  assert.ok(agentProviders('claude').includes('hermes'));
+  assert.equal(isAgentProvider('hermes'), true);
+  assert.equal(PROVIDER_META.hermes.label, 'Hermes');
+  assert.equal(providerCommand('hermes', 'claude'), 'hermes');
+  assert.equal(providerCommand('hermes', '/home/me/.local/bin/hermes'), '/home/me/.local/bin/hermes');
+  assert.equal(validateWorkerModel('agent', 'hermes', undefined), undefined);
+  assert.equal(validateWorkerModel('agent', 'hermes', 'anthropic/claude-sonnet-4'), undefined);
+  assert.equal(validateWorkerModel('agent', 'hermes', 'claude-opus-5-5'), undefined);
+  assert.match(validateWorkerModel('agent', 'hermes', '--yolo') ?? '', /Invalid Hermes model/);
+  assert.match(validateWorkerModel('agent', 'hermes', 'gpt 5') ?? '', /Invalid Hermes model/);
+  assert.equal(validateWorkerEffort('agent', 'hermes', 'xhigh'), undefined);
+  assert.match(validateWorkerEffort('agent', 'hermes', 'enormous') ?? '', /Invalid effort/);
 });
 
 test('Cursor can be selected with a model, runs as cursor-agent, and takes no effort', () => {
@@ -92,7 +110,7 @@ test('model validation follows the provider', () => {
   assert.match(validateWorkerModel('agent', 'codex', '--yolo') ?? '', /Invalid Codex model/);
   assert.match(validateWorkerModel('agent', 'codex', 'gpt 5.5') ?? '', /Invalid Codex model/);
   // Custom still takes none.
-  assert.match(validateWorkerModel('agent', 'custom', 'anything') ?? '', /Claude Code, OpenCode, Codex, Grok, Muse, DeepSeek Harness, Pi or Cursor/);
+  assert.match(validateWorkerModel('agent', 'custom', 'anything') ?? '', /Claude Code, OpenCode, Codex, Grok, Muse, DeepSeek Harness, Pi, Cursor or Hermes/);
 });
 
 test('reasoning effort joins Claude for DeepSeek Harness', () => {
@@ -104,7 +122,7 @@ test('reasoning effort joins Claude for DeepSeek Harness', () => {
   assert.equal(validateWorkerEffort('agent', 'codex', 'high'), undefined);
   assert.equal(validateWorkerEffort('agent', 'opencode', 'high'), undefined);
   assert.match(validateWorkerEffort('agent', 'opencode', 'enormous') ?? '', /Invalid effort/);
-  assert.match(validateWorkerEffort('agent', 'custom', 'high') ?? '', /Claude Code, OpenCode, Codex, Grok, Muse, DeepSeek Harness or Pi/);
+  assert.match(validateWorkerEffort('agent', 'custom', 'high') ?? '', /Claude Code, OpenCode, Codex, Grok, Muse, DeepSeek Harness, Pi or Hermes/);
 });
 
 test('every provider the office knows the CLI of takes a model and (but for Cursor) an effort, with the fields to pick them', () => {
